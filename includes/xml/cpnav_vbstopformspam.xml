@@ -1,0 +1,9 @@
+<?xml version="1.0" encoding="ISO-8859-1"?>
+<navgroups product="vbstopforumspam"  permissions="canadminsettings" master="false">
+  <navgroup phrase="statistics_and_logs" hr="true" displayorder="240">
+    <navoption displayorder="32">
+      <text>vbStopForumSpam Logs</text>
+      <link>vbstopforumspam.php</link>
+    </navoption>
+  </navgroup>
+</navgroups>

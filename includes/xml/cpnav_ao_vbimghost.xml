@@ -1,0 +1,22 @@
+<?xml version="1.0" encoding="ISO-8859-1"?>
+
+<navgroups product="ao_vbimghost" master="true">
+
+	<navgroup phrase="vbimghost_title" hr="true" displayorder="15">
+		<navoption displayorder="10">
+			<phrase>vbimghost_option</phrase>
+			<link>options.php?do=options&amp;dogroup=ao_imghost</link>
+		</navoption>
+
+		<navoption displayorder="20">
+			<phrase>vbimghost_admin_viewimg</phrase>
+			<link>vbimghost.php?do=members</link>
+		</navoption>
+		<navoption  displayorder="30">
+			<phrase>vbimghost_rebuildthumb</phrase>
+			<link>vbimghost.php?do=thumbs</link>
+		</navoption>
+
+	</navgroup>
+
+</navgroups>

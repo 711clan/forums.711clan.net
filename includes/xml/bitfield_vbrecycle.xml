@@ -1,0 +1,12 @@
+<?xml version="1.0" encoding="ISO-8859-1"?>
+
+<bitfields product="_vbrecycle">
+	<bitfielddefs>
+		<group name="ugp">
+			<group name="vbr_per">
+				<bitfield name="canmovest" group="vbr_per" phrase="vbr_canmovest">1</bitfield>
+				<bitfield name="canmovefd" group="vbr_per" phrase="vbr_canmovefd">2</bitfield>
+			</group>
+		</group>
+	</bitfielddefs>
+</bitfields>

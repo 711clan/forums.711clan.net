@@ -1,0 +1,14 @@
+<?xml version="1.0" encoding="ISO-8859-1"?>
+<!-- Anymedia BBCode for vBulletin 3.5.x by Crist Chsu @ VBZH.com Start -->
+<bitfields product="anymedia">
+	<bitfielddefs>
+		<group name="ugp">
+			<!-- Permissions -->
+			<group name="anymediapermissions">
+				<bitfield name="canuse" group="anymedia_permissions" phrase="anymedia_available" install="1,2,3,4,5,6,7">1</bitfield>
+				<bitfield name="candownload" group="anymedia_permissions" phrase="anymedia_show_download" install="1,2,3,4,5,6,7">2</bitfield>
+			</group>
+		</group>
+	</bitfielddefs>
+</bitfields>
+<!-- Anymedia BBCode for vBulletin 3.5.x by Crist Chsu @ VBZH.com End -->

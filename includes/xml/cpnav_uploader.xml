@@ -1,0 +1,27 @@
+<?xml version="1.0" encoding="ISO-8859-1"?>
+
+<navgroups product="uploader">
+        <navgroup phrase="uploader" permissions="canadminusers" displayorder="118">
+                <navoption displayorder="10">
+                        <phrase>up_settings</phrase>
+                        <link>options.php?do=options&amp;dogroup=uploader_options</link>
+                </navoption>
+                <navoption displayorder="20">
+                        <phrase>uploader_files</phrase>
+                        <link>uploadercp.php?do=files</link>
+                </navoption>   
+                <navoption displayorder="30">
+                        <phrase>uploader_users</phrase>
+                        <link>uploadercp.php?do=users</link>
+                </navoption>    
+                <navoption displayorder="40">
+                        <phrase>uploader_exc</phrase>
+                        <link>uploadercp.php?do=exc</link>
+                </navoption>                        
+                <navoption displayorder="50">
+                        <phrase>statistics</phrase>
+                        <link>uploadercp.php?do=statistics</link>
+                </navoption>
+        </navgroup>
+</navgroups>
+<!-- CVS: $RCSfile: cpnav_uploader.xml,v $ - $Revision: 1.2 $ -->

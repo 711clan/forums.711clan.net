@@ -1,0 +1,38 @@
+<?xml version="1.0" encoding="ISO-8859-1"?>
+<bitfields product="v3arcade">
+	<bitfielddefs>
+		<group name="ugp">
+			<group name="arcadepermissions">
+				<bitfield name="canviewarcade" group="arcade_permissions"  phrase="can_view_arcade">1</bitfield>
+				<bitfield name="canplayarcade" group="arcade_permissions"  phrase="can_play_arcade">2</bitfield>
+				<bitfield name="canpostcomments" group="arcade_permissions"  phrase="can_post_comments">4</bitfield>
+				<bitfield name="caneditowncomments" group="arcade_permissions"  phrase="can_edit_own_comments">8</bitfield>
+				<bitfield name="caneditanycomments" group="arcade_permissions"  phrase="can_edit_any_comments">16</bitfield>
+				<bitfield name="candeleteownscores" group="arcade_permissions"  phrase="can_delete_own_scores">32</bitfield>
+				<bitfield name="candeleteanyscores" group="arcade_permissions"  phrase="can_delete_any_scores">64</bitfield>
+				<bitfield name="canoverridepermissions" group="arcade_permissions"  phrase="can_override_permission_checks">128</bitfield>
+				<bitfield name="minpoststoplay" group="arcade_permissions" intperm="true" phrase="min_posts_to_play">256</bitfield>
+				<bitfield name="minreptoplay" group="arcade_permissions" intperm="true" phrase="min_rep_to_play">512</bitfield>
+				<bitfield name="minreglengthtoplay" group="arcade_permissions" intperm="true" phrase="min_reg_length_to_play">1024</bitfield>
+			</group>
+		</group>
+		<group name="misc">
+			<group name="arcadeoptions">
+				<bitfield name="allowchallenges">1</bitfield>
+				<bitfield name="autoaccept">2</bitfield>
+				<bitfield name="useemail">4</bitfield>
+				<bitfield name="usepms">8</bitfield>
+				<bitfield name="highscorebeaten">16</bitfield>
+				<bitfield name="newchallenge">32</bitfield>
+				<bitfield name="challengeaccepted">64</bitfield>
+				<bitfield name="challengedeclined">128</bitfield>
+				<bitfield name="finishedchallenge">256</bitfield>
+			</group>
+			<group name="gamepermissions">
+				<bitfield name="isactive">1</bitfield>
+				<bitfield name="showaward">2</bitfield>
+				<bitfield name="enablechallenges">4</bitfield>
+			</group>
+		</group>
+	</bitfielddefs>
+</bitfields>

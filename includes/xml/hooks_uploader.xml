@@ -1,0 +1,24 @@
+<?xml version="1.0" encoding="ISO-8859-1"?>
+
+<hooks>
+	<hooktype type="uploader">
+		<hook>uploader_global_start</hook>
+		<hook>uploader_global_complete</hook>
+		<hook>uploader_main_start</hook>
+		<hook>uploader_main_start</hook>
+		<hook>uploader_display_start</hook>
+		<hook>uploader_display_complete</hook>
+		<hook>uploader_upload_start</hook>
+		<hook>uploader_upload_complete</hook>
+		<hook>uploader_upload_failed</hook>
+		<hook>uploader_upload_success</hook>
+		<hook>uploader_undefind_extension</hook>
+		<hook>uploader_delfile_start</hook>
+		<hook>uploader_delfile_failed</hook>
+		<hook>uploader_delfile_success</hook>
+		<hook>uploader_editor_start</hook>
+		<hook>uploader_editor_complete</hook>
+	</hooktype>
+</hooks>
+
+<!-- CVS: $RCSfile: hooks_uploader.xml,v $ - $Revision: 1.0 $ -->

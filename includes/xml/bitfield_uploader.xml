@@ -1,0 +1,18 @@
+<?xml version="1.0" encoding="ISO-8859-1"?>
+
+<bitfields product="uploader">
+	<bitfielddefs>
+		<group name="ugp">
+			<group name="uploaderperm">
+			<bitfield name="canuploadfiles" group="uploader_permissions" phrase="can_upload_files">1</bitfield>
+			<bitfield name="candeluploadedfiles" group="uploader_permissions" phrase="can_del_uploaded_files">2</bitfield>
+			<bitfield name="canmoduploadedfiles" group="uploader_permissions" phrase="can_mod_uploaded_files">4</bitfield>
+			<bitfield name="canadddescription" group="uploader_permissions" phrase="can_add_description">8</bitfield>
+			<bitfield intperm="true" name="uploadermaxfilesize" group="uploader_permissions" phrase="uploader_max_filesize">0</bitfield>
+			<bitfield intperm="true" name="uploadermaxfoldesize" group="uploader_permissions" phrase="uploader_max_foldesize">0</bitfield>
+			<bitfield intperm="true" name="uploaderfilestypes" group="uploader_permissions" phrase="uploader_files_types">0</bitfield>
+			</group>
+		</group>
+	</bitfielddefs>
+</bitfields>
+<!-- CVS: $RCSfile: bitfield_uploader.xml,v $ - $Revision: 1.1 $ -->

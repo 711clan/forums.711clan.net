@@ -1,0 +1,16 @@
+<?xml version="1.0" encoding="ISO-8859-1"?>
+
+<navgroups product="log_logins" master="false">
+
+	<navgroup phrase="statistics_and_logs" hr="true" displayorder="240">
+
+		<navoption displayorder="31">
+			<phrase>log_logins_hack</phrase>
+			<link>loginlog.php</link>
+		</navoption>
+
+	</navgroup>
+
+</navgroups>
+
+<!-- CVS: $RCSfile: cpnav_vbulletin.xml,v $ - $Revision: 1.16 $ -->

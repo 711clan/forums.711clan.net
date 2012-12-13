@@ -1,0 +1,15 @@
+<?xml version="1.0" encoding="ISO-8859-1"?>
+
+<bitfields product="ao_vbimghost">
+	<bitfielddefs>
+		<group name="ugp">
+			<group name="vbimghost">
+				<bitfield name="canupload" group="vbimghost"  phrase="can_upload_image" install="">1</bitfield>
+				<bitfield name="canadmin" group="vbimghost"  phrase="can_admin_image" install="6,7,8,9">2</bitfield>
+				<bitfield intperm="true" name="vbimghost_upslots" group="vbimghost"  phrase="vbimghost_maxupslots">3</bitfield>
+				<bitfield intperm="true" name="vbimghost_files" group="vbimghost"  phrase="max_image_files">50</bitfield>
+				
+			</group>
+		</group>
+	</bitfielddefs>
+</bitfields>

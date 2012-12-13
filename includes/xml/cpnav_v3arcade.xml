@@ -1,0 +1,29 @@
+<?xml version="1.0" encoding="ISO-8859-1"?>
+<navgroups product="v3arcade">
+	<navgroup phrase="arcade_settings" hr="true" displayorder="11">
+		<navoption>
+			<phrase>settings</phrase>
+			<link>options.php?do=options&amp;dogroup=arcadegeneral&amp;advanced=%200</link>
+		</navoption>
+		<navoption>
+			<phrase>defaultusersettings</phrase>
+			<link>arcadeadmin.php?do=dus</link>
+		</navoption>
+		<navoption>
+			<phrase>categories</phrase>
+			<link>arcadeadmin.php?do=categories</link>
+		</navoption>
+		<navoption>
+			<phrase>games</phrase>
+			<link>arcadeadmin.php?do=games</link>
+		</navoption>
+		<navoption>
+			<phrase>gametools</phrase>
+			<link>arcadeadmin.php?do=gametools</link>b
+		</navoption>
+		<navoption>
+			<phrase>score_tools</phrase>
+			<link>arcadeadmin.php?do=scores</link>
+		</navoption>
+	</navgroup>
+</navgroups>

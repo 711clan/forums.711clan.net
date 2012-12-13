@@ -1,0 +1,16 @@
+<?xml version="1.0" encoding="ISO-8859-1"?>
+
+<hooks>
+
+	<hooktype type="v3 Arcade">
+		<hook>arcade_main_start</hook>
+		<hook>arcade_main_complete</hook>
+		<hook>arcade_new_champion</hook>
+		<hook>arcade_play</hook>
+		<hook>arcade_burn</hook>
+		<hook>arcade_global_start</hook>
+		<hook>arcade_global_complete</hook>
+		<hook>arcade_game_bit</hook>
+	</hooktype>
+
+</hooks>

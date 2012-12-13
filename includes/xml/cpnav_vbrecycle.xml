@@ -1,0 +1,39 @@
+<?xml version="1.0" encoding="ISO-8859-1"?>
+
+<navgroups product="_vbrecycle" master="true">
+
+	<navgroup phrase="vbr_options" permissions="canadminsettings" hr="true" displayorder="15">
+
+		<navoption displayorder="10">
+			<phrase>vbr_ms</phrase>
+			<link>vbrecycle_admin.php?</link>
+		</navoption>
+
+		<navoption displayorder="20">
+			<phrase>vbr_crf</phrase>
+			<link>vbrecycle_admin.php?do=manager</link>
+		</navoption>
+
+		<navoption displayorder="30">
+			<phrase>vbr_er</phrase>
+			<link>vbrecycle_admin.php?do=empty</link>
+		</navoption>
+
+		<navoption displayorder="40">
+			<phrase>vbr_lam</phrase>
+			<link>vbrecycle_admin.php?do=linkam</link>
+		</navoption>
+
+		<navoption displayorder="50">
+			<phrase>vbr_acf</phrase>
+			<link>vbrecycle_admin.php?do=create</link>
+		</navoption>
+
+		<navoption displayorder="60">
+			<phrase>vbr_scr</phrase>
+			<link>vbrecycle_admin.php?do=cron</link>
+		</navoption>
+
+	</navgroup>
+
+</navgroups>
