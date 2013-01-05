@@ -334,7 +334,7 @@ if ($_GET['do'] == 'latest')
 		$Shout  = array(
 				'time'     => buildTime(),
 				'username' => '7~11 Shoutbox Master',
-				's_shout'    => 'Aint no shouts bro',
+				's_shout'    => 'Odie was too annoying so we had to clear the shoutbox',
 			);
 
 		eval('$Output .= "' . fetch_template('forumhome_vbshout_shout') . '";');
