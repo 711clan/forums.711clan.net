@@ -256,7 +256,7 @@ if ($_GET['do'] == 'latest')
 			$Shout['s_shout'] = '<font style="'.$Shout['style'].'">'.$Shout['s_shout'].'</font>';
 		}
 		
-		if (!isset($i)) {
+		/*if (!isset($i)) {
 			
 			$i = 1;
 		}
@@ -284,7 +284,7 @@ if ($_GET['do'] == 'latest')
 				
 			$Shout['s_shout'] = str_repeat(".", $i);
 			$i--;
-		}
+		}*/
 		
 /*
 888888888888  88                            ,ad8888ba,                                               
