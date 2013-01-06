@@ -287,30 +287,12 @@ if ($_GET['do'] == 'latest')
 		}*/
 		
 /*
-888888888888  88                            ,ad8888ba,                                               
-     88       88                           d8"'    `"8b                                              
-     88       88                          d8'                                                        
-     88       88,dPPYba,    ,adPPYba,     88             ,adPPYYba,  88,dPYba,,adPYba,    ,adPPYba,  
-     88       88P'    "8a  a8P_____88     88      88888  ""     `Y8  88P'   "88"    "8a  a8P_____88  
-     88       88       88  8PP"""""""     Y8,        88  ,adPPPPP88  88      88      88  8PP"""""""  
-     88       88       88  "8b,   ,aa      Y8a.    .a88  88,    ,88  88      88      88  "8b,   ,aa  
-     88       88       88   `"Ybbd8"'       `"Y88888P"   `"8bbdP"Y8  88      88      88   `"Ybbd8"'  
-
 
 		if ($Shout['s_by'] == 1858)
 		{
 		
 			$Shout['s_shout'] = 'I liek pickles';
 		}
-
-888888888888  88                            ,ad8888ba,                                               
-     88       88                           d8"'    `"8b                                              
-     88       88                          d8'                                                        
-     88       88,dPPYba,    ,adPPYba,     88             ,adPPYYba,  88,dPYba,,adPYba,    ,adPPYba,  
-     88       88P'    "8a  a8P_____88     88      88888  ""     `Y8  88P'   "88"    "8a  a8P_____88  
-     88       88       88  8PP"""""""     Y8,        88  ,adPPPPP88  88      88      88  8PP"""""""  
-     88       88       88  "8b,   ,aa      Y8a.    .a88  88,    ,88  88      88      88  "8b,   ,aa  
-     88       88       88   `"Ybbd8"'       `"Y88888P"   `"8bbdP"Y8  88      88      88   `"Ybbd8"'  
 */
 
 		eval('$Output[] .= "' . fetch_template('forumhome_vbshout_shout') . '";');
