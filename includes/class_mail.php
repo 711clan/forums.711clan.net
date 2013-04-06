@@ -1,9 +1,9 @@
 <?php
 /*======================================================================*\
 || #################################################################### ||
-|| # vBulletin 3.6.7 PL1 - Licence Number VBF2470E4F
+|| # vBulletin 3.7.2 Patch Level 2 - Licence Number VBF2470E4F
 || # ---------------------------------------------------------------- # ||
-|| # All PHP code in this file is ©2000-2007 Jelsoft Enterprises Ltd. # ||
+|| # All PHP code in this file is ©2000-2013 Jelsoft Enterprises Ltd. # ||
 || # This file may not be redistributed in whole or significant part. # ||
 || # ---------------- VBULLETIN IS NOT FREE SOFTWARE ---------------- # ||
 || # http://www.vbulletin.com | http://www.vbulletin.com/liceNse.html # ||
@@ -38,8 +38,8 @@ if (!function_exists('xml_set_element_handler'))
 * This class sends email from vBulletin using the PHP mail() function
 *
 * @package 		vBulletin
-* @version		$Revision: 16853 $
-* @date 		$Date: 2007-04-23 13:36:10 -0500 (Mon, 23 Apr 2007) $
+* @version		$Revision: 26227 $
+* @date 		$Date: 2008-03-31 05:38:27 -0500 (Mon, 31 Mar 2008) $
 * @copyright 	http://www.vbulletin.com/license.html
 *
 */
@@ -206,9 +206,8 @@ class vB_Mail
 			}
 			$mailfromname = $this->encode_email_header(unhtmlspecialchars($mailfromname, $unicode_decode), $encoding);
 
-			$fromemail = $vbulletin->options['webmasteremail'];
 			$headers .= "From: $mailfromname <" . $vbulletin->options['webmasteremail'] . '>' . $delimiter;
-			$headers .= 'Return-Path: ' . $vbulletin->options['webmasteremail'] . $delimiter;
+			//$headers .= 'Return-Path: ' . $vbulletin->options['webmasteremail'] . $delimiter;
 			$headers .= 'Auto-Submitted: auto-generated' . $delimiter;
 		}
 		else
@@ -228,10 +227,11 @@ class vB_Mail
 			}
 			$mailfromname = $this->encode_email_header(unhtmlspecialchars($mailfromname, $unicode_decode), $encoding);
 
-			$fromemail = $from;
 			$headers .= "From: $mailfromname <$from>" . $delimiter;
-			$headers .= 'Return-Path: ' . $from . $delimiter;
+			//$headers .= 'Return-Path: ' . $from . $delimiter;
 		}
+
+		$fromemail = empty($vbulletin->options['bounceemail']) ? $vbulletin->options['webmasteremail'] : $vbulletin->options['bounceemail'];
 
 		if ($_SERVER['HTTP_HOST'] OR $_ENV['HTTP_HOST'])
 		{
@@ -246,21 +246,14 @@ class vB_Mail
 		{
 			$http_host = substr(md5($message), 6, 12) . '.vb_unknown.unknown';
 		}
-		$msgid = '<' . gmdate('YmdHs') . '.' . substr(md5($message . microtime()), 0, 6) . vbrand(100000, 999999) . '@' . $http_host . '>';
+		$msgid = '<' . gmdate('YmdHis') . '.' . substr(md5($message . microtime()), 0, 6) . vbrand(100000, 999999) . '@' . $http_host . '>';
 		$headers .= 'Message-ID: ' . $msgid . $delimiter;
 
 		$headers .= preg_replace("#(\r\n|\r|\n)#s", $delimiter, $uheaders);
 		unset($uheaders);
 
 		$headers .= 'MIME-Version: 1.0' . $delimiter;
-		if($_POST['sendhtml'])
-		{
-		  $headers .= 'Content-Type: text/html' . iif($encoding, "; charset=\"$encoding\"") . $delimiter;
-		}
-		else
-		{
-		  $headers .= 'Content-Type: text/plain' . iif($encoding, "; charset=\"$encoding\"") . $delimiter;
-		}
+		$headers .= 'Content-Type: text/plain' . iif($encoding, "; charset=\"$encoding\"") . $delimiter;
 		$headers .= 'Content-Transfer-Encoding: 8bit' . $delimiter;
 		$headers .= 'X-Priority: 3' . $delimiter;
 		$headers .= 'X-Mailer: vBulletin Mail via PHP' . $delimiter;
@@ -313,13 +306,13 @@ class vB_Mail
 
 		@ini_set('sendmail_from', $this->fromemail);
 
-		if (SAFEMODE AND $this->registry->options['needfromemail'])
+		if (!SAFEMODE AND $this->registry->options['needfromemail'])
 		{
-			$result = mail($this->toemail, $this->subject, $this->message, trim($this->headers), '-f ' . $this->fromemail);
+			$result =  @mail($this->toemail, $this->subject, $this->message, trim($this->headers), '-f ' . $this->fromemail);
 		}
 		else
 		{
-			$result = mail($this->toemail, $this->subject, $this->message, trim($this->headers));
+			$result = @mail($this->toemail, $this->subject, $this->message, trim($this->headers));
 		}
 
 		$this->log_email($result);
@@ -387,7 +380,7 @@ class vB_Mail
 		if ($qp_encode == true)
 		{
 			// see rfc 2047; not including _ as allowed here, as I'm encoding spaces with it
-			$outtext = preg_replace('#([^a-zA-Z0-9!*+\-/= ])#e', "'=' . strtoupper(dechex(ord(str_replace('\\\"', '\"', '\\1'))))", $text);
+			$outtext = preg_replace('#([^a-zA-Z0-9!*+\-/ ])#e', "'=' . strtoupper(dechex(ord(str_replace('\\\"', '\"', '\\1'))))", $text);
 			$outtext = str_replace(' ', '_', $outtext);
 			$outtext = "=?$charset?q?$outtext?=";
 			return $outtext;
@@ -475,8 +468,8 @@ class vB_Mail
 * This class sends email from vBulletin using an SMTP wrapper
 *
 * @package 		vBulletin
-* @version		$Revision: 16853 $
-* @date 		$Date: 2007-04-23 13:36:10 -0500 (Mon, 23 Apr 2007) $
+* @version		$Revision: 26227 $
+* @date 		$Date: 2008-03-31 05:38:27 -0500 (Mon, 31 Mar 2008) $
 * @copyright 	http://www.vbulletin.com/license.html
 *
 */
@@ -558,7 +551,7 @@ class vB_SmtpMail extends vB_Mail
 	*/
 	function sendMessage($msg, $expectedResult = false)
 	{
-		if ($msg !== false && !empty($msg))
+		if ($msg !== false AND !empty($msg))
 		{
 			fputs($this->smtpSocket, $msg . "\r\n");
 		}
@@ -691,8 +684,8 @@ class vB_SmtpMail extends vB_Mail
 * This class does not actually send emails, but rather queues them to be sent later in a batch.
 *
 * @package 		vBulletin
-* @version		$Revision: 16853 $
-* @date 		$Date: 2007-04-23 13:36:10 -0500 (Mon, 23 Apr 2007) $
+* @version		$Revision: 26227 $
+* @date 		$Date: 2008-03-31 05:38:27 -0500 (Mon, 31 Mar 2008) $
 * @copyright 	http://www.vbulletin.com/license.html
 *
 */
@@ -959,8 +952,8 @@ class vB_QueueMail extends vB_Mail
 
 /*======================================================================*\
 || ####################################################################
-|| # Downloaded: 18:52, Sat Jul 14th 2007
-|| # CVS: $RCSfile$ - $Revision: 16853 $
+|| # Downloaded: 16:21, Sat Apr 6th 2013
+|| # CVS: $RCSfile$ - $Revision: 26227 $
 || ####################################################################
 \*======================================================================*/
 ?>

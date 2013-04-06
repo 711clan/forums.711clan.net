@@ -1,9 +1,9 @@
 <?php
 /*======================================================================*\
 || #################################################################### ||
-|| # vBulletin 3.6.7 PL1 - Licence Number VBF2470E4F
+|| # vBulletin 3.7.2 Patch Level 2 - Licence Number VBF2470E4F
 || # ---------------------------------------------------------------- # ||
-|| # Copyright ©2000-2007 Jelsoft Enterprises Ltd. All Rights Reserved. ||
+|| # Copyright ©2000-2013 Jelsoft Enterprises Ltd. All Rights Reserved. ||
 || # This file may not be redistributed in whole or significant part. # ||
 || # ---------------- VBULLETIN IS NOT FREE SOFTWARE ---------------- # ||
 || # http://www.vbulletin.com | http://www.vbulletin.com/license.html # ||
@@ -15,7 +15,7 @@ error_reporting(E_ALL & ~E_NOTICE);
 @set_time_limit(0);
 
 // ##################### DEFINE IMPORTANT CONSTANTS #######################
-define('CVS_REVISION', '$RCSfile$ - $Revision: 16607 $');
+define('CVS_REVISION', '$RCSfile$ - $Revision: 26563 $');
 @ini_set('display_errors', 'On');
 
 // #################### PRE-CACHE TEMPLATES AND DATA ######################
@@ -638,18 +638,18 @@ if ($_REQUEST['do'] == 'search')
 	// for additional pages of results
 	if ($vbulletin->GPC['prevsearch'])
 	{
-		$vbulletin->GPC['search'] = unserialize($vbulletin->GPC['prevsearch']);
+		$vbulletin->GPC['search'] = @unserialize(verify_client_string($vbulletin->GPC['prevsearch']));
 	}
 	else
 	{
-		$vbulletin->GPC['prevsearch'] = serialize($vbulletin->GPC['search']);
+		$vbulletin->GPC['prevsearch'] = sign_client_string(serialize($vbulletin->GPC['search']));
 	}
 
 	$vbulletin->GPC['search']['downloadsmore'] = intval($vbulletin->GPC['search']['downloadsmore']);
 	$vbulletin->GPC['search']['downloadsless'] = intval($vbulletin->GPC['search']['downloadsless']);
 	$vbulletin->GPC['search']['sizemore'] = intval($vbulletin->GPC['search']['sizemore']);
 	$vbulletin->GPC['search']['sizeless'] = intval($vbulletin->GPC['search']['sizeless']);
-	$vbulletin->GPC['search']['visible'] = intval($vbulletin->GPC['search']['visible']);
+	$vbulletin->GPC['search']['visible'] = (isset($vbulletin->GPC['search']['visible']) ? intval($vbulletin->GPC['search']['visible']) : -1);
 	$vbulletin->GPC['search']['orderby'] = in_array($vbulletin->GPC['search']['orderby'], array('user.username', 'counter', 'filename', 'filesize', 'post.dateline', 'attachment.visible')) ? $vbulletin->GPC['search']['orderby'] : 'filename';
 	$vbulletin->GPC['search']['ordering'] = in_array($vbulletin->GPC['search']['ordering'], array('ASC', 'DESC')) ? $vbulletin->GPC['search']['ordering'] : 'DESC';
 	$vbulletin->GPC['search']['results'] = intval($vbulletin->GPC['search']['results']);
@@ -911,7 +911,8 @@ if ($_POST['do'] == 'doedit')
 		$upload->postinfo = array('postid' => $attachment['postid']);
 		$upload->userinfo = array(
 			'userid'                => $attachment['userid'],
-			'attachmentpermissions' =>& $vbulletin->userinfo['attachmentpermissions']
+			'attachmentpermissions' => $vbulletin->userinfo['attachmentpermissions'],
+			'forumpermissions'      => $vbulletin->userinfo['forumpermissions']
 		);
 		$upload->emptyfile = false;
 
@@ -988,7 +989,7 @@ if ($_REQUEST['do'] == 'massdelete')
 	));
 
 	print_form_header('attachment','domassdelete');
-	construct_hidden_code('a_delete', serialize($vbulletin->GPC['a_delete']));
+	construct_hidden_code('a_delete', sign_client_string(serialize($vbulletin->GPC['a_delete'])));
 	print_table_header($vbphrase['confirm_deletion']);
 	print_description_row($vbphrase['are_you_sure_you_want_to_delete_these_attachments']);
 	print_submit_row($vbphrase['yes'], '', 2, $vbphrase['no']);
@@ -1001,7 +1002,7 @@ if ($_POST['do'] == 'domassdelete')
 		'a_delete' => TYPE_STR,
 	));
 
-	$delete = unserialize($vbulletin->GPC['a_delete']);
+	$delete = @unserialize(verify_client_string($vbulletin->GPC['a_delete']));
 	if ($delete AND is_array($delete))
 	{
 		$ids = implode(',', $delete);
@@ -1052,12 +1053,12 @@ if ($_REQUEST['do'] == 'stats')
 	print_table_break();
 
 	$popular = $db->query_read("
-		SELECT attachmentid, attachment.dateline, attachment.postid, filename, counter,
+		SELECT attachment.attachmentid, attachment.dateline, attachment.postid, attachment.filename, attachment.counter,
 		user.userid, IF(user.userid<>0, user.username, post.username) AS username
 		FROM " . TABLE_PREFIX . "attachment AS attachment
 		LEFT JOIN " . TABLE_PREFIX . "user AS user ON (attachment.userid=user.userid)
 		LEFT JOIN " . TABLE_PREFIX . "post AS post ON (attachment.postid=post.postid)
-		ORDER BY counter DESC
+		ORDER BY attachment.counter DESC
 		LIMIT 5
 	");
 	$position = 0;
@@ -1144,8 +1145,7 @@ if ($_REQUEST['do'] == 'intro')
 	print_form_header('attachment', 'search');
 	print_table_header($vbphrase['quick_search']);
 	print_description_row("
-	<br />
-	<ul>
+	<ul style=\"margin:0px; padding:0px; list-style:none\">
 		<li><a href=\"attachment.php?" . $vbulletin->session->vars['sessionurl'] . "do=search&amp;search[orderby]=filesize&amp;search[ordering]=DESC\">" . $vbphrase['view_largest_attachments'] . "</a></li>
 		<li><a href=\"attachment.php?" . $vbulletin->session->vars['sessionurl'] . "do=search&amp;search[orderby]=counter&amp;search[ordering]=DESC\">" . $vbphrase['view_most_popular_attachments'] . "</a></li>
 		<li><a href=\"attachment.php?" . $vbulletin->session->vars['sessionurl'] . "do=search&amp;search[orderby]=post.dateline&amp;search[ordering]=DESC\">" . $vbphrase['view_newest_attachments'] . "</a></li>
@@ -1456,8 +1456,8 @@ print_cp_footer();
 
 /*======================================================================*\
 || ####################################################################
-|| # Downloaded: 18:52, Sat Jul 14th 2007
-|| # CVS: $RCSfile$ - $Revision: 16607 $
+|| # Downloaded: 16:21, Sat Apr 6th 2013
+|| # CVS: $RCSfile$ - $Revision: 26563 $
 || ####################################################################
 \*======================================================================*/
 ?>

@@ -1,9 +1,9 @@
 <?php
 /*======================================================================*\
 || #################################################################### ||
-|| # vBulletin 3.6.7 PL1 - Licence Number VBF2470E4F
+|| # vBulletin 3.7.2 Patch Level 2 - Licence Number VBF2470E4F
 || # ---------------------------------------------------------------- # ||
-|| # Copyright ©2000-2007 Jelsoft Enterprises Ltd. All Rights Reserved. ||
+|| # Copyright ©2000-2013 Jelsoft Enterprises Ltd. All Rights Reserved. ||
 || # This file may not be redistributed in whole or significant part. # ||
 || # ---------------- VBULLETIN IS NOT FREE SOFTWARE ---------------- # ||
 || # http://www.vbulletin.com | http://www.vbulletin.com/license.html # ||
@@ -14,7 +14,7 @@
 error_reporting(E_ALL & ~E_NOTICE);
 
 // ##################### DEFINE IMPORTANT CONSTANTS #######################
-define('CVS_REVISION', '$RCSfile$ - $Revision: 14353 $');
+define('CVS_REVISION', '$RCSfile$ - $Revision: 24444 $');
 
 // #################### PRE-CACHE TEMPLATES AND DATA ######################
 $phrasegroups = array('attachment_image');
@@ -284,8 +284,8 @@ if ($_POST['do'] == 'doswitchtype')
 if ($_REQUEST['do'] == 'domoveavatar')
 {
 	$vbulletin->input->clean_array_gpc('r', array(
-		'perpage' 	=> TYPE_INT,
-		'startat'	=> TYPE_INT,
+		'perpage' => TYPE_INT,
+		'startat' => TYPE_INT,
 	));
 
 	if (is_demo_mode())
@@ -312,7 +312,7 @@ if ($_REQUEST['do'] == 'domoveavatar')
 
 	$images = $db->query_read("
 		SELECT user.userid, user.avatarrevision, user.profilepicrevision, user.sigpicrevision,
-			customavatar.filename AS afilename, customavatar.filedata AS afiledata,
+			customavatar.filename AS afilename, customavatar.filedata AS afiledata, customavatar.filedata_thumb AS afiledata_thumb,
 			customprofilepic.filename AS pfilename, customprofilepic.filedata AS pfiledata,
 			sigpic.filename AS sfilename, sigpic.filedata AS sfiledata
 		FROM " . TABLE_PREFIX . "user AS user
@@ -352,6 +352,10 @@ if ($_REQUEST['do'] == 'domoveavatar')
 				$userpic =& datamanager_init('Userpic_Avatar', $vbulletin, ERRTYPE_CP, 'userpic');
 				$userpic->set_existing($image);
 				$userpic->setr('filedata', $image['afiledata']);
+				#if ($image['afiledata_thumb'])
+				#{
+				#	$userpic->setr('filedata_thumb', $image['afiledata_thumb']);
+				#}
 				if (!$userpic->save())
 				{
 					print_stop_message('error_writing_x', $image['afilename']);
@@ -391,15 +395,21 @@ if ($_REQUEST['do'] == 'domoveavatar')
 			if (!empty($image['afilename']))
 			{
 				$path = $vbulletin->options['avatarpath'] . "/avatar$image[userid]_$image[avatarrevision].gif";
+				$thumbpath = $vbulletin->options['avatarpath'] . "/thumbs/avatar$image[userid]_$image[avatarrevision].gif";
 				if ($filedata = @file_get_contents($path))
 				{
 					$userpic =& datamanager_init('Userpic_Avatar', $vbulletin, ERRTYPE_CP, 'userpic');
 					$userpic->set_existing($image);
 					$userpic->setr('filedata', $filedata);
+					#if ($thumbdata = @file_get_contents($thumbpath))
+					#{
+					#	$userpic->setr('filedata_thumb', $thumbdata);
+					#}
 					$userpic->save();
 					unset($userpic);
 				}
-				#@unlink($vbulletin->options['avatarpath'] . "/avatar$image[userid]_$image[avatarrevision].gif");
+				#@unlink($path);
+				#@unlink($thumbpath);
 			}
 
 			if (!empty($image['pfilename']))
@@ -413,7 +423,7 @@ if ($_REQUEST['do'] == 'domoveavatar')
 					$userpic->save();
 					unset($userpic);
 				}
-				#@unlink($vbulletin->options['profilepicpath'] . "/profilepic$image[userid]_$image[profilepicrevision].gif");
+				#@unlink($path);
 			}
 
 			if (!empty($image['sfilename']))
@@ -427,7 +437,7 @@ if ($_REQUEST['do'] == 'domoveavatar')
 					$userpic->save();
 					unset($userpic);
 				}
-				#@unlink($vbulletin->options['sigpicpath'] . "/sigpic$image[userid]_$image[profilepicrevision].gif");
+				#@unlink($path);
 			}
 
 			$vbulletin->options['usefileavatar'] = true;
@@ -459,7 +469,7 @@ if ($_REQUEST['do'] == 'domoveavatar')
 			$db->query_write("UPDATE " . TABLE_PREFIX . "setting SET value = 1 WHERE varname = 'usefileavatar'");
 			build_options();
 
-			$db->query_write("UPDATE " . TABLE_PREFIX . "customavatar SET filedata = ''");
+			$db->query_write("UPDATE " . TABLE_PREFIX . "customavatar SET filedata = '', filedata_thumb = ''");
 			$db->query_write("UPDATE " . TABLE_PREFIX . "customprofilepic SET filedata = ''");
 			$db->query_write("UPDATE " . TABLE_PREFIX . "sigpic SET filedata = ''");
 
@@ -484,8 +494,8 @@ print_cp_footer();
 
 /*======================================================================*\
 || ####################################################################
-|| # Downloaded: 18:52, Sat Jul 14th 2007
-|| # CVS: $RCSfile$ - $Revision: 14353 $
+|| # Downloaded: 16:21, Sat Apr 6th 2013
+|| # CVS: $RCSfile$ - $Revision: 24444 $
 || ####################################################################
 \*======================================================================*/
 ?>

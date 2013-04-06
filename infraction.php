@@ -1,9 +1,9 @@
 <?php
 /*======================================================================*\
 || #################################################################### ||
-|| # vBulletin 3.6.7 PL1 - Licence Number VBF2470E4F
+|| # vBulletin 3.7.2 Patch Level 2 - Licence Number VBF2470E4F
 || # ---------------------------------------------------------------- # ||
-|| # Copyright ©2000-2007 Jelsoft Enterprises Ltd. All Rights Reserved. ||
+|| # Copyright ©2000-2013 Jelsoft Enterprises Ltd. All Rights Reserved. ||
 || # This file may not be redistributed in whole or significant part. # ||
 || # ---------------- VBULLETIN IS NOT FREE SOFTWARE ---------------- # ||
 || # http://www.vbulletin.com | http://www.vbulletin.com/license.html # ||
@@ -15,6 +15,7 @@ error_reporting(E_ALL & ~E_NOTICE);
 
 // #################### DEFINE IMPORTANT CONSTANTS #######################
 define('THIS_SCRIPT', 'infraction');
+define('CSRF_PROTECTION', true);
 define('GET_EDIT_TEMPLATES', 'report,update');
 
 // ################### PRE-CACHE TEMPLATES AND DATA ######################
@@ -493,7 +494,7 @@ if ($_REQUEST['do'] == 'view')
 	}
 	if ($postinfo['postid'])
 	{
-		$navbits['showthread.php?' . $vbulletin->session->vars['sessionurl'] . "p=$postinfo[postid]#post$postinfo[postid]"] = $threadinfo['title'];
+		$navbits['showthread.php?' . $vbulletin->session->vars['sessionurl'] . "p=$postinfo[postid]#post$postinfo[postid]"] = $threadinfo['prefix_plain_html'] . ' ' . $threadinfo['title'];
 	}
 	$navbits[''] = construct_phrase($vbphrase['user_infraction_for_x'], $userinfo['username']);
 	$navbits = construct_navbits($navbits);
@@ -514,6 +515,7 @@ if ($_POST['do'] == 'update')
 		'warning'           => TYPE_ARRAY_BOOL,
 		'note'              => TYPE_STR,
 		'message'           => TYPE_STR,
+		'iconid'            => TYPE_UINT,
 		'wysiwyg'           => TYPE_BOOL,
 		'parseurl'          => TYPE_BOOL,
 		'signature'         => TYPE_BOOL,
@@ -733,12 +735,10 @@ if ($_POST['do'] == 'update')
 			}
 		}
 
-		// Override quotas / receivepm / etc
-		$pmdm->overridequota = true;
 		$pmdm->set_info('savecopy',   $pm['savecopy']);
 		$pmdm->set_info('receipt',    $pm['receipt']);
 		$pmdm->set_info('cantrackpm', $cantrackpm);
-		$pmdm->set_info('skip_charcount', true);
+		$pmdm->set_info('is_automated', true); // implies overridequota
 		$pmdm->set('fromuserid', $vbulletin->userinfo['userid']);
 		$pmdm->set('fromusername', $vbulletin->userinfo['username']);
 		$pmdm->setr('title', $subject);
@@ -769,11 +769,9 @@ if ($_POST['do'] == 'update')
 		else
 		{
 			// everything's good!
-			if ($pm['message'])
-			{
-				$pmdm->save();
-				($hook = vBulletinHook::fetch_hook('private_insertpm_complete')) ? eval($hook) : false;
-			}
+			$pmdm->save();
+			($hook = vBulletinHook::fetch_hook('private_insertpm_complete')) ? eval($hook) : false;
+
 			$postmessage =& $vbulletin->GPC['message'];
 		}
 		unset($pmdm);
@@ -825,6 +823,7 @@ if ($_POST['do'] == 'update')
 
 			eval(fetch_email_phrases($emailphrase, $userinfo['languageid'], $emailsubphrase));
 			$message = $plaintext_parser->parse($message, 'privatemessage');
+
 			vbmail($userinfo['email'], $subject, $message);
 		}
 	}
@@ -839,15 +838,15 @@ if ($_POST['do'] == 'update')
 
 	if (!defined('PMPREVIEW'))
 	{
-		 // trim the message so it's not too long
-      if ($vbulletin->options['postmaxchars'] > 0)
-      {
-             $trimmed_postmessage = substr($vbulletin->GPC['message'], 0, $vbulletin->options['postmaxchars']);
-      }
-      else
-      {
-             $trimmed_postmessage =& $vbulletin->GPC['message'];
-      }
+		// trim the message so it's not too long
+		if ($vbulletin->options['postmaxchars'] > 0)
+		{
+			$trimmed_postmessage = substr($vbulletin->GPC['message'], 0, $vbulletin->options['postmaxchars']);
+		}
+		else
+		{
+			$trimmed_postmessage =& $vbulletin->GPC['message'];
+		}
 		$infdata->set_info('message', $trimmed_postmessage);
 
 		($hook = vBulletinHook::fetch_hook('infraction_update_process')) ? eval($hook) : false;
@@ -862,7 +861,7 @@ if ($_POST['do'] == 'update')
 				// check to see if there is already a ban record for this user in the userban table
 				if ($bancheck)
 				{
-					if ($liftdate == 0 OR $bancheck['liftdate'] < $liftdate)
+					if (($liftdate == 0 OR $bancheck['liftdate'] < $liftdate) AND $bancheck['liftdate'] != 0)
 					{
 						// there is already a record - just update this record
 						$db->query_write("
@@ -880,10 +879,10 @@ if ($_POST['do'] == 'update')
 					// insert a record into the userban table
 					/*insert query*/
 					$db->query_write("
-						INSERT INTO " . TABLE_PREFIX . "userban
-						(userid, usergroupid, displaygroupid, customtitle, usertitle, adminid, bandate, liftdate, reason)
+						REPLACE INTO " . TABLE_PREFIX . "userban
+							(userid, usergroupid, displaygroupid, customtitle, usertitle, adminid, bandate, liftdate, reason)
 						VALUES
-						($userinfo[userid], $userinfo[usergroupid], $userinfo[displaygroupid], $userinfo[customtitle], '" . $db->escape_string($userinfo['usertitle']) . "', " . $vbulletin->userinfo['userid'] . ", " . TIMENOW . ", $liftdate, '" . $db->escape_string($vbulletin->GPC['banreason']) . "')
+							($userinfo[userid], $userinfo[usergroupid], $userinfo[displaygroupid], $userinfo[customtitle], '" . $db->escape_string($userinfo['usertitle']) . "', " . $vbulletin->userinfo['userid'] . ", " . TIMENOW . ", $liftdate, '" . $db->escape_string($vbulletin->GPC['banreason']) . "')
 					");
 				}
 
@@ -951,7 +950,7 @@ if ($_REQUEST['do'] == 'report')
 	while ($infraction = $db->fetch_array($infraction_query))
 	{
 		$infractions["$infraction[infractionlevelid]"] = $infraction;
-		$infraction_ordering["$infraction[points]"]["$infraction[infractionlevelid]"] = htmlspecialchars_uni($vbphrase['infractionlevel' . $infraction['infractionlevelid'] . '_title']);;
+		$infraction_ordering["$infraction[points]"]["$infraction[infractionlevelid]"] = htmlspecialchars_uni($vbphrase['infractionlevel' . $infraction['infractionlevelid'] . '_title']);
 	}
 
 	// sort by: points and then infraction title
@@ -989,15 +988,15 @@ if ($_REQUEST['do'] == 'report')
 					$decimal = $vbulletin->userinfo['lang_decimalsep'];
 					if ($timeleft < 86400)
 					{
-						$expires = construct_phrase($vbphrase['x_hours'], preg_replace("#^(\d+){$decimal}0#", '\\1', vb_number_format($timeleft / 3600, 1)));
+						$expires = construct_phrase($vbphrase['x_hours'], preg_replace('#^(\d+)' . $decimal . '0#', '\\1', vb_number_format($timeleft / 3600, 1)));
 					}
 					else if ($timeleft < 2592000)
 					{
-						$expires = construct_phrase($vbphrase['x_days'], preg_replace("#^(\d+){$decimal}0#", '\\1', vb_number_format($timeleft / 86400, 1)));
+						$expires = construct_phrase($vbphrase['x_days'], preg_replace('#^(\d+)' . $decimal . '0#', '\\1', vb_number_format($timeleft / 86400, 1)));
 					}
 					else
 					{
-						$expires = construct_phrase($vbphrase['x_months'], preg_replace("#^(\d+){$decimal}0#", '\\1', vb_number_format($timeleft / 2592000, 1)));
+						$expires = construct_phrase($vbphrase['x_months'], preg_replace('#^(\d+)' . $decimal . '0#', '\\1', vb_number_format($timeleft / 2592000, 1)));
 					}
 				}
 			}
@@ -1074,7 +1073,7 @@ if ($_REQUEST['do'] == 'report')
 			$forumTitle = $vbulletin->forumcache["$forumID"]['title'];
 			$navbits['forumdisplay.php?' . $vbulletin->session->vars['sessionurl'] . "f=$forumID"] = $forumTitle;
 		}
-		$navbits['showthread.php?' . $vbulletin->session->vars['sessionurl'] . "p=$postid"] = $threadinfo['title'];
+		$navbits['showthread.php?' . $vbulletin->session->vars['sessionurl'] . "p=$postid"] = $threadinfo['prefix_plain_html'] . ' ' . $threadinfo['title'];
 	}
 	$navbits[''] = construct_phrase($vbphrase['user_infraction_for_x'], $userinfo['username']);
 	$navbits = construct_navbits($navbits);
@@ -1177,8 +1176,8 @@ if ($_REQUEST['do'] == 'report')
 
 /*======================================================================*\
 || ####################################################################
-|| # Downloaded: 18:52, Sat Jul 14th 2007
-|| # CVS: $RCSfile$ - $Revision: 16320 $
+|| # Downloaded: 16:21, Sat Apr 6th 2013
+|| # CVS: $RCSfile$ - $Revision: 26399 $
 || ####################################################################
 \*======================================================================*/
 ?>

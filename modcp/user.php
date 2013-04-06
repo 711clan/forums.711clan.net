@@ -1,9 +1,9 @@
 <?php
 /*======================================================================*\
 || #################################################################### ||
-|| # vBulletin 3.6.7 PL1 - Licence Number VBF2470E4F
+|| # vBulletin 3.7.2 Patch Level 2 - Licence Number VBF2470E4F
 || # ---------------------------------------------------------------- # ||
-|| # Copyright ©2000-2007 Jelsoft Enterprises Ltd. All Rights Reserved. ||
+|| # Copyright ©2000-2013 Jelsoft Enterprises Ltd. All Rights Reserved. ||
 || # This file may not be redistributed in whole or significant part. # ||
 || # ---------------- VBULLETIN IS NOT FREE SOFTWARE ---------------- # ||
 || # http://www.vbulletin.com | http://www.vbulletin.com/license.html # ||
@@ -14,10 +14,10 @@
 error_reporting(E_ALL & ~E_NOTICE);
 
 // ##################### DEFINE IMPORTANT CONSTANTS #######################
-define('CVS_REVISION', '$RCSfile$ - $Revision: 16890 $');
+define('CVS_REVISION', '$RCSfile$ - $Revision: 26706 $');
 
 // #################### PRE-CACHE TEMPLATES AND DATA ######################
-$phrasegroups = array('banning', 'cpuser', 'forum', 'timezone', 'user', 'cprofilefield');
+$phrasegroups = array('banning', 'cpuser', 'forum', 'timezone', 'user', 'cprofilefield', 'profilefield');
 $specialtemplates = array();
 
 // ########################## REQUIRE BACK-END ############################
@@ -88,6 +88,10 @@ if ($_REQUEST['do'] == 'doips')
 		}
 
 		$userinfo = fetch_userinfo($vbulletin->GPC['userid']);
+		if (!$userinfo)
+		{
+			print_stop_message('invalid_user_specified');
+		}
 	}
 	else if (!empty($vbulletin->GPC['userid']))
 	{
@@ -110,7 +114,7 @@ if ($_REQUEST['do'] == 'doips')
 			{
 				$hostname = $vbphrase['could_not_resolve_hostname'];
 			}
-			print_description_row('<div style="margin-left:20px"><a href="user.php?' . $vbulletin->session->vars['sessionurl'] . 'do=gethost&amp;ip=' . $vbulletin->GPC['ipaddress'] . '">' . $vbulletin->GPC['ipaddress'] . "</a> : <b>$hostname</b></div>");
+			print_description_row('<div style="margin-' . $stylevar['left'] . ':20px"><a href="user.php?' . $vbulletin->session->vars['sessionurl'] . 'do=gethost&amp;ip=' . $vbulletin->GPC['ipaddress'] . '">' . $vbulletin->GPC['ipaddress'] . "</a> : <b>$hostname</b></div>");
 
 			$results = construct_ip_usage_table($vbulletin->GPC['ipaddress'], 0, $vbulletin->GPC['depth']);
 			print_description_row($vbphrase['post_ip_addresses'], false, 2, 'thead');
@@ -286,13 +290,6 @@ if ($_REQUEST['do'] == 'viewuser')
 		print_stop_message('invalid_user_specified');
 	}
 
-	print_form_header('user', 'viewuser', 0, 0);
-	construct_hidden_code('userid', $vbulletin->GPC['userid']);
-	?>
-	<table cellpadding="0" cellspacing="0" border="0" width="<?php echo $OUTERTABLEWIDTH; ?>" align="center"><tr valign="top"><td>
-	<table cellpadding="4" cellspacing="0" border="0" align="center" width="100%" class="tborder">
-	<?php
-
 	$user = $db->query_first("
 		SELECT user.*,usertextfield.signature,avatar.avatarpath, NOT ISNULL(customavatar.userid) AS hascustomavatar,
 			customavatar.width AS avatarwidth, customavatar.height AS avatarheight, customprofilepic.height AS profilepicheight,
@@ -330,18 +327,18 @@ if ($_REQUEST['do'] == 'viewuser')
 
 	// make array for daysprune menu
 	$pruneoptions = array(
-		'-1' => '- ' . $vbphrase['use_forum_default'] . ' -',
-		'1' => $vbphrase['show_threads_from_last_day'],
-		'2' => construct_phrase($vbphrase['show_threads_from_last_x_days'], 2),
-		'7' => $vbphrase['show_threads_from_last_week'],
-		'10' => construct_phrase($vbphrase['show_threads_from_last_x_days'], 10),
-		'14' => construct_phrase($vbphrase['show_threads_from_last_x_weeks'], 2),
-		'30' => $vbphrase['show_threads_from_last_month'],
-		'45' => construct_phrase($vbphrase['show_threads_from_last_x_days'], 45),
-		'60' => construct_phrase($vbphrase['show_threads_from_last_x_months'], 2),
-		'75' => construct_phrase($vbphrase['show_threads_from_last_x_days'], 75),
-		'100' => construct_phrase($vbphrase['show_threads_from_last_x_days'], 100),
-		'365' => $vbphrase['show_threads_from_last_year'],
+		'-1'   => '- ' . $vbphrase['use_forum_default'] . ' -',
+		'1'    => $vbphrase['show_threads_from_last_day'],
+		'2'    => construct_phrase($vbphrase['show_threads_from_last_x_days'], 2),
+		'7'    => $vbphrase['show_threads_from_last_week'],
+		'10'   => construct_phrase($vbphrase['show_threads_from_last_x_days'], 10),
+		'14'   => construct_phrase($vbphrase['show_threads_from_last_x_weeks'], 2),
+		'30'   => $vbphrase['show_threads_from_last_month'],
+		'45'   => construct_phrase($vbphrase['show_threads_from_last_x_days'], 45),
+		'60'   => construct_phrase($vbphrase['show_threads_from_last_x_months'], 2),
+		'75'   => construct_phrase($vbphrase['show_threads_from_last_x_days'], 75),
+		'100'  => construct_phrase($vbphrase['show_threads_from_last_x_days'], 100),
+		'365'  => $vbphrase['show_threads_from_last_year'],
 		'1000' => construct_phrase($vbphrase['show_threads_from_last_x_days'], 1000)
 	);
 	if ($pruneoptions["$user[daysprune]"] == '')
@@ -350,6 +347,13 @@ if ($_REQUEST['do'] == 'viewuser')
 	}
 
 	($hook = vBulletinHook::fetch_hook('useradmin_edit_start')) ? eval($hook) : false;
+
+	print_form_header('user', 'viewuser', 0, 0);
+	construct_hidden_code('userid', $vbulletin->GPC['userid']);
+	?>
+	<table cellpadding="0" cellspacing="0" border="0" width="<?php echo $OUTERTABLEWIDTH; ?>" align="center"><tr valign="top"><td>
+	<table cellpadding="4" cellspacing="0" border="0" align="center" width="100%" class="tborder">
+	<?php
 
 	// start main table
 	require_once(DIR . '/includes/functions_misc.php');
@@ -436,10 +440,33 @@ if ($_REQUEST['do'] == 'viewuser')
 	print_table_break('', $INNERTABLEWIDTH);
 
 	// PROFILE FIELDS SECTION
+	$forms = array(
+		0 => $vbphrase['edit_your_details'],
+		1 => "$vbphrase[options]: $vbphrase[log_in] / $vbphrase[privacy]",
+		2 => "$vbphrase[options]: $vbphrase[messaging] / $vbphrase[notification]",
+		3 => "$vbphrase[options]: $vbphrase[thread_viewing]",
+		4 => "$vbphrase[options]: $vbphrase[date] / $vbphrase[time]",
+		5 => "$vbphrase[options]: $vbphrase[other]",
+	);
+	$currentform = -1;
+
 	print_table_header($vbphrase['user_profile_fields']);
-	$profilefields = $db->query_read("SELECT * FROM " . TABLE_PREFIX . "profilefield ORDER by displayorder");
+
+	$profilefields = $db->query_read("
+		SELECT *
+		FROM " . TABLE_PREFIX . "profilefield AS profilefield
+		LEFT JOIN " . TABLE_PREFIX . "profilefieldcategory AS profilefieldcategory ON
+			(profilefield.profilefieldcategoryid = profilefieldcategory.profilefieldcategoryid)
+		ORDER BY profilefield.form, profilefieldcategory.displayorder, profilefield.displayorder
+	");
+
 	while ($profilefield = $db->fetch_array($profilefields))
 	{
+		if ($profilefield['form'] != $currentform)
+		{
+			print_description_row(construct_phrase($vbphrase['fields_from_form_x'], $forms["$profilefield[form]"]), false, 2, 'optiontitle');
+			$currentform = $profilefield['form'];
+		}
 		print_profilefield_row('profile', $profilefield, $userfield);
 	}
 
@@ -486,7 +513,6 @@ if ($_REQUEST['do'] == 'viewuser')
 		-1 => $vbphrase['subscribe_choice_none'],
 		0  => $vbphrase['subscribe_choice_0'],
 		1  => $vbphrase['subscribe_choice_1'],
-		//4  => $vbphrase['subscribe_choice_4'], // no longer in use (was ICQ)
 		2  => $vbphrase['subscribe_choice_2'],
 		3  => $vbphrase['subscribe_choice_3'],
 	), $user['autosubscribe'], 'smallfont');
@@ -541,8 +567,7 @@ if ($_REQUEST['do'] == 'editsig')
 		print_stop_message('invalid_user_specified');
 	}
 
-	$noalter = explode(',', $vbulletin->config['SpecialUsers']['undeletableusers']);
-	if (!empty($noalter[0]) AND in_array($vbulletin->GPC['userid'], $noalter))
+	if (is_unalterable_user($vbulletin->GPC['userid']))
 	{
 		print_stop_message('user_is_protected_from_alteration_by_undeletableusers_var');
 	}
@@ -573,15 +598,13 @@ if ($_POST['do'] == 'doeditsig')
 		print_stop_message('no_permission_signatures');
 	}
 
-	$noalter = explode(',', $vbulletin->config['SpecialUsers']['undeletableusers']);
-	if (!empty($noalter[0]) AND in_array($vbulletin->GPC['userid'], $noalter))
+	if (is_unalterable_user($vbulletin->GPC['userid']))
 	{
 		print_stop_message('user_is_protected_from_alteration_by_undeletableusers_var');
 	}
 
 	$user = fetch_userinfo($vbulletin->GPC['userid']);
-
-	if (empty($user))
+	if (!$user)
 	{
 		print_stop_message('invalid_user_specified');
 	}
@@ -613,14 +636,13 @@ if ($_REQUEST['do'] == 'profilepic')
 		print_stop_message('no_permission');
 	}
 
-	$noalter = explode(',', $vbulletin->config['SpecialUsers']['undeletableusers']);
-	if (!empty($noalter[0]) AND in_array($vbulletin->GPC['userid'], $noalter))
+	if (is_unalterable_user($vbulletin->GPC['userid']))
 	{
 		print_stop_message('user_is_protected_from_alteration_by_undeletableusers_var');
 	}
 
-	$userinfo = fetch_userinfo($vbulletin->GPC['userid'], 8);
-	if (empty($userinfo))
+	$userinfo = fetch_userinfo($vbulletin->GPC['userid'], FETCH_USERINFO_PROFILEPIC);
+	if (!$userinfo)
 	{
 		print_stop_message('invalid_user_specified');
 	}
@@ -656,6 +678,11 @@ if ($_REQUEST['do'] == 'profilepic')
 		construct_hidden_code('useprofilepic', 1);
 	}
 
+	cache_permissions($userinfo, false);
+	if ($vbulletin->userinfo['permissions']['adminpermissions'] & $vbulletin->bf_ugp_adminpermissions['cancontrolpanel'] AND ($userinfo['permissions']['profilepicmaxwidth'] > 0 OR $userinfo['permissions']['profilepicmaxheight'] > 0))
+	{
+		print_yes_no_row($vbphrase['resize_image_to_users_maximum_allowed_size'], 'resize');
+	}
 	print_input_row($vbphrase['enter_image_url'], 'profilepicurl', 'http://www.');
 	print_upload_row($vbphrase['upload_image_from_computer'], 'upload');
 
@@ -674,18 +701,16 @@ if ($_POST['do'] == 'updateprofilepic')
 	$vbulletin->input->clean_array_gpc('p', array(
 		'useprofilepic' => TYPE_BOOL,
 		'profilepicurl' => TYPE_STR,
+		'resize'        => TYPE_BOOL,
 	));
 
-	$noalter = explode(',', $vbulletin->config['SpecialUsers']['undeletableusers']);
-
-	if (!empty($noalter[0]) AND in_array($vbulletin->GPC['userid'], $noalter))
+	if (is_unalterable_user($vbulletin->GPC['userid']))
 	{
 		print_stop_message('user_is_protected_from_alteration_by_undeletableusers_var');
 	}
 
 	$userinfo = fetch_userinfo($vbulletin->GPC['userid']);
-
-	if (empty($userinfo))
+	if (!$userinfo)
 	{
 		print_stop_message('invalid_user_specified');
 	}
@@ -703,23 +728,20 @@ if ($_POST['do'] == 'updateprofilepic')
 		$upload->image =& vB_Image::fetch_library($vbulletin);
 		$upload->userinfo =& $userinfo;
 
-		/*
-		// Bypass size checking for now since if a usergroup has no permission to use profilepics, it causes an issue since their
-		// max settings will all be set to -1
-		// Fix is to include the Width/Height/Size settings of usergroups with CANUSEAVATAR=NO in determining permissions
-
-		if (!($vbulletin->userinfo['permissions']['adminpermissions'] & $vbulletin->bf_ugp_adminpermissions['cancontrolpanel']))
+		cache_permissions($userinfo, false);
+		if (
+				($userinfo['permissions']['profilepicmaxwidth'] > 0 OR $userinfo['permissions']['profilepicmaxheight'] > 0)
+				AND
+				(
+					$vbulletin->GPC['resize']
+						OR
+					(!($vbulletin->userinfo['permissions']['adminpermissions'] & $vbulletin->bf_ugp_adminpermissions['cancontrolpanel']))
+				)
+			)
 		{
-			cache_permissions($userinfo, false);
-			if ($userinfo['permissions']['genericpermissions'] & $vbulletin->bf_ugp_genericpermissions['canprofilepic'])
-			{
-				$upload->maxwidth = $userinfo['permissions']['profilepicmaxwidth'];
-				$upload->maxheight = $userinfo['permissions']['profilepicmaxheight'];
-				$upload->maxuploadsize = $userinfo['permissions']['profilepicmaxsize'];
-				$upload->allowanimation = ($userinfo['permissions']['genericpermissions'] & $vbulletin->bf_ugp_genericpermissions['cananimateprofilepic']) ? true : false;
-			}
+			$upload->maxwidth = $userinfo['permissions']['profilepicmaxwidth'];
+			$upload->maxheight = $userinfo['permissions']['profilepicmaxheight'];
 		}
-		*/
 
 		if (!$upload->process_upload($vbulletin->GPC['profilepicurl']))
 		{
@@ -759,17 +781,17 @@ if ($_REQUEST['do'] == 'avatar')
 		print_stop_message('no_permission_avatars');
 	}
 
-	$noalter = explode(',', $vbulletin->config['SpecialUsers']['undeletableusers']);
-	if (!empty($noalter[0]) AND in_array($vbulletin->GPC['userid'], $noalter))
+	if (is_unalterable_user($vbulletin->GPC['userid']))
 	{
 		print_stop_message('user_is_protected_from_alteration_by_undeletableusers_var');
 	}
 
 	$userinfo = fetch_userinfo($vbulletin->GPC['userid']);
-	if (empty($userinfo))
+	if (!$userinfo)
 	{
 		print_stop_message('invalid_user_specified');
 	}
+
 	$avatarchecked["{$userinfo['avatarid']}"] = 'checked="checked"';
 	$nouseavatarchecked = '';
 	if (!$avatarinfo = $db->query_first("SELECT * FROM " . TABLE_PREFIX . "customavatar WHERE userid = " . $vbulletin->GPC['userid']))
@@ -965,6 +987,12 @@ if ($_REQUEST['do'] == 'avatar')
 			$vbphrase['add_new_custom_avatar']
 		)
 	, 'avatarid', $vbphrase['yes'], $avatarchecked[0], 0);
+
+	cache_permissions($userinfo, false);
+	if ($vbulletin->userinfo['permissions']['adminpermissions'] & $vbulletin->bf_ugp_adminpermissions['cancontrolpanel'] AND $userinfo['permissions']['genericpermissions'] & $vbulletin->bf_ugp_genericpermissions['canuseavatar'] AND ($userinfo['permissions']['avatarmaxwidth'] > 0 OR $userinfo['permissions']['avatarmaxheight'] > 0))
+	{
+		print_yes_no_row($vbphrase['resize_image_to_users_maximum_allowed_size'], 'resize');
+	}
 	print_input_row($vbphrase['enter_image_url'], 'avatarurl', 'http://www.');
 	print_upload_row($vbphrase['upload_image_from_computer'], 'upload');
 	construct_hidden_code('userid', $vbulletin->GPC['userid']);
@@ -980,12 +1008,12 @@ if ($_POST['do'] == 'updateavatar')
 	}
 
 	$vbulletin->input->clean_array_gpc('p', array(
-		'avatarid' => TYPE_INT,
+		'avatarid'  => TYPE_INT,
 		'avatarurl' => TYPE_STR,
+		'resize'    => TYPE_BOOL,
 	));
 
-	$noalter = explode(',', $vbulletin->config['SpecialUsers']['undeletableusers']);
-	if (!empty($noalter[0]) AND in_array($vbulletin->GPC['userid'], $noalter))
+	if (is_unalterable_user($vbulletin->GPC['userid']))
 	{
 		print_stop_message('user_is_protected_from_alteration_by_undeletableusers_var');
 	}
@@ -993,6 +1021,10 @@ if ($_POST['do'] == 'updateavatar')
 	$useavatar = iif($vbulletin->GPC['avatarid'] == -1, 0, 1);
 
 	$userinfo = fetch_userinfo($vbulletin->GPC['userid']);
+	if (!$userinfo)
+	{
+		print_stop_message('invalid_user_specified');
+	}
 
 	// init user datamanager
 	$userdata =& datamanager_init('User', $vbulletin, ERRTYPE_CP);
@@ -1020,6 +1052,20 @@ if ($_POST['do'] == 'updateavatar')
 			if (!($userinfo['permissions']['genericpermissions'] & $vbulletin->bf_ugp_genericpermissions['canuseavatar']))
 			{
 				$userdata->set_bitfield('adminoptions', 'adminavatar', 1);
+			}
+
+			if (
+					($userinfo['permissions']['avatarmaxwidth'] > 0 OR $userinfo['permissions']['avatarmaxheight'] > 0)
+					AND
+					(
+						$vbulletin->GPC['resize']
+							OR
+						(!($vbulletin->userinfo['permissions']['adminpermissions'] & $vbulletin->bf_ugp_adminpermissions['cancontrolpanel']))
+					)
+				)
+			{
+				$upload->maxwidth = $userinfo['permissions']['avatarmaxwidth'];
+				$upload->maxheight = $userinfo['permissions']['avatarmaxheight'];
 			}
 
 			if (!$upload->process_upload($vbulletin->GPC['avatarurl']))
@@ -1149,6 +1195,10 @@ if ($_REQUEST['do'] == 'reputation')
 	}
 
 	$userinfo = fetch_userinfo($vbulletin->GPC['userid']);
+	if (!$userinfo)
+	{
+		print_stop_message('invalid_user_specified');
+	}
 
 	$repcount = $db->query_first("
 		SELECT COUNT(*) AS count
@@ -1272,8 +1322,8 @@ print_cp_footer();
 
 /*======================================================================*\
 || ####################################################################
-|| # Downloaded: 18:52, Sat Jul 14th 2007
-|| # CVS: $RCSfile$ - $Revision: 16890 $
+|| # Downloaded: 16:21, Sat Apr 6th 2013
+|| # CVS: $RCSfile$ - $Revision: 26706 $
 || ####################################################################
 \*======================================================================*/
 ?>

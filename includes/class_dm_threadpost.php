@@ -1,9 +1,9 @@
 <?php
 /*======================================================================*\
 || #################################################################### ||
-|| # vBulletin 3.6.7 PL1 - Licence Number VBF2470E4F
+|| # vBulletin 3.7.2 Patch Level 2 - Licence Number VBF2470E4F
 || # ---------------------------------------------------------------- # ||
-|| # Copyright ©2000-2007 Jelsoft Enterprises Ltd. All Rights Reserved. ||
+|| # Copyright ©2000-2013 Jelsoft Enterprises Ltd. All Rights Reserved. ||
 || # This file may not be redistributed in whole or significant part. # ||
 || # ---------------- VBULLETIN IS NOT FREE SOFTWARE ---------------- # ||
 || # http://www.vbulletin.com | http://www.vbulletin.com/license.html # ||
@@ -21,8 +21,8 @@ require_once(DIR . '/includes/functions_newpost.php');
 * Base data manager for threads and posts. Uninstantiable.
 *
 * @package	vBulletin
-* @version	$Revision: 16333 $
-* @date		$Date: 2007-02-13 09:40:12 -0600 (Tue, 13 Feb 2007) $
+* @version	$Revision: 26836 $
+* @date		$Date: 2008-06-04 11:15:30 -0500 (Wed, 04 Jun 2008) $
 */
 class vB_DataManager_ThreadPost extends vB_DataManager
 {
@@ -33,6 +33,13 @@ class vB_DataManager_ThreadPost extends vB_DataManager
 	* @var	null|vB_Floodcheck
 	*/
 	var $floodcheck = null;
+
+	/**
+	* If the post was marked as spam in pre-save, insert a row in postsave
+	*
+	* @var	boolean
+	*/
+	var $spamlog_insert = false;
 
 	/**
 	* Constructor - checks that the registry object has been passed correctly.
@@ -64,7 +71,7 @@ class vB_DataManager_ThreadPost extends vB_DataManager
 			$this->info['user'] =& $this->registry->userinfo;
 			$return = true;
 		}
-		else if ($userinfo = $this->dbobject->query_first("SELECT * FROM " . TABLE_PREFIX . "user WHERE userid = $userid"))
+		else if ($userinfo = $this->dbobject->query_first_slave("SELECT * FROM " . TABLE_PREFIX . "user WHERE userid = $userid"))
 		{
 			$this->info['user'] =& $userinfo;
 			$return = true;
@@ -115,7 +122,7 @@ class vB_DataManager_ThreadPost extends vB_DataManager
 					return false;
 				}
 			}
-			else if (empty($this->info['skip_title_error']))
+			else if (empty($this->info['is_automated']) OR !empty($this->info['chop_title']))
 			{
 				// not showing the title length error, just chop it
 				$title = vbchop($title, $this->registry->options['titlemaxchars']);
@@ -143,7 +150,7 @@ class vB_DataManager_ThreadPost extends vB_DataManager
 	*/
 	function verify_pagetext(&$pagetext)
 	{
-		if (empty($this->info['skip_charcount']))
+		if (empty($this->info['is_automated']))
 		{
 			if ($this->registry->options['postmaxchars'] != 0 AND ($postlength = vbstrlen($pagetext)) > $this->registry->options['postmaxchars'])
 			{
@@ -199,7 +206,7 @@ class vB_DataManager_ThreadPost extends vB_DataManager
 				// this is assumed to be a guest; go magic numbers!
 				$membergroups = array(1);
 			}
-			$imagecheck = $this->dbobject->query_read("
+			$imagecheck = $this->dbobject->query_read_slave("
 				SELECT usergroupid FROM " . TABLE_PREFIX . "icon AS icon
 				INNER JOIN " . TABLE_PREFIX . "imagecategorypermission USING (imagecategoryid)
 				WHERE icon.iconid = $iconid
@@ -273,6 +280,48 @@ class vB_DataManager_ThreadPost extends vB_DataManager
 		");
 	}
 
+	/**
+	* Inserts Post Log data for Akismet
+	*
+	* @return	void
+	*/
+	function insert_postlog_data()
+	{
+		if (empty($this->info['is_automated']))
+		{
+			$postid = intval($this->fetch_field($this->table == 'post' ? 'postid' : 'firstpostid'));
+
+			/*insert query*/
+			$this->dbobject->query_write("
+				INSERT INTO " . TABLE_PREFIX . "postlog
+				(postid, useragent, ip, dateline)
+				VALUES
+				(" . $postid . ", '" . $this->dbobject->escape_string(USER_AGENT) . "', " . sprintf('%u', ip2long(IPADDRESS)) . ", " . TIMENOW . ")
+			");
+		}
+	}
+
+	function akismet_mark_as_ham($postid)
+	{
+		$spamlog_check = $this->dbobject->query_first("SELECT * FROM " . TABLE_PREFIX . "spamlog WHERE postid = " . $postid);
+		if (empty($spamlog_check))
+		{ // Akismet doesn't appear to have really marked this as spam
+			return;
+		}
+
+		$postdata = $this->dbobject->query_first("SELECT post.username AS username, post.pagetext AS pagetext, postlog.ip AS ip, postlog.useragent AS useragent FROM " . TABLE_PREFIX . "post AS post INNER JOIN " . TABLE_PREFIX . "postlog AS postlog ON(postlog.postid = post.postid) WHERE post.postid = " . $postid);
+		if (!empty($postdata) AND !empty($this->registry->options['vb_antispam_key']))
+		{
+			require_once(DIR . '/includes/class_akismet.php');
+			$akismet = new vB_Akismet($this->registry);
+			$akismet->akismet_board = $this->registry->options['bburl'];
+			$akismet->akismet_key = $this->registry->options['vb_antispam_key'];
+			$akismet->mark_as_ham(array('user_ip' => $postdata['ip'], 'user_agent' => $postdata['useragent'], 'comment_type' => 'post', 'comment_author' => $postdata['username'], 'comment_content' => $postdata['pagetext']));
+		}
+
+		$this->dbobject->query_write("DELETE FROM " . TABLE_PREFIX . "spamlog WHERE postid = " . $postid);
+	}
+
 	function email_moderators($fields)
 	{
 		if ($this->info['skip_moderator_email'] OR !$this->info['forum'] OR in_coventry($this->fetch_field('userid', 'post'), true))
@@ -287,8 +336,7 @@ class vB_DataManager_ThreadPost extends vB_DataManager
 			$foruminfo = $this->info['forum'];
 			$foruminfo['title_clean'] = unhtmlspecialchars($foruminfo['title_clean']);
 
-			$threadinfo['title'] = unhtmlspecialchars($this->table == 'thread' ? $this->fetch_field('title') : $this->info['thread']['title']);
-			$threadinfo['threadid'] = $this->fetch_field('threadid');
+			$threadinfo = fetch_threadinfo($this->fetch_field('threadid'));
 
 			require_once(DIR . '/includes/class_bbcode_alt.php');
 			$plaintext_parser =& new vB_BbCodeParser_PlainText($this->registry, fetch_tag_list());
@@ -305,12 +353,32 @@ class vB_DataManager_ThreadPost extends vB_DataManager
 				$post['postid'] = $this->thread['firstpostid'];
 			}
 
+			require_once(DIR . '/includes/functions_misc.php');
+
 			foreach ($mod_emails AS $toemail)
 			{
 				if ($toemail != $email)
 				{
 					$plaintext_parser->set_parsing_language(isset($newpost_lang["$toemail"]) ? $newpost_lang["$toemail"] : 0);
 					$post['message'] = $plaintext_parser->parse($this->post['pagetext'], $foruminfo['forumid']);
+
+					if ($threadinfo['prefixid'])
+					{
+						// need prefix in correct language
+						$threadinfo['prefix_plain'] = fetch_phrase(
+							"prefix_$threadinfo[prefixid]_title_plain",
+							'global',
+							'',
+							false,
+							true,
+							isset($newpost_lang["$toemail"]) ? $newpost_lang["$toemail"] : 0,
+							false
+						) . ' ';
+					}
+					else
+					{
+						$threadinfo['prefix_plain'] = '';
+					}
 
 					eval(fetch_email_phrases('moderator', iif(isset($newpost_lang["$toemail"]), $newpost_lang["$toemail"], 0)));
 					vbmail($toemail, $subject, $message);
@@ -361,7 +429,7 @@ class vB_DataManager_ThreadPost extends vB_DataManager
 			}
 
 			// flood check
-			if ($this->registry->options['floodchecktime'] > 0 AND empty($this->info['preview']) AND empty($this->info['skip_floodcheck']) AND $this->fetch_field('userid', 'post'))
+			if ($this->registry->options['floodchecktime'] > 0 AND empty($this->info['preview']) AND empty($this->info['is_automated']) AND $this->fetch_field('userid', 'post'))
 			{
 				if (!$this->info['user'])
 				{
@@ -413,6 +481,20 @@ class vB_DataManager_ThreadPost extends vB_DataManager
 			);
 		}
 
+		// New posts that aren't automated and are visible should be scanned
+		if (!$this->condition AND !empty($this->registry->options['vb_antispam_key']) AND empty($this->info['is_automated']) AND $this->fetch_field('visible') == 1 AND (!$this->registry->options['vb_antispam_posts'] OR $this->registry->userinfo['posts'] < $this->registry->options['vb_antispam_posts']) AND !can_moderate())
+		{
+			require_once(DIR . '/includes/class_akismet.php');
+			$akismet = new vB_Akismet($this->registry);
+			$akismet->akismet_board = $this->registry->options['bburl'];
+			$akismet->akismet_key = $this->registry->options['vb_antispam_key'];
+			if ($akismet->verify_text(array('user_ip' => IPADDRESS, 'user_agent' => USER_AGENT, 'comment_type' => 'post', 'comment_author' => ($this->registry->userinfo['userid'] ? $this->registry->userinfo['username'] : $this->fetch_field('username', 'post')), 'comment_content' => $this->fetch_field('pagetext', 'post'))) === 'spam')
+			{
+				$this->set('visible', 0);
+				$this->spamlog_insert = true;
+			}
+		}
+
 		return true;
 	}
 
@@ -439,14 +521,28 @@ class vB_DataManager_ThreadPost extends vB_DataManager
 			");
 		}
 
-		if ($this->condition AND $this->post['pagetext'] AND $postid)
+		if ($this->condition AND $postid)
 		{
-			$this->dbobject->query_write("DELETE FROM " . TABLE_PREFIX . "postparsed WHERE postid = " . intval($postid));
-
-			if ($this->info['forum'])
+			if ($this->post['pagetext'])
 			{
-				require_once(DIR . '/includes/functions_databuild.php');
-				delete_post_index($postid, $this->existing['title'], $this->existing['pagetext']);
+				if ($this->fetch_field('userid', 'post') != $this->registry->userinfo['userid'])
+				{ // if another user edits the post then the postlog information is no longer valid.
+					$this->dbobject->query_write("DELETE FROM " . TABLE_PREFIX . "postlog WHERE postid = " . intval($postid));
+				}
+
+				$this->dbobject->query_write("DELETE FROM " . TABLE_PREFIX . "postparsed WHERE postid = " . intval($postid));
+
+				if ($this->info['forum'])
+				{
+					require_once(DIR . '/includes/functions_databuild.php');
+					delete_post_index($postid, $this->existing['title'], $this->existing['pagetext']);
+				}
+			}
+
+			// Check to see if this was a spam post being approved
+			if ($this->existing['visible'] == 0 AND $this->fetch_field('visible') == 1)
+			{
+				$this->akismet_mark_as_ham($postid);
 			}
 		}
 
@@ -454,7 +550,12 @@ class vB_DataManager_ThreadPost extends vB_DataManager
 		{
 			// ### UPDATE SEARCH INDEX ###
 			require_once(DIR . '/includes/functions_databuild.php');
-			build_post_index($postid, $this->info['forum'], 0);
+			build_post_index($postid, $this->info['forum']);
+		}
+
+		if ($this->spamlog_insert AND $postid)
+		{
+			$this->dbobject->query_write("INSERT INTO " . TABLE_PREFIX . "spamlog (postid) VALUES ($postid)");
 		}
 
 		if (!$this->condition AND $this->fetch_field('visible') == 1)
@@ -465,74 +566,47 @@ class vB_DataManager_ThreadPost extends vB_DataManager
 				$forumdata->set_existing($this->info['forum']);
 				$forumdata->set_info('disable_cache_rebuild', true);
 
-				$forumdata->set('replycount', 'replycount + 1', false);
+				if (in_coventry($this->fetch_field('userid', 'post'), true))
+				{
+					$forumdata->set_info(
+						'coventry',
+						array(
+							'in_coventry'	=> 1,
+							'userid'	=> $this->fetch_field('userid', 'post')
+						)
+					);
+				}
+
 				if ($this->table == 'thread')
 				{
 					// we're inserting a new thread
 					$forumdata->set('threadcount', 'threadcount + 1', false);
 				}
 
-				if (in_coventry($this->fetch_field('userid', 'post'), true))
+				$forumdata->set('replycount', 'replycount + 1', false);
+				$forumdata->set('lastpost', $this->fetch_field('dateline'));
+				$forumdata->set('lastpostid', $postid);
+				$forumdata->set('lastposter', $this->fetch_field('username', 'post'));
+
+				if ($this->table == 'thread')
 				{
-					// posted by someone in coventry, so don't update the forum last post time
-					// just put it in this person's tachy last post table
-
-					$replaceval = intval($this->fetch_field('userid', 'post')) . ",
-						" . intval($this->info['forum']['forumid']) . ",
-						" . intval($this->fetch_field('dateline')) . ",
-						$postid,
-						'" . $this->dbobject->escape_string($this->fetch_field('username', 'post')) . "',
-					";
-
-					if ($this->table == 'thread')
-					{
-						$replaceval .= "'" . $this->dbobject->escape_string($this->fetch_field('title')) . "',
-							" . intval($this->fetch_field('threadid')) . ",
-							" . ($this->fetch_field('pollid') ? -1 : intval($this->fetch_field('iconid')));
-					}
-					else if ($this->info['thread'])
-					{
-						$replaceval .= "'" . $this->dbobject->escape_string($this->info['thread']['title']) . "',
-							" . intval($this->info['thread']['threadid']) . ",
-							" . ($this->info['thread']['pollid'] ? -1 : intval($this->info['thread']['iconid']));
-					}
-
-					$this->dbobject->query_write("
-						REPLACE INTO " . TABLE_PREFIX . "tachyforumpost
-							(userid, forumid, lastpost, lastpostid, lastposter, lastthread, lastthreadid, lasticonid)
-						VALUES
-							($replaceval)
-					");
+					$forumdata->set('lastthread', $this->fetch_field('title'));
+					$forumdata->set('lastthreadid', $this->fetch_field('threadid'));
+					$forumdata->set('lasticonid', ($this->fetch_field('pollid') ? -1 : $this->fetch_field('iconid')));
+					$forumdata->set('lastprefixid', $this->fetch_field('prefixid'));
 				}
-				else
+				else if ($this->info['thread'])
 				{
-					$forumdata->set('lastpost', $this->fetch_field('dateline'));
-					$forumdata->set('lastpostid', $postid);
-					$forumdata->set('lastposter', $this->fetch_field('username', 'post'));
-					if ($this->table == 'thread')
-					{
-						$forumdata->set('lastthread', $this->fetch_field('title'));
-						$forumdata->set('lastthreadid', $this->fetch_field('threadid'));
-						$forumdata->set('lasticonid', ($this->fetch_field('pollid') ? -1 : $this->fetch_field('iconid')));
-					}
-					else if ($this->info['thread'])
-					{
-						$forumdata->set('lastthread', $this->info['thread']['title']);
-						$forumdata->set('lastthreadid', $this->info['thread']['threadid']);
-						$forumdata->set('lasticonid', ($this->info['thread']['pollid'] ? -1 : $this->info['thread']['iconid']));
-					}
-
-					// empty out the tachy posts for this forum
-					$this->dbobject->query_write("
-						DELETE FROM " . TABLE_PREFIX . "tachyforumpost
-						WHERE forumid = " . intval($this->info['forum']['forumid'])
-					);
+					$forumdata->set('lastthread', $this->info['thread']['title']);
+					$forumdata->set('lastthreadid', $this->info['thread']['threadid']);
+					$forumdata->set('lasticonid', ($this->info['thread']['pollid'] ? -1 : $this->info['thread']['iconid']));
+					$forumdata->set('lastprefixid', $this->info['thread']['prefixid']);
 				}
 
 				$forumdata->save();
 			}
 
-			if ($this->info['user'])
+			if ($this->info['user'] AND empty($this->info['is_automated']))
 			{
 				$user =& datamanager_init('User', $this->registry, ERRTYPE_SILENT);
 				$user->set_existing($this->info['user']);
@@ -540,41 +614,23 @@ class vB_DataManager_ThreadPost extends vB_DataManager
 				if ($this->info['forum']['countposts'])
 				{
 					$user->set('posts', 'posts + 1', false);
-
-					if (!$this->info['user']['customtitle'])
-					{
-						$getusergroupid = iif($this->info['user']['displaygroupid'], $this->info['user']['displaygroupid'], $this->info['user']['usergroupid']);
-						$usergroup = $this->registry->usergroupcache["$getusergroupid"];
-
-						if (!$usergroup['usertitle'])
-						{
-							$gettitle = $this->dbobject->query_first("
-								SELECT title
-								FROM " . TABLE_PREFIX . "usertitle
-								WHERE minposts <= " . ($this->info['user']['posts'] + 1) . "
-								ORDER BY minposts DESC
-							");
-							$usertitle = $gettitle['title'];
-						}
-						else
-						{
-							$usertitle = $usergroup['usertitle'];
-						}
-						$user->set('usertitle', $usertitle);
-					}
+					$user->set_ladder_usertitle($this->info['user']['posts'] + 1);
 				}
 
 				$dateline = $this->fetch_field('dateline');
+
 				if ($dateline == TIMENOW OR (isset($this->info['user']['lastpost']) AND $dateline > $this->info['user']['lastpost']))
 				{
 					$user->set('lastpost', $dateline);
 				}
 
 				$postid = intval($this->fetch_field('postid'));
+
 				if ($dateline == TIMENOW OR (isset($this->info['user']['lastpostid']) AND $postid > $this->info['user']['postid']))
 				{
 					$user->set('lastpostid', $postid);
 				}
+
 				$user->save();
 			}
 		}
@@ -585,8 +641,8 @@ class vB_DataManager_ThreadPost extends vB_DataManager
 * Class to do data save/delete operations for POSTS
 *
 * @package	vBulletin
-* @version	$Revision: 16333 $
-* @date		$Date: 2007-02-13 09:40:12 -0600 (Tue, 13 Feb 2007) $
+* @version	$Revision: 26836 $
+* @date		$Date: 2008-06-04 11:15:30 -0500 (Wed, 04 Jun 2008) $
 */
 class vB_DataManager_Post extends vB_DataManager_ThreadPost
 {
@@ -684,6 +740,7 @@ class vB_DataManager_Post extends vB_DataManager_ThreadPost
 		}
 
 		$return_value = true;
+
 		($hook = vBulletinHook::fetch_hook('postdata_presave')) ? eval($hook) : false;
 
 		// we've errored, so try to roll the floodcheck back if it happened
@@ -699,6 +756,11 @@ class vB_DataManager_Post extends vB_DataManager_ThreadPost
 	function post_save_each($doquery = true)
 	{
 		$postid = intval($this->fetch_field('postid'));
+
+		if (!$this->condition AND $this->fetch_field('dateline') == TIMENOW)
+		{
+			$this->insert_dupehash($this->fetch_field('threadid'));
+		}
 
 		$this->post_save_each_post($doquery);
 
@@ -717,11 +779,26 @@ class vB_DataManager_Post extends vB_DataManager_ThreadPost
 		{
 			if ($this->fetch_field('dateline') == TIMENOW)
 			{
-				$this->insert_dupehash($this->fetch_field('threadid'));
+				$this->insert_postlog_data();
 			}
 
 			if ($this->fetch_field('visible') == 1 AND $this->info['thread'])
 			{
+				if (in_coventry($this->fetch_field('userid'), true))
+				{
+					$thread->set_info(
+						'coventry',
+						array (
+							'in_coventry'  => 1,
+							'userid'       => $this->fetch_field('userid')
+						)
+					);
+				}
+
+				$thread->set('lastpost', TIMENOW);
+				$thread->set('lastposter', $this->fetch_field('username'));
+				$thread->set('lastpostid', $postid);
+
 				// update last post info for this thread
 				if ($this->info['thread']['replycount'] % 10 == 0)
 				{
@@ -739,37 +816,7 @@ class vB_DataManager_Post extends vB_DataManager_ThreadPost
 					$thread->set('replycount', 'replycount + 1', false);
 				}
 
-				if (in_coventry($this->fetch_field('userid'), true))
-				{
-					// posted by someone in coventry, so don't update the thread last post time
-					// just put it in this person's tachy last post table
 
-					$replaceval = intval($this->fetch_field('userid')) . ",
-						" . intval($this->info['thread']['threadid']) . ",
-						" . intval(TIMENOW) . ",
-						'" . $this->dbobject->escape_string($this->fetch_field('username')) . "',
-						$postid
-					";
-
-					$this->dbobject->query_write("
-						REPLACE INTO " . TABLE_PREFIX . "tachythreadpost
-							(userid, threadid, lastpost, lastposter, lastpostid)
-						VALUES
-							($replaceval)
-					");
-				}
-				else
-				{
-					$thread->set('lastpost', TIMENOW);
-					$thread->set('lastposter', $this->fetch_field('username'));
-					$thread->set('lastpostid', $postid);
-
-					// empty out the tachy posts for this thread
-					$this->dbobject->query_write("
-						DELETE FROM " . TABLE_PREFIX . "tachythreadpost
-						WHERE threadid = " . intval($this->info['thread']['threadid'])
-					);
-				}
 			}
 			else if ($this->fetch_field('visible') == 0 AND $this->info['thread'])
 			{
@@ -794,7 +841,7 @@ class vB_DataManager_Post extends vB_DataManager_ThreadPost
 			$postid = intval($this->fetch_field('postid'));
 
 			/*insert query*/
-			$this->dbobject->query_write("INSERT IGNORE INTO " . TABLE_PREFIX . "moderation (threadid, postid, type, dateline) VALUES ($threadid, $postid, 'reply', " . TIMENOW . ")");
+			$this->dbobject->query_write("INSERT IGNORE INTO " . TABLE_PREFIX . "moderation (primaryid, type, dateline) VALUES ($postid, 'reply', " . TIMENOW . ")");
 		}
 
 		if ($this->info['forum']['podcast'] AND $this->info['thread']['firstpostid'] == $postid)
@@ -862,8 +909,8 @@ class vB_DataManager_Post extends vB_DataManager_ThreadPost
 * the picture.
 *
 * @package	vBulletin
-* @version	$Revision: 16333 $
-* @date		$Date: 2007-02-13 09:40:12 -0600 (Tue, 13 Feb 2007) $
+* @version	$Revision: 26836 $
+* @date		$Date: 2008-06-04 11:15:30 -0500 (Wed, 04 Jun 2008) $
 */
 class vB_DataManager_Thread extends vB_DataManager_ThreadPost
 {
@@ -897,6 +944,8 @@ class vB_DataManager_Thread extends vB_DataManager_ThreadPost
 		'votetotal'     => array(TYPE_UINT, REQ_NO),
 		'attach'        => array(TYPE_UINT, REQ_NO),
 		'similar'       => array(TYPE_STR,  REQ_AUTO),
+		'prefixid'      => array(TYPE_STR,  REQ_NO,    VF_METHOD),
+		'taglist'       => array(TYPE_STR,  REQ_NO)
 	);
 
 	/**
@@ -947,6 +996,57 @@ class vB_DataManager_Thread extends vB_DataManager_ThreadPost
 
 		($hook = vBulletinHook::fetch_hook('threaddata_start')) ? eval($hook) : false;
 	}
+
+	/**
+	* Takes valid data and sets it as part of the data to be saved
+	*
+	* @param	string	The name of the field to which the supplied data should be applied
+	* @param	mixed	The data itself
+	*/
+	function do_set($fieldname, &$value)
+	{
+		switch($fieldname)
+		{
+			case 'lastpost':
+			case 'lastposter':
+			case 'lastpostid':
+			{
+				if (!empty($this->info['coventry']) AND $this->info['coventry']['in_coventry'] == 1)
+				{
+					$table = 'tachythreadpost';
+				}
+				else
+				{
+					$table = $this->table;
+				}
+			}
+			break;
+
+			case 'replycount':
+			{
+				if (!empty($this->info['coventry']) AND $this->info['coventry']['in_coventry'] == 1)
+				{
+					$table = 'tachythreadcounter';
+
+				}
+				else
+				{
+					$table = $this->table;
+
+				}
+			}
+			break;
+
+			default:
+			{
+				$table = $this->table;
+			}
+		}
+
+		$this->setfields["$fieldname"] = true;
+		$this->{$table}["$fieldname"] =& $value;
+	}
+
 
 	/**
 	* Verifies the title. Does the same processing as the general title verifier,
@@ -1027,6 +1127,25 @@ class vB_DataManager_Thread extends vB_DataManager_ThreadPost
 		return true;
 	}
 
+	function verify_prefixid(&$prefixid)
+	{
+		if ($prefixid === '')
+		{
+			return true;
+		}
+
+		if (!$this->registry->db->query_first("
+			SELECT prefixid
+			FROM " . TABLE_PREFIX . "prefix
+			WHERE prefixid = '" . $this->registry->db->escape_string($prefixid) . "'
+		"))
+		{
+			$prefixid = '';
+		}
+
+		return true;
+	}
+
 	function pre_save($doquery = true)
 	{
 		if ($this->presave_called !== null)
@@ -1065,6 +1184,22 @@ class vB_DataManager_Thread extends vB_DataManager_ThreadPost
 			}
 		}
 
+		// updating prefix or forumid (with a prefix), we need to verify that a valid prefix was chosen
+		if (!empty($this->thread['prefixid']) OR ($this->fetch_field('prefixid') AND !empty($this->thread['forumid'])))
+		{
+			if (!$this->registry->db->query_first("
+				SELECT forumprefixset.forumid
+				FROM " . TABLE_PREFIX . "prefix AS prefix
+				INNER JOIN " . TABLE_PREFIX . "forumprefixset AS forumprefixset ON
+					(prefix.prefixsetid = forumprefixset.prefixsetid AND forumprefixset.forumid = " . intval($this->fetch_field('forumid')) . ")
+				WHERE prefix.prefixid = '" . $this->registry->db->escape_string($this->fetch_field('prefixid')) . "'
+			"))
+			{
+				// selected prefix doesn't apply to this forum, blank it
+				$this->set('prefixid', '');
+			}
+		}
+
 		$return_value = true;
 		($hook = vBulletinHook::fetch_hook('threaddata_presave')) ? eval($hook) : false;
 
@@ -1076,25 +1211,20 @@ class vB_DataManager_Thread extends vB_DataManager_ThreadPost
 	{
 		if ($this->modlog)
 		{
+			require_once(DIR . '/includes/functions_log_error.php');
+
 			$threadid = intval(($tid = $this->fetch_field('threadid')) ? $tid : $this->info['thread']['threadid']);
 			$forumid = intval(($fid = $this->fetch_field('forumid')) ? $fid : $this->info['forum']['forumid']);
 
-			$modlogsql = array();
-			foreach ($this->modlog AS $entry)
+			if (can_moderate($forumid))
 			{
-				$modlogsql[] = "
-					($entry[userid], " . TIMENOW . ", $forumid, $threadid, $entry[type],
-					'" . $this->dbobject->escape_string($entry['action']) . "', '" . $this->dbobject->escape_string(IPADDRESS) . "')
-				";
+				foreach ($this->modlog AS $entry)
+				{
+					$entry['forumid'] = $forumid;
+					$entry['threadid'] = $threadid;
+					log_moderator_action($entry, $entry['type'], $entry['action']);
+				}
 			}
-
-			/*insert query*/
-			$this->dbobject->query_write("
-				INSERT INTO " . TABLE_PREFIX . "moderatorlog
-					(userid, dateline, forumid, threadid, type, action, ipaddress)
-					VALUES
-						" . implode(', ', $modlogsql)
-			);
 
 			$this->modlog = array();
 		}
@@ -1110,56 +1240,48 @@ class vB_DataManager_Thread extends vB_DataManager_ThreadPost
 			$forumdata->set_existing($this->info['forum']);
 			$forumdata->set_info('disable_cache_rebuild', true);
 
-			$forumdata->set('threadcount', 'threadcount + 1', false);
+			if (!empty($this->info['coventry']) AND $this->info['coventry']['in_coventry'] == 1)
+			{
+				$forumdata->set_info('coventry', $this->info['coventry']);
+			}
 
-			/*$forumdata->set('lastpost', $this->fetch_field('dateline'));
-			$forumdata->set('lastposter', $this->fetch_field('username', 'post'));
-			$forumdata->set('lastthread', $this->fetch_field('title'));
-			$forumdata->set('lastthreadid', $this->fetch_field('threadid'));
-			$forumdata->set('lasticonid', $this->fetch_field('iconid'));*/
+			$forumdata->set('threadcount', 'threadcount + 1', false);
 
 			$forumdata->save();
 		}
 
-		if ($this->condition AND $fpid = $this->fetch_field('firstpostid') AND !$this->info['skip_first_post_update'])
+		if ($this->condition AND $fpid = $this->fetch_field('firstpostid'))
 		{
-			// if we're updating the title/iconid of an existing thread, update the first post
-			if ((isset($this->thread['title']) OR isset($this->thread['iconid'])) AND $fp = fetch_postinfo($fpid))
+			if ($this->existing['visible'] == 0 AND $this->fetch_field('visible') == 1)
 			{
-				$postdata =& datamanager_init('Post', $this->registry, ERRTYPE_SILENT, 'threadpost');
-				$postdata->set_existing($fp);
-
-				if (isset($this->thread['title']))
-				{
-					$postdata->set('title', $this->thread['title'], true, false); // don't clean it -- already been cleaned
-				}
-				if (isset($this->thread['iconid']))
-				{
-					$postdata->set('iconid', $this->thread['iconid'], true, false);
-				}
-
-				$postdata->save();
+				$this->akismet_mark_as_ham($fpid);
 			}
-		}
 
-/*	Disconnect redirect titles from the original title.
-		if ($this->fetch_field('open') == 10 AND $this->thread['title'])
-		{
-			// we're editing the title of a redirect, so update the original
-			$realinfo = fetch_threadinfo($this->fetch_field('pollid'));
-			if ($realinfo)
+			if (!$this->info['skip_first_post_update'])
 			{
-				$threaddata =& datamanager_init('Thread', $this->registry, ERRTYPE_SILENT, 'threadpost');
-				$threaddata->set_existing($realinfo);
-				$threaddata->set_info('skip_moderator_log', true);
-				$threaddata->set_info('skip_first_post_update', true);
+				// if we're updating the title/iconid of an existing thread, update the first post
+				if ((isset($this->thread['title']) OR isset($this->thread['iconid'])) AND $fp = fetch_postinfo($fpid))
+				{
+					$postdata =& datamanager_init('Post', $this->registry, ERRTYPE_SILENT, 'threadpost');
+					$postdata->set_existing($fp);
 
-				$threaddata->set('title', $this->thread['title'], true, false);
+					if (isset($this->thread['title']))
+					{
+						$postdata->set('title', $this->thread['title'], true, false); // don't clean it -- already been cleaned
+					}
 
-				$threaddata->save();
+					if (isset($this->thread['iconid']))
+					{
+						$postdata->set('iconid', $this->thread['iconid'], true, false);
+					}
+
+					$postdata->save();
+				}
 			}
+
+
+
 		}
-*/
 
 		if ($this->condition AND $this->thread['title'] AND $this->existing['title'])
 		{
@@ -1174,6 +1296,60 @@ class vB_DataManager_Thread extends vB_DataManager_ThreadPost
 			");
 		}
 
+		if (!empty($this->info['coventry']) AND $this->info['coventry']['in_coventry'] == 1 AND $this->setfields['replycount'])
+		{
+			$this->dbobject->query_read("SELECT * FROM " . TABLE_PREFIX . "tachythreadcounter WHERE userid = " . $this->info['coventry']['userid'] . " AND threadid = " . $this->fetch_field('threadid'));
+			if ($this->dbobject->affected_rows() > 0)
+			{
+				$tachyupdate = 'replycount = '. $this->tachythreadcounter['replycount'];
+				$this->dbobject->query_write("
+					UPDATE " . TABLE_PREFIX . "tachythreadcounter SET ". $tachyupdate . " WHERE userid = " . $this->info['coventry']['userid'] . " AND threadid = " . $this->fetch_field('threadid'));
+			}
+			else
+			{
+				$this->tachythreadcounter['replycount'] = 1;
+
+				$this->tachythreadcounter['userid'] = $this->info['coventry']['userid'];
+				$this->tachythreadcounter['threadid'] = $this->fetch_field('threadid');
+
+				$this->dbobject->query_write("
+					REPLACE INTO " . TABLE_PREFIX . "tachythreadcounter
+						(userid, threadid, replycount)
+					VALUES
+						(" . intval($this->tachythreadcounter['userid']) . ",
+						" . intval($this->tachythreadcounter['threadid']) . ",
+						" . intval($this->tachythreadcounter['replycount']) . ")
+				");
+			}
+		}
+
+		if (empty($this->info['rebuild']) AND $this->setfields['lastpost'])
+		{
+			if (!empty($this->info['coventry']) AND $this->info['coventry']['in_coventry'] == 1)
+			{
+				$this->tachythreadpost['userid'] = $this->info['coventry']['userid'];
+				$this->tachythreadpost['threadid'] = $this->fetch_field('threadid');
+
+
+				$this->dbobject->query_write("
+					REPLACE INTO " . TABLE_PREFIX . "tachythreadpost
+						(userid, threadid, lastpost, lastposter, lastpostid)
+					VALUES
+						(" . intval($this->tachythreadpost['userid']) . ",
+						" . intval($this->tachythreadpost['threadid']) . ",
+						" . intval($this->tachythreadpost['lastpost']) . ",
+						'" . $this->dbobject->escape_string($this->tachythreadpost['lastposter']) . "',
+						" . intval($this->tachythreadpost['lastpostid']) . ")
+				");
+			}
+			else
+			{
+				$this->dbobject->query_write("
+						DELETE FROM " . TABLE_PREFIX . "tachythreadpost
+						WHERE threadid = " . intval($this->fetch_field('threadid'))
+				);
+			}
+		}
 
 		($hook = vBulletinHook::fetch_hook('threaddata_postsave')) ? eval($hook) : false;
 	}
@@ -1209,8 +1385,8 @@ class vB_DataManager_Thread extends vB_DataManager_ThreadPost
 * This is an important distinction!
 *
 * @package	vBulletin
-* @version	$Revision: 16333 $
-* @date		$Date: 2007-02-13 09:40:12 -0600 (Tue, 13 Feb 2007) $
+* @version	$Revision: 26836 $
+* @date		$Date: 2008-06-04 11:15:30 -0500 (Wed, 04 Jun 2008) $
 */
 class vB_DataManager_Thread_FirstPost extends vB_DataManager_Thread
 {
@@ -1236,6 +1412,8 @@ class vB_DataManager_Thread_FirstPost extends vB_DataManager_Thread
 		'votenum'       => array(TYPE_UINT, REQ_NO),
 		'votetotal'     => array(TYPE_UINT, REQ_NO),
 		'similar'       => array(TYPE_STR,  REQ_AUTO),
+		'prefixid'      => array(TYPE_STR,  REQ_NO,     VF_METHOD),
+		'taglist'       => array(TYPE_STR,  REQ_NO),
 
 		// shared fields
 		'threadid'      => array(TYPE_UINT, REQ_INCR),
@@ -1479,11 +1657,16 @@ class vB_DataManager_Thread_FirstPost extends vB_DataManager_Thread
 
 	function post_save_each($doquery = true)
 	{
+		if (!$this->condition AND $this->fetch_field('dateline') == TIMENOW)
+		{
+			$this->insert_dupehash(0);
+		}
+
 		$this->post_save_each_post($doquery);
 
 		if (!$this->condition AND $this->fetch_field('dateline') == TIMENOW)
 		{
-			$this->insert_dupehash(0);
+			$this->insert_postlog_data();
 		}
 
 		if ($this->info['forum'] AND $this->fetch_field('firstpostid'))
@@ -1500,7 +1683,7 @@ class vB_DataManager_Thread_FirstPost extends vB_DataManager_Thread
 			$postid = intval($this->fetch_field('firstpostid'));
 
 			/*insert query*/
-			$this->dbobject->query_write("INSERT IGNORE INTO " . TABLE_PREFIX . "moderation (threadid, postid, type, dateline) VALUES ($threadid, $postid, 'thread', " . TIMENOW . ")");
+			$this->dbobject->query_write("INSERT IGNORE INTO " . TABLE_PREFIX . "moderation (primaryid, type, dateline) VALUES ($threadid, 'thread', " . TIMENOW . ")");
 		}
 
 		if ($this->info['forum']['podcast'] AND $postid = intval($this->fetch_field('firstpostid')))
@@ -1569,8 +1752,8 @@ class vB_DataManager_Thread_FirstPost extends vB_DataManager_Thread
 * Class to do data update operations for multiple POSTS simultaneously
 *
 * @package	vBulletin
-* @version	$Revision: 16333 $
-* @date		$Date: 2007-02-13 09:40:12 -0600 (Tue, 13 Feb 2007) $
+* @version	$Revision: 26836 $
+* @date		$Date: 2008-06-04 11:15:30 -0500 (Wed, 04 Jun 2008) $
 */
 class vB_DataManager_Post_Multiple extends vB_DataManager_Multiple
 {
@@ -1623,8 +1806,8 @@ class vB_DataManager_Post_Multiple extends vB_DataManager_Multiple
 * Class to do data update operations for multiple THREADS simultaneously
 *
 * @package	vBulletin
-* @version	$Revision: 16333 $
-* @date		$Date: 2007-02-13 09:40:12 -0600 (Tue, 13 Feb 2007) $
+* @version	$Revision: 26836 $
+* @date		$Date: 2008-06-04 11:15:30 -0500 (Wed, 04 Jun 2008) $
 */
 class vB_DataManager_Thread_Multiple extends vB_DataManager_Multiple
 {
@@ -1674,8 +1857,8 @@ class vB_DataManager_Thread_Multiple extends vB_DataManager_Multiple
 
 /*======================================================================*\
 || ####################################################################
-|| # Downloaded: 18:52, Sat Jul 14th 2007
-|| # CVS: $RCSfile$ - $Revision: 16333 $
+|| # Downloaded: 16:21, Sat Apr 6th 2013
+|| # CVS: $RCSfile$ - $Revision: 26836 $
 || ####################################################################
 \*======================================================================*/
 ?>

@@ -1,9 +1,9 @@
 <?php
 /*======================================================================*\
 || #################################################################### ||
-|| # vBulletin 3.6.7 PL1 - Licence Number VBF2470E4F
+|| # vBulletin 3.7.2 Patch Level 2 - Licence Number VBF2470E4F
 || # ---------------------------------------------------------------- # ||
-|| # Copyright ©2000-2007 Jelsoft Enterprises Ltd. All Rights Reserved. ||
+|| # Copyright ©2000-2013 Jelsoft Enterprises Ltd. All Rights Reserved. ||
 || # This file may not be redistributed in whole or significant part. # ||
 || # ---------------- VBULLETIN IS NOT FREE SOFTWARE ---------------- # ||
 || # http://www.vbulletin.com | http://www.vbulletin.com/license.html # ||
@@ -25,8 +25,8 @@ if (!class_exists('vB_DataManager'))
 * $f->save();
 *
 * @package	vBulletin
-* @version	$Revision: 16943 $
-* @date		$Date: 2007-05-08 17:54:47 -0500 (Tue, 08 May 2007) $
+* @version	$Revision: 25896 $
+* @date		$Date: 2008-02-28 05:46:19 -0600 (Thu, 28 Feb 2008) $
 */
 class vB_DataManager_Moderator extends vB_DataManager
 {
@@ -36,10 +36,11 @@ class vB_DataManager_Moderator extends vB_DataManager
 	* @var	array
 	*/
 	var $validfields = array(
-		'moderatorid' => array(TYPE_UINT,       REQ_INCR, VF_METHOD, 'verify_nonzero'),
-		'userid'      => array(TYPE_UINT,       REQ_YES,  VF_METHOD),
-		'forumid'     => array(TYPE_INT,        REQ_YES,  VF_METHOD),
-		'permissions' => array(TYPE_ARRAY_BOOL, REQ_YES,  VF_METHOD)
+		'moderatorid'  => array(TYPE_UINT,       REQ_INCR, VF_METHOD, 'verify_nonzero'),
+		'userid'       => array(TYPE_UINT,       REQ_YES,  VF_METHOD),
+		'forumid'      => array(TYPE_INT,        REQ_YES,  VF_METHOD),
+		'permissions'  => array(TYPE_ARRAY_BOOL, REQ_YES,  VF_METHOD),
+		'permissions2' => array(TYPE_ARRAY_BOOL, REQ_YES,  VF_METHOD),
 	);
 
 	/**
@@ -47,7 +48,10 @@ class vB_DataManager_Moderator extends vB_DataManager
 	*
 	* @var	array
 	*/
-	var $bitfields = array('permissions' => 'bf_misc_moderatorpermissions');
+	var $bitfields = array(
+		'permissions'  => 'bf_misc_moderatorpermissions',
+		'permissions2' => 'bf_misc_moderatorpermissions2',
+	);
 
 	/**
 	* The main table this class deals with
@@ -144,6 +148,19 @@ class vB_DataManager_Moderator extends vB_DataManager
 	}
 
 	/**
+	* Converts an array of 1/0 options into the permissions bitfield
+	*
+	* @param	array	Array of 1/0 values keyed with the bitfield names for the moderator permissions bitfield
+	*
+	* @return	boolean	Returns true on success
+	*/
+	function verify_permissions2(&$permissions)
+	{
+		require_once(DIR . '/includes/functions_misc.php');
+		return $permissions = convert_array_to_bits($permissions, $this->registry->bf_misc_moderatorpermissions2);
+	}
+
+	/**
 	* Overriding version of the set() function to deal with the selecting userid from username
 	*
 	* @param	string	Name of the field
@@ -166,7 +183,7 @@ class vB_DataManager_Moderator extends vB_DataManager
 				}
 				else
 				{
-					$this->error('no_users_matched_your_query');
+					$this->error('no_users_matched_your_query_x', $value);
 					return false;
 				}
 			}
@@ -270,6 +287,27 @@ class vB_DataManager_Moderator extends vB_DataManager
 			}
 		}
 
+		if (!$this->condition AND !$this->registry->options['ignoremods'])
+		{
+			$rebuild_ignore_list = array();
+
+			$ignored_moderators = $this->dbobject->query_read("SELECT userid FROM " . TABLE_PREFIX . "userlist WHERE relationid = " . $this->fetch_field('userid') . " AND type = 'ignore'");
+			while ($ignored_moderator = $this->dbobject->fetch_array($ignored_moderators))
+			{
+				$rebuild_ignore_list[] = $ignored_moderator['userid'];
+			}
+
+			if (!empty($rebuild_ignore_list))
+			{
+				require_once(DIR . '/includes/functions_databuild.php');
+				$this->dbobject->query_write("DELETE FROM " . TABLE_PREFIX . "userlist WHERE relationid = " . $this->fetch_field('userid') . " AND type = 'ignore'");
+				foreach ($rebuild_ignore_list AS $userid)
+				{
+					build_userlist($userid);
+				}
+			}
+		}
+
 		($hook = vBulletinHook::fetch_hook('moderatordata_postsave')) ? eval($hook) : false;
 	}
 
@@ -336,8 +374,8 @@ class vB_DataManager_Moderator extends vB_DataManager
 
 /*======================================================================*\
 || ####################################################################
-|| # Downloaded: 18:52, Sat Jul 14th 2007
-|| # CVS: $RCSfile$ - $Revision: 16943 $
+|| # Downloaded: 16:21, Sat Apr 6th 2013
+|| # CVS: $RCSfile$ - $Revision: 25896 $
 || ####################################################################
 \*======================================================================*/
 ?>

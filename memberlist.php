@@ -1,9 +1,9 @@
 <?php
 /*======================================================================*\
 || #################################################################### ||
-|| # vBulletin 3.6.7 PL1 - Licence Number VBF2470E4F
+|| # vBulletin 3.7.2 Patch Level 2 - Licence Number VBF2470E4F
 || # ---------------------------------------------------------------- # ||
-|| # Copyright ©2000-2007 Jelsoft Enterprises Ltd. All Rights Reserved. ||
+|| # Copyright ©2000-2013 Jelsoft Enterprises Ltd. All Rights Reserved. ||
 || # This file may not be redistributed in whole or significant part. # ||
 || # ---------------- VBULLETIN IS NOT FREE SOFTWARE ---------------- # ||
 || # http://www.vbulletin.com | http://www.vbulletin.com/license.html # ||
@@ -15,6 +15,7 @@ error_reporting(E_ALL & ~E_NOTICE);
 
 // #################### DEFINE IMPORTANT CONSTANTS #######################
 define('THIS_SCRIPT', 'memberlist');
+define('CSRF_PROTECTION', true);
 
 // ################### PRE-CACHE TEMPLATES AND DATA ######################
 // get special phrase groups
@@ -238,6 +239,8 @@ if ($_REQUEST['do'] == 'getall')
 		ORDER BY displayorder
 	");
 
+	$include_userfield_join = false;
+
 	$urladd = '';
 	$profileinfo = array();
 	while ($profilefield = $db->fetch_array($profilefields))
@@ -277,6 +280,7 @@ if ($_REQUEST['do'] == 'getall')
 		{
 			$condition .= " AND $varname LIKE '%" . $db->escape_string_like(htmlspecialchars_uni(trim($value))) . "%' ";
 			$urladd .= "&amp;$varname=" . urlencode($value);
+			$include_userfield_join = true;
 		}
 		else if ($profilefield['type'] == 'radio' OR $profilefield['type'] == 'select')
 		{
@@ -284,6 +288,7 @@ if ($_REQUEST['do'] == 'getall')
 			{
 				$sql = " AND $varname LIKE '%" . $db->escape_string_like(htmlspecialchars_uni($optvalue)) . "%' ";
 				$url = "&amp;$varname=" . urlencode($optvalue);
+				$include_userfield_join = true;
 			}
 			else if ($value !== '')
 			{
@@ -297,6 +302,7 @@ if ($_REQUEST['do'] == 'getall')
 						$val = trim($val);
 						$sql = " AND $varname LIKE '" . $db->escape_string_like($val) . '\' ';
 						$url = "&amp;$varname=" . intval($value);
+						$include_userfield_join = true;
 						break;
 					}
 				}
@@ -315,6 +321,7 @@ if ($_REQUEST['do'] == 'getall')
 			{
 				$condition .= " AND $varname & ". pow(2, $val - 1) . ' ';
 				$urladd .= "&amp;$varname" . '[' . urlencode($key) . ']=' . urlencode($val);
+				$include_userfield_join = true;
 			}
 		}
 	}
@@ -323,12 +330,12 @@ if ($_REQUEST['do'] == 'getall')
 	{
 		if ($ltr == '#')
 		{
-			$condition = "username NOT REGEXP(\"^[a-zA-Z]\")";
+			$condition .= " AND username NOT REGEXP(\"^[a-zA-Z]\")";
 		}
 		else
 		{
 			$ltr = chr(intval(ord($ltr)));
-			$condition = 'username LIKE("' . $db->escape_string_like($ltr) . '%")';
+			$condition .= " AND username LIKE(\"" . $db->escape_string_like($ltr) . "%\")";
 		}
 	}
 
@@ -430,30 +437,13 @@ if ($_REQUEST['do'] == 'getall')
 			$hidereparray[] = $ugroupid;
 		}
 	}
-	$selectedletter =& $ltr;
-
-	// build letter selector
-	// start with non-alpha characters
-	$currentletter = '#';
-	$linkletter = urlencode('#');
-	$show['selectedletter'] = $selectedletter == '#' ? true : false;
-	eval('$letterbits = "' . fetch_template('memberlist_letter') . '";');
-	// now do alpha-characters
-	for ($i=65; $i < 91; $i++)
-	{
-		$currentletter = chr($i);
-		$linkletter =& $currentletter;
-		$show['selectedletter'] = $selectedletter == $currentletter ? true : false;
-		eval('$letterbits .= "' . fetch_template('memberlist_letter') . '";');
-	}
-
 	$hook_query_joins = $hook_query_where = '';
 	($hook = vBulletinHook::fetch_hook('memberlist_query_userscount')) ? eval($hook) : false;
 
 	$userscount = $db->query_first_slave("
 		SELECT COUNT(*) AS users
 		FROM " . TABLE_PREFIX . "user AS user
-		LEFT JOIN " . TABLE_PREFIX . "userfield AS userfield USING (userid)
+		" . ($include_userfield_join ? "LEFT JOIN " . TABLE_PREFIX . "userfield AS userfield USING (userid)" : '') . "
 		$hook_query_joins
 		WHERE $condition
 			AND (user.usergroupid IN ($ids)" . (defined('MEMBERLIST_INCLUDE_SECONDARY') ? (" OR FIND_IN_SET(" . implode(', user.membergroupids) OR FIND_IN_SET(', $idarray) . ", user.membergroupids)") : '') . ")
@@ -482,14 +472,38 @@ if ($_REQUEST['do'] == 'getall')
 	$sortaddon .= ($vbulletin->GPC['joindatebefore'] != '') ? 'joindatebefore=' . urlencode($vbulletin->GPC['joindatebefore']) . '&amp;' : '';
 	$sortaddon .= ($vbulletin->GPC['lastpostafter'] != '') ? 'lastpostafter=' . urlencode($vbulletin->GPC['lastpostafter']) . '&amp;' : '';
 	$sortaddon .= ($vbulletin->GPC['lastpostbefore'] != '') ? 'lastpostbefore=' . urlencode($vbulletin->GPC['lastpostbefore']) . '&amp;' : '';
-	$sortaddon .= ($ltr != '') ? 'ltr=' . urlencode($ltr) . '&amp;' : '';
 	$sortaddon .= ($usergroupid) ? 'usergroupid=' . $usergroupid . '&amp;' : '';
 	$sortaddon .= ($urladd != '') ? $urladd : '';
 
+	$ltraddon = $sortaddon; // Add to letters
+
+	$sortaddon .= ($ltr != '') ? 'ltr=' . urlencode($ltr) . '&amp;' : '';
+
 	$sortaddon = preg_replace('#&amp;$#s', '', $sortaddon);
+	$ltraddon = preg_replace('#&amp;$#s', '', $ltraddon);
+
+	$ltrurl = (!empty($ltraddon) ? '&amp;' . $ltraddon : '');
 
 	$sorturl = 'memberlist.php?' . $vbulletin->session->vars['sessionurl'] . $sortaddon;
 
+	$show['sorturlnoargs'] = ($sorturl == 'memberlist.php?' . $vbulletin->session->vars['sessionurl']);
+
+	$selectedletter =& $ltr;
+
+	// build letter selector
+	// start with non-alpha characters
+	$currentletter = '#';
+	$linkletter = urlencode('#');
+	$show['selectedletter'] = $selectedletter == '#' ? true : false;
+	eval('$letterbits = "' . fetch_template('memberlist_letter') . '";');
+	// now do alpha-characters
+	for ($i=65; $i < 91; $i++)
+	{
+		$currentletter = chr($i);
+		$linkletter =& $currentletter;
+		$show['selectedletter'] = $selectedletter == $currentletter ? true : false;
+		eval('$letterbits .= "' . fetch_template('memberlist_letter') . '";');
+	}
 
 	eval('$sortarrow[' . $sortfield . '] = "' . fetch_template('forumdisplay_sortarrow') . '";');
 
@@ -536,7 +550,7 @@ if ($_REQUEST['do'] == 'getall')
 
 	if ($show['agecol'])
 	{
-		$agecondition = ', IF(YEAR(user.birthday_search) > 0 AND user.showbirthday IN (1,2) AND user.birthday_search < CURDATE(), user.birthday_search, \'0000-00-00\') AS agesort';
+		$agecondition = ', IF(YEAR(user.birthday_search) > 0 AND user.showbirthday IN (1,2) AND YEAR(user.birthday_search) < YEAR(CURDATE()), user.birthday_search, \'0000-00-00\') AS agesort';
 	}
 	else
 	{
@@ -833,7 +847,12 @@ if ($_REQUEST['do'] == 'getall')
 
 	$last = $itemcount;
 
-	$pagenav = construct_page_nav($pagenumber, $perpage, $totalusers, 'memberlist.php?' . $vbulletin->session->vars['sessionurl'] . 'do=getall', ''
+	if ($sqlsort == 'agesort')
+	{
+		$sortorder = ($sortorder == 'desc' ? 'asc' : 'desc');
+	}
+
+	$pagenav = construct_page_nav($pagenumber, $perpage, $totalusers, 'memberlist.php?' . $vbulletin->session->vars['sessionurl'], ''
 		. (!empty($vbulletin->GPC['perpage']) ? "&amp;pp=$perpage" : "")
 		. (!empty($sortorder) ? "&amp;order=$sortorder" : "")
 		. (!empty($sortfield) ? "&amp;sort=$sortfield" : "")
@@ -913,17 +932,34 @@ if ($_REQUEST['do'] == 'search')
 		}
 		else if ($profilefield['type'] == 'radio')
 		{
+			$unclosedtr = true;
+			$perline = 0;
 			$data = unserialize($profilefield['data']);
 			$radiobits = '';
 			$checked = '';
 			foreach ($data AS $key => $val)
 			{
 				$key++;
+				if ($perline == 0)
+				{
+					$radiobits .= '<tr>';
+				}
 				eval('$radiobits .= "' . fetch_template('userfield_radio_option') . '";');
+				$perline++;
+				if ($profilefield['perline'] > 0 AND $perline >= $profilefield['perline'])
+				{
+					$radiobits .= '</tr>';
+					$perline = 0;
+					$unclosedtr = false;
+				}
 			}
 			if ($profilefield['optional'])
 			{
 				eval('$optionalfield = "' . fetch_template('memberlist_search_optional_input') . '";');
+			}
+			if ($unclosedtr)
+			{
+				$radiobits .= '</tr>';
 			}
 			eval('$customfields .= "' . fetch_template('memberlist_search_radio') . '";');
 		}
@@ -931,18 +967,28 @@ if ($_REQUEST['do'] == 'search')
 		{
 			$data = unserialize($profilefield['data']);
 			$radiobits = '';
+			$unclosedtr = true;
 			$perline = 0;
 			$checked = '';
 			foreach ($data AS $key => $val)
 			{
 				$key++;
+				if ($perline == 0)
+				{
+					$radiobits .= '<tr>';
+				}
 				eval('$radiobits .= "' . fetch_template('userfield_checkbox_option') . '";');
 				$perline++;
-				if ($profilefield['def'] > 0 AND $perline >= $profilefield['def'])
+				if ($profilefield['perline'] > 0 AND $perline >= $profilefield['perline'])
 				{
-					$radiobits .= '<br />';
+					$radiobits .= '</tr>';
 					$perline = 0;
+					$unclosedtr = false;
 				}
+			}
+			if ($unclosedtr)
+			{
+				$radiobits .= '</tr>';
 			}
 			eval('$customfields .= "' . fetch_template('memberlist_search_radio') . '";');
 		}
@@ -963,7 +1009,7 @@ if ($_REQUEST['do'] == 'search')
 	// build navbar
 	$navbits = array(
 		'memberlist.php' . $vbulletin->session->vars['sessionurl_q'] => $vbphrase['members_list'],
-		'' => $vbphrase['advanced_search']
+		'' => $vbphrase['search']
 	);
 
 	$templatename = 'memberlist_search';
@@ -983,8 +1029,8 @@ if ($templatename != '')
 
 /*======================================================================*\
 || ####################################################################
-|| # Downloaded: 18:52, Sat Jul 14th 2007
-|| # CVS: $RCSfile$ - $Revision: 16844 $
+|| # Downloaded: 16:21, Sat Apr 6th 2013
+|| # CVS: $RCSfile$ - $Revision: 26833 $
 || ####################################################################
 \*======================================================================*/
 ?>

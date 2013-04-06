@@ -1,9 +1,9 @@
 <?php
 /*======================================================================*\
 || #################################################################### ||
-|| # vBulletin 3.6.7 PL1 - Licence Number VBF2470E4F
+|| # vBulletin 3.7.2 Patch Level 2 - Licence Number VBF2470E4F
 || # ---------------------------------------------------------------- # ||
-|| # Copyright ©2000-2007 Jelsoft Enterprises Ltd. All Rights Reserved. ||
+|| # Copyright ©2000-2013 Jelsoft Enterprises Ltd. All Rights Reserved. ||
 || # This file may not be redistributed in whole or significant part. # ||
 || # ---------------- VBULLETIN IS NOT FREE SOFTWARE ---------------- # ||
 || # http://www.vbulletin.com | http://www.vbulletin.com/license.html # ||
@@ -14,7 +14,7 @@
 error_reporting(E_ALL & ~E_NOTICE);
 
 // ##################### DEFINE IMPORTANT CONSTANTS #######################
-define('CVS_REVISION', '$RCSfile$ - $Revision: 17009 $');
+define('CVS_REVISION', '$RCSfile$ - $Revision: 26425 $');
 
 // #################### PRE-CACHE TEMPLATES AND DATA ######################
 $phrasegroups = array(
@@ -111,7 +111,7 @@ if ($_REQUEST['do'] == 'download')
 	$groups = $db->query_read("
 		SELECT * FROM " . TABLE_PREFIX . "settinggroup
 		WHERE volatile = 1
-		ORDER BY displayorder
+		ORDER BY displayorder, grouptitle
 	");
 	while ($group = $db->fetch_array($groups))
 	{
@@ -122,7 +122,8 @@ if ($_REQUEST['do'] == 'download')
 		SELECT * FROM " . TABLE_PREFIX . "setting
 		WHERE volatile = 1
 			AND (product = '" . $db->escape_string($vbulletin->GPC['product']) . "'" . iif($vbulletin->GPC['product'] == 'vbulletin', " OR product = ''") . ")
-		ORDER BY displayorder");
+		ORDER BY displayorder, varname
+	");
 	while ($set = $db->fetch_array($sets))
 	{
 		$setting["$set[grouptitle]"][] = $set;
@@ -260,9 +261,11 @@ if ($_POST['do'] == 'validate')
 
 	if ($setting = $db->query_first("SELECT * FROM " . TABLE_PREFIX . "setting WHERE varname = '" . $db->escape_string($varname) . "'"))
 	{
+		$raw_value = $value;
+
 		$value = validate_setting_value($value, $setting['datatype']);
 
-		$valid = exec_setting_validation_code($setting['varname'], $value, $setting['validationcode']);
+		$valid = exec_setting_validation_code($setting['varname'], $value, $setting['validationcode'], $raw_value);
 	}
 	else
 	{
@@ -336,7 +339,7 @@ if ($_REQUEST['do'] == 'files')
 	));
 
 	// download form
-	print_form_header('options', 'download', 0, 1, 'downloadform" target="download');
+	print_form_header('options', 'download', 0, 1, 'downloadform', '90%', '', true, 'post" target="download');
 	print_table_header($vbphrase['download']);
 	print_select_row($vbphrase['product'], 'product', fetch_product_list());
 	print_submit_row($vbphrase['download']);
@@ -356,7 +359,7 @@ if ($_REQUEST['do'] == 'files')
 	</script>
 	<?php
 
-	print_form_header('options', 'doimport', 1, 1, 'uploadform" onsubmit="return js_confirm_upload(this, this.settingsfile);');
+	print_form_header('options', 'doimport', 1, 1, 'uploadform', '90%', '', true, 'post" onsubmit="return js_confirm_upload(this, this.settingsfile);');
 	print_table_header($vbphrase['import_settings_xml_file']);
 	print_upload_row($vbphrase['upload_xml_file'], 'settingsfile', 999999999);
 	print_input_row($vbphrase['import_xml_file'], 'serverfile', './install/vbulletin-settings.xml');
@@ -907,14 +910,20 @@ if ($_REQUEST['do'] == 'editsetting' OR $_REQUEST['do'] == 'addsetting')
 	print_select_row($vbphrase['setting_group'], 'grouptitle', $settinggroups, $setting['grouptitle']);
 	print_select_row($vbphrase['product'], 'product', fetch_product_list(), $setting['product']);
 	print_input_row($vbphrase['title'], 'title', $setting['title']);
-	print_textarea_row($vbphrase['description'], 'description', $setting['description'], 4, 50);
-	print_textarea_row($vbphrase['option_code'], 'optioncode', $setting['optioncode'], 4, 50);
-	print_textarea_row($vbphrase['default'], 'defaultvalue', $setting['defaultvalue'], 4, 50);
+	print_textarea_row($vbphrase['description'], 'description', $setting['description'], 4, '50" style="width:100%');
+	print_textarea_row($vbphrase['option_code'], 'optioncode', $setting['optioncode'], 4, '50" style="width:100%');
+	print_textarea_row($vbphrase['default'], 'defaultvalue', $setting['defaultvalue'], 4, '50" style="width:100%');
 
 	switch ($setting['datatype'])
 	{
 		case 'number':
 			$checked = array('number' => ' checked="checked"');
+			break;
+		case 'integer':
+			$checked = array('integer' => ' checked="checked"');
+			break;
+		case 'posint':
+			$checked = array('posint' => ' checked="checked"');
 			break;
 		case 'boolean':
 			$checked = array('boolean' => ' checked="checked"');
@@ -932,12 +941,14 @@ if ($_REQUEST['do'] == 'editsetting' OR $_REQUEST['do'] == 'addsetting')
 		<div class="smallfont">
 		<label for="rb_dt_free"><input type="radio" name="datatype" id="rb_dt_free" tabindex="1" value="free"' . $checked['free'] . ' />' . $vbphrase['datatype_free'] . '</label>
 		<label for="rb_dt_number"><input type="radio" name="datatype" id="rb_dt_number" tabindex="1" value="number"' . $checked['number'] . ' />' . $vbphrase['datatype_numeric'] . '</label>
+		<label for="rb_dt_integer"><input type="radio" name="datatype" id="rb_dt_integer" tabindex="1" value="integer"' . $checked['integer'] . ' />' . $vbphrase['datatype_integer'] . '</label>
+		<label for="rb_dt_posint"><input type="radio" name="datatype" id="rb_dt_posint" tabindex="1" value="posint"' . $checked['posint'] . ' />' . $vbphrase['datatype_posint'] . '</label>
 		<label for="rb_dt_boolean"><input type="radio" name="datatype" id="rb_dt_boolean" tabindex="1" value="boolean"' . $checked['boolean'] . ' />' . $vbphrase['datatype_boolean'] . '</label>
 		<label for="rb_dt_bitfield"><input type="radio" name="datatype" id="rb_dt_bitfield" tabindex="1" value="bitfield"' . $checked['bitfield'] . ' />' . $vbphrase['datatype_bitfield'] . '</label>
 		<label for="rb_dt_username"><input type="radio" name="datatype" id="rb_dt_username" tabindex="1" value="username"' . $checked['username'] . ' />' . $vbphrase['datatype_username'] . '</label>
 		</div>
 	');
-	print_textarea_row($vbphrase['validation_php_code'], 'validationcode', $setting['validationcode'], 4, 50);
+	print_textarea_row($vbphrase['validation_php_code'], 'validationcode', $setting['validationcode'], 4, '50" style="width:100%');
 
 	print_input_row($vbphrase['display_order'], 'displayorder', $setting['displayorder']);
 	print_yes_no_row($vbphrase['blacklist'], 'blacklist', $setting['blacklist']);
@@ -962,188 +973,7 @@ if ($_POST['do'] == 'dooptions')
 
 	if (!empty($vbulletin->GPC['setting']))
 	{
-		$varnames = array();
-		foreach(array_keys($vbulletin->GPC['setting']) AS $varname)
-		{
-			$varnames[] = $db->escape_string($varname);
-		}
-
-		$oldsettings = $db->query_read("
-			SELECT value, varname, datatype, optioncode
-			FROM " . TABLE_PREFIX . "setting
-			WHERE varname IN ('" . implode("', '", $varnames) . "')
-			ORDER BY varname
-		");
-		while ($oldsetting = $db->fetch_array($oldsettings))
-		{
-			switch ($oldsetting['varname'])
-			{
-				// **************************************************
-				case 'bbcode_html_colors':
-				{
-					$vbulletin->GPC['setting']['bbcode_html_colors'] = serialize($vbulletin->GPC['setting']['bbcode_html_colors']);
-				}
-				break;
-
-				// **************************************************
-				case 'styleid':
-				{
-					$db->query_write("
-						UPDATE " . TABLE_PREFIX . "style
-						SET userselect = 1
-						WHERE styleid = " . $vbulletin->GPC['setting']['styleid'] . "
-					");
-				}
-				break;
-
-				// **************************************************
-				case 'banemail':
-				{
-					build_datastore('banemail', $vbulletin->GPC['setting']['banemail']);
-					$vbulletin->GPC['setting']['banemail'] = '';
-				}
-				break;
-
-				// **************************************************
-				case 'editormodes':
-				{
-					$vbulletin->input->clean_array_gpc('p', array('fe' => TYPE_UINT, 'qr' => TYPE_UINT, 'qe' => TYPE_UINT));
-
-					$vbulletin->GPC['setting']['editormodes'] = serialize(array(
-						'fe' => $vbulletin->GPC['fe'],
-						'qr' => $vbulletin->GPC['qr'],
-						'qe' => $vbulletin->GPC['qe']
-					));
-				}
-				break;
-
-				// **************************************************
-				case 'cookiepath':
-				case 'cookiedomain':
-				{
-					if ($vbulletin->GPC['setting'][$oldsetting['varname'] . '_other'] AND $vbulletin->GPC['setting'][$oldsetting['varname'] . '_value'])
-					{
-						$vbulletin->GPC['setting'][$oldsetting['varname']] = $vbulletin->GPC['setting'][$oldsetting['varname'] . '_value'];
-					}
-				}
-				break;
-
-				// **************************************************
-				default:
-				{
-					($hook = vBulletinHook::fetch_hook('admin_options_processing')) ? eval($hook) : false;
-
-					if ($oldsetting['optioncode'] == 'multiinput')
-					{
-						$store = array();
-						foreach ($vbulletin->GPC['setting']["$oldsetting[varname]"] AS $value)
-						{
-							if ($value != '')
-							{
-								$store[] = $value;
-							}
-						}
-						$vbulletin->GPC['setting']["$oldsetting[varname]"] = serialize($store);
-					}
-					else if (preg_match('#^usergroup:[0-9]+$#', $oldsetting['optioncode']))
-					{
-						// serialize the array of usergroup inputs
-						if (!is_array($vbulletin->GPC['setting']["$oldsetting[varname]"]))
-						{
-							 $vbulletin->GPC['setting']["$oldsetting[varname]"] = array();
-						}
-						$vbulletin->GPC['setting']["$oldsetting[varname]"] = array_map('intval', $vbulletin->GPC['setting']["$oldsetting[varname]"]);
-						$vbulletin->GPC['setting']["$oldsetting[varname]"] = serialize($vbulletin->GPC['setting']["$oldsetting[varname]"]);
-					}
-				}
-			}
-
-			$newvalue = validate_setting_value($vbulletin->GPC['setting']["$oldsetting[varname]"], $oldsetting['datatype']);
-
-			// this is a strict type check because we want '' to be different from 0
-			// some special cases below only use != checks to see if the logical value has changed
-			if ($oldsetting['value'] !== $newvalue)
-			{
-				switch ($oldsetting['varname'])
-				{
-					case 'activememberdays':
-					case 'activememberoptions':
-						if ($oldsetting['value'] != $newvalue)
-						{
-							require_once(DIR . '/includes/functions_databuild.php');
-							build_birthdays();
-						}
-					break;
-
-					case 'showevents':
-					case 'showholidays':
-						if ($oldsetting['value'] != $newvalue)
-						{
-							require_once(DIR . '/includes/functions_calendar.php');
-							build_events();
-						}
-					break;
-
-					case 'languageid':
-					{
-						if ($oldsetting['value'] != $newvalue)
-						{
-							$vbulletin->options['languageid'] = $newvalue;
-							require_once(DIR . '/includes/adminfunctions_language.php');
-							build_language($vbulletin->options['languageid']);
-						}
-					}
-					break;
-
-					case 'cpstylefolder':
-					{
-						$admindm =& datamanager_init('Admin', $vbulletin, ERRTYPE_CP);
-						$admindm->set_existing($vbulletin->userinfo);
-						$admindm->set('cssprefs', $newvalue);
-						$admindm->save();
-						unset($admindm);
-					}
-					break;
-
-					case 'storecssasfile':
-					{
-						if (!is_demo_mode() AND $oldsetting['value'] != $newvalue)
-						{
-							$vbulletin->options['storecssasfile'] = $newvalue;
-							require_once(DIR . '/includes/adminfunctions_template.php');
-							print_rebuild_style(-1, '', 1, 0, 0, 0);
-						}
-					}
-					break;
-
-					case 'censorwords':
-					case 'codemaxlines':
-					{
-						if ($oldsetting['value'] != $newvalue)
-						{
-							$db->query_write("TRUNCATE TABLE " . TABLE_PREFIX . "postparsed");
-							if ($vbulletin->options['templateversion'] >= '3.6')
-							{
-								$db->query_write("TRUNCATE TABLE " . TABLE_PREFIX . "sigparsed");
-							}
-						}
-					}
-					break;
-				}
-
-				if (is_demo_mode() AND in_array($oldsetting['varname'], array('storecssasfile', 'attachfile', 'usefileavatar', 'errorlogdatabase', 'errorlogsecurity', 'safeupload', 'tmppath')))
-				{
-					continue;
-				}
-
-				$db->query_write("
-					UPDATE " . TABLE_PREFIX . "setting
-					SET value = '" . $db->escape_string($newvalue) . "'
-					WHERE varname = '" . $db->escape_string($oldsetting['varname']) . "'
-				");
-			}
-		}
-		build_options();
+		save_settings($vbulletin->GPC['setting']);
 
 		define('CP_REDIRECT', 'options.php?do=options&amp;dogroup=' . $vbulletin->GPC['dogroup'] . '&amp;advanced= ' . $vbulletin->GPC['advanced']);
 		print_stop_message('saved_settings_successfully');
@@ -1158,17 +988,6 @@ if ($_POST['do'] == 'dooptions')
 // ###################### Start modify options #######################
 if ($_REQUEST['do'] == 'options')
 {
-	// Try to determine GD settings
-	if ($vbulletin->GPC['dogroup'] == '[all]' OR $vbulletin->GPC['dogroup'] == 'imagesettings')
-	{
-		$gdinfo = fetch_gdinfo();
-
-		require_once(DIR . '/includes/functions_regimage.php');
-		$gdinfo['gdhash'] = fetch_regimage_hash();
-		$gdinfo['imhash'] = fetch_regimage_hash();
-	}
-
-
 	require_once(DIR . '/includes/adminfunctions_language.php');
 
 	$vbulletin->input->clean_array_gpc('r', array(
@@ -1250,7 +1069,7 @@ if ($_REQUEST['do'] == 'options')
 		print_table_footer();
 
 		// show selected settings
-		print_form_header('options', 'dooptions', false, true, 'optionsform" onsubmit="return count_errors()');
+		print_form_header('options', 'dooptions', false, true, 'optionsform', '90%', '', true, 'post" onsubmit="return count_errors()');
 		construct_hidden_code('dogroup', $vbulletin->GPC['dogroup']);
 		construct_hidden_code('advanced', $vbulletin->GPC['advanced']);
 
@@ -1259,7 +1078,9 @@ if ($_REQUEST['do'] == 'options')
 			foreach ($grouptitlecache AS $curgroup => $group)
 			{
 				print_setting_group($curgroup, $vbulletin->GPC['advanced']);
+				echo '<tbody>';
 				print_description_row("<input type=\"submit\" class=\"button\" value=\" $vbphrase[save] \" tabindex=\"1\" title=\"" . $vbphrase['save_settings'] . "\" />", 0, 2, 'tfoot" style="padding:1px" align="right');
+				echo '</tbody>';
 				print_table_break(' ');
 			}
 		}
@@ -1291,7 +1112,7 @@ if ($_REQUEST['do'] == 'backuprestore')
 	}
 
 	// download form
-	print_form_header('options', 'backup', 0, 1, 'downloadform" target="backup');
+	print_form_header('options', 'backup', 0, 1, 'downloadform', '90%', 'backup');
 	print_table_header($vbphrase['backup']);
 	print_select_row($vbphrase['product'], 'product', fetch_product_list());
 	print_yes_no_row($vbphrase['ignore_blacklisted_settings'], 'blacklist', 1);
@@ -1312,7 +1133,7 @@ if ($_REQUEST['do'] == 'backuprestore')
 	</script>
 	<?php
 
-	print_form_header('options', 'doimport', 1, 1, 'uploadform" onsubmit="return js_confirm_upload(this, this.settingsfile);');
+	print_form_header('options', 'doimport', 1, 1, 'uploadform', '90%', '', true, 'post" onsubmit="return js_confirm_upload(this, this.settingsfile);');
 	construct_hidden_code('restore', 1);
 	print_table_header($vbphrase['restore_settings_xml_file']);
 	print_yes_no_row($vbphrase['ignore_blacklisted_settings'], 'blacklist', 1);
@@ -1449,8 +1270,8 @@ print_cp_footer();
 
 /*======================================================================*\
 || ####################################################################
-|| # Downloaded: 18:52, Sat Jul 14th 2007
-|| # CVS: $RCSfile$ - $Revision: 17009 $
+|| # Downloaded: 16:21, Sat Apr 6th 2013
+|| # CVS: $RCSfile$ - $Revision: 26425 $
 || ####################################################################
 \*======================================================================*/
 ?>

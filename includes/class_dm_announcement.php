@@ -1,9 +1,9 @@
 <?php
 /*======================================================================*\
 || #################################################################### ||
-|| # vBulletin 3.6.7 PL1 - Licence Number VBF2470E4F
+|| # vBulletin 3.7.2 Patch Level 2 - Licence Number VBF2470E4F
 || # ---------------------------------------------------------------- # ||
-|| # Copyright ©2000-2007 Jelsoft Enterprises Ltd. All Rights Reserved. ||
+|| # Copyright ©2000-2013 Jelsoft Enterprises Ltd. All Rights Reserved. ||
 || # This file may not be redistributed in whole or significant part. # ||
 || # ---------------- VBULLETIN IS NOT FREE SOFTWARE ---------------- # ||
 || # http://www.vbulletin.com | http://www.vbulletin.com/license.html # ||
@@ -19,7 +19,7 @@ if (!class_exists('vB_DataManager'))
 * Class to do data save/delete operations for ANNOUNCEMENTS
 *
 * @package	vBulletin
-* @version	$Revision: 15274 $
+* @version	$Revision: 15275 $
 * @date		$Date: 2006-07-13 05:11:20 -0500 (Thu, 13 Jul 2006) $
 */
 class vB_DataManager_Announcement extends vB_DataManager
@@ -156,8 +156,8 @@ class vB_DataManager_Announcement extends vB_DataManager
 
 /*======================================================================*\
 || ####################################################################
-|| # Downloaded: 18:52, Sat Jul 14th 2007
-|| # CVS: $RCSfile$ - $Revision: 15274 $
+|| # Downloaded: 16:21, Sat Apr 6th 2013
+|| # CVS: $RCSfile$ - $Revision: 15275 $
 || ####################################################################
 \*======================================================================*/
 ?>

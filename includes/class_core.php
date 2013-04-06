@@ -1,17 +1,59 @@
 <?php
 /*======================================================================*\
 || #################################################################### ||
-|| # vBulletin 3.6.7 PL1 - Licence Number VBF2470E4F
+|| # vBulletin 3.7.2 Patch Level 2 - Licence Number VBF2470E4F
 || # ---------------------------------------------------------------- # ||
-|| # Copyright ©2000-2007 Jelsoft Enterprises Ltd. All Rights Reserved. ||
+|| # Copyright ©2000-2013 Jelsoft Enterprises Ltd. All Rights Reserved. ||
 || # This file may not be redistributed in whole or significant part. # ||
 || # ---------------- VBULLETIN IS NOT FREE SOFTWARE ---------------- # ||
 || # http://www.vbulletin.com | http://www.vbulletin.com/license.html # ||
 || #################################################################### ||
 \*======================================================================*/
 
-define('FILE_VERSION', '3.6.7'); // this should match install.php
-define('SIMPLE_VERSION', '367'); // see vB_Datastore::check_options()
+define('FILE_VERSION', '3.7.2'); // this should match install.php
+define('SIMPLE_VERSION', '372'); // see vB_Datastore::check_options()
+define('YUI_VERSION', '2.5.2'); // define the YUI version we bundle
+
+/**#@+
+* The maximum sizes for the "small" profile avatars
+*/
+define('FIXED_SIZE_AVATAR_WIDTH', 60);
+define('FIXED_SIZE_AVATAR_HEIGHT', 80);
+/**#@-*/
+
+/**#@+
+* These make up the bit field to disable specific types of BB codes.
+*/
+define('ALLOW_BBCODE_BASIC',  1);
+define('ALLOW_BBCODE_COLOR',  2);
+define('ALLOW_BBCODE_SIZE',   4);
+define('ALLOW_BBCODE_FONT',   8);
+define('ALLOW_BBCODE_ALIGN',  16);
+define('ALLOW_BBCODE_LIST',   32);
+define('ALLOW_BBCODE_URL',    64);
+define('ALLOW_BBCODE_CODE',   128);
+define('ALLOW_BBCODE_PHP',    256);
+define('ALLOW_BBCODE_HTML',   512);
+define('ALLOW_BBCODE_IMG',    1024);
+define('ALLOW_BBCODE_QUOTE',  2048);
+define('ALLOW_BBCODE_CUSTOM', 4096);
+/**#@-*/
+
+/**#@+
+* These make up the bit field to control what "special" BB codes are found in the text.
+*/
+define('BBCODE_HAS_IMG', 1);
+define('BBCODE_HAS_ATTACH', 2);
+define('BBCODE_HAS_SIGPIC', 4);
+/**#@-*/
+
+/**#@+
+* Bitfield values for the inline moderation javascript selector which should be self-explanitory
+*/
+define('POST_FLAG_INVISIBLE', 1);
+define('POST_FLAG_DELETED',   2);
+define('POST_FLAG_ATTACH',    4);
+define('POST_FLAG_GUEST',     8);
 
 // #############################################################################
 // MySQL Database Class
@@ -30,8 +72,8 @@ define('DBARRAY_NUM',   2);
 * This class also handles data replication between a master and slave(s) servers
 *
 * @package	vBulletin
-* @version	$Revision: 17011 $
-* @date		$Date: 2007-05-15 08:54:59 -0500 (Tue, 15 May 2007) $
+* @version	$Revision: 27007 $
+* @date		$Date: 2008-06-24 04:40:46 -0500 (Tue, 24 Jun 2008) $
 */
 class vB_Database
 {
@@ -202,11 +244,6 @@ class vB_Database
 		else
 		{
 			trigger_error("vB_Database::Registry object is not an object", E_USER_ERROR);
-		}
-
-		if (function_exists($this->functions['real_escape_string']))
-		{
-			$this->functions['escape_string'] = $this->functions['real_escape_string'];
 		}
 	}
 
@@ -461,6 +498,21 @@ class vB_Database
 	}
 
 	/**
+	* Executes a FOUND_ROWS query to get the results of SQL_CALC_FOUND_ROWS
+	*
+	* @return	integer
+	*/
+	function found_rows()
+	{
+		$this->sql = "SELECT FOUND_ROWS()";
+		$queryresult = $this->execute_query(true, $this->connection_recent);
+		$returnarray = $this->fetch_array($queryresult, DBARRAY_NUM);
+		$this->free_result($queryresult);
+		
+		return intval($returnarray[0]);
+	}
+
+	/**
 	* Executes a data-reading SQL query against the slave server, then returns an array of the data from the first row from the result set
 	*
 	* @param	string	The text of the SQL query to be executed
@@ -533,7 +585,7 @@ class vB_Database
 			$sql_length = strlen($this->sql);
 			$value_length = strlen("\r\n" . $values["$i"] . ",");
 
-			if (($sql_length + $value_length) <= $this->maxpacket)
+			if (($sql_length + $value_length) < $this->maxpacket)
 			{
 				$this->sql .= "\r\n" . $values["$i"] . ",";
 				unset($values["$i"]);
@@ -906,14 +958,42 @@ class vB_Database
 				$errortext =& $this->sql;
 			}
 
+			if (!headers_sent())
+			{
+				if (SAPI_NAME == 'cgi' OR SAPI_NAME == 'cgi-fcgi')
+				{
+					header('Status: 503 Service Unavailable');
+				}
+				else
+				{
+					header('HTTP/1.1 503 Service Unavailable');
+				}
+			}
+
 			$vboptions      =& $vbulletin->options;
 			$technicalemail =& $vbulletin->config['Database']['technicalemail'];
 			$bbuserinfo     =& $vbulletin->userinfo;
+			$requestdate    = date('l, F jS Y @ h:i:s A', TIMENOW);
 			$date           = date('l, F jS Y @ h:i:s A');
 			$scriptpath     = str_replace('&amp;', '&', $vbulletin->scriptpath);
 			$referer        = REFERRER;
 			$ipaddress      = IPADDRESS;
 			$classname      = get_class($this);
+
+			if ($this->connection_recent)
+			{
+				$this->hide_errors();
+				list($mysqlversion) = $this->query_first("SELECT VERSION() AS version", DBARRAY_NUM);
+				$this->show_errors();
+			}
+
+			$display_db_error = (VB_AREA == 'Upgrade' OR VB_AREA == 'Install' OR $vbulletin->userinfo['usergroupid'] == 6 OR ($vbulletin->userinfo['permissions']['adminpermissions'] & $vbulletin->bf_ugp_adminpermissions));
+
+			// Hide the MySQL Version if its going in the source
+			if (!$display_db_error)
+			{
+				$mysqlversion = '';
+			}
 
 			eval('$message = "' . str_replace('"', '\"', file_get_contents(DIR . '/includes/database_error_message.html')) . '";');
 
@@ -923,12 +1003,20 @@ class vB_Database
 				log_vbulletin_error($message, 'database');
 			}
 
-			/*if ($technicalemail != '' AND !$vbulletin->options['disableerroremail'] AND verify_email_vbulletin_error($this->errno, 'database'))
+			if ($technicalemail != '' AND !$vbulletin->options['disableerroremail'] AND verify_email_vbulletin_error($this->errno, 'database'))
 			{
-				@mail($technicalemail, $this->appshortname . ' Database Error!', preg_replace("#(\r\n|\r|\n)#s", (@ini_get('sendmail_path') === '') ? "\r\n" : "\n", $message), "From: $technicalemail");
-			}*/
-			
-			if (VB_AREA == 'Upgrade' OR VB_AREA == 'Install' OR $vbulletin->userinfo['usergroupid'] == 6 OR ($vbulletin->userinfo['permissions']['adminpermissions'] & $vbulletin->bf_ugp_adminpermissions))
+				// If vBulletinHook is defined then we know that options are loaded, so we can then use vbmail
+				if (class_exists('vBulletinHook'))
+				{
+					@vbmail($technicalemail, $this->appshortname . ' Database Error!', $message, true, $technicalemail);
+				}
+				else
+				{
+					@mail($technicalemail, $this->appshortname . ' Database Error!', preg_replace("#(\r\n|\r|\n)#s", (@ini_get('sendmail_path') === '') ? "\r\n" : "\n", $message), "From: $technicalemail");
+				}
+			}
+
+			if ($display_db_error)
 			{
 				// display error message on screen
 				$message = '<form><textarea rows="15" cols="70" wrap="off" id="message">' . htmlspecialchars_uni($message) . '</textarea></form>';
@@ -939,17 +1027,19 @@ class vB_Database
 				$message = "\r\n<!--\r\n" . htmlspecialchars_uni($message) . "\r\n-->\r\n";
 			}
 
-			// get path to image
-			if (VB_AREA == 'Forum')
+			if ($vbulletin->options['bburl'])
 			{
-				$imagepath = '.';
+				$imagepath = $vbulletin->options['bburl'];
 			}
 			else
 			{
-				$imagepath = '..';
+				// this might not work with too many slashes in the archive
+				$imagepath = (VB_AREA == 'Forum' ? '.' : '..');
 			}
 
 			eval('$message = "' . str_replace('"', '\"', file_get_contents(DIR . '/includes/database_error_page.html')) . '";');
+			// This is needed so IE doesn't show the pretty error messages
+			$message .= str_repeat(' ', 512);
 			die($message);
 		}
 		else if (!empty($errortext))
@@ -968,8 +1058,8 @@ class vB_Database
 * This class also handles data replication between a master and slave(s) servers
 *
 * @package	vBulletin
-* @version	$Revision: 17011 $
-* @date		$Date: 2007-05-15 08:54:59 -0500 (Tue, 15 May 2007) $
+* @version	$Revision: 27007 $
+* @date		$Date: 2008-06-24 04:40:46 -0500 (Tue, 24 Jun 2008) $
 */
 class vB_Database_MySQLi extends vB_Database
 {
@@ -1104,7 +1194,7 @@ class vB_Database_MySQLi extends vB_Database
 	*
 	* @return	boolean
 	*/
-	function select_db_wrapper($database, $link)
+	function select_db_wrapper($database = '', $link = null)
 	{
 		return $this->functions['select_db']($link, $database);
 	}
@@ -1143,8 +1233,8 @@ class vB_Database_MySQLi extends vB_Database
 * Class for fetching and initializing the vBulletin datastore from the database
 *
 * @package	vBulletin
-* @version	$Revision: 17011 $
-* @date		$Date: 2007-05-15 08:54:59 -0500 (Tue, 15 May 2007) $
+* @version	$Revision: 27007 $
+* @date		$Date: 2008-06-24 04:40:46 -0500 (Tue, 24 Jun 2008) $
 */
 class vB_Datastore
 {
@@ -1165,6 +1255,8 @@ class vB_Datastore
 		'pluginlist',
 		'cron',
 		'profilefield',
+		'loadcache',
+		'noticecache'
 	);
 
 	/**
@@ -1210,7 +1302,7 @@ class vB_Datastore
 
 		if (defined('SKIP_DEFAULTDATASTORE'))
 		{
-			$this->defaultitems = array('options', 'bitfields');
+			$this->defaultitems = array('options', 'bitfields', 'pluginlist');
 		}
 
 		if (!is_object($registry))
@@ -1400,8 +1492,8 @@ define('FILE',       TYPE_FILE);
 * Class to handle and sanitize variables from GET, POST and COOKIE etc
 *
 * @package	vBulletin
-* @version	$Revision: 17011 $
-* @date		$Date: 2007-05-15 08:54:59 -0500 (Tue, 15 May 2007) $
+* @version	$Revision: 27007 $
+* @date		$Date: 2008-06-24 04:40:46 -0500 (Tue, 24 Jun 2008) $
 */
 class vB_Input_Cleaner
 {
@@ -1441,11 +1533,18 @@ class vB_Input_Cleaner
 	);
 
 	/**
-	* System state. The complete URL of the current page
+	* System state. The complete URL of the current page, without sessionhash
 	*
 	* @var	string
 	*/
 	var $scriptpath = '';
+
+	/**
+	* Reload URL. Complete URL of the current page including sessionhash
+	*
+	* @var	string
+	*/
+	var $reloadurl = '';
 
 	/**
 	* System state. The complete URL of the page for Who's Online purposes
@@ -1519,7 +1618,7 @@ class vB_Input_Cleaner
 		}
 
 		// reverse the effects of magic quotes if necessary
-		if (get_magic_quotes_gpc())
+		if (function_exists('get_magic_quotes_gpc') AND get_magic_quotes_gpc())
 		{
 			$this->stripslashes_deep($_REQUEST); // needed for some reason (at least on php5 - not tested on php4)
 			$this->stripslashes_deep($_GET);
@@ -1546,6 +1645,12 @@ class vB_Input_Cleaner
 			}
 
 			$this->convert_shortvars($GLOBALS["$arrayname"]);
+		}
+
+		// set the AJAX flag if we have got an AJAX submission
+		if ($_SERVER['REQUEST_METHOD'] == 'POST' AND $_SERVER['HTTP_X_REQUESTED_WITH'] == 'XMLHttpRequest')
+		{
+			$_POST['ajax'] = $_REQUEST['ajax'] = 1;
 		}
 
 		// reverse the effects of register_globals if necessary
@@ -1587,21 +1692,13 @@ class vB_Input_Cleaner
 			}
 		}
 
-		// Paul M - Set Real, Alt & Proxy IP addresses
+		// fetch client IP address
 		$registry->ipaddress = $this->fetch_ip();
+		define('IPADDRESS', $registry->ipaddress);
+
+		// attempt to fetch IP address from behind proxies - useful, but don't rely on it...
 		$registry->alt_ip = $this->fetch_alt_ip();
-		$registry->real_ip = $this->fetch_real_ip();
 		define('ALT_IP', $registry->alt_ip);
-		if ($registry->real_ip)
-		{
-			define('PROXYIP', $registry->ipaddress);
-			define('IPADDRESS', $registry->real_ip); 
-		}
-		else
-		{
-			define('PROXYIP', ''); 
-			define('IPADDRESS', $registry->ipaddress);
-		}
 
 		// defines if the current page was visited via SSL or not
 		define('REQ_PROTOCOL', (($_SERVER['HTTPS'] == 'on' OR $_SERVER['HTTPS'] == '1') ? 'https' : 'http'));
@@ -1626,8 +1723,8 @@ class vB_Input_Cleaner
 		$registry->wolpath = $this->fetch_wolpath();
 		define('WOLPATH', $registry->wolpath);
 
-		// Paul M - Define session host
-		define('SESSION_HOST',   substr(IPADDRESS, 0, 15));
+		// define session constants
+		define('SESSION_HOST',   substr($registry->ipaddress, 0, 15));
 
 		// define some useful contants related to environment
 		define('USER_AGENT',     $_SERVER['HTTP_USER_AGENT']);
@@ -1894,6 +1991,19 @@ class vB_Input_Cleaner
 				}
 				break;
 			}
+			// null actions should be deifned here so we can still catch typos below
+			case TYPE_NOCLEAN:
+			{
+				break;
+			}
+
+			default:
+			{
+				if ($this->registry->debug)
+				{
+					trigger_error('vB_Input_Cleaner::do_clean() Invalid data type specified', E_USER_WARNING);
+				}
+			}
 		}
 
 		// strip out characters that really have no business being in non-binary data
@@ -1916,7 +2026,7 @@ class vB_Input_Cleaner
 	*
 	* @return	string
 	*/
-	function xss_clean(&$var)
+	function xss_clean($var)
 	{
 		static
 			$preg_find    = array('#javascript#i', '#vbscript#i'),
@@ -1974,7 +2084,7 @@ class vB_Input_Cleaner
 	*
 	* @return	string
 	*/
-	function strip_sessionhash(&$string)
+	function strip_sessionhash($string)
 	{
 		$string = preg_replace('/(s|sessionhash)=[a-z0-9]{32}?&?/', '', $string);
 		return $string;
@@ -2029,6 +2139,9 @@ class vB_Input_Cleaner
 			{
 				$scriptpath = urldecode($scriptpath);
 			}
+
+			// store a version that includes the sessionhash
+			$this->registry->reloadurl = $this->xss_clean($scriptpath);
 
 			$scriptpath = $this->strip_sessionhash($scriptpath);
 			$scriptpath = $this->xss_clean($scriptpath);
@@ -2135,39 +2248,6 @@ class vB_Input_Cleaner
 	{
 		return $_SERVER['REMOTE_ADDR'];
 	}
-/*
-	Paul M - Try to detect real ip when proxy is in use.
-	*/
-	function fetch_real_ip()
-	{
-		$real_ip = ''; 
-		$ignoreprivate = false;	
-		if (isset($_SERVER['HTTP_X_FORWARDED_FOR'])) 
-		{
-			$real_ip = $_SERVER['HTTP_X_FORWARDED_FOR']; 
-		}
-		else if (isset($_SERVER['HTTP_CLIENT_IP'])) 
-		{
-			$real_ip = $_SERVER['HTTP_CLIENT_IP']; 
-		}
-		else if (isset($_SERVER['HTTP_FROM'])) 
-		{
-			$real_ip = $_SERVER['HTTP_FROM']; 
-		}
-		if (preg_match("#\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3}#", $real_ip, $iplist))
-		{
-			$real_ip = $iplist[0]; 
-			if ($ignoreprivate AND preg_match("#^(127|10|172\.(1[6-9]|2[0-9]|3[0-1])|192\.168|169\.254)\.#", $real_ip))
-			{ 
-				$real_ip = ''; 
-			} 
-		}
-		else  
-		{
-			$real_ip = ''; 
-		}
-		return $real_ip;
-	}
 
 	/**
 	* Fetches an alternate IP address of the current visitor, attempting to detect proxies etc.
@@ -2187,7 +2267,7 @@ class vB_Input_Cleaner
 			// make sure we dont pick up an internal IP defined by RFC1918
 			foreach ($matches[0] AS $ip)
 			{
-				if (!preg_match("#^(10|172\.16|192\.168)\.#", $ip))
+				if (!preg_match('#^(10|172\.16|192\.168)\.#', $ip))
 				{
 					$alt_ip = $ip;
 					break;
@@ -2210,8 +2290,8 @@ class vB_Input_Cleaner
 * Class to store commonly-used variables
 *
 * @package	vBulletin
-* @version	$Revision: 17011 $
-* @date		$Date: 2007-05-15 08:54:59 -0500 (Tue, 15 May 2007) $
+* @version	$Revision: 27007 $
+* @date		$Date: 2008-06-24 04:40:46 -0500 (Tue, 24 Jun 2008) $
 */
 class vB_Registry
 {
@@ -2253,6 +2333,13 @@ class vB_Registry
 	* @var vB_Session
 	*/
 	var $session;
+
+	/**
+	* Array of do actions that are exempt from checks
+	*
+	* @var array
+	*/
+	var $csrf_skip_list = array();
 
 	// configuration
 	/**
@@ -2348,6 +2435,7 @@ class vB_Registry
 	var $bf_ugp_genericpermissions;
 	var $bf_ugp_pmpermissions;
 	var $bf_ugp_wolpermissions;
+	var $bf_ugp_visitormessagepermissions;
 	/**#@-*/
 
 	// misc bitfield arrays
@@ -2366,7 +2454,6 @@ class vB_Registry
 	var $bf_misc_useroptions;
 	/**#@-*/
 
-	// from datastore
 	/**#@+
 	* Results for specific entries in the datastore.
 	*
@@ -2385,6 +2472,7 @@ class vB_Registry
 	var $smiliecache = null;
 	var $usergroupcache = null;
 	var $bbcodecache = null;
+	var $socialsitecache = null;
 	var $cron = null;
 	var $mailqueue = null;
 	var $banemail = null;
@@ -2395,9 +2483,16 @@ class vB_Registry
 	var $statement = null;
 	var $userstats = null;
 	var $wol_spiders = null;
+	var $loadcache = null;
+	var $noticecache = null;
+	var $prefixcache = null;
 	/**#@-*/
 
-	// misc variables
+	/**#@+
+	* Miscellaneous variables
+	*
+	* @var	mixed
+	*/
 	var $bbcode_style = array('code' => -1, 'html' => -1, 'php' => -1, 'quote' => -1);
 	var $templatecache = array();
 	var $iforumcache = array();
@@ -2406,6 +2501,7 @@ class vB_Registry
 	var $debug;
 	var $noheader;
 	var $shutdown;
+	/**#@-*/
 
 	/**
 	* Constructor - initializes the nozip system,
@@ -2423,6 +2519,8 @@ class vB_Registry
 
 		// initialize the shutdown handler
 		$this->shutdown = vB_Shutdown::init();
+
+		$this->csrf_skip_list = (defined('CSRF_SKIP_LIST') ? explode(',', CSRF_SKIP_LIST) : array());
 	}
 
 	/**
@@ -2439,7 +2537,7 @@ class vB_Registry
 			if (file_exists(CWD. '/includes/config.php'))
 			{
 				// config.php exists, but does not define $config
-				die('<br /><br /><strong>Configuration</strong>: includes/config.php exists, but is not in the 3.6 format. Please convert your config file via the new config.php.new.');
+				die('<br /><br /><strong>Configuration</strong>: includes/config.php exists, but is not in the 3.6+ format. Please convert your config file via the new config.php.new.');
 			}
 			else
 			{
@@ -2492,8 +2590,8 @@ class vB_Registry
 * Creates, updates, and validates sessions; retrieves user info of browsing user
 *
 * @package	vBulletin
-* @version	$Revision: 17011 $
-* @date		$Date: 2007-05-15 08:54:59 -0500 (Tue, 15 May 2007) $
+* @version	$Revision: 27007 $
+* @date		$Date: 2008-06-24 04:40:46 -0500 (Tue, 24 Jun 2008) $
 */
 class vB_Session
 {
@@ -2571,6 +2669,7 @@ class vB_Session
 	* @param	integer		User ID (passed in through a cookie)
 	* @param	string		Password, must arrive in cookie format: md5(md5(md5(password) . salt) . 'abcd1234')
 	* @param	integer		Style ID for this session
+	* @param	integer		Language ID for this session
 	*/
 	function vB_Session(&$registry, $sessionhash = '', $userid = 0, $password = '', $styleid = 0, $languageid = 0)
 	{
@@ -2584,8 +2683,7 @@ class vB_Session
 
 		if (!defined('SESSION_IDHASH'))
 		{
-			// Paul M - Define session id
-			define('SESSION_IDHASH', md5($_SERVER['HTTP_USER_AGENT'] . vB_Session::fetch_substr_ip(IPADDRESS)));
+			define('SESSION_IDHASH', md5($_SERVER['HTTP_USER_AGENT'] . $this->fetch_substr_ip($registry->alt_ip))); // this should *never* change during a session
 		}
 
 		// sessionhash specified, so see if it already exists
@@ -2616,7 +2714,7 @@ class vB_Session
 		// or maybe we can use a cookie..
 		if (($gotsession == false OR empty($session['userid'])) AND $userid AND $password AND !defined('SKIP_SESSIONCREATE'))
 		{
-			$useroptions = (defined('IN_CONTROL_PANEL') ? 16 : 0) + (defined('AVATAR_ON_NAVBAR') ? 2 : 0);
+			$useroptions = (defined('IN_CONTROL_PANEL') ? FETCH_USERINFO_ADMIN : 0) + (defined('AVATAR_ON_NAVBAR') ? FETCH_USERINFO_AVATAR : 0);
 			$userinfo = fetch_userinfo($userid, $useroptions, $languageid);
 
 			if (md5($userinfo['password'] . COOKIE_SALT) == $password)
@@ -2771,7 +2869,7 @@ class vB_Session
 	*/
 	function set($key, $value)
 	{
-		if ($this->vars["$key"] != $value)
+		if (!isset($this->vars["$key"]) OR $this->vars["$key"] != $value)
 		{
 			$this->vars["$key"] = $value;
 			$this->changes["$key"] = true;
@@ -2880,7 +2978,7 @@ class vB_Session
 		else if ($this->vars['userid'] AND !defined('SKIP_USERINFO'))
 		{
 			// user is logged in
-			$useroptions = (defined('IN_CONTROL_PANEL') ? 16 : 0) + (defined('AVATAR_ON_NAVBAR') ? 2 : 0);
+			$useroptions = (defined('IN_CONTROL_PANEL') ? FETCH_USERINFO_ADMIN : 0) + (defined('AVATAR_ON_NAVBAR') ? FETCH_USERINFO_AVATAR : 0);
 			$this->userinfo = fetch_userinfo($this->vars['userid'], $useroptions, $this->vars['languageid']);
 			return $this->userinfo;
 		}
@@ -2902,11 +3000,19 @@ class vB_Session
 				'showsignatures' => 1,
 				'showavatars'    => 1,
 				'showimages'     => 1,
+				'showusercss'    => 1,
 				'dstauto'        => 0,
 				'maxposts'       => -1,
 				'startofweek'    => 1,
-				'threadedmode'   => $this->registry->options['threadedmode']
+				'threadedmode'   => $this->registry->options['threadedmode'],
+				'securitytoken'  => 'guest',
+				'securitytoken_raw'  => 'guest'
 			);
+
+			$this->userinfo['options'] =
+										$this->registry->bf_misc_useroptions['showsignatures'] | $this->registry->bf_misc_useroptions['showavatars'] |
+										$this->registry->bf_misc_useroptions['showimages'] | $this->registry->bf_misc_useroptions['dstauto'] |
+										$this->registry->bf_misc_useroptions['showusercss'];
 
 			if (!defined('SKIP_USERINFO'))
 			{
@@ -2931,6 +3037,14 @@ class vB_Session
 		}
 	}
 
+	/**
+	* Updates the last visit and last activity times for guests and registered users (differently).
+	* Last visit is set to the last activity time (before it's updated) only when a certain
+	* time has lapsed. Last activity is always set to the specified time.
+	*
+	* @param	integer	Time stamp for last visit time (guest only)
+	* @param	integer	Time stamp for last activity time (guest only)
+	*/
 	function do_lastvisit_update($lastvisit = 0, $lastactivity = 0)
 	{
 		// update last visit/activity stuff
@@ -2999,14 +3113,17 @@ class vB_Session
 * Class to handle shutdown
 *
 * @package	vBulletin
-* @version	$Revision: 17011 $
+* @version	$Revision: 27007 $
 * @author	Scott
-* @date		$Date: 2007-05-15 08:54:59 -0500 (Tue, 15 May 2007) $
+* @date		$Date: 2008-06-24 04:40:46 -0500 (Tue, 24 Jun 2008) $
 */
 class vB_Shutdown
 {
 	var $shutdown = array();
 
+	/**
+	* Constructor. Empty.
+	*/
 	function vB_Shutdown()
 	{
 	}
@@ -3121,7 +3238,8 @@ function vb_error_handler($errno, $errstr, $errfile, $errline)
 			{
 				return;
 			}
-			$errfile = str_replace(DIR, '', $errfile);
+			$errfile = str_replace(DIR, '[path]', $errfile);
+			$errstr = str_replace(DIR, '[path]', $errstr);
 			echo "<br /><strong>Warning</strong>: $errstr in <strong>$errfile</strong> on line <strong>$errline</strong><br />";
 		break;
 
@@ -3130,12 +3248,27 @@ function vb_error_handler($errno, $errstr, $errfile, $errline)
 			$message = "Fatal error: $errstr in $errfile on line $errline";
 			log_vbulletin_error($message, 'php');
 
+			if (!headers_sent())
+			{
+				if (SAPI_NAME == 'cgi' OR SAPI_NAME == 'cgi-fcgi')
+				{
+					header('Status: 500 Internal Server Error');
+				}
+				else
+				{
+					header('HTTP/1.1 500 Internal Server Error');
+				}
+			}
+
 			if (error_reporting() OR ini_get('display_errors'))
 			{
-				$errfile = str_replace(DIR, '', $errfile);
+				$errfile = str_replace(DIR, '[path]', $errfile);
+				$errstr = str_replace(DIR, '[path]', $errstr);
 				echo "<br /><strong>Fatal error:</strong> $errstr in <strong>$errfile</strong> on line <strong>$errline</strong><br />";
 				if (function_exists('debug_print_backtrace') AND ($vbulletin->userinfo['usergroupid'] == 6 OR ($vbulletin->userinfo['permissions']['adminpermissions'] & $vbulletin->bf_ugp_adminpermissions)))
 				{
+					// This is needed so IE doesn't show the pretty error messages
+					echo str_repeat(' ', 512);
 					debug_print_backtrace();
 				}
 			}
@@ -3160,7 +3293,7 @@ function htmlspecialchars_uni($text, $entities = true)
 		array('&lt;', '&gt;', '&quot;'),
 		preg_replace(
 			// translates all non-unicode entities
-			'/&(?!' . ($entities ? '#[0-9]+' : '(#[0-9]+|[a-z]+)') . ';)/si',
+			'/&(?!' . ($entities ? '#[0-9]+|shy' : '(#[0-9]+|[a-z]+)') . ';)/si',
 			'&amp;',
 			$text
 		)
@@ -3169,8 +3302,8 @@ function htmlspecialchars_uni($text, $entities = true)
 
 /*======================================================================*\
 || ####################################################################
-|| # Downloaded: 18:52, Sat Jul 14th 2007
-|| # CVS: $RCSfile$ - $Revision: 17011 $
+|| # Downloaded: 16:21, Sat Apr 6th 2013
+|| # CVS: $RCSfile$ - $Revision: 27007 $
 || ####################################################################
 \*======================================================================*/
 ?>

@@ -1,9 +1,9 @@
 <?php
 /*======================================================================*\
 || #################################################################### ||
-|| # vBulletin 3.6.7 PL1 - Licence Number VBF2470E4F
+|| # vBulletin 3.7.2 Patch Level 2 - Licence Number VBF2470E4F
 || # ---------------------------------------------------------------- # ||
-|| # Copyright ©2000-2007 Jelsoft Enterprises Ltd. All Rights Reserved. ||
+|| # Copyright ©2000-2013 Jelsoft Enterprises Ltd. All Rights Reserved. ||
 || # This file may not be redistributed in whole or significant part. # ||
 || # ---------------- VBULLETIN IS NOT FREE SOFTWARE ---------------- # ||
 || # http://www.vbulletin.com | http://www.vbulletin.com/license.html # ||
@@ -19,8 +19,8 @@ if (!isset($GLOBALS['vbulletin']->db))
 * Abstracted class that handles POST data from $_FILES
 *
 * @package	vBulletin
-* @version	$Revision: 16436 $
-* @date		$Date: 2007-02-26 05:20:22 -0600 (Mon, 26 Feb 2007) $
+* @version	$Revision: 26941 $
+* @date		$Date: 2008-06-12 12:05:56 -0500 (Thu, 12 Jun 2008) $
 */
 class vB_Upload_Abstract
 {
@@ -163,11 +163,12 @@ class vB_Upload_Abstract
 	/**
 	* This function accepts a file via URL or from $_FILES, verifies it, and places it in a temporary location for processing
 	*
-	* @var	mixed	Valid options are: (a) a URL to a file to retrieve or (b) a pointer to a file in the $_FILES array
+	* @param	mixed	Valid options are: (a) a URL to a file to retrieve or (b) a pointer to a file in the $_FILES array
 	*/
 	function accept_upload(&$upload)
 	{
 		$this->error = '';
+
 		if (!is_array($upload) AND strval($upload) != '')
 		{
 			$this->upload['extension'] = strtolower(file_extension($upload));
@@ -205,81 +206,6 @@ class vB_Upload_Abstract
 			}
 			else if ($filesize = $this->fetch_remote_filesize($upload))
 			{
-				$filetolarge = false;
-				if ($this->maxuploadsize AND $filesize > $this->maxuploadsize)
-				{
-					$filetolarge = true;
-				}
-				else
-				{
-					if (function_exists('memory_get_usage') AND $memory_limit = @ini_get('memory_limit') AND $memory_limit != -1)
-					{	// Make sure we have enough memory to process this file
-						$memorylimit = vb_number_format($memory_limit, 0, false, null, '');
-						$memoryusage = memory_get_usage();
-						$freemem = $memorylimit - $memoryusage;
-						@ini_set('memory_limit', (!empty($newmem)) ? $freemem + $newmem : $freemem + $filesize);
-					}
-
-					// some webservers deny us if we don't have an user_agent
-					@ini_set('user_agent', 'PHP');
-
-					if (!ini_get('allow_url_fopen') == 0)
-					{
-						if (!($handle = @fopen($upload, 'rb')))
-						{
-							$this->set_error('retrieval_of_remote_file_failed');
-							return false;
-						}
-						while (!feof($handle))
-						{
-							$contents .= fread($handle, 8192);
-							if ($this->maxuploadsize AND strlen($contents) > $this->maxuploadsize)
-							{
-								$filetolarge = true;
-								break;
-							}
-						}
-						fclose($handle);
-					}
-					else if (function_exists('curl_init') AND $ch = curl_init())
-					{
-						curl_setopt($ch, CURLOPT_URL, $upload);
-						curl_setopt($ch, CURLOPT_TIMEOUT, 15);
-						curl_setopt($ch, CURLOPT_RETURNTRANSFER, true);
-						curl_setopt($ch, CURLOPT_HEADER, false);
-						curl_setopt($ch, CURLOPT_USERAGENT, 'vBulletin via cURL/PHP');
-						/* Need to enable this for self signed certs, do we want to do that?
-						curl_setopt($ch, CURLOPT_SSL_VERIFYPEER, false);
-						curl_setopt($ch, CURLOPT_SSL_VERIFYHOST, false);
-						*/
-
-						$contents = curl_exec($ch);
-						if ($contents === false AND curl_errno($ch) == '60') ## CURLE_SSL_CACERT problem with the CA cert (path? access rights?)
-						{
-							curl_setopt($ch, CURLOPT_CAINFO, DIR . '/includes/paymentapi/ca-bundle.crt');
-							$contents = curl_exec($ch);
-						}
-						curl_close($ch);
-						if ($contents === false)
-						{
-							$this->set_error('retrieval_of_remote_file_failed');
-							return false;
-						}
-					}
-					else
-					{
-						$this->set_error('upload_invalid_url');
-						return false;
-					}
-				}
-
-				if ($filetolarge)
-				{
-					$this->set_error('upload_remoteimage_toolarge');
-					return false;
-				}
-
-/*				// Remove all code in this block and uncomment below
 				if ($this->maxuploadsize AND $filesize > $this->maxuploadsize)
 				{
 					$this->set_error('upload_remoteimage_toolarge');
@@ -292,7 +218,12 @@ class vB_Upload_Abstract
 						$memorylimit = vb_number_format($memory_limit, 0, false, null, '');
 						$memoryusage = memory_get_usage();
 						$freemem = $memorylimit - $memoryusage;
-						@ini_set('memory_limit', (!empty($newmem)) ? $freemem + $newmem : $freemem + $filesize);
+						$newmemlimit = !empty($newmem) ? $freemem + $newmem : $freemem + $filesize;
+
+						if (($current_memory_limit = ini_size_to_bytes(@ini_get('memory_limit'))) < $newmemlimit AND $current_memory_limit > 0)
+						{
+							@ini_set('memory_limit', $newmemlimit);
+						}
 					}
 
 					require_once(DIR . '/includes/class_vurl.php');
@@ -301,9 +232,9 @@ class vB_Upload_Abstract
 					$vurl->set_option(VURL_HEADER, true);
 					$vurl->set_option(VURL_MAXSIZE, $this->maxuploadsize);
 					$vurl->set_option(VURL_RETURNTRANSFER, true);
-					if ($result = $vurl->exec())
+					if ($result = $vurl->exec2())
 					{
-						$contents = $result['body'];
+
 					}
 					else
 					{
@@ -325,8 +256,6 @@ class vB_Upload_Abstract
 					}
 					unset($vurl);
 				}
-*/
-
 			}
 			else
 			{
@@ -346,13 +275,29 @@ class vB_Upload_Abstract
 				$this->upload['location'] = $this->registry->userinfo['permissions']['adminpermissions'] & $this->registry->bf_ugp_adminpermissions['cancontrolpanel'] ? tempnam(ini_get('upload_tmp_dir'), 'vbupload') : @tempnam(ini_get('upload_tmp_dir'), 'vbupload');
 			}
 
-			$fp = $this->registry->userinfo['permissions']['adminpermissions'] & $this->registry->bf_ugp_adminpermissions['cancontrolpanel'] ? fopen($this->upload['location'], 'wb') : @fopen($this->upload['location'], 'wb');
-			if ($fp AND $this->upload['location'])
+			$attachment_write_failed = true;
+			if (!empty($result['body']))
 			{
-				@fwrite($fp, $contents);
-				@fclose($fp);
+				$fp = $this->registry->userinfo['permissions']['adminpermissions'] & $this->registry->bf_ugp_adminpermissions['cancontrolpanel'] ? fopen($this->upload['location'], 'wb') : @fopen($this->upload['location'], 'wb');
+				if ($fp AND $this->upload['location'])
+				{
+					@fwrite($fp, $result['body']);
+					@fclose($fp);
+					$attachment_write_failed = false;
+				}
 			}
-			else
+			else if (file_exists($result['body_file']))
+			{
+				if (rename($result['body_file'], $this->upload['location']))
+				{
+					$mask = 0777 & ~umask();
+					@chmod($this->upload['location'], $mask);
+
+					$attachment_write_failed = false;
+				}
+			}
+
+			if ($attachment_write_failed)
 			{
 				$this->set_error('upload_writefile_failed');
 				return false;
@@ -374,15 +319,7 @@ class vB_Upload_Abstract
 			$this->upload['thumbnail'] = '';
 			$this->upload['filestuff'] = '';
 
-			if ($this->upload['error'] == 4 OR $this->upload['location'] == 'none' OR $this->upload['location'] == '' OR $this->upload['filename'] == '' OR !$this->upload['filesize'] OR !is_uploaded_file($this->upload['location']))
-			{
-				if ($this->emptyfile OR $this->upload['filename'] != '')
-				{
-					$this->set_error('upload_file_failed');
-				}
-				return false;
-			}
-			else if ($this->upload['error'])
+			if ($this->registry->userinfo['permissions']['adminpermissions'] & $this->registry->bf_ugp_adminpermissions['cancontrolpanel'] AND $this->upload['error'])
 			{
 				// Encountered PHP upload error
 				if (!($maxupload = @ini_get('upload_max_filesize')))
@@ -400,10 +337,30 @@ class vB_Upload_Abstract
 					case '3': // UPLOAD_ERR_PARTIAL
 						$this->set_error('upload_file_partially_uploaded');
 						break;
+					case '4':
+						$this->set_error('upload_file_failed');
+						break;
+					case '6':
+						$this->set_error('missing_temporary_folder');
+						break;
+					case '7':
+						$this->set_error('upload_writefile_failed');
+						break;
+					case '8':
+						$this->set_error('upload_stopped_by_extension');
+						break;
 					default:
 						$this->set_error('upload_invalid_file');
 				}
 
+				return false;
+			}
+			else if ($this->upload['error'] OR $this->upload['location'] == 'none' OR $this->upload['location'] == '' OR $this->upload['filename'] == '' OR !$this->upload['filesize'] OR !is_uploaded_file($this->upload['location']))
+			{
+				if ($this->emptyfile OR $this->upload['filename'] != '')
+				{
+					$this->set_error('upload_file_failed');
+				}
 				return false;
 			}
 
@@ -420,14 +377,17 @@ class vB_Upload_Abstract
 			}
 		}
 
-		return true;
+		$return_value = true;
+		($hook = vBulletinHook::fetch_hook('upload_accept')) ? eval($hook) : false;
+
+		return $return_value;
 
 	}
 
 	/**
 	* Requests headers of remote file to retrieve size without downloading the file
 	*
-	* @var	string	URL of remote file to retrieve size from
+	* @param	string	URL of remote file to retrieve size from
 	*/
 	function fetch_remote_filesize($url)
 	{
@@ -437,7 +397,6 @@ class vB_Upload_Abstract
 			return false;
 		}
 
-/*
 		require_once(DIR . '/includes/class_vurl.php');
 		$vurl = new vB_vURL($this->registry);
 		$vurl->set_option(VURL_URL, $url);
@@ -447,89 +406,158 @@ class vB_Upload_Abstract
 		$vurl->set_option(VURL_CUSTOMREQUEST, 'HEAD');
 		$vurl->set_option(VURL_RETURNTRANSFER, 1);
 		$vurl->set_option(VURL_CLOSECONNECTION, 1);
-		if ($result = $vurl->exec() AND !empty(intval($result['content-length'])))
+		if ($result = $vurl->exec2() AND $length = intval($result['content-length']))
 		{
-			return intval($result['content-length']);
+			return $length;
 		}
 		else
 		{
 			return false;
 		}
-*/
+	}
 
-		if (ini_get('allow_url_fopen') AND ($check[1] == 'http' OR function_exists('openssl_open')))
+	/**
+	* Attempt to resize file if the filesize is too large after an initial resize to max dimensions or the file is already within max dimensions but the filesize is too large
+	*
+	* @param	bool	Has the image already been resized once?
+	* @param	bool	Attempt a resize
+	*/
+	function fetch_best_resize(&$jpegconvert, $resize = true)
+	{
+		if (!$jpegconvert AND $this->upload['filesize'] > $this->maxuploadsize AND $resize AND $this->image->is_valid_resize_type($this->imginfo[2]))
 		{
-			$urlinfo = @parse_url($url);
-
-			if (empty($urlinfo['port']))
+			// Linear Regression
+			switch($this->registry->options['thumbquality'])
 			{
-				if ($urlinfo['scheme'] == 'https')
+				case 65:
+					// No Sharpen
+					// $magicnumber = round(379.421 + .00348171 * $this->maxuploadsize);
+					// Sharpen
+					$magicnumber = round(277.652 + .00428902 * $this->maxuploadsize);
+					break;
+				case 85:
+					// No Sharpen
+					// $magicnumber = round(292.53 + .0027378 * $this-maxuploadsize);
+					// Sharpen
+					$magicnumber = round(189.939 + .00352439 * $this->maxuploadsize);
+					break;
+				case 95:
+					// No Sharpen
+					// $magicnumber = round(188.11 + .0022561 * $this->maxuploadsize);
+					// Sharpen
+					$magicnumber = round(159.146 + .00234146 * $this->maxuploadsize);
+					break;
+				default:	//75
+					// No Sharpen
+					// $magicnumber = round(328.415 + .00323415 * $this->maxuploadsize);
+					// Sharpen
+					$magicnumber = round(228.201 + .00396951 * $this->maxuploadsize);
+			}
+
+			$xratio = ($this->imginfo[0] > $magicnumber) ? $magicnumber / $this->imginfo[0] : 1;
+			$yratio = ($this->imginfo[1] > $magicnumber) ? $magicnumber / $this->imginfo[1] : 1;
+
+			if ($xratio > $yratio AND $xratio != 1)
+			{
+				$new_width = round($this->imginfo[0] * $xratio);
+				$new_height = round($this->imginfo[1] * $xratio);
+			}
+			else
+			{
+				$new_width = round($this->imginfo[0] * $yratio);
+				$new_height = round($this->imginfo[1] * $yratio);
+			}
+			if ($new_width == $this->imginfo[0] AND $new_height == $this->imginfo[1])
+			{	// subtract one pixel so that requested size isn't the same as the image size
+				$new_width--;
+				$forceresize = false;
+			}
+			else
+			{
+				$forceresize = true;
+			}
+
+			$this->upload['resized'] = $this->image->fetch_thumbnail($this->upload['filename'], $this->upload['location'], $new_width, $new_height, $this->registry->options['thumbquality'], false, false, true, false);
+
+			if (empty($this->upload['resized']['filedata']))
+			{
+				if ($this->image->is_valid_thumbnail_extension(file_extension($this->upload['filename'])) AND !empty($this->upload['resized']['imageerror']) AND $this->registry->userinfo['permissions']['adminpermissions'] & $this->registry->bf_ugp_adminpermissions['cancontrolpanel'])
 				{
-					$urlinfo['port'] = 443;
+					if (($error = $this->image->fetch_error()) !== false AND $this->registry->userinfo['permissions']['adminpermissions'] & $this->registry->bf_ugp_adminpermissions['cancontrolpanel'])
+					{
+						$this->set_error('image_resize_failed_x', htmlspecialchars_uni($error));
+						return false;
+					}
+					else
+					{
+						$this->set_error($this->upload['resized']['imageerror']);
+						return false;
+					}
 				}
 				else
 				{
-					$urlinfo['port'] = 80;
+					$this->set_error('upload_file_exceeds_forum_limit', vb_number_format($this->upload['filesize'], 1, true), vb_number_format($this->maxuploadsize, 1, true));
+					#$this->set_error('upload_exceeds_dimensions', $this->maxwidth, $this->maxheight, $this->imginfo[0], $this->imginfo[1]);
+					return false;
 				}
 			}
-
-			$scheme = ($urlinfo['scheme'] == 'https') ? 'ssl://' : '';
-
-			if ($fp = @fsockopen($scheme . $urlinfo['host'], $urlinfo['port'], $errno, $errstr, 30))
+			else
 			{
-				fwrite($fp, 'HEAD ' . $url . " HTTP/1.1\r\n");
-				fwrite($fp, 'HOST: ' . $urlinfo['host'] . "\r\n");
-				fwrite($fp, "Connection: close\r\n\r\n");
+				$jpegconvert = true;
+			}
+		}
 
-				while (!feof($fp))
-				{
-					$headers .= fgets($fp, 4096);
-				}
-				fclose ($fp);
+		if (!$jpegconvert AND $this->upload['filesize'] > $this->maxuploadsize)
+		{
+			$this->set_error('upload_file_exceeds_forum_limit', vb_number_format($this->upload['filesize'], 1, true), vb_number_format($this->maxuploadsize, 1, true));
+			return false;
+		}
+		else if ($jpegconvert AND $this->upload['resized']['filesize'] AND ($this->upload['resized']['filesize'] > $this->maxuploadsize OR $forceresize))
+		{
+			$ratio = $this->maxuploadsize / $this->upload['resized']['filesize'];
 
-				$headersarray = explode("\n", $headers);
-				foreach($headersarray as $header)
+			$newwidth = $this->upload['resized']['width'] * sqrt($ratio);
+			$newheight = $this->upload['resized']['height'] * sqrt($ratio);
+
+			if ($newwidth > $this->imginfo[0])
+			{
+				$newwidth = $this->imginfo[0] - 1;
+			}
+			if ($newheight > $this->imginfo[1])
+			{
+				$newheight = $this->imginfo[1] - 1;
+			}
+
+			$this->upload['resized'] = $this->image->fetch_thumbnail($this->upload['filename'], $this->upload['location'], $newwidth, $newheight, $this->registry->options['thumbquality'], false, false, true, false);
+			if (empty($this->upload['resized']['filedata']))
+			{
+				if (!empty($this->upload['resized']['imageerror']) AND $this->registry->userinfo['permissions']['adminpermissions'] & $this->registry->bf_ugp_adminpermissions['cancontrolpanel'])
 				{
-					if (stristr($header, 'Content-Length') !== false)
+					if (($error = $this->image->fetch_error()) !== false AND $this->registry->userinfo['permissions']['adminpermissions'] & $this->registry->bf_ugp_adminpermissions['cancontrolpanel'])
 					{
-						$matches = array();
-						preg_match('#(\d+)#', $header, $matches);
-						return sprintf('%u', $matches[0]);
+						$this->set_error('image_resize_failed_x', htmlspecialchars_uni($error));
+						return false;
+					}
+					else
+					{
+						$this->set_error($this->upload['resized']['imageerror']);
+						return false;
 					}
 				}
+				else
+				{
+					$this->set_error('upload_file_exceeds_forum_limit', vb_number_format($this->upload['filesize'], 1, true), vb_number_format($this->maxuploadsize, 1, true));
+					#$this->set_error('upload_exceeds_dimensions', $this->maxwidth, $this->maxheight, $this->imginfo[0], $this->imginfo[1]);
+					return false;
+				}
+			}
+			else
+			{
+				$jpegconvert = true;
 			}
 		}
 
-		if (function_exists('curl_init') AND $ch = curl_init())
-		{
-			curl_setopt($ch, CURLOPT_URL, $url);
-			curl_setopt($ch, CURLOPT_TIMEOUT, 15);
-			curl_setopt($ch, CURLOPT_RETURNTRANSFER, true);
-			curl_setopt($ch, CURLOPT_HEADER, true);
-			curl_setopt($ch, CURLOPT_NOBODY, true);
-			curl_setopt($ch, CURLOPT_CUSTOMREQUEST, 'HEAD');
-			curl_setopt($ch, CURLOPT_USERAGENT, 'vBulletin via cURL/PHP');
-			/* Need to enable this for self signed certs, do we want to do that?
-			curl_setopt($ch, CURLOPT_SSL_VERIFYPEER, false);
-			curl_setopt($ch, CURLOPT_SSL_VERIFYHOST, false);
-			*/
-
-			$header = curl_exec($ch);
-
-			if ($header === false AND curl_errno($ch) == '60') ## CURLE_SSL_CACERT problem with the CA cert (path? access rights?)
-			{
-				curl_setopt($ch, CURLOPT_CAINFO, DIR . '/includes/paymentapi/ca-bundle.crt');
-				$header = curl_exec($ch);
-			}
-			curl_close($ch);
-			if ($header !== false)
-			{
-				preg_match('#Content-Length: (\d+)#i', $header, $matches);
-				return sprintf('%u', $matches[1]);
-			}
-		}
-
-		return false;
+		return true;
 	}
 
 	/**
@@ -639,9 +667,9 @@ class vB_Upload_Attachment extends vB_Upload_Abstract
 
 					if (($this->maxwidth > 0 AND $this->imginfo[0] > $this->maxwidth) OR ($this->maxheight > 0 AND $this->imginfo[1] > $this->maxheight))
 					{
-						$resizemaxwidth = ($this->registry->config['Misc']['maxwidth']) ? $this->registry->config['Misc']['maxwidth'] : 2592;
-						$resizemaxheight = ($this->registry->config['Misc']['maxheight']) ?$this->registry->config['Misc']['maxheight'] : 1944;
-						if ($this->registry->options['attachresize'] AND $this->image->is_valid_resize_type($this->imginfo[2]) AND $this->imginfo[0] <= $resizemaxwidth AND $this->imginfo[1] <= $resizemaxheight)
+						#$resizemaxwidth = ($this->registry->config['Misc']['maxwidth']) ? $this->registry->config['Misc']['maxwidth'] : 2592;
+						#$resizemaxheight = ($this->registry->config['Misc']['maxheight']) ?$this->registry->config['Misc']['maxheight'] : 1944;
+						if ($this->registry->options['attachresize'] AND $this->image->is_valid_resize_type($this->imginfo[2]))
 						{
 							$this->upload['resized'] = $this->image->fetch_thumbnail($this->upload['filename'], $this->upload['location'], $this->maxwidth, $this->maxheight, $this->registry->options['thumbquality'], false, false, true, false);
 							if (empty($this->upload['resized']['filedata']))
@@ -689,8 +717,43 @@ class vB_Upload_Attachment extends vB_Upload_Abstract
 					}
 					return false;
 				}
+			}
 
-				// Generate Thumbnail
+			$this->maxuploadsize = $this->fetch_max_uploadsize($this->upload['extension']);
+
+			if ($this->maxuploadsize > 0 AND !$this->fetch_best_resize($jpegconvert, $this->registry->options['attachresize']))
+			{
+				return false;
+			}
+
+			if (!empty($this->upload['resized']))
+			{
+				if (!empty($this->upload['resized']['filedata']))
+				{
+					$this->upload['filestuff'] =& $this->upload['resized']['filedata'];
+					$this->upload['filesize'] =& $this->upload['resized']['filesize'];
+				}
+				else
+				{
+					$this->set_error('upload_exceeds_dimensions', $this->maxwidth, $this->maxheight, $this->imginfo[0], $this->imginfo[1]);
+					return false;
+				}
+			}
+			else if (!@filesize($this->upload['location']))
+			{
+				$this->set_error('upload_file_failed');
+				return false;
+			}
+
+			if (!$this->check_attachment_overage())
+			{
+				@unlink($this->upload['location']);
+				return false;
+			}
+
+			// Generate Thumbnail
+			if ($this->image->is_valid_info_extension($this->upload['extension']))
+			{
 				if ($this->registry->attachmentcache["{$this->upload['extension']}"]['thumbnail'] AND $this->registry->options['attachthumbs'])
 				{
 					$labelimage = ($this->registry->options['attachthumbs'] == 3 OR $this->registry->options['attachthumbs'] == 4);
@@ -710,42 +773,11 @@ class vB_Upload_Attachment extends vB_Upload_Abstract
 				}
 			}
 
-			$this->maxuploadsize = $this->fetch_max_uploadsize($this->upload['extension']);
-			if (!$jpegconvert AND $this->maxuploadsize > 0 AND $this->upload['filesize'] > $this->maxuploadsize)
+			if (!empty($this->upload['resized']) AND $this->upload['resized']['filename'])
 			{
-				$this->set_error('upload_file_exceeds_forum_limit', vb_number_format($this->upload['filesize'], 1, true), vb_number_format($this->maxuploadsize, 1, true));
-				return false;
+				$this->upload['filename'] =& $this->upload['resized']['filename'];
 			}
 
-			if (!empty($this->upload['resized']))
-			{
-				if (!empty($this->upload['resized']['filedata']))
-				{
-					$this->upload['filestuff'] =& $this->upload['resized']['filedata'];
-					$this->upload['filesize'] =& $this->upload['resized']['filesize'];
-					if ($this->upload['resized']['filename'])
-					{
-						$this->upload['filename'] =& $this->upload['resized']['filename'];
-					}
-				}
-				else
-				{
-					$this->set_error('upload_exceeds_dimensions', $this->maxwidth, $this->maxheight, $this->imginfo[0], $this->imginfo[1]);
-					return false;
-				}
-			}
-			else if (!($this->upload['filestuff'] = @file_get_contents($this->upload['location'])))
-			{
-				$this->set_error('upload_file_failed');
-				return false;
-			}
-
-			if (!$this->check_attachment_overage())
-			{
-				return false;
-			}
-
-			@unlink($this->upload['location']);
 			return $this->save_upload();
 		}
 		else
@@ -775,6 +807,12 @@ class vB_Upload_Attachment extends vB_Upload_Abstract
 		if ($this->userinfo['permissions']['attachlimit'])
 		{
 			// Get forums that allow canview access
+			if (!isset($this->userinfo['forumpermissions']))
+			{
+				cache_permissions($this->userinfo, true);
+			}
+
+			$forumids = '';
 			foreach ($this->userinfo['forumpermissions'] AS $forumid => $fperm)
 			{
 				if (($fperm & $this->registry->bf_ugp_forumpermissions['canview']) AND ($fperm & $this->registry->bf_ugp_forumpermissions['canviewthreads']) AND ($fperm & $this->registry->bf_ugp_forumpermissions['cangetattachment']))
@@ -786,10 +824,10 @@ class vB_Upload_Attachment extends vB_Upload_Abstract
 			$attachdata = $this->registry->db->query_first_slave("
 				SELECT SUM(attachment.filesize) AS sum
 				FROM " . TABLE_PREFIX . "attachment AS attachment
-				LEFT JOIN " . TABLE_PREFIX . "post AS post ON (post.postid = attachment.postid)
-				LEFT JOIN " . TABLE_PREFIX . "thread AS thread ON (post.threadid = thread.threadid)
+				INNER JOIN " . TABLE_PREFIX . "post AS post ON (post.postid = attachment.postid)
+				INNER JOIN " . TABLE_PREFIX . "thread AS thread ON (post.threadid = thread.threadid)
 				WHERE attachment.userid = " . $this->userinfo['userid'] . "
-					AND	((forumid IN(0$forumids) AND post.visible <> 2 AND thread.visible <> 2) OR attachment.postid = 0)
+					AND	((thread.forumid IN (0$forumids) AND post.visible <> 2 AND thread.visible <> 2) OR attachment.postid = 0)
 			");
 			if (($attachdata['sum'] + $this->upload['filesize']) > $this->userinfo['permissions']['attachlimit'])
 			{
@@ -803,15 +841,30 @@ class vB_Upload_Attachment extends vB_Upload_Abstract
 		if ($this->userinfo['userid'] AND !$this->registry->options['allowduplicates'])
 		{
 			// read file
-			$filehash = md5($this->upload['filestuff']);
+			$filehash = (empty($this->upload['filestuff']) ? md5_file($this->upload['location']) : md5($this->upload['filestuff']));
+
+			if (!isset($this->userinfo['forumpermissions']))
+			{
+				cache_permissions($this->userinfo, true);
+			}
+
+			$forumids = '';
+			foreach ($this->userinfo['forumpermissions'] AS $forumid => $perm)
+			{
+				if (($perm & $this->registry->bf_ugp_forumpermissions['canview']) AND ($perm & $this->registry->bf_ugp_forumpermissions['canviewthreads']) AND ($perm & $this->registry->bf_ugp_forumpermissions['cangetattachment']))
+				{
+					$forumids .= ",$forumid";
+				}
+			}
 
 			if ($threadresult = $this->registry->db->query_first_slave("
 				SELECT post.postid, post.threadid, thread.title, posthash, attachment.filename
 				FROM " . TABLE_PREFIX . "attachment AS attachment
-				LEFT JOIN " . TABLE_PREFIX . "post AS post ON (post.postid = attachment.postid)
-				LEFT JOIN " . TABLE_PREFIX . "thread AS thread ON (thread.threadid = post.threadid)
+				INNER JOIN " . TABLE_PREFIX . "post AS post ON (post.postid = attachment.postid)
+				INNER JOIN " . TABLE_PREFIX . "thread AS thread ON (thread.threadid = post.threadid)
 				WHERE attachment.userid = " . $this->userinfo['userid'] . "
 					AND attachment.filehash = '" . $this->registry->db->escape_string($filehash) . "'
+					AND ((thread.forumid IN (0$forumids) AND post.visible = 1 AND thread.visible = 1) OR attachment.postid = 0)
 				LIMIT 1
 			"))
 			{
@@ -820,6 +873,7 @@ class vB_Upload_Attachment extends vB_Upload_Abstract
 				{
 					if ($this->postinfo['postid'] != $threadresult['postid'] OR $this->upload['filename'] != $threadresult['filename'])
 					{	// doesn't belong to our post or the filename differs so it won't be overwritten
+
 						$this->set_error('upload_attachexists', $this->registry->session->vars['sessionurl'], $threadresult['threadid'], $threadresult['title']);
 						return false;
 					}
@@ -870,9 +924,16 @@ class vB_Upload_Attachment extends vB_Upload_Abstract
 		$this->data->setr('userid', $this->userinfo['userid']);
 		$this->data->setr('filename', $this->upload['filename']);
 		$this->data->setr('posthash', $this->postinfo['posthash']);
-		$this->data->setr_info('filedata', $this->upload['filestuff']);
 		$this->data->setr_info('thumbnail', $this->upload['thumbnail']['filedata']);
 		$this->data->setr_info('postid', $this->postinfo['postid']);
+		if (!empty($this->upload['filestuff']))
+		{
+			$this->data->setr_info('filedata', $this->upload['filestuff']);
+		}
+		else
+		{
+			$this->data->set_info('filedata_location', $this->upload['location']);
+		}
 
 		// Update an existing attachment of the same name, rather than insert a new one or throw an "Attachment Already Exists" error
 		// I don't think this is actually used so ignore it for now
@@ -890,6 +951,7 @@ class vB_Upload_Attachment extends vB_Upload_Abstract
 			}
 		}
 
+		@unlink($this->upload['location']);
 		unset($this->upload);
 
 		return $result;
@@ -932,7 +994,6 @@ class vB_Upload_Userpic extends vB_Upload_Abstract
 			{
 				if ($this->image->is_valid_thumbnail_extension(file_extension($this->upload['filename'])))
 				{
-
 					if (!$this->imginfo[2])
 					{
 						$this->set_error('upload_invalid_image');
@@ -960,19 +1021,13 @@ class vB_Upload_Userpic extends vB_Upload_Abstract
 				if (($this->maxwidth AND $this->imginfo[0] > $this->maxwidth) OR ($this->maxheight AND $this->imginfo[1] > $this->maxheight) OR $this->image->fetch_must_convert($this->imginfo[2]))
 				{
 					// shrink-a-dink a big fat image or an invalid image for browser display (PSD, BMP, etc)
-					$this->upload['thumbnail'] = $this->image->fetch_thumbnail($this->upload['filename'], $this->upload['location'], $this->maxwidth, $this->maxheight, $this->registry->options['thumbquality']);
-					if (empty($this->upload['thumbnail']['filedata']))
+					$this->upload['resized'] = $this->image->fetch_thumbnail($this->upload['filename'], $this->upload['location'], $this->maxwidth, $this->maxheight, $this->registry->options['thumbquality'], false, false, false, false);
+					if (empty($this->upload['resized']['filedata']))
 					{
 						$this->set_error('upload_exceeds_dimensions', $this->maxwidth, $this->maxheight, $this->imginfo[0], $this->imginfo[1]);
 						return false;
 					}
-					else
-					{
-						$this->upload['filesize'] =& $this->upload['thumbnail']['filesize'];
-						$this->upload['filestuff'] =& $this->upload['thumbnail']['filedata'];
-						$this->imginfo[0] =& $this->upload['thumbnail']['width'];
-						$this->imginfo[1] =& $this->upload['thumbnail']['height'];
-					}
+					$jpegconvert = true;
 				}
 			}
 			else
@@ -988,19 +1043,30 @@ class vB_Upload_Userpic extends vB_Upload_Abstract
 				return false;
 			}
 
-			if ($this->maxuploadsize AND $this->upload['filesize'] > $this->maxuploadsize)
+			if ($this->maxuploadsize > 0 AND (!$this->fetch_best_resize($jpegconvert)))
 			{
-				$this->set_error('upload_file_exceeds_forum_limit', vb_number_format($this->upload['filesize'], 1, true), vb_number_format($this->maxuploadsize, 1, true));
 				return false;
 			}
 
-			if (!$this->upload['filestuff'])
+			if (!empty($this->upload['resized']))
 			{
-				if (!($this->upload['filestuff'] = @file_get_contents($this->upload['location'])))
+				if (!empty($this->upload['resized']['filedata']))
 				{
-					$this->set_error('upload_file_failed');
+					$this->upload['filestuff'] =& $this->upload['resized']['filedata'];
+					$this->upload['filesize'] =& $this->upload['resized']['filesize'];
+					$this->imginfo[0] =& $this->upload['resized']['width'];
+					$this->imginfo[1] =& $this->upload['resized']['height'];
+				}
+				else
+				{
+					$this->set_error('upload_exceeds_dimensions', $this->maxwidth, $this->maxheight, $this->imginfo[0], $this->imginfo[1]);
 					return false;
 				}
+			}
+			else if (!($this->upload['filestuff'] = @file_get_contents($this->upload['location'])))
+			{
+				$this->set_error('upload_file_failed');
+				return false;
 			}
 			@unlink($this->upload['location']);
 
@@ -1023,6 +1089,242 @@ class vB_Upload_Userpic extends vB_Upload_Abstract
 		$this->data->set_info('avatarrevision', $this->userinfo['avatarrevision']);
 		$this->data->set_info('profilepicrevision', $this->userinfo['profilepicrevision']);
 		$this->data->set_info('sigpicrevision', $this->userinfo['sigpicrevision']);
+
+		if (!($result = $this->data->save()))
+		{
+			if (empty($this->data->errors[0]) OR !($this->registry->userinfo['permissions']['adminpermissions'] & $this->registry->bf_ugp_adminpermissions['cancontrolpanel']))
+			{
+				$this->set_error('upload_file_failed');
+			}
+			else
+			{
+				$this->error =& $this->data->errors[0];
+			}
+		}
+
+		unset($this->upload);
+
+		return $result;
+	}
+}
+
+class vB_Upload_AlbumPicture extends vB_Upload_Abstract
+{
+	var $caption = null;
+	var $albums = array();
+
+	function vB_Upload_AlbumPicture(&$registry)
+	{
+		$this->allowanimation = true;
+
+		parent::vB_Upload_Abstract($registry);
+	}
+
+	function fetch_max_uploadsize($extension)
+	{
+		return $this->maxuploadsize;
+	}
+
+	function is_valid_extension($extension)
+	{
+		return !empty($this->image->info_extensions["{$this->upload['extension']}"]);
+	}
+
+	function process_upload($uploadurl = '')
+	{
+		if ($uploadurl == '' OR $uploadurl == 'http://www.')
+		{
+			$uploadstuff =& $this->registry->GPC['upload'];
+		}
+		else
+		{
+			if (is_uploaded_file($this->registry->GPC['upload']['tmp_name']))
+			{
+				$uploadstuff =& $this->registry->GPC['upload'];
+			}
+			else
+			{
+				$uploadstuff =& $uploadurl;
+			}
+		}
+
+		if ($this->accept_upload($uploadstuff))
+		{
+			if ($this->imginfo = $this->image->fetch_image_info($this->upload['location']))
+			{
+				if ($this->image->is_valid_thumbnail_extension(file_extension($this->upload['filename'])))
+				{
+					if (!$this->imginfo[2])
+					{
+						$this->set_error('upload_invalid_image');
+						return false;
+					}
+
+					if ($this->image->fetch_imagetype_from_extension($this->upload['extension']) != $this->imginfo[2])
+					{
+						$this->set_error('upload_invalid_image_extension', $this->imginfo[2]);
+						return false;
+					}
+				}
+				else
+				{
+					$this->set_error('upload_invalid_image');
+					return false;
+				}
+
+				if ($this->allowanimation === false AND $this->imginfo[2] == 'GIF' AND $this->imginfo['scenes'] > 1)
+				{
+					$this->set_error('upload_invalid_animatedgif');
+					return false;
+				}
+
+				if (($this->maxwidth AND $this->imginfo[0] > $this->maxwidth) OR ($this->maxheight AND $this->imginfo[1] > $this->maxheight) OR $this->image->fetch_must_convert($this->imginfo[2]))
+				{
+					// shrink-a-dink a big fat image or an invalid image for browser display (PSD, BMP, etc)
+					$this->upload['resized'] = $this->image->fetch_thumbnail($this->upload['filename'], $this->upload['location'], $this->maxwidth, $this->maxheight, $this->registry->options['thumbquality'], false, false, false, false);
+					if (empty($this->upload['resized']['filedata']))
+					{
+						$this->set_error('upload_exceeds_dimensions', $this->maxwidth, $this->maxheight, $this->imginfo[0], $this->imginfo[1]);
+						return false;
+					}
+					$jpegconvert = true;
+				}
+			}
+			else
+			{
+				if ($this->registry->userinfo['permissions']['adminpermissions'] & $this->registry->bf_ugp_adminpermissions['cancontrolpanel'])
+				{
+					$this->set_error('upload_imageinfo_failed_x', htmlspecialchars_uni($this->image->fetch_error()));
+				}
+				else
+				{
+					$this->set_error('upload_invalid_file');
+				}
+				return false;
+			}
+
+			if ($this->maxuploadsize > 0 AND !$this->fetch_best_resize($jpegconvert))
+			{
+				return false;
+			}
+
+			if (!empty($this->upload['resized']))
+			{
+				if (!empty($this->upload['resized']['filedata']))
+				{
+					$this->upload['filestuff'] =& $this->upload['resized']['filedata'];
+					$this->upload['filesize'] =& $this->upload['resized']['filesize'];
+					$this->imginfo[0] =& $this->upload['resized']['width'];
+					$this->imginfo[1] =& $this->upload['resized']['height'];
+				}
+				else
+				{
+					$this->set_error('upload_exceeds_dimensions', $this->maxwidth, $this->maxheight, $this->imginfo[0], $this->imginfo[1]);
+					return false;
+				}
+			}
+			else if (!($this->upload['filestuff'] = @file_get_contents($this->upload['location'])))
+			{
+				$this->set_error('upload_file_failed');
+				return false;
+			}
+
+			if (!$this->check_overage())
+			{
+				return false;
+			}
+
+			$this->build_thumbnail();
+
+			@unlink($this->upload['location']);
+
+			return $this->save_upload();
+		}
+		else
+		{
+			return false;
+		}
+	}
+
+	function check_overage()
+	{
+		require_once(DIR . '/includes/functions_album.php');
+
+		if ($this->userinfo['permissions']['albummaxpics'])
+		{
+			$overage = fetch_count_overage($this->userinfo['userid'], $this->userinfo['permissions']['albummaxpics'], 1);
+			if ($overage > 0)
+			{
+				$this->set_error('upload_total_album_pics_countfull', vb_number_format($overage));
+				return false;
+			}
+		}
+
+		if ($this->userinfo['permissions']['albummaxsize'])
+		{
+			$overage = fetch_size_overage($this->userinfo['userid'], $this->userinfo['permissions']['albummaxsize'], $this->upload['filesize']);
+			if ($overage > 0)
+			{
+				$this->set_error('upload_album_sizefull', vb_number_format($overage, 0, true));
+				return false;
+			}
+		}
+
+		return true;
+	}
+
+	function build_thumbnail()
+	{
+		$this->upload['thumbnail'] = $this->image->fetch_thumbnail(
+			$this->upload['filename'],
+			$this->upload['location'],
+			$this->registry->options['album_thumbsize'],
+			$this->registry->options['album_thumbsize'],
+			$this->registry->options['thumbquality'],
+			false,
+			false,
+			false,
+			true,
+			$this->upload['resized']['width'],
+			$this->upload['resized']['height'],
+			$this->upload['resized']['filesize']
+		);
+	}
+
+	function save_upload()
+	{
+		if ($this->albums)
+		{
+			$this->data->set_info('albums', $this->albums);
+		}
+
+		$ext_pos = strrpos($this->upload['filename'], '.');
+
+		if ($this->caption == null)
+		{
+			// base caption off filename if not specified
+			if ($ext_pos !== false)
+			{
+				$caption = substr($this->upload['filename'], 0, $ext_pos);
+			}
+			else
+			{
+				$caption = $this->upload['filename'];
+			}
+			$caption = str_replace(array('_', '-'), ' ', $caption);
+
+			$this->caption = $caption;
+		}
+
+		$this->data->set('caption', $this->caption);
+		$this->data->set('userid', $this->userinfo['userid']);
+		$this->data->set('extension', substr($this->upload['filename'], $ext_pos + 1));
+		$this->data->set('width', $this->imginfo[0]);
+		$this->data->set('height', $this->imginfo[1]);
+		$this->data->setr_info('filedata', $this->upload['filestuff']);
+		$this->data->setr_info('thumbnail', $this->upload['thumbnail']['filedata']);
+		$this->data->set('thumbnail_width', $this->upload['thumbnail']['width']);
+		$this->data->set('thumbnail_height', $this->upload['thumbnail']['height']);
 
 		if (!($result = $this->data->save()))
 		{
@@ -1151,8 +1453,8 @@ class vB_Upload_Image extends vB_Upload_Abstract
 
 /*======================================================================*\
 || ####################################################################
-|| # Downloaded: 18:52, Sat Jul 14th 2007
-|| # CVS: $RCSfile$ - $Revision: 16436 $
+|| # Downloaded: 16:21, Sat Apr 6th 2013
+|| # CVS: $RCSfile: class_upload.php,v $ - $Revision: 26941 $
 || ####################################################################
 \*======================================================================*/
 ?>

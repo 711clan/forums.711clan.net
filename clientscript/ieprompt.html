@@ -22,9 +22,18 @@ function init_dialog()
 	document.title = window.dialogArguments.title;
 	document.getElementById("textlabel").innerHTML = window.dialogArguments.label;
 	document.getElementById("textinput").value = window.dialogArguments.value;
+	if (window.dialogArguments.forceltr)
+	{
+		document.getElementById("textinput").dir = 'ltr';
+	}
 	
-	listmode = (typeof(window.dialogArguments.listtype) != "undefined" ? true : false);	
-	
+	if (document.getElementById("textinput").value == "http://")
+	{
+		document.getElementById("textinput").select();
+	}
+
+	listmode = (typeof(window.dialogArguments.listtype) != "undefined" ? true : false);
+
 	if (listmode)
 	{
 		ul = document.getElementById("listcontainer").appendChild(document.createElement((window.dialogArguments.listtype == 1 ? "ol" : "ul")));
@@ -33,7 +42,7 @@ function init_dialog()
 	{
 		document.getElementById("listcontainer").style.display = "none";
 	}
-	
+
 	document.getElementById("submitbutton").onclick = (listmode ? click_another : click_ok);
 	document.getElementById("cancelbutton").onclick = click_cancel;
 	document.getElementById("textinput").onkeypress = handle_keypress;
@@ -127,7 +136,7 @@ body {
 </head>
 <body onload="init_dialog()">
 	<div id="inputrow">
-		<img src="../image.php?type=ieprompt" alt="vBulletin" />
+		<img src="../image.php?type=ieprompt" alt="Javascript Prompt" />
 		<label id="textlabel" for="textinput">Enter text...</label>
 		<input type="text" id="textinput" />
 		<div id="listcontainer"></div>

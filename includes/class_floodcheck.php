@@ -1,9 +1,9 @@
 <?php
 /*======================================================================*\
 || #################################################################### ||
-|| # vBulletin 3.6.7 PL1 - Licence Number VBF2470E4F
+|| # vBulletin 3.7.2 Patch Level 2 - Licence Number VBF2470E4F
 || # ---------------------------------------------------------------- # ||
-|| # Copyright ©2000-2007 Jelsoft Enterprises Ltd. All Rights Reserved. ||
+|| # Copyright ©2000-2013 Jelsoft Enterprises Ltd. All Rights Reserved. ||
 || # This file may not be redistributed in whole or significant part. # ||
 || # ---------------- VBULLETIN IS NOT FREE SOFTWARE ---------------- # ||
 || # http://www.vbulletin.com | http://www.vbulletin.com/license.html # ||
@@ -18,8 +18,8 @@
 * This class only functions on integer values!
 *
 * @package	vBulletin
-* @version	$Revision: 14756 $
-* @date		$Date: 2006-05-28 11:23:33 -0500 (Sun, 28 May 2006) $
+* @version	$Revision: 25479 $
+* @date		$Date: 2008-01-17 10:34:14 -0600 (Thu, 17 Jan 2008) $
 */
 class vB_FloodCheck
 {
@@ -153,8 +153,8 @@ class vB_FloodCheck
 			return false;
 		}
 
-		$this->commit_value = intval($commit_value);
-		$floodmin_value = intval($floodmin_value);
+		$this->commit_value = intval($commit_value); // TIMENOW
+		$floodmin_value = intval($floodmin_value); // TIMENOW - 30
 
 		$db =& $this->registry->db;
 
@@ -168,6 +168,17 @@ class vB_FloodCheck
 
 		// if we updated something, we're not flooding; otherwise, we have to wait
 		$this->flood_wait = ($db->affected_rows() > 0 ? 0 : ($this->read_value - $floodmin_value));
+
+		/*
+			If a negative value occurs then it really is flooding.
+			The reason is that fetch_initial_data executed for each request before the first update,
+			when this happens $this->read_value will be the same and affected_rows will return 0 for
+			further requests.
+		*/
+		if ($this->flood_wait < 0)
+		{
+			$this->flood_wait = $commit_value - $floodmin_value;
+		}
 
 		$this->is_committed = true;
 		return true;
@@ -271,8 +282,8 @@ class vB_FloodCheck
 
 /*======================================================================*\
 || ####################################################################
-|| # Downloaded: 18:52, Sat Jul 14th 2007
-|| # CVS: $RCSfile$ - $Revision: 14756 $
+|| # Downloaded: 16:21, Sat Apr 6th 2013
+|| # CVS: $RCSfile$ - $Revision: 25479 $
 || ####################################################################
 \*======================================================================*/
 ?>

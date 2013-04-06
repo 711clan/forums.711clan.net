@@ -1,9 +1,9 @@
 <?php
 /*======================================================================*\
 || #################################################################### ||
-|| # vBulletin 3.6.7 PL1 - Licence Number VBF2470E4F
+|| # vBulletin 3.7.2 Patch Level 2 - Licence Number VBF2470E4F
 || # ---------------------------------------------------------------- # ||
-|| # Copyright ©2000-2007 Jelsoft Enterprises Ltd. All Rights Reserved. ||
+|| # Copyright ©2000-2013 Jelsoft Enterprises Ltd. All Rights Reserved. ||
 || # This file may not be redistributed in whole or significant part. # ||
 || # ---------------- VBULLETIN IS NOT FREE SOFTWARE ---------------- # ||
 || # http://www.vbulletin.com | http://www.vbulletin.com/license.html # ||
@@ -14,13 +14,13 @@
 define('VB_AREA', 'ModCP');
 define('IN_CONTROL_PANEL', true);
 
-if (!is_array($phrasegroups))
+if (!isset($phrasegroups) OR !is_array($phrasegroups))
 {
 	$phrasegroups = array();
 }
 $phrasegroups[] = 'cpglobal';
 
-if (!is_array($specialtemplates))
+if (!isset($specialtemplates) OR !is_array($specialtemplates))
 {
 	$specialtemplates = array();
 }
@@ -37,6 +37,13 @@ require_once(DIR . '/includes/functions_calendar.php');
 
 // ###################### Start headers #######################
 exec_nocache_headers();
+
+// Emulate IE7 rendering in IE8
+if ($vbulletin->options['ie8render7'])
+{
+	@header('X-UA-Compatible: IE=7');
+}
+
 
 if ($vbulletin->userinfo['cssprefs'] != '')
 {
@@ -69,7 +76,7 @@ if (!empty($vbulletin->GPC[COOKIE_PREFIX . 'cpsession']))
 		SELECT * FROM " . TABLE_PREFIX . "cpsession
 		WHERE userid = " . $vbulletin->userinfo['userid'] . "
 			AND hash = '" . $db->escape_string($vbulletin->GPC[COOKIE_PREFIX . 'cpsession']) . "'
-			AND dateline > " . iif($vbulletin->options['timeoutcontrolpanel'], intval(TIMENOW - 3600), intval(TIMENOW - $vbulletin->options['cookietimeout']))
+			AND dateline > " . iif($vbulletin->options['timeoutcontrolpanel'], intval(TIMENOW - $vbulletin->options['cookietimeout']), intval(TIMENOW - 3600))
 	);
 
 	if (!empty($cpsession))
@@ -94,8 +101,8 @@ if ((!can_moderate() AND !can_moderate_calendar()) OR ($vbulletin->options['time
 
 /*======================================================================*\
 || ####################################################################
-|| # Downloaded: 18:52, Sat Jul 14th 2007
-|| # CVS: $RCSfile$ - $Revision: 15325 $
+|| # Downloaded: 16:21, Sat Apr 6th 2013
+|| # CVS: $RCSfile$ - $Revision: 26608 $
 || ####################################################################
 \*======================================================================*/
 ?>

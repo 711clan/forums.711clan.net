@@ -1,9 +1,9 @@
 <?php
 /*======================================================================*\
 || #################################################################### ||
-|| # vBulletin 3.6.7 PL1 - Licence Number VBF2470E4F
+|| # vBulletin 3.7.2 Patch Level 2 - Licence Number VBF2470E4F
 || # ---------------------------------------------------------------- # ||
-|| # Copyright ©2000-2007 Jelsoft Enterprises Ltd. All Rights Reserved. ||
+|| # Copyright ©2000-2013 Jelsoft Enterprises Ltd. All Rights Reserved. ||
 || # This file may not be redistributed in whole or significant part. # ||
 || # ---------------- VBULLETIN IS NOT FREE SOFTWARE ---------------- # ||
 || # http://www.vbulletin.com | http://www.vbulletin.com/license.html # ||
@@ -23,8 +23,8 @@ require_once(DIR . '/includes/class_sigparser.php');
 * 3 size 2 characters). This is primarily used with signatures for line counting.
 *
 * @package 		vBulletin
-* @version		$Revision: 15963 $
-* @date 		$Date: 2006-11-30 05:03:44 -0600 (Thu, 30 Nov 2006) $
+* @version		$Revision: 26966 $
+* @date 		$Date: 2008-06-18 04:38:54 -0500 (Wed, 18 Jun 2008) $
 *
 */
 class vB_SignatureParser_CharCount extends vB_SignatureParser
@@ -120,13 +120,16 @@ class vB_SignatureParser_CharCount extends vB_SignatureParser
 				// str_replace is stop gap until custom tags are updated to the new format
 				$this->tag_list["$has_option"]["$customtag[bbcodetag]"] = array(
 					'callback' => 'handle_standard_tag',
-					'strip_empty' => true
+					'strip_empty' 		=> $customtag['strip_empty'],
+					'stop_parse'		=> $customtag['stop_parse'],
+					'disable_smilies'	=> $custontag['disable_smilies'],
+					'disable_wordwrap'	=> $custontag['disable_wordwrap'],
 				);
 			}
 		}
 		else // query bbcodes out of the database
 		{
-			$bbcodes = $this->registry->db->query_read("
+			$bbcodes = $this->registry->db->query_read_slave("
 				SELECT bbcodetag, bbcodereplacement, twoparams
 				FROM " . TABLE_PREFIX . "bbcode
 			");
@@ -137,7 +140,10 @@ class vB_SignatureParser_CharCount extends vB_SignatureParser
 				// str_replace is stop gap until custom tags are updated to the new format
 				$this->tag_list["$has_option"]["$customtag[bbcodetag]"] = array(
 					'callback' => 'handle_standard_tag',
-					'strip_empty' => true
+					'strip_empty'		=> intval($customtag['options']) & $this->registry->bf_misc['bbcodeoptions']['strip_empty'],
+					'stop_parse' 		=> intval($customtag['options']) & $this->registry->bf_misc['bbcodeoptions']['stop_parse'],
+					'disable_smilies'	=> intval($customtag['options']) & $this->registry->bf_misc['bbcodeoptions']['disable_smilies'],
+					'disable_wordwrap'	=> intval($customtag['options']) & $this->registry->bf_misc['bbcodeoptions']['disable_wordwrap']
 				);
 			}
 		}
@@ -222,17 +228,31 @@ class vB_SignatureParser_CharCount extends vB_SignatureParser
 
 	function handle_block_tag($value, $option = '')
 	{
+
+		// look for printable content before this tag - if we find some, we need to add a break
 		$starting_break = '';
-		if (isset($this->stack['1']))
+		$stack_size = count($this->stack);
+		for ($i = 1; $i < $stack_size; $i++)
 		{
-			if ($this->stack['1']['type'] == 'tag' AND $this->stack['1']['name'] == '_wrapper' AND !isset($this->stack['2']))
+			$stack_item = $this->stack["$i"];
+			if ($stack_item['type'] != 'tag')
 			{
-				// nothing before this tag
+				continue;
 			}
-			else if ($this->stack['1']['data'] == rtrim($this->stack['1']['data']))
+
+			if (!in_array($stack_item['name'], $this->block_tags) AND $stack_item['data'] === '')
 			{
+				// an inline tag with no content, ignore it
+				continue;
+			}
+
+			// block tag or inline tag with content...
+			if ($stack_item['data'] == rtrim($stack_item['data']))
+			{
+				// ..that doesn't end in whitespace
 				$starting_break = "\n";
 			}
+			break;
 		}
 
 		if ($this->node_num == $this->node_max - 1)
@@ -244,6 +264,9 @@ class vB_SignatureParser_CharCount extends vB_SignatureParser
 		{
 			$ending_break = "\n";
 		}
+
+		// browsers tend to ignore a single trailing break on block tags (D modifier to make $ only match the end)
+		$value = preg_replace('#(\r\n|\r|\n)[ \t]*$#sD', '', $value);
 
 		return $starting_break . $value . $ending_break;
 	}
@@ -448,7 +471,7 @@ class vB_SignatureParser_CharCount extends vB_SignatureParser
 			foreach($matches[2] AS $key => $attachmentid)
 			{
 				$align = $matches[1]["$key"];
-				$search[] = "#\[attach" . (!empty($align) ? '=' . $align : '') . "\]($attachmentid)\[/attach\]#i";
+				$search[] = '#\[attach' . (!empty($align) ? '=' . $align : '') . '\]('. $attachmentid . ')\[/attach\]#i';
 				$replace[] = '';
 			}
 
@@ -461,9 +484,12 @@ class vB_SignatureParser_CharCount extends vB_SignatureParser
 			if ($do_imgcode)
 			{
 				// do [img]xxx[/img]
-				$bbcode = preg_replace('#\[img\]\s*(https?://([^<>*"' . iif(!$this->registry->options['allowdynimg'], '?&') . ']+|[a-z0-9/\\._\- !]+))\[/img\]#iU', '', $bbcode);
+				$bbcode = preg_replace('#\[img\]\s*(https?://([^*\r\n]+|[a-z0-9/\\._\- !]+))\[/img\]#iU', '', $bbcode);
 			}
-			$bbcode = preg_replace('#\[img\]\s*(https?://([^<>*"]+|[a-z0-9/\\._\- !]+))\[/img\]#iUe', "\$this->handle_standard_tag(str_replace('\\\"', '\"', '\\1'), '')", $bbcode);
+			else
+			{
+				$bbcode = preg_replace('#\[img\]\s*(https?://([^*\r\n]+|[a-z0-9/\\._\- !]+))\[/img\]#iUe', "\$this->handle_standard_tag(str_replace('\\\"', '\"', '\\1'), '')", $bbcode);
+			}
 		}
 
 		if ($has_img_code & BBCODE_HAS_SIGPIC)
@@ -478,8 +504,8 @@ class vB_SignatureParser_CharCount extends vB_SignatureParser
 
 /*======================================================================*\
 || ####################################################################
-|| # Downloaded: 18:52, Sat Jul 14th 2007
-|| # CVS: $RCSfile$ - $Revision: 15963 $
+|| # Downloaded: 16:21, Sat Apr 6th 2013
+|| # CVS: $RCSfile$ - $Revision: 26966 $
 || ####################################################################
 \*======================================================================*/
 ?>

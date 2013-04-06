@@ -1,9 +1,9 @@
 <?php
 /*======================================================================*\
 || #################################################################### ||
-|| # vBulletin 3.6.7 PL1 - Licence Number VBF2470E4F
+|| # vBulletin 3.7.2 Patch Level 2 - Licence Number VBF2470E4F
 || # ---------------------------------------------------------------- # ||
-|| # Copyright ©2000-2007 Jelsoft Enterprises Ltd. All Rights Reserved. ||
+|| # Copyright ©2000-2013 Jelsoft Enterprises Ltd. All Rights Reserved. ||
 || # This file may not be redistributed in whole or significant part. # ||
 || # ---------------- VBULLETIN IS NOT FREE SOFTWARE ---------------- # ||
 || # http://www.vbulletin.com | http://www.vbulletin.com/license.html # ||
@@ -14,7 +14,7 @@
 error_reporting(E_ALL & ~E_NOTICE);
 
 // ##################### DEFINE IMPORTANT CONSTANTS #######################
-define('CVS_REVISION', '$RCSfile$ - $Revision: 15383 $');
+define('CVS_REVISION', '$RCSfile$ - $Revision: 23895 $');
 
 // #################### PRE-CACHE TEMPLATES AND DATA ######################
 $phrasegroups = array('help_faq', 'fronthelp');
@@ -63,7 +63,7 @@ if ($_REQUEST['do'] == 'download')
 		FROM " . TABLE_PREFIX . "adminhelp AS adminhelp
 		WHERE adminhelp.volatile = 1
 			AND adminhelp.$product_sql
-		ORDER BY adminhelp.action, adminhelp.displayorder
+		ORDER BY adminhelp.script, adminhelp.action, adminhelp.displayorder, adminhelp.optionname
 	");
 	while ($topic = $db->fetch_array($topics))
 	{
@@ -466,7 +466,7 @@ if ($_REQUEST['do'] == 'edit')
 	print_input_row($vbphrase['display_order'], 'help[displayorder]', $helpdata['displayorder']);
 
 	print_input_row($vbphrase['title'], 'title', $helpphrase["$titlephrase"]);
-	print_textarea_row($vbphrase['text'], 'text', $helpphrase["$textphrase"], 8, 50);
+	print_textarea_row($vbphrase['text'], 'text', $helpphrase["$textphrase"], 10, '50" style="width:100%');
 
 	if ($vbulletin->debug)
 	{
@@ -770,8 +770,8 @@ print_cp_footer();
 
 /*======================================================================*\
 || ####################################################################
-|| # Downloaded: 18:52, Sat Jul 14th 2007
-|| # CVS: $RCSfile$ - $Revision: 15383 $
+|| # Downloaded: 16:21, Sat Apr 6th 2013
+|| # CVS: $RCSfile$ - $Revision: 23895 $
 || ####################################################################
 \*======================================================================*/
 ?>

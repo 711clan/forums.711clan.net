@@ -1,9 +1,9 @@
 <?php
 /*======================================================================*\
 || #################################################################### ||
-|| # vBulletin 3.6.7 PL1 - Licence Number VBF2470E4F
+|| # vBulletin 3.7.2 Patch Level 2 - Licence Number VBF2470E4F
 || # ---------------------------------------------------------------- # ||
-|| # Copyright ©2000-2007 Jelsoft Enterprises Ltd. All Rights Reserved. ||
+|| # Copyright ©2000-2013 Jelsoft Enterprises Ltd. All Rights Reserved. ||
 || # This file may not be redistributed in whole or significant part. # ||
 || # ---------------- VBULLETIN IS NOT FREE SOFTWARE ---------------- # ||
 || # http://www.vbulletin.com | http://www.vbulletin.com/license.html # ||
@@ -257,16 +257,16 @@ function construct_edit_toolbar($text = '', $ishtml = false, $forumid = 0, $allo
 		$can_toolbar = ($sig_perms & $sig_perms_bits['canbbcode']) ? true : false;
 
 		$show['img_bbcode']   = ($sig_perms & $sig_perms_bits['allowimg']) ? true : false;
-		$show['font_bbcode']  = ($sig_perms & $sig_perms_bits['canbbcodefont']) ? true : false;
-		$show['size_bbcode']  = ($sig_perms & $sig_perms_bits['canbbcodesize']) ? true : false;
-		$show['color_bbcode'] = ($sig_perms & $sig_perms_bits['canbbcodecolor']) ? true : false;
-		$show['basic_bbcode'] = ($sig_perms & $sig_perms_bits['canbbcodebasic']) ? true : false;
-		$show['align_bbcode'] = ($sig_perms & $sig_perms_bits['canbbcodealign']) ? true : false;
-		$show['list_bbcode']  = ($sig_perms & $sig_perms_bits['canbbcodelist']) ? true : false;
-		$show['code_bbcode']  = ($sig_perms & $sig_perms_bits['canbbcodecode']) ? true : false;
-		$show['html_bbcode']  = ($sig_perms & $sig_perms_bits['canbbcodehtml']) ? true : false;
-		$show['php_bbcode']   = ($sig_perms & $sig_perms_bits['canbbcodephp']) ? true : false;
-		$show['url_bbcode']   = ($sig_perms & $sig_perms_bits['canbbcodelink']) ? true : false;
+		$show['font_bbcode']  = ($sig_perms & $sig_perms_bits['canbbcodefont'] AND $vbulletin->options['allowedbbcodes'] & ALLOW_BBCODE_FONT) ? true : false;
+		$show['size_bbcode']  = ($sig_perms & $sig_perms_bits['canbbcodesize'] AND $vbulletin->options['allowedbbcodes'] & ALLOW_BBCODE_SIZE) ? true : false;
+		$show['color_bbcode'] = ($sig_perms & $sig_perms_bits['canbbcodecolor'] AND $vbulletin->options['allowedbbcodes'] & ALLOW_BBCODE_COLOR) ? true : false;
+		$show['basic_bbcode'] = ($sig_perms & $sig_perms_bits['canbbcodebasic'] AND $vbulletin->options['allowedbbcodes'] & ALLOW_BBCODE_BASIC) ? true : false;
+		$show['align_bbcode'] = ($sig_perms & $sig_perms_bits['canbbcodealign'] AND $vbulletin->options['allowedbbcodes'] & ALLOW_BBCODE_ALIGN) ? true : false;
+		$show['list_bbcode']  = ($sig_perms & $sig_perms_bits['canbbcodelist'] AND $vbulletin->options['allowedbbcodes'] & ALLOW_BBCODE_LIST) ? true : false;
+		$show['code_bbcode']  = ($sig_perms & $sig_perms_bits['canbbcodecode'] AND $vbulletin->options['allowedbbcodes'] & ALLOW_BBCODE_CODE) ? true : false;
+		$show['html_bbcode']  = ($sig_perms & $sig_perms_bits['canbbcodehtml'] AND $vbulletin->options['allowedbbcodes'] & ALLOW_BBCODE_HTML) ? true : false;
+		$show['php_bbcode']   = ($sig_perms & $sig_perms_bits['canbbcodephp'] AND $vbulletin->options['allowedbbcodes'] & ALLOW_BBCODE_PHP) ? true : false;
+		$show['url_bbcode']   = ($sig_perms & $sig_perms_bits['canbbcodelink'] AND $vbulletin->options['allowedbbcodes'] & ALLOW_BBCODE_URL) ? true : false;
 		$show['quote_bbcode'] = ($sig_perms & $sig_perms_bits['canbbcodequote']) ? true : false;
 	}
 	else
@@ -286,6 +286,8 @@ function construct_edit_toolbar($text = '', $ishtml = false, $forumid = 0, $allo
 	}
 
 	$ajax_extra = '';
+
+	$allow_custom_bbcode = true;
 
 	if (empty($forumid))
 	{
@@ -318,6 +320,49 @@ function construct_edit_toolbar($text = '', $ishtml = false, $forumid = 0, $allo
 		case 'signature':
 			// see above -- these are handled earlier
 			break;
+
+		case 'visitormessage':
+		case 'groupmessage':
+		case 'picturecomment':
+		{
+			switch($forumid)
+			{
+				case 'groupmessage':
+					$allowedoption = $vbulletin->options['sg_allowed_bbcode'];
+				break;
+
+				case 'picturecomment':
+					$allowedoption = $vbulletin->options['pc_allowed_bbcode'];
+				break;
+
+				default:
+					$allowedoption = $vbulletin->options['vm_allowed_bbcode'];
+				break;
+			}
+
+			$show['font_bbcode']  = ($show['font_bbcode']  AND $allowedoption & ALLOW_BBCODE_FONT)  ? true : false;
+			$show['size_bbcode']  = ($show['size_bbcode']  AND $allowedoption & ALLOW_BBCODE_SIZE)  ? true : false;
+			$show['color_bbcode'] = ($show['color_bbcode'] AND $allowedoption & ALLOW_BBCODE_COLOR) ? true : false;
+			$show['basic_bbcode'] = ($show['basic_bbcode'] AND $allowedoption & ALLOW_BBCODE_BASIC) ? true : false;
+			$show['align_bbcode'] = ($show['align_bbcode'] AND $allowedoption & ALLOW_BBCODE_ALIGN) ? true : false;
+			$show['list_bbcode']  = ($show['list_bbcode']  AND $allowedoption & ALLOW_BBCODE_LIST)  ? true : false;
+			$show['code_bbcode']  = ($show['code_bbcode']  AND $allowedoption & ALLOW_BBCODE_CODE)  ? true : false;
+			$show['html_bbcode']  = ($show['html_bbcode']  AND $allowedoption & ALLOW_BBCODE_HTML)  ? true : false;
+			$show['php_bbcode']   = ($show['php_bbcode']   AND $allowedoption & ALLOW_BBCODE_PHP)   ? true : false;
+			$show['url_bbcode']   = ($show['url_bbcode']   AND $allowedoption & ALLOW_BBCODE_URL)   ? true : false;
+			$show['quote_bbcode'] = ($show['quote_bbcode'] AND $allowedoption & ALLOW_BBCODE_QUOTE) ? true : false;
+			$show['img_bbcode']   = ($allowedoption & ALLOW_BBCODE_IMG) ? true : false;
+
+			$can_toolbar = (
+				$show['font_bbcode'] OR $show['size_bbcode'] OR $show['color_bbcode'] OR
+				$show['basic_bbcode'] OR $show['align_bbcode'] OR $show['list_bbcode'] OR
+				$show['code_bbcode'] OR $show['html_bbcode'] OR $show['php_bbcode'] OR
+				$show['url_bbcode'] OR $show['quote_bbcode'] OR $show['img_bbcode']
+			);
+
+			$allow_custom_bbcode = ($allowedoption & ALLOW_BBCODE_CUSTOM ? true : false);
+		}
+		break;
 
 		case 'nonforum':
 			$can_toolbar = $vbulletin->options['allowbbcode'];
@@ -380,6 +425,21 @@ function construct_edit_toolbar($text = '', $ishtml = false, $forumid = 0, $allo
 			$editor_template_name = 'showthread_quickreply';
 			break;
 
+		case 'qr_small':
+			if ($force_editorid == '')
+			{
+				$editorid = 'vB_Editor_QR';
+			}
+			else
+			{
+				$editorid = $force_editorid;
+			}
+
+			$editor_height = 60;
+
+			$editor_template_name = 'showthread_quickreply';
+			break;
+
 		case 'qe':
 			if ($force_editorid == '')
 			{
@@ -390,7 +450,7 @@ function construct_edit_toolbar($text = '', $ishtml = false, $forumid = 0, $allo
 				$editorid = $force_editorid;
 			}
 
-			$editor_height = 100;
+			$editor_height = 200;
 
 			$editor_template_name = 'postbit_quickedit';
 			break;
@@ -415,17 +475,17 @@ function construct_edit_toolbar($text = '', $ishtml = false, $forumid = 0, $allo
 
 	// init the variables used by the templates built by this function
 	$vBeditJs = array(
-		'font_options_array'   => '',
-		'size_options_array'   => '',
-		'istyle_array'         => '',
-		'normalmode'           => 'false'
+		'font_options_array' => '',
+		'size_options_array' => '',
+		'istyle_array'       => '',
+		'normalmode'         => 'false'
 	);
 	$vBeditTemplate = array(
-		'extrabuttons'         => '',
-		'clientscript'         => '',
-		'fontfeedback'         => '',
-		'sizefeedback'         => '',
-		'smiliepopup'          => ''
+		'extrabuttons'       => '',
+		'clientscript'       => '',
+		'fontfeedback'       => '',
+		'sizefeedback'       => '',
+		'smiliepopup'        => ''
 	);
 
 	($hook = vBulletinHook::fetch_hook('editor_toolbar_start')) ? eval($hook) : false;
@@ -441,7 +501,7 @@ function construct_edit_toolbar($text = '', $ishtml = false, $forumid = 0, $allo
 		$vBeditJs = construct_editor_js_arrays();
 
 		// get extra buttons... experimental at the moment
-		$vBeditTemplate['extrabuttons'] = construct_editor_extra_buttons($editorid);
+		$vBeditTemplate['extrabuttons'] = construct_editor_extra_buttons($editorid, $allow_custom_bbcode);
 
 		if ($toolbartype == 2)
 		{
@@ -456,7 +516,7 @@ function construct_edit_toolbar($text = '', $ishtml = false, $forumid = 0, $allo
 				$newpost['message'] = '';
 			}
 
-			$newpost['message'] = htmlspecialchars_uni($newpost['message']);
+			$newpost['message'] = htmlspecialchars($newpost['message']);
 		}
 		else
 		{
@@ -478,7 +538,7 @@ function construct_edit_toolbar($text = '', $ishtml = false, $forumid = 0, $allo
 	$smiliebox = '';
 	$disablesmiliesoption = '';
 
-	if ($editor_type == 'qr')
+	if ($editor_type == 'qr' OR $editor_type == 'qr_small')
 	{
 		// no smilies
 	}
@@ -551,7 +611,7 @@ function construct_edit_toolbar($text = '', $ishtml = false, $forumid = 0, $allo
 					$bits = array();
 					while ($smilie = $vbulletin->db->fetch_array($smilies) AND $i++ < $vbulletin->options['smtotal'])
 					{
-						$smiliehtml = "<img src=\"$smilie[smiliepath]\" id=\"{$editorid}_smilie_$smilie[smilieid]\" alt=\"" . htmlspecialchars_uni($smilie['smilietext']) . "\" title=\"$smilie[title]\" border=\"0\" />";
+						$smiliehtml = "<img src=\"$smilie[smiliepath]\" id=\"{$editorid}_smilie_$smilie[smilieid]\" alt=\"" . htmlspecialchars_uni($smilie['smilietext']) . "\" title=\"$smilie[title]\" border=\"0\" class=\"inlineimg\" />";
 						eval('$bits[] = "' . fetch_template('editor_smilie') . '";');
 
 						if (sizeof($bits) == $vbulletin->options['smcolumns'])
@@ -583,6 +643,13 @@ function construct_edit_toolbar($text = '', $ishtml = false, $forumid = 0, $allo
 
 	($hook = vBulletinHook::fetch_hook('editor_toolbar_end')) ? eval($hook) : false;
 
+	// check that $editor_css has been built
+	if (!isset($GLOBALS['editor_css']))
+	{
+		eval('$GLOBALS[\'editor_css\'] = "' . fetch_template('editor_css') . '";');
+		$GLOBALS['headinclude'] .= "<!-- Editor CSS automatically added by " . substr(strrchr(__FILE__, DIRECTORY_SEPARATOR), 1) . " at line " . __LINE__ . " -->\n" . $GLOBALS['editor_css'];
+	}
+
 	eval('$vBeditTemplate[\'clientscript\'] = "' . fetch_template('editor_clientscript') . '";');
 
 	$ajax_extra = addslashes_js($ajax_extra);
@@ -598,24 +665,28 @@ function construct_edit_toolbar($text = '', $ishtml = false, $forumid = 0, $allo
 * Returns the extra buttons as defined by the bbcode editor
 *
 * @param	string	ID of the editor of which these buttons will be a part
+* @param 	boolean	Set to false to disable custom bbcode buttons
 *
 * @return	string	Extra buttons HTML
 */
-function construct_editor_extra_buttons($editorid)
+function construct_editor_extra_buttons($editorid, $allow_custom_bbcode = true)
 {
 	global $vbphrase, $vbulletin;
 
 	$extrabuttons = '';
 
-	foreach ($vbulletin->bbcodecache AS $bbcode)
+	if ($allow_custom_bbcode)
 	{
-		if ($bbcode['buttonimage'] != '')
+		foreach ($vbulletin->bbcodecache AS $bbcode)
 		{
-			$tag = strtoupper($bbcode['bbcodetag']);
+			if ($bbcode['buttonimage'] != '')
+			{
+				$tag = strtoupper($bbcode['bbcodetag']);
 
-			$alt = construct_phrase($vbphrase['wrap_x_tags'], $tag);
+				$alt = construct_phrase($vbphrase['wrap_x_tags'], $tag);
 
-			$extrabuttons .= "<td><div class=\"imagebutton\" id=\"{$editorid}_cmd_wrap$bbcode[twoparams]_$bbcode[bbcodetag]\"><img src=\"$bbcode[buttonimage]\" alt=\"$alt\" width=\"21\" height=\"20\" border=\"0\" /></div></td>\n";
+				$extrabuttons .= "<td><div class=\"imagebutton\" id=\"{$editorid}_cmd_wrap$bbcode[twoparams]_$bbcode[bbcodetag]\"><img src=\"$bbcode[buttonimage]\" alt=\"$alt\" width=\"21\" height=\"20\" border=\"0\" /></div></td>\n";
+			}
 		}
 	}
 
@@ -624,8 +695,8 @@ function construct_editor_extra_buttons($editorid)
 
 /*======================================================================*\
 || ####################################################################
-|| # Downloaded: 18:52, Sat Jul 14th 2007
-|| # CVS: $RCSfile$ - $Revision: 16289 $
+|| # Downloaded: 16:21, Sat Apr 6th 2013
+|| # CVS: $RCSfile$ - $Revision: 26141 $
 || ####################################################################
 \*======================================================================*/
 ?>

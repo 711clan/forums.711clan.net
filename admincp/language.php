@@ -1,9 +1,9 @@
 <?php
 /*======================================================================*\
 || #################################################################### ||
-|| # vBulletin 3.6.7 PL1 - Licence Number VBF2470E4F
+|| # vBulletin 3.7.2 Patch Level 2 - Licence Number VBF2470E4F
 || # ---------------------------------------------------------------- # ||
-|| # Copyright ©2000-2007 Jelsoft Enterprises Ltd. All Rights Reserved. ||
+|| # Copyright ©2000-2013 Jelsoft Enterprises Ltd. All Rights Reserved. ||
 || # This file may not be redistributed in whole or significant part. # ||
 || # ---------------- VBULLETIN IS NOT FREE SOFTWARE ---------------- # ||
 || # http://www.vbulletin.com | http://www.vbulletin.com/license.html # ||
@@ -14,7 +14,7 @@
 error_reporting(E_ALL & ~E_NOTICE);
 
 // ##################### DEFINE IMPORTANT CONSTANTS #######################
-define('CVS_REVISION', '$RCSfile$ - $Revision: 16009 $');
+define('CVS_REVISION', '$RCSfile$ - $Revision: 26900 $');
 define('DEFAULT_FILENAME', 'vbulletin-language.xml');
 
 // #################### PRE-CACHE TEMPLATES AND DATA ######################
@@ -41,6 +41,10 @@ log_admin_action(iif(!empty($vbulletin->GPC['dolanguageid']), "Language ID = " .
 // ########################################################################
 // ######################### START MAIN SCRIPT ############################
 // ########################################################################
+if (($current_memory_limit = ini_size_to_bytes(@ini_get('memory_limit'))) < 128 * 1024 * 1024 AND $current_memory_limit > 0)
+{
+	@ini_set('memory_limit', 128 * 1024 * 1024);
+}
 
 if (empty($_REQUEST['do']))
 {
@@ -111,7 +115,7 @@ if ($_POST['do'] == 'download')
 			" . (($vbulletin->GPC['dolanguageid'] != -1) ? ", IF(ISNULL(phrase2.phraseid), 1, 0) AS iscustom" : "") . "
 		FROM " . TABLE_PREFIX . "phrase AS phrase
 		" . (($vbulletin->GPC['dolanguageid'] != -1) ? "LEFT JOIN " . TABLE_PREFIX . "phrase AS phrase2 ON (phrase.varname = phrase2.varname AND phrase2.languageid = -1 AND phrase.fieldname = phrase2.fieldname)" : "") . "
-		WHERE phrase.languageid IN (" . $vbulletin->GPC['dolanguageid'] . (($vbulletin->GPC['dolanguageid'] == -1 AND $vbulletin->GPC['custom']) ? ", 0" : "") . ")
+		WHERE phrase.languageid IN (" . $vbulletin->GPC['dolanguageid'] . ($vbulletin->GPC['custom'] ? ", 0" : "") . ")
 			AND (phrase.product = '" . $db->escape_string($vbulletin->GPC['product']) . "'" . iif($vbulletin->GPC['product'] == 'vbulletin', " OR phrase.product = ''") . ")
 			" . (($vbulletin->GPC['dolanguageid'] == -1 AND !empty($default_skipped_groups)) ? "AND fieldname NOT IN ('" . implode("', '", $default_skipped_groups) . "')" : '') . "
 		ORDER BY phrase.languageid, phrase.fieldname, phrase.varname
@@ -167,21 +171,27 @@ if ($_POST['do'] == 'download')
 		foreach ($typephrases AS $phrase)
 		{
 			$attributes = array(
-				'name' => $phrase['varname'],
-				'date' => $phrase['dateline'],
-				'username' => $phrase['username'],
-				'version' => htmlspecialchars_uni($phrase['version'])
+				'name' => $phrase['varname']
 			);
 
-			if ($vbulletin->GPC['custom'] AND ($phrase['languageid'] == 0 OR $phrase['iscustom']))
+			if ($phrase['dateline'])
+			{
+				$attributes['date'] = $phrase['dateline'];
+			}
+			if ($phrase['username'])
+			{
+				$attributes['username'] = $phrase['username'];
+			}
+			if ($phrase['version'])
+			{
+				$attributes['version'] = htmlspecialchars_uni($phrase['version']);
+			}
+			if ($vbulletin->GPC['custom'] AND $phrase['languageid'] == 0)
 			{
 				$attributes['custom'] = 1;
-				$xml->add_tag('phrase', $phrase['text'], $attributes, true);
 			}
-			else
-			{
-				$xml->add_tag('phrase', $phrase['text'], $attributes, true);
-			}
+
+			$xml->add_tag('phrase', $phrase['text'], $attributes, true);
 		}
 		$xml->close_group();
 	}
@@ -229,7 +239,6 @@ if ($_POST['do'] == 'update')
 		$query = "
 			DELETE FROM " . TABLE_PREFIX . "phrase
 			WHERE phraseid IN(" . implode(', ', $vbulletin->GPC['rvt']) . ")
-			### DELETE REVERTED PHRASES FROM LANGUAGE:" . $vbulletin->GPC['dolanguageid'] . ", PHRASETYPE:" . $vbulletin->GPC['fieldname'] . " ###
 		";
 
 		$db->query_write($query);
@@ -347,11 +356,8 @@ if ($_REQUEST['do'] == 'files')
 	print_label_row($vbphrase['language'], '<select name="dolanguageid" tabindex="1" class="bginput">' . iif($vbulletin->debug, '<option value="-1">' . MASTER_LANGUAGE . '</option>') . construct_select_options($languages, $vbulletin->GPC['dolanguageid']) . '</select>', '', 'top', 'languageid');
 	print_select_row($vbphrase['product'], 'product', fetch_product_list());
 	print_input_row($vbphrase['filename'], 'filename', DEFAULT_FILENAME);
-	if ($vbulletin->debug)
-	{
-		print_yes_no_row($vbphrase['include_custom_phrases'], 'custom', 0);
-		print_yes_no_row($vbphrase['just_fetch_phrases'], 'just_phrases', 0);
-	}
+	print_yes_no_row($vbphrase['include_custom_phrases'], 'custom', 0);
+	print_yes_no_row($vbphrase['just_fetch_phrases'], 'just_phrases', 0);
 	print_submit_row($vbphrase['download']);
 
 	?>
@@ -792,7 +798,6 @@ if ($_REQUEST['do'] == 'edit')
 			$language = $lang;
 		}
 	}
-	$langoptions['no_value'] = '__________________________________';
 
 	$phrasetypeoptions = array();
 	$phrasetypes = fetch_phrasetypes_array();
@@ -1014,8 +1019,8 @@ print_cp_footer();
 
 /*======================================================================*\
 || ####################################################################
-|| # Downloaded: 18:52, Sat Jul 14th 2007
-|| # CVS: $RCSfile$ - $Revision: 16009 $
+|| # Downloaded: 16:21, Sat Apr 6th 2013
+|| # CVS: $RCSfile$ - $Revision: 26900 $
 || ####################################################################
 \*======================================================================*/
 ?>

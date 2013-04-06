@@ -1,9 +1,9 @@
 <?php
 /*======================================================================*\
 || #################################################################### ||
-|| # vBulletin 3.6.7 PL1 - Licence Number VBF2470E4F
+|| # vBulletin 3.7.2 Patch Level 2 - Licence Number VBF2470E4F
 || # ---------------------------------------------------------------- # ||
-|| # Copyright ©2000-2007 Jelsoft Enterprises Ltd. All Rights Reserved. ||
+|| # Copyright ©2000-2013 Jelsoft Enterprises Ltd. All Rights Reserved. ||
 || # This file may not be redistributed in whole or significant part. # ||
 || # ---------------- VBULLETIN IS NOT FREE SOFTWARE ---------------- # ||
 || # http://www.vbulletin.com | http://www.vbulletin.com/license.html # ||
@@ -21,8 +21,8 @@ require_once(DIR . '/includes/class_bbcode.php');
 * Stack based BB code parser.
 *
 * @package 		vBulletin
-* @version		$Revision: 16508 $
-* @date 		$Date: 2007-03-05 05:05:33 -0600 (Mon, 05 Mar 2007) $
+* @version		$Revision: 25833 $
+* @date 		$Date: 2008-02-22 08:10:39 -0600 (Fri, 22 Feb 2008) $
 *
 */
 class vB_SignatureParser extends vB_BbCodeParser
@@ -121,6 +121,7 @@ class vB_SignatureParser extends vB_BbCodeParser
 
 		// Specific functions
 		$this->tag_list['option']['size']['callback'] = 'check_bbcode_size';
+		$this->tag_list['no_option']['img']['callback'] = 'check_bbcode_img';
 
 		// needs to parse sig pics like any other bb code
 		$this->tag_list['no_option']['sigpic'] = array(
@@ -217,6 +218,23 @@ class vB_SignatureParser extends vB_BbCodeParser
 	}
 
 	/**
+	* BB code callback allowed check for images. Images fall back to links
+	* if the image code is disabled, so allow if either is true.
+	*
+	*/
+	function check_bbcode_img($image_path)
+	{
+		if (!($this->registry->bf_ugp_signaturepermissions['allowimg'] & $this->permissions['signaturepermissions'])
+			AND !($this->registry->bf_ugp_signaturepermissions['canbbcodelink'] & $this->permissions['signaturepermissions'])
+		)
+		{
+			$this->errors['img'] = 'tag_not_allowed';
+		}
+
+		return $image_path;
+	}
+
+	/**
 	* BB code sigpic, returns the <img link.
 	*
 	*/
@@ -248,8 +266,8 @@ class vB_SignatureParser extends vB_BbCodeParser
 
 /*======================================================================*\
 || ####################################################################
-|| # Downloaded: 18:52, Sat Jul 14th 2007
-|| # CVS: $RCSfile$ - $Revision: 16508 $
+|| # Downloaded: 16:21, Sat Apr 6th 2013
+|| # CVS: $RCSfile$ - $Revision: 25833 $
 || ####################################################################
 \*======================================================================*/
 

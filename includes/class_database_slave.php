@@ -1,9 +1,9 @@
 <?php
 /*======================================================================*\
 || #################################################################### ||
-|| # vBulletin 3.6.7 PL1 - Licence Number VBF2470E4F
+|| # vBulletin 3.7.2 Patch Level 2 - Licence Number VBF2470E4F
 || # ---------------------------------------------------------------- # ||
-|| # Copyright ©2000-2007 Jelsoft Enterprises Ltd. All Rights Reserved. ||
+|| # Copyright ©2000-2013 Jelsoft Enterprises Ltd. All Rights Reserved. ||
 || # This file may not be redistributed in whole or significant part. # ||
 || # ---------------- VBULLETIN IS NOT FREE SOFTWARE ---------------- # ||
 || # http://www.vbulletin.com | http://www.vbulletin.com/license.html # ||
@@ -15,6 +15,13 @@ if (!class_exists('vB_Database'))
 	exit;
 }
 
+/**
+* Class to handle interacting with a slave (and master) DB. Slave DBs are
+* used for some reads. Master DBs are used for all writes and time-sensitive
+* reads.
+*
+* @package	vBulletin
+*/
 class vB_Database_Slave extends vB_Database
 {
 	/**
@@ -121,7 +128,13 @@ class vB_Database_Slave extends vB_Database
 	}
 }
 
-
+/**
+* Class to handle interacting with a slave (and master) DB. Slave DBs are
+* used for some reads. Master DBs are used for all writes and time-sensitive
+* reads. (MySQLi)
+*
+* @package	vBulletin
+*/
 class vB_Database_Slave_MySQLi extends vB_Database_MySQLi
 {
 	/**
@@ -230,8 +243,8 @@ class vB_Database_Slave_MySQLi extends vB_Database_MySQLi
 
 /*======================================================================*\
 || ####################################################################
-|| # Downloaded: 18:52, Sat Jul 14th 2007
-|| # CVS: $RCSfile$ - $Revision: 16257 $
+|| # Downloaded: 16:21, Sat Apr 6th 2013
+|| # CVS: $RCSfile$ - $Revision: 26074 $
 || ####################################################################
 \*======================================================================*/
 ?>

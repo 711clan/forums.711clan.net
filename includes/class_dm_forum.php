@@ -1,9 +1,9 @@
 <?php
 /*======================================================================*\
 || #################################################################### ||
-|| # vBulletin 3.6.7 PL1 - Licence Number VBF2470E4F
+|| # vBulletin 3.7.2 Patch Level 2 - Licence Number VBF2470E4F
 || # ---------------------------------------------------------------- # ||
-|| # Copyright ©2000-2007 Jelsoft Enterprises Ltd. All Rights Reserved. ||
+|| # Copyright ©2000-2013 Jelsoft Enterprises Ltd. All Rights Reserved. ||
 || # This file may not be redistributed in whole or significant part. # ||
 || # ---------------- VBULLETIN IS NOT FREE SOFTWARE ---------------- # ||
 || # http://www.vbulletin.com | http://www.vbulletin.com/license.html # ||
@@ -31,8 +31,8 @@ require_once(DIR . '/includes/adminfunctions.php');
 * $f->save();
 *
 * @package	vBulletin
-* @version	$Revision: 15405 $
-* @date		$Date: 2006-07-31 09:36:10 -0500 (Mon, 31 Jul 2006) $
+* @version	$Revision: 25926 $
+* @date		$Date: 2008-03-03 11:44:00 -0600 (Mon, 03 Mar 2008) $
 */
 class vB_DataManager_Forum extends vB_DataManager
 {
@@ -57,6 +57,7 @@ class vB_DataManager_Forum extends vB_DataManager
 		'lastthread'        => array(TYPE_STR,        REQ_NO),
 		'lastthreadid'      => array(TYPE_UINT,       REQ_NO),
 		'lasticonid'        => array(TYPE_INT,        REQ_NO),
+		'lastprefixid'      => array(TYPE_NOHTML,     REQ_NO),
 		'threadcount'       => array(TYPE_UINT,       REQ_NO),
 		'daysprune'         => array(TYPE_INT,        REQ_AUTO, 'if ($data == 0) { $data = -1; } return true;'),
 		'newpostemail'      => array(TYPE_STR,        REQ_NO,   VF_METHOD, 'verify_emaillist'),
@@ -68,7 +69,8 @@ class vB_DataManager_Forum extends vB_DataManager
 		'childlist'         => array(TYPE_STR,        REQ_AUTO),
 		'showprivate'       => array(TYPE_UINT,       REQ_NO,   'if ($data > 3) { $data = 0; } return true;'),
 		'defaultsortfield'  => array(TYPE_STR,        REQ_NO),
-		'defaultsortorder'  => array(TYPE_STR,        REQ_NO,   'if ($data != "asc") { $data = "desc"; } return true;')
+		'defaultsortorder'  => array(TYPE_STR,        REQ_NO,   'if ($data != "asc") { $data = "desc"; } return true;'),
+		'imageprefix'       => array(TYPE_NOHTML,     REQ_NO,  VF_METHOD)
 	);
 
 	/**
@@ -94,6 +96,13 @@ class vB_DataManager_Forum extends vB_DataManager
 	var $forum = array();
 
 	/**
+	* Array to store stuff to save to tachyforumcounter table
+	*
+	* @var	array
+	*/
+	var $tachyforumcounter = array();
+
+	/**
 	* Condition template for update query
 	*
 	* @var	array
@@ -112,6 +121,61 @@ class vB_DataManager_Forum extends vB_DataManager
 
 		($hook = vBulletinHook::fetch_hook('forumdata_start')) ? eval($hook) : false;
 	}
+
+
+	/**
+	* Takes valid data and sets it as part of the data to be saved
+	*
+	* @param	string	The name of the field to which the supplied data should be applied
+	* @param	mixed	The data itself
+	*/
+	function do_set($fieldname, &$value)
+	{
+		switch($fieldname)
+		{
+			case 'lastpost':
+			case 'lastposter':
+			case 'lastpostid':
+			case 'lastthread':
+			case 'lastthreadid':
+			case 'lasticonid':
+			case 'lastprefixid':
+			{
+				if (!empty($this->info['coventry']) AND $this->info['coventry']['in_coventry'] == 1)
+				{
+					$table = 'tachyforumpost';
+				}
+				else
+				{
+					$table = $this->table;
+				}
+			}
+			break;
+
+			case 'replycount':
+			case 'threadcount':
+			{
+				if (!empty($this->info['coventry']) AND $this->info['coventry']['in_coventry'] == 1)
+				{
+					$table = 'tachyforumcounter';
+				}
+				else
+				{
+					$table = $this->table;
+				}
+			}
+			break;
+
+			default:
+			{
+				$table = $this->table;
+			}
+		}
+
+		$this->setfields["$fieldname"] = true;
+		$this->{$table}["$fieldname"] =& $value;
+	}
+
 
 	/**
 	* Verifies that the given forum title is valid
@@ -256,6 +320,23 @@ class vB_DataManager_Forum extends vB_DataManager
 	}
 
 	/**
+	* Verifies that an image filename prefix is valid
+	*
+	* @param	string	The image prefix filename
+	*
+	* @return	boolean
+	*/
+	function verify_imageprefix(&$prefix)
+	{
+		if (!preg_match('#^[A-Za-z0-9_./-]*$#', $prefix))
+		{
+			$this->error('invalid_imageprefix_specified');
+			return false;
+		}
+		return true;
+	}
+
+	/**
 	* Any checks to run immediately before saving. If returning false, the save will not take place.
 	*
 	* @param	boolean	Do the query?
@@ -287,10 +368,105 @@ class vB_DataManager_Forum extends vB_DataManager
 		if ($this->condition AND $this->info['applypwdtochild'] AND isset($this->forum['password']) AND $this->forum['password'] != $this->existing['password'])
 		{
 			$this->dbobject->query_write("
-                 UPDATE " . TABLE_PREFIX . "forum
-                 SET password = '" . $this->dbobject->escape_string($this->forum['password']) . "'
-                 WHERE FIND_IN_SET('" . $this->existing['forumid'] . "', parentlist)
-            ");
+         		UPDATE " . TABLE_PREFIX . "forum
+         		SET password = '" . $this->dbobject->escape_string($this->forum['password']) . "'
+         		WHERE FIND_IN_SET('" . $this->existing['forumid'] . "', parentlist)
+    		");
+		}
+
+		if ($this->info['coventry']['in_coventry'] == 1 AND ($this->setfields['replycount'] OR $this->setfields['threadcount']))
+		{
+			$tachnumrows = $this->dbobject->query_first("
+				SELECT COUNT(*) AS numrows FROM " . TABLE_PREFIX . "tachyforumcounter
+				WHERE userid = " . $this->info['coventry']['userid'] . "
+					AND forumid = " . $this->fetch_field('forumid')
+			);
+			if ($tachnumrows['numrows'] > 0)
+			{
+				// updating the existing counters -- this should have things like 'replycount + 1'
+				$tachyupdate = '';
+
+				if ($this->setfields['replycount'])
+				{
+					$tachyupdate .= " replycount = " . $this->tachyforumcounter['replycount'];
+				}
+
+				if ($this->setfields['replycount'] AND $this->setfields['threadcount'])
+				{
+					$tachyupdate .= ",";
+				}
+
+				if ($this->setfields['threadcount'])
+				{
+					$tachyupdate .= " threadcount = " . $this->tachyforumcounter['threadcount'];
+				}
+
+				$this->dbobject->query_write("
+					UPDATE " . TABLE_PREFIX . "tachyforumcounter SET
+						$tachyupdate
+					WHERE userid = " . $this->info['coventry']['userid'] . "
+						AND forumid = " . $this->fetch_field('forumid')
+				);
+
+			}
+			else
+			{
+				// first insert - initialize values
+				if ($this->setfields['replycount'])
+				{
+					$this->tachyforumcounter['replycount'] = 1;
+				}
+
+				if ($this->setfields['threadcount'])
+				{
+					$this->tachyforumcounter['threadcount'] = 1;
+				}
+
+				$this->tachyforumcounter['userid'] = $this->info['coventry']['userid'];
+				$this->tachyforumcounter['forumid'] = $this->fetch_field('forumid');
+
+				$this->dbobject->query_write("
+					REPLACE INTO " . TABLE_PREFIX . "tachyforumcounter
+						(userid, forumid, threadcount, replycount)
+					VALUES
+						(" . intval($this->tachyforumcounter['userid']) . ",
+						" . intval($this->tachyforumcounter['forumid']) . ",
+						" . intval($this->tachyforumcounter['threadcount']) . ",
+						" . intval($this->tachyforumcounter['replycount']) . ")
+				");
+
+			}
+		}
+
+		if ($this->setfields['lastpost'] AND empty($this->info['rebuild']))
+		{
+			if ($this->info['coventry']['in_coventry'] == 1)
+			{
+				$this->tachyforumpost['userid'] = $this->info['coventry']['userid'];
+				$this->tachyforumpost['forumid'] = $this->fetch_field('forumid');
+
+				$this->dbobject->query_write("
+					REPLACE INTO " . TABLE_PREFIX . "tachyforumpost
+						(userid, forumid, lastpost, lastposter, lastpostid, lastthread, lastthreadid, lasticonid, lastprefixid)
+					VALUES
+						(" . intval($this->tachyforumpost['userid']) . ",
+						" .  intval($this->tachyforumpost['forumid']) . ",
+						" .  intval($this->tachyforumpost['lastpost']) . ",
+						'" . $this->dbobject->escape_string($this->tachyforumpost['lastposter']) . "',
+						" .  intval($this->tachyforumpost['lastpostid']) . ",
+						'" . $this->dbobject->escape_string($this->tachyforumpost['lastthread']) . "',
+						" .  intval($this->tachyforumpost['lastthreadid']) . ",
+						" .  intval($this->tachyforumpost['lasticonid']) . ",
+						'" . $this->dbobject->escape_string($this->tachyforumpost['lastprefixid']) . "')
+				");
+			}
+			else
+			{
+				$this->dbobject->query_write("
+					DELETE FROM " . TABLE_PREFIX . "tachyforumpost
+					WHERE forumid = " . intval($this->fetch_field('forumid'))
+				);
+			}
 		}
 
 		($hook = vBulletinHook::fetch_hook('forumdata_postsave')) ? eval($hook) : false;
@@ -319,7 +495,7 @@ class vB_DataManager_Forum extends vB_DataManager
 		// fetch list of forums to delete
 		$forumlist = '';
 
-		$forums = $this->dbobject->query_read("SELECT forumid FROM " . TABLE_PREFIX . "forum WHERE " . $this->condition);
+		$forums = $this->dbobject->query_read_slave("SELECT forumid FROM " . TABLE_PREFIX . "forum WHERE " . $this->condition);
 		while($thisforum = $this->dbobject->fetch_array($forums))
 		{
 			$forumlist .= ',' . $thisforum['forumid'];
@@ -345,11 +521,12 @@ class vB_DataManager_Forum extends vB_DataManager
 			$this->db_delete(TABLE_PREFIX, 'subscribeforum',  $condition);
 			$this->db_delete(TABLE_PREFIX, 'tachyforumpost',  $condition);
 			$this->db_delete(TABLE_PREFIX, 'podcast',         $condition);
+			$this->db_delete(TABLE_PREFIX, 'forumprefixset',  $condition);
 
 			require_once(DIR . '/includes/functions_databuild.php');
 
 			// delete threads in specified forums
-			$threads = $this->dbobject->query_read("SELECT * FROM " . TABLE_PREFIX . "thread WHERE $condition");
+			$threads = $this->dbobject->query_read_slave("SELECT * FROM " . TABLE_PREFIX . "thread WHERE $condition");
 			while ($thread = $this->dbobject->fetch_array($threads))
 			{
 				$threadman =& datamanager_init('Thread', $this->registry, ERRTYPE_SILENT, 'threadpost');
@@ -369,63 +546,11 @@ class vB_DataManager_Forum extends vB_DataManager
 	}
 }
 
-/**
-* Class to do data update operations for multiple FORUMS simultaneously
-*
-* @package	vBulletin
-* @version	$Revision: 15405 $
-* @date		$Date: 2006-07-31 09:36:10 -0500 (Mon, 31 Jul 2006) $
-*/
-class vB_DataManager_Forum_Multiple extends vB_DataManager_Multiple
-{
-	/**
-	* The name of the class to instantiate for each matching. It is assumed to exist!
-	* It should be a subclass of vB_DataManager.
-	*
-	* @var	string
-	*/
-	var $class_name = 'vB_DataManager_Forum';
-
-	/**
-	* The name of the primary ID column that is used to uniquely identify records retrieved.
-	* This will be used to build the condition in all update queries!
-	*
-	* @var string
-	*/
-	var $primary_id = 'forumid';
-
-	/**
-	* Builds the SQL to run to fetch records. This must be overridden by a child class!
-	*
-	* @param	string	Condition to use in the fetch query; the entire WHERE clause
-	* @param	integer	The number of records to limit the results to; 0 is unlimited
-	* @param	integer	The number of records to skip before retrieving matches.
-	*
-	* @return	string	The query to execute
-	*/
-	function fetch_query($condition, $limit = 0, $offset = 0)
-	{
-		$query = "SELECT * FROM " . TABLE_PREFIX . "forum AS forum";
-		if ($condition)
-		{
-			$query .= " WHERE $condition";
-		}
-
-		$limit = intval($limit);
-		$offset = intval($offset);
-		if ($limit)
-		{
-			$query .= " LIMIT $offset, $limit";
-		}
-
-		return $query;
-	}
-}
 
 /*======================================================================*\
 || ####################################################################
-|| # Downloaded: 18:52, Sat Jul 14th 2007
-|| # CVS: $RCSfile$ - $Revision: 15405 $
+|| # Downloaded: 16:21, Sat Apr 6th 2013
+|| # CVS: $RCSfile$ - $Revision: 25926 $
 || ####################################################################
 \*======================================================================*/
 ?>

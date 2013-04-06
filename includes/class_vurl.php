@@ -1,9 +1,9 @@
 <?php
 /*======================================================================*\
 || #################################################################### ||
-|| # vBulletin 3.6.7 PL1 - Licence Number VBF2470E4F
+|| # vBulletin 3.7.2 Patch Level 2 - Licence Number VBF2470E4F
 || # ---------------------------------------------------------------- # ||
-|| # Copyright ©2000-2007 Jelsoft Enterprises Ltd. All Rights Reserved. ||
+|| # Copyright ©2000-2013 Jelsoft Enterprises Ltd. All Rights Reserved. ||
 || # This file may not be redistributed in whole or significant part. # ||
 || # ---------------- VBULLETIN IS NOT FREE SOFTWARE ---------------- # ||
 || # http://www.vbulletin.com | http://www.vbulletin.com/license.html # ||
@@ -32,103 +32,93 @@ define('VURL_NOBODY',           8192);
 define('VURL_CUSTOMREQUEST',   16384);
 define('VURL_MAXSIZE',         32768);
 define('VURL_DIEONMAXSIZE',    65536);
+define('VURL_VALIDSSLONLY',   131072);
 
 define('VURL_ERROR_MAXSIZE',       1);
 define('VURL_ERROR_SSL',           2);
 define('VURL_ERROR_URL',           4);
 define('VURL_ERROR_NOLIB',         8);
 
+define('VURL_HANDLED',             1);
+define('VURL_NEXT',                2);
+
 /**
 * vBulletin remote url class
 *
 * This class handles sending and returning data to remote urls via cURL and fsockopen
+*
+* @package 		vBulletin
+* @version		$Revision: 26813 $
+* @date 		$Date: 2008-06-03 11:25:58 -0500 (Tue, 03 Jun 2008) $
+*
 */
 class vB_vURL
 {
 	/**
 	* vBulletin Registry Object
 	*
-	* @string
+	* @var	string
 	*/
 	var $registry = null;
 
 	/**
 	* Error code
 	*
-	* @int
+	* @var	int
 	*/
 	var $error = 0;
 
 	/**
-	* Ability to use cURL
-	*
-	* @boolean
-	*/
-	var $usecurl = false;
-
-	/**
-	* fsockopen will always be used if curl is not available. This controls whether we still try fsockopen if curl fails upon curl_exec() - fsockopen is most likely going to fail as well
-	*
-	* @boolean
-	*/
-	var $stoponcurl = true;
-
-	/**
-	* Ability to use fsockopen()
-	*
-	* @string
-	*/
-	var $usefsockopen = false;
-
-	/**
-	* cURL Handler
-	*
-	* @resource
-	*/
-	var $ch = null;
-
-	/**
 	* Options bitfield
 	*
-	* @integer
+	* @var	integer
 	*/
 	var $bitoptions = 0;
 
 	/**
-	* String that holds the cURL callback data
-	*
-	* @string
-	*/
-	var $curlresponse = '';
-
-	/**
-	* String that holds the cURL callback data
-	*
-	* @string
-	*/
-	var $curlheader = '';
-
-	/**
 	* List of headers by key
 	*
-	* @array
+	* @var	array
 	*/
 	var $headerkey = array();
 
 	/**
 	* Options Array
 	*
-	* @array
+	* @var	array
 	*/
 	var $options = array();
 
+	/**
+	* Transport Object Array
+	*
+	* @var	array
+	*/
+	var $classnames = array('cURL', 'fsockopen');
+
+	/**
+	* Transport Object Array
+	*
+	* @var	array
+	*/
+	var $transports = array();
+
+	/**
+	* Temporary filename for storing result
+	*
+	* @var	string
+	*/
+	var $tmpfile = null;
+
+	/**
+	 * Resets the class to initial settings
+	 *
+	 */
 	function reset()
 	{
 		$this->bitoptions = 0;
 		$this->headerkey = array();
 		$this->error = 0;
-		$this->curlresponse = '';
-		$this->curlheader = '';
 
 		$this->options = array(
 			VURL_TIMEOUT    => 15,
@@ -140,6 +130,13 @@ class vB_vURL
 			VURL_MAXREDIRS  => 5,
 			VURL_USERAGENT  => 'vBulletin via PHP'
 		);
+
+		foreach (array_keys($this->transports) AS $tname)
+		{
+			$transport =& $this->transports[$tname];
+			$transport->reset();
+		}
+
 	}
 
 	/**
@@ -158,9 +155,28 @@ class vB_vURL
 			trigger_error('vB_vURL::Registry object is not an object', E_USER_ERROR);
 		}
 
-		$this->usecurl = (function_exists('curl_init') AND $this->ch = curl_init());
-		$this->usefsockopen = ini_get('allow_url_fopen');
+		// create the objects we need
+		foreach ($this->classnames AS $classname)
+		{
+			$fullclass = 'vB_vURL_' . $classname;
+			if (class_exists($fullclass))
+			{
+				$this->transports["$classname"] =& new $fullclass($this);
+			}
+		}
 		$this->reset();
+	}
+
+	/**
+	* Destructor for PHP 5+, this deals with the case that
+	* people forget to either unlink or move the file.
+	*/
+	function __destruct()
+	{
+		if (file_exists($this->tmpfile))
+		{
+			@unlink($this->tmpfile);
+		}
 	}
 
 	/**
@@ -180,7 +196,7 @@ class vB_vURL
 			case VURL_FOLLOWLOCATION:
 			case VURL_RETURNTRANSFER:
 			case VURL_CLOSECONNECTION:
-			case VURL_DIEONMAXSIZE:
+			case VURL_VALIDSSLONLY:
 				if ($extra == 1 OR $extra == true)
 				{
 					$this->bitoptions = $this->bitoptions | $option;
@@ -235,6 +251,7 @@ class vB_vURL
 				break;
 			case VURL_MAXSIZE:
 			case VURL_MAXREDIRS:
+			case VURL_DIEONMAXSIZE:
 				$this->options["$option"]	= intval($extra);
 				break;
 		}
@@ -243,346 +260,120 @@ class vB_vURL
 	/**
 	* The do it all function
 	*
-	* @param		boolean	exec has been called recursively
-	*
 	* @return	mixed		false on failure, array or string on success
 	*/
-	function exec($followlocation = false)
+	function exec()
 	{
-		static $counter = 0;
+		$result = $this->exec2();
+
+		if (is_array($result))
+		{
+			if (empty($result['body']) AND file_exists($result['body_file']))
+			{
+				$result['body'] = file_get_contents($result['body_file']);
+				@unlink($result['body_file']);
+			}
+			if (!($this->bitoptions & VURL_HEADER))
+			{
+				return $result['body'];
+			}
+		}
+
+		return $result;
+	}
+
+	/**
+	* The function which formats the response array, removing what isn't required
+	*
+	* @param	array		response containng headers and body / body_file
+	*
+	* @return	mixed		true or array depending on response requested
+	*/
+	function format_response($response)
+	{
+		if ($this->bitoptions & VURL_RETURNTRANSFER)
+		{
+			if ($this->bitoptions & VURL_HEADER)
+			{
+				$headers = $this->build_headers($response['headers']);
+
+				if ($this->bitoptions & VURL_NOBODY)
+				{
+					return $headers;
+				}
+				else
+				{
+					return $response;
+				}
+			}
+			else if ($this->bitoptions & VURL_NOBODY)
+			{
+				@unlink($response['body_file']);
+				return true;
+			}
+			else
+			{
+				unset($response['headers']);
+				return $response;
+			}
+		}
+		else
+		{
+			@unlink($response['body_file']);
+			return true;
+		}
+	}
+
+	/**
+	* new vURL method which stores items in a file if it can until needed
+	*
+	* @return	mixed		false on failure, true or array depending on response requested
+	*/
+	function exec2()
+	{
+		if ($this->registry->options['safeupload'])
+		{
+			$this->tmpfile = @tempnam($this->registry->options['tmppath'] . '/', 'vbupload');
+		}
+		else
+		{
+			$this->tmpfile = @tempnam(ini_get('upload_tmp_dir'), 'vbupload');
+		}
 
 		if (empty($this->options[VURL_URL]))
 		{
 			trigger_error('Must set URL with set_option(VURL_URL, $url)', E_USER_ERROR);
 		}
 
-		if (!$followlocation AND $this->options[VURL_USERAGENT])
+		if ($this->options[VURL_USERAGENT])
 		{
 			$this->options[VURL_HTTPHEADER][] = 'User-Agent: ' . $this->options[VURL_USERAGENT];
 		}
-		if (!$followlocation AND $this->bitoptions & VURL_CLOSECONNECTION)
+		if ($this->bitoptions & VURL_CLOSECONNECTION)
 		{
 			$this->options[VURL_HTTPHEADER][] = 'Connection: close';
 		}
 
-		$urlinfo = @parse_url($this->options[VURL_URL]);
-		if (empty($urlinfo['port']))
+		foreach (array_keys($this->transports) AS $tname)
 		{
-			if ($urlinfo['scheme'] == 'https')
+			$transport =& $this->transports[$tname];
+			if (PHP_VERSION < 5)
 			{
-				$urlinfo['port'] = 443;
+				$transport->vurl =& $this;
 			}
-			else
+			if (($result = $transport->exec()) === VURL_HANDLED  AND !$this->fetch_error())
 			{
-				$urlinfo['port'] = 80;
+				return $this->format_response(array('headers' => $transport->response_header, 'body' => $transport->response_text, 'body_file' => $this->tmpfile));
 			}
+
+			if ($this->fetch_error())
+			{
+				return false;
+			}
+
 		}
 
-		if (!$followlocation AND $this->usecurl)
-		{
-			$this->ch = curl_init();
-
-			$curlinfo = curl_version();
-			if ($urlinfo['scheme'] == 'https' AND empty($curlinfo['ssl_version']))
-			{
-				$this->usecurl = false;
-				curl_close($this->ch);
-			}
-			else
-			{
-				curl_setopt($this->ch, CURLOPT_URL, $this->options[VURL_URL]);
-				curl_setopt($this->ch, CURLOPT_TIMEOUT, $this->options[VURL_TIMEOUT]);
-				if ($this->options[VURL_CUSTOMREQUEST])
-				{
-					curl_setopt($this->ch, CURLOPT_CUSTOMREQUEST, $this->options[VURL_CUSTOMREQUEST]);
-				}
-				else if ($this->bitoptions & VURL_POST)
-				{
-					curl_setopt($this->ch, CURLOPT_POST, 1);
-					curl_setopt($this->ch, CURLOPT_POSTFIELDS, $this->options[VURL_POSTFIELDS]);
-				}
-				else
-				{
-					curl_setopt($this->ch, CURLOPT_POST, 0);
-				}
-				curl_setopt($this->ch, CURLOPT_HEADER, ($this->bitoptions & VURL_HEADER) ? 1 : 0);
-				curl_setopt($this->ch, CURLOPT_HTTPHEADER, $this->options[VURL_HTTPHEADER]);
-				curl_setopt($this->ch, CURLOPT_RETURNTRANSFER, ($this->bitoptions & VURL_RETURNTRANSFER) ? 1 : 0);
-				@curl_setopt($this->ch, CURLOPT_FOLLOWLOCATION, ($this->bitoptions & VURL_FOLLOWLOCATION) ? 1 : 0); // disabled in safe_mode/open_basedir in PHP 5.1.6/4.4.4
-				if ($this->bitoptions & VURL_NOBODY)
-				{
-					curl_setopt($this->ch, CURLOPT_NOBODY, 1);
-				}
-				if ($this->bitoptions & VURL_FOLLOWLOCATION)
-				{
-					curl_setopt($this->ch, CURLOPT_MAXREDIRS, $this->options[VURL_MAXREDIRS]);
-				}
-				if ($this->options[VURL_ENCODING])
-				{
-					@curl_setopt($this->ch, CURLOPT_ENCODING, $this->options[VURL_ENCODING]); // this will work on versions of cURL after 7.10, though was broken on PHP 4.3.6/Win32
-				}
-
-				if ($this->options[VURL_MAXSIZE])
-				{
-					$this->curlresponse = '';
-					$this->curlheader = '';
-					curl_setopt($this->ch, CURLOPT_HEADERFUNCTION, array(&$this, 'curl_callback_header'));
-					curl_setopt($this->ch, CURLOPT_WRITEFUNCTION, array(&$this, 'curl_callback_response'));
-				}
-
-				$result = curl_exec($this->ch);
-
-				if ($this->options[VURL_MAXSIZE] AND ($result !== false OR (!$this->options[VURL_DIEONMAXSIZE] AND !empty($this->curlresponse))))
-				{
-					if ($this->bitoptions & VURL_HEADER AND !($this->bitoptions & VURL_NOBODY))
-					{	// headers AND body
-						$result =& $this->curlresponse;
-						$length = strlen($this->curlresponse) - strlen($this->curlheader);
-					}
-					else if ($this->bitoptions & VURL_HEADER)
-					{	// just headers
-						$result =& $this->curlheader;
-					}
-					else if (!($this->bitoptions & VURL_NOBODY))
-					{	// Just body
-						$result = preg_replace('#^' . preg_quote($this->curlheader, '#') . '#s', '', $this->curlresponse);
-						$length = strlen($result);
-					}
-
-					if ($length AND $length > $this->options[VURL_MAXSIZE] AND $this->options[VURL_DIEONMAXSIZE])
-					{
-						$this->set_error(VURL_ERROR_MAXSIZE);
-						return false;
-					}
-				}
-
-				curl_close($this->ch);
-
-				if ($urlinfo['scheme'] == 'https' AND $result === false AND curl_errno($this->ch) == '60') ## CURLE_SSL_CACERT problem with the CA cert (path? access rights?)
-				{
-					curl_setopt($this->ch, CURLOPT_CAINFO, DIR . '/includes/paymentapi/ca-bundle.crt');
-					$result = curl_exec($this->ch);
-				}
-
-				if ($result !== false)
-				{
-					if ($this->bitoptions & VURL_RETURNTRANSFER)
-					{
-						if ($this->bitoptions & VURL_HEADER)
-						{
-							preg_match('#^(.*)\r\n\r\n(.*)$#sU', $result, $matches);
-
-							if ($this->bitoptions & VURL_FOLLOWLOCATION)
-							{
-								while (preg_match("#\r\nLocation: #i", $matches[1]))
-								{
-									preg_match('#^(.*)\r\n\r\n(.*)$#sU', $matches[2], $matches);
-								}
-							}
-
-							$headers = $this->build_headers($matches[1]);
-
-							if ($this->bitoptions & VURL_NOBODY)
-							{
-								return $headers;
-							}
-							else
-							{
-								return array('headers' => $headers, 'body' => $matches[2]);
-							}
-						}
-						else
-						{
-							return $result;
-						}
-					}
-					else
-					{
-						return true;
-					}
-				}
-				else if ($this->stoponcurl)
-				{
-					$this->set_error(VURL_ERROR_URL);
-					return false;
-				}
-			}
-		}
-
-		if ($this->usefsockopen)
-		{
-			if ($urlinfo['scheme'] == 'https')
-			{
-				if (!function_exists('openssl_open'))
-				{
-					$this->set_error(VURL_ERROR_SSL);
-					return false;
-				}
-				$scheme = 'ssl://';
-			}
-
-			if ($fp = @fsockopen($scheme . $urlinfo['host'], $urlinfo['port'], $errno, $errstr, $this->options[VURL_TIMEOUT]))
-			{
-				$headers = array();
-				if ($this->bitoptions & VURL_NOBODY)
-				{
-					$this->options[VURL_CUSTOMREQUEST] = 'HEAD';
-				}
-				if ($this->options[VURL_CUSTOMREQUEST])
-				{
-					$headers[] = $this->options[VURL_CUSTOMREQUEST] . " $urlinfo[path]" . ($urlinfo['query'] ? "?$urlinfo[query]" : '') . " HTTP/1.0";
-				}
-				else if ($this->bitoptions & VURL_POST)
-				{
-					$headers[] = "POST $urlinfo[path]" . ($urlinfo['query'] ? "?$urlinfo[query]" : '') . " HTTP/1.0";
-					if (empty($this->headerkey['content-type']))
-					{
-						$headers[] = 'Content-Type: application/x-www-form-urlencoded';
-					}
-					if (empty($this->headerkey['content-length']))
-					{
-						$headers[] = 'Content-Length: ' . strlen($this->options[VURL_POSTFIELDS]);
-					}
-				}
-				else
-				{
-					$headers[] = "GET $urlinfo[path]" . ($urlinfo['query'] ? "?$urlinfo[query]" : '') . " HTTP/1.0";
-				}
-				$headers[] = "Host: $urlinfo[host]";
-				if (!empty($this->options[VURL_HTTPHEADER]))
-				{
-					$headers = array_merge($headers, $this->options[VURL_HTTPHEADER]);
-				}
-				if ($this->options[VURL_ENCODING])
-				{
-					$encodemethods = explode(',', $this->options[VURL_ENCODING]);
-					$finalmethods = array();
-					foreach ($encodemethods AS $type)
-					{
-						$type = strtolower(trim($type));
-						if ($type == 'gzip' AND function_exists('gzinflate'))
-						{
-							$finalmethods[] = 'gzip';
-						}
-						else if ($type == 'deflate' AND function_exists('gzinflate'))
-						{
-							$finalmethods[] = 'deflate';
-						}
-						else
-						{
-							$finalmethods[] = $type;
-						}
-					}
-
-					if (!empty($finalmethods))
-					{
-						$headers[] = "Accept-Encoding: " . implode(', ', $finalmethods);
-					}
-				}
-
-				$output = implode("\r\n", $headers) . "\r\n\r\n";
-				if ($this->bitoptions & VURL_POST)
-				{
-					$output .= $this->options[VURL_POSTFIELDS];
-				}
-
-				if (fputs($fp, $output, strlen($output)))
-				{
-					stream_set_timeout($fp, $this->options[VURL_TIMEOUT]);
-					$result = '';
-					$headersize = 0;
-					while (!feof($fp))
-					{
-						$results = @fread($fp, 2048);
-
-						// try to grab the header size after the first packet, if we miss it then we won't worry about it as it just allows a slightly larger file to be read
-						if (!$result AND preg_match("#(.*)\r\n\r\n#sU", $results, $headmatches))
-						{
-							$headersize = strlen($headmatches[0]);
-						}
-						$result .= $results;
-						if ($this->options[VURL_MAXSIZE] AND (strlen($result) - $headersize) > $this->options[VURL_MAXSIZE])
-						{
-							if ($this->options[VURL_DIEONMAXSIZE])
-							{
-								$this->set_error(VURL_ERROR_MAXSIZE);
-								return false;
-							}
-							else
-							{
-								break;
-							}
-						}
-					}
-					fclose($fp);
-
-					preg_match('#^(.*)\r\n\r\n(.*)$#sU', $result, $matches);
-					unset($result);
-
-					if ($this->bitoptions & VURL_FOLLOWLOCATION AND preg_match("#\r\nLocation: (.*)\r\n#siU", $matches[1], $location) AND $counter < $this->options[VURL_MAXREDIRS])
-					{
-						$counter++;
-						$this->set_option(VURL_URL, trim($location[1]));
-						return $this->exec(true);
-					}
-
-					if ($this->bitoptions & VURL_RETURNTRANSFER)
-					{
-						if (function_exists('gzinflate'))
-						{
-							if (preg_match("#\r\nContent-encoding: gzip\r\n#i", $matches[1]))
-							{
-								if ($inflated = @gzinflate(substr($matches[2], 10)))
-								{
-									$matches[2] =& $inflated;
-								}
-							}
-							else if (preg_match("#\r\nContent-encoding: deflate\r\n#i", $matches[1]))
-							{
-								if ($inflated = @gzinflate(substr($matches[2], 2)))
-								{
-									$matches[2] =& $inflated;
-								}
-								else if ($inflated = @gzinflate($matches[2]))
-								{
-									$matches[2] =& $inflated;
-								}
-							}
-						}
-
-						if ($this->bitoptions & VURL_HEADER)
-						{
-							$headers = $this->build_headers($matches[1]);
-
-							if ($this->bitoptions & VURL_NOBODY)
-							{
-								return $headers;
-							}
-							else
-							{
-								return array('headers' => $headers, 'body' => $matches[2]);
-							}
-						}
-						else if ($this->bitoptions & VURL_NOBODY)
-						{
-							return true;
-						}
-						else
-						{
-							return $matches[2];
-						}
-					}
-					else
-					{
-						return true;
-					}
-				}
-			}
-
-			$this->set_error(VURL_ERROR_URL);
-			return false;
-		}
-
+		@unlink($this->tmpfile);
 		$this->set_error(VURL_ERROR_NOLIB);
 		return false;
 	}
@@ -590,7 +381,7 @@ class vB_vURL
 	/**
 	* Build the headers array
 	*
-	* @param		string	string of headers split by "/r/n"
+	* @param		string	string of headers split by "\r\n"
 	*
 	* @return	array
 	*/
@@ -601,13 +392,13 @@ class vB_vURL
 			foreach ($returnedheaders AS $line)
 			{
 				list($header, $value) = explode(': ', $line, 2);
-				if (preg_match("#^http/(1\.[012]) ([12345]\d\d) (.*)#i", $header, $httpmatches))
+				if (preg_match('#^http/(1\.[012]) ([12345]\d\d) (.*)#i', $header, $httpmatches))
 				{
 					$headers['http-response']['version'] = $httpmatches[1];
 					$headers['http-response']['statuscode'] = $httpmatches[2];
 					$headers['http-response']['statustext'] = $httpmatches[3];
 				}
-				else
+				else if (!empty($header))
 				{
 					$headers[strtolower($header)] = $value;
 				}
@@ -637,29 +428,14 @@ class vB_vURL
 		return $this->error;
 	}
 
-	function curl_callback_response(&$ch, $string)
-	{
-		$this->curlresponse .= $string;
-		if ((strlen($this->curlresponse) - strlen($this->curlheader)) > $this->options[VURL_MAXSIZE])
-		{
-			if ($this->options[VURL_DIEONMAXSIZE])
-			{
-				$this->set_error(VURL_ERROR_MAXSIZE);
-			}
-			return false;
-		}
-		else
-		{
-			return strlen($string);
-		}
-	}
-
-	function curl_callback_header(&$ch, $string)
-	{
-		$this->curlheader .= $string;
-		return strlen($string);
-	}
-
+	/**
+	 * Does a HTTP HEAD Request
+	 *
+	 * @param	string	The URL to do the head request on
+	 *
+	 * @return	mixed	False on Failure, Array or String on Success
+	 *
+	 */
 	function fetch_head($url)
 	{
 		$this->reset();
@@ -672,6 +448,17 @@ class vB_vURL
 		return $this->exec();
 	}
 
+	/**
+	 * Does a HTTP Request, returning the body of the document
+	 *
+	 * @param	string	The URL
+	 * @param	integer	The Maximum Size to get
+	 * @param	boolean	Die when we reach the maximum Size?
+	 * @param	boolean	Also Get headers?
+	 *
+	 * @return	mixed	False on Failure, Array or String on Success
+	 *
+	 */
 	function fetch_body($url, $maxsize, $dieonmaxsize, $returnheaders)
 	{
 		$this->reset();
@@ -693,10 +480,609 @@ class vB_vURL
 	}
 }
 
+class vB_vURL_cURL
+{
+	/**
+	* String that holds the cURL callback data
+	*
+	* @var	string
+	*/
+	var $response_text = '';
+
+	/**
+	* String that holds the cURL callback data
+	*
+	* @var	string
+	*/
+	var $response_header = '';
+
+	/**
+	* cURL Handler
+	*
+	* @var	resource
+	*/
+	var $ch = null;
+
+	/**
+	* vB_vURL object
+	*
+	* @var	object
+	*/
+	var $vurl = null;
+
+	/**
+	* Filepointer to the temporary file
+	*
+	* @var	resource
+	*/
+	var $fp = null;
+
+	/**
+	* Length of the current response
+	*
+	* @var	integer
+	*/
+	var $response_length = 0;
+
+	/**
+	* Private variable when we request headers
+	*
+	* @var	boolean
+	*/
+	var $__finished_headers = false;
+
+	/**
+	* Constructor
+	*
+	* @param	object	Instance of a vB_vURL Object
+	*/
+	function vB_vURL_cURL(&$vurl_registry)
+	{
+		if (!is_a($vurl_registry, 'vB_vURL'))
+		{
+			trigger_error('Direct Instantiation of ' . __CLASS__ . ' prohibited.', E_USER_ERROR);
+		}
+		$this->vurl =& $vurl_registry;
+	}
+
+	/**
+	* Callback for handling headers
+	*
+	* @param	resource	cURL object
+	* @param	string		Request
+	*
+	* @return	integer		length of the request
+	*/
+	function curl_callback_header(&$ch, $string)
+	{
+		if (trim($string) !== '')
+		{
+			$this->response_header .= $string;
+		}
+		return strlen($string);
+	}
+
+	/**
+	* Callback for handling the request body
+	*
+	* @param	resource	cURL object
+	* @param	string		Request
+	*
+	* @return	integer		length of the request
+	*/
+	function curl_callback_response(&$ch, $response)
+	{
+		$chunk_length = strlen($response);
+
+		/* We receive both headers + body */
+		if ($this->vurl->bitoptions & VURL_HEADER)
+		{
+			if (!$this->__finished_headers)
+			{
+				if ($response === "\r\n")
+				{
+					$this->__finished_headers = true;
+				}
+				return $chunk_length;
+			}
+		}
+
+		// no filepointer and we're using or about to use more than 100k
+		if (!$this->fp AND $this->response_length + $chunk_length >= 1024*100)
+		{
+			if ($this->fp = @fopen($this->vurl->tmpfile, 'wb'))
+			{
+				fwrite($this->fp, $this->response_text);
+				unset($this->response_text);
+			}
+		}
+
+		if ($this->fp AND $response)
+		{
+			fwrite($this->fp, $response);
+		}
+		else
+		{
+			$this->response_text .= $response;
+
+		}
+
+		$this->response_length += $chunk_length;
+
+		if ($this->vurl->options[VURL_MAXSIZE] AND $this->response_length > $this->vurl->options[VURL_MAXSIZE])
+		{
+			$this->vurl->set_error(VURL_ERROR_MAXSIZE);
+			return false;
+		}
+
+		return $chunk_length;
+	}
+
+	/**
+	* Clears all previous request info
+	*/
+	function reset()
+	{
+		$this->response_text = '';
+		$this->response_header = '';
+		$this->response_length = 0;
+		$this->__finished_headers = false;
+	}
+
+	/**
+	* Performs fetching of the file if possible
+	*
+	* @return	integer		Returns one of two constants, VURL_NEXT or VURL_HANDLED
+	*/
+	function exec()
+	{
+		$urlinfo = @parse_url($this->vurl->options[VURL_URL]);
+		if (empty($urlinfo['port']))
+		{
+			if ($urlinfo['scheme'] == 'https')
+			{
+				$urlinfo['port'] = 443;
+			}
+			else
+			{
+				$urlinfo['port'] = 80;
+			}
+		}
+
+		if (!function_exists('curl_init') OR ($this->ch = curl_init()) === false)
+		{
+			return VURL_NEXT;
+		}
+
+		if ($urlinfo['scheme'] == 'https')
+		{
+			// curl_version crashes if no zlib support in cURL (php <= 5.2.5)
+			$curlinfo = curl_version();
+			if (empty($curlinfo['ssl_version']))
+			{
+				curl_close($this->ch);
+				return VURL_NEXT;
+			}
+		}
+
+		curl_setopt($this->ch, CURLOPT_URL, $this->vurl->options[VURL_URL]);
+		curl_setopt($this->ch, CURLOPT_TIMEOUT, $this->vurl->options[VURL_TIMEOUT]);
+		if ($this->vurl->options[VURL_CUSTOMREQUEST])
+		{
+			curl_setopt($this->ch, CURLOPT_CUSTOMREQUEST, $this->vurl->options[VURL_CUSTOMREQUEST]);
+		}
+		else if ($this->vurl->bitoptions & VURL_POST)
+		{
+			curl_setopt($this->ch, CURLOPT_POST, 1);
+			curl_setopt($this->ch, CURLOPT_POSTFIELDS, $this->vurl->options[VURL_POSTFIELDS]);
+		}
+		else
+		{
+			curl_setopt($this->ch, CURLOPT_POST, 0);
+		}
+		curl_setopt($this->ch, CURLOPT_HEADER, ($this->vurl->bitoptions & VURL_HEADER) ? 1 : 0);
+		curl_setopt($this->ch, CURLOPT_HTTPHEADER, $this->vurl->options[VURL_HTTPHEADER]);
+		curl_setopt($this->ch, CURLOPT_RETURNTRANSFER, ($this->vurl->bitoptions & VURL_RETURNTRANSFER) ? 1 : 0);
+		if ($this->vurl->bitoptions & VURL_NOBODY)
+		{
+			curl_setopt($this->ch, CURLOPT_NOBODY, 1);
+		}
+
+		if ($this->vurl->bitoptions & VURL_FOLLOWLOCATION)
+		{
+			if (@curl_setopt($this->ch, CURLOPT_FOLLOWLOCATION, 1) === false) // disabled in safe_mode/open_basedir in PHP 5.1.6/4.4.4
+			{
+				curl_close($this->ch);
+				return VURL_NEXT;
+			}
+			curl_setopt($this->ch, CURLOPT_MAXREDIRS, $this->vurl->options[VURL_MAXREDIRS]);
+		}
+		else
+		{
+			curl_setopt($this->ch, CURLOPT_FOLLOWLOCATION, 0);
+		}
+
+		if ($this->vurl->options[VURL_ENCODING])
+		{
+			@curl_setopt($this->ch, CURLOPT_ENCODING, $this->vurl->options[VURL_ENCODING]); // this will work on versions of cURL after 7.10, though was broken on PHP 4.3.6/Win32
+		}
+
+		$this->response_text = '';
+		$this->response_header = '';
+
+		curl_setopt($this->ch, CURLOPT_WRITEFUNCTION, array(&$this, 'curl_callback_response'));
+		curl_setopt($this->ch, CURLOPT_HEADERFUNCTION, array(&$this, 'curl_callback_header'));
+
+		if (!($this->vurl->bitoptions & VURL_VALIDSSLONLY))
+		{
+			curl_setopt($this->ch, CURLOPT_SSL_VERIFYPEER, 0);
+			curl_setopt($this->ch, CURLOPT_SSL_VERIFYHOST, 0);
+		}
+
+		$result = curl_exec($this->ch);
+
+		if ($urlinfo['scheme'] == 'https' AND $result === false AND curl_errno($this->ch) == '60') ## CURLE_SSL_CACERT problem with the CA cert (path? access rights?)
+		{
+			curl_setopt($this->ch, CURLOPT_CAINFO, DIR . '/includes/paymentapi/ca-bundle.crt');
+			$result = curl_exec($this->ch);
+		}
+
+		curl_close($this->ch);
+		if ($this->fp)
+		{
+			fclose($this->fp);
+			$this->fp = null;
+		}
+
+		if ($result !== false)
+		{
+			return VURL_HANDLED;
+		}
+		return VURL_NEXT;
+	}
+}
+
+class vB_vURL_fsockopen
+{
+	/**
+	* String that holds the cURL callback data
+	*
+	* @var	string
+	*/
+	var $response_text = '';
+
+	/**
+	* String that holds the cURL callback data
+	*
+	* @var	string
+	*/
+	var $response_header = '';
+
+	/**
+	* vB_vURL object
+	*
+	* @var	object
+	*/
+	var $vurl = null;
+
+	/**
+	* Filepointer to the temporary file
+	*
+	* @var	resource
+	*/
+	var $fp = null;
+
+	/**
+	* Length of the current response
+	*
+	* @var	integer
+	*/
+	var $response_length = 0;
+
+	/**
+	* Constructor
+	*
+	* @param	object	Instance of a vB_vURL Object
+	*/
+	function vB_vURL_fsockopen(&$vurl_registry)
+	{
+		if (!is_a($vurl_registry, 'vB_vURL'))
+		{
+			trigger_error('Direct Instantiation of ' . __CLASS__ . ' prohibited.', E_USER_ERROR);
+		}
+		$this->vurl =& $vurl_registry;
+	}
+
+	/**
+	* Clears all previous request info
+	*/
+	function reset()
+	{
+		$this->response_text = '';
+		$this->response_header = '';
+		$this->response_length = 0;
+	}
+
+	/**
+	* Inflates the response if its gzip or deflate
+	*/
+	function inflate_response($type)
+	{
+		if (!empty($this->response_text))
+		{
+			switch($type)
+			{
+				case 'gzip':
+					if ($this->response_text[0] == "\x1F" AND $this->response_text[1] == "\x8b")
+					{
+						if ($inflated = @gzinflate(substr($this->response_text, 10)))
+						{
+							$this->response_text = $inflated;
+						}
+					}
+				break;
+				case 'deflate':
+
+					if ($this->response_text[0] == "\x78" AND $this->response_text[1] == "\x9C" AND $inflated = @gzinflate(substr($this->response_text, 2)))
+					{
+						$this->response_text = $inflated;
+					}
+					else if ($inflated = @gzinflate($this->response_text))
+					{
+						$this->response_text = $inflated;
+					}
+				break;
+			}
+		}
+		else
+		{
+			$compressed_file = $this->vurl->tmpfile;
+			if ($gzfp = @gzopen($compressed_file, 'r'))
+			{
+				if ($newfp = @fopen($this->vurl->tmpfile . 'u', 'w'))
+				{
+					$this->vurl->tmpfile = $this->vurl->tmpfile . 'u';
+					if (function_exists('stream_copy_to_stream'))
+					{
+						stream_copy_to_stream($gzfp, $newfp);
+					}
+					else
+					{
+						while(!gzeof($gzfp))
+						{
+							fwrite($fp, gzread($gzfp, 20480));
+						}
+					}
+
+					fclose($newfp);
+				}
+
+				fclose($gzfp);
+				@unlink($compressed_file);
+			}
+		}
+	}
+
+	/**
+	* Callback for handling the request body
+	*
+	* @param	string		Request
+	*
+	* @return	integer		length of the request
+	*/
+	function callback_response($response)
+	{
+		$chunk_length = strlen($response);
+
+		// no filepointer and we're using or about to use more than 100k
+		if (!$this->fp AND $this->response_length + $chunk_length >= 1024*100)
+		{
+			if ($this->fp = @fopen($this->vurl->tmpfile, 'wb'))
+			{
+				fwrite($this->fp, $this->response_text);
+				unset($this->response_text);
+			}
+		}
+
+		if ($response)
+		{
+			if ($this->fp)
+			{
+				fwrite($this->fp, $response);
+			}
+			else
+			{
+				$this->response_text .= $response;
+
+			}
+		}
+
+		$this->response_length += $chunk_length;
+
+		if ($this->vurl->options[VURL_MAXSIZE] AND $this->response_length > $this->vurl->options[VURL_MAXSIZE])
+		{
+			$this->vurl->set_error(VURL_ERROR_MAXSIZE);
+			return false;
+		}
+
+		return $chunk_length;
+	}
+
+	/**
+	* Performs fetching of the file if possible
+	*
+	* @return	integer		Returns one of two constants, VURL_NEXT or VURL_HANDLED
+	*/
+	function exec()
+	{
+		static $location_following_count = 0;
+
+		$urlinfo = @parse_url($this->vurl->options[VURL_URL]);
+		if (empty($urlinfo['port']))
+		{
+			if ($urlinfo['scheme'] == 'https')
+			{
+				$urlinfo['port'] = 443;
+			}
+			else
+			{
+				$urlinfo['port'] = 80;
+			}
+		}
+
+		if ($urlinfo['scheme'] == 'https')
+		{
+			if (!function_exists('openssl_open'))
+			{
+				$this->vurl->set_error(VURL_ERROR_SSL);
+				return VURL_NEXT;
+			}
+			$scheme = 'ssl://';
+		}
+
+		if ($request_resource = @fsockopen($scheme . $urlinfo['host'], $urlinfo['port'], $errno, $errstr, $this->vurl->options[VURL_TIMEOUT]))
+		{
+			$headers = array();
+			if ($this->vurl->bitoptions & VURL_NOBODY)
+			{
+				$this->vurl->options[VURL_CUSTOMREQUEST] = 'HEAD';
+			}
+			if ($this->vurl->options[VURL_CUSTOMREQUEST])
+			{
+				$headers[] = $this->vurl->options[VURL_CUSTOMREQUEST] . " $urlinfo[path]" . ($urlinfo['query'] ? "?$urlinfo[query]" : '') . " HTTP/1.0";
+			}
+			else if ($this->vurl->bitoptions & VURL_POST)
+			{
+				$headers[] = "POST $urlinfo[path]" . ($urlinfo['query'] ? "?$urlinfo[query]" : '') . " HTTP/1.0";
+				if (empty($this->vurl->headerkey['content-type']))
+				{
+					$headers[] = 'Content-Type: application/x-www-form-urlencoded';
+				}
+				if (empty($this->vurl->headerkey['content-length']))
+				{
+					$headers[] = 'Content-Length: ' . strlen($this->vurl->options[VURL_POSTFIELDS]);
+				}
+			}
+			else
+			{
+				$headers[] = "GET $urlinfo[path]" . ($urlinfo['query'] ? "?$urlinfo[query]" : '') . " HTTP/1.0";
+			}
+			$headers[] = "Host: $urlinfo[host]";
+			if (!empty($this->vurl->options[VURL_HTTPHEADER]))
+			{
+				$headers = array_merge($headers, $this->vurl->options[VURL_HTTPHEADER]);
+			}
+			if ($this->vurl->options[VURL_ENCODING])
+			{
+				$encodemethods = explode(',', $this->vurl->options[VURL_ENCODING]);
+				$finalmethods = array();
+				foreach ($encodemethods AS $type)
+				{
+					$type = strtolower(trim($type));
+					if ($type == 'gzip' AND function_exists('gzinflate'))
+					{
+						$finalmethods[] = 'gzip';
+					}
+					else if ($type == 'deflate' AND function_exists('gzinflate'))
+					{
+						$finalmethods[] = 'deflate';
+					}
+					else
+					{
+						$finalmethods[] = $type;
+					}
+				}
+
+				if (!empty($finalmethods))
+				{
+					$headers[] = "Accept-Encoding: " . implode(', ', $finalmethods);
+				}
+			}
+
+			$output = implode("\r\n", $headers) . "\r\n\r\n";
+			if ($this->vurl->bitoptions & VURL_POST)
+			{
+				$output .= $this->vurl->options[VURL_POSTFIELDS];
+			}
+
+			$result = false;
+
+			if (fputs($request_resource, $output, strlen($output)))
+			{
+				stream_set_timeout($request_resource, $this->vurl->options[VURL_TIMEOUT]);
+				$in_header = true;
+				$result = true;
+
+				while (!feof($request_resource))
+				{
+					$response = @fread($request_resource, 2048);
+
+					if ($in_header)
+					{
+						$header_end_position = strpos($response, "\r\n\r\n");
+
+						if ($header_end_position === false)
+						{
+							$this->response_header .= $response;
+						}
+						else
+						{
+							$this->response_header .= substr($response, 0, $header_end_position);
+							$in_header = false;
+							$response = substr($response, $header_end_position + 4);
+						}
+					}
+
+					if ($this->callback_response($response) != strlen($response))
+					{
+						$result = false;
+						break;
+					}
+				}
+				fclose($request_resource);
+			}
+
+			if ($this->fp)
+			{
+				fclose($this->fp);
+				$this->fp = null;
+			}
+
+			if ($result !== false)
+			{
+				if ($this->vurl->bitoptions & VURL_FOLLOWLOCATION AND preg_match("#\r\nLocation: (.*)\r\n#siU", $this->response_header, $location) AND $location_following_count < $this->vurl->options[VURL_MAXREDIRS])
+				{
+					$location_following_count++;
+					$this->vurl->set_option(VURL_URL, trim($location[1]));
+					$this->reset();
+					return $this->exec();
+				}
+
+				// need to handle gzip if it was used
+				if (function_exists('gzinflate'))
+				{
+					if (stristr($this->response_header, "Content-encoding: gzip\r\n") !== false)
+					{
+						$this->inflate_response('gzip');
+					}
+					else if (stristr($this->response_header, "Content-encoding: deflate\r\n") !== false)
+					{
+						$this->inflate_response('deflate');
+					}
+				}
+
+				return VURL_HANDLED;
+			}
+		}
+		return VURL_NEXT;
+	}
+
+}
+
 /*======================================================================*\
 || ####################################################################
-|| # Downloaded: 18:52, Sat Jul 14th 2007
-|| # CVS: $RCSfile$ - $Revision: 15670 $
+|| # Downloaded: 16:21, Sat Apr 6th 2013
+|| # CVS: $RCSfile$ - $Revision: 26813 $
 || ####################################################################
 \*======================================================================*/
 ?>

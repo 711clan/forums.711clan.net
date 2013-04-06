@@ -1,9 +1,9 @@
 <?php
 /*======================================================================*\
 || #################################################################### ||
-|| # vBulletin 3.6.7 PL1 - Licence Number VBF2470E4F
+|| # vBulletin 3.7.2 Patch Level 2 - Licence Number VBF2470E4F
 || # ---------------------------------------------------------------- # ||
-|| # Copyright ©2000-2007 Jelsoft Enterprises Ltd. All Rights Reserved. ||
+|| # Copyright ©2000-2013 Jelsoft Enterprises Ltd. All Rights Reserved. ||
 || # This file may not be redistributed in whole or significant part. # ||
 || # ---------------- VBULLETIN IS NOT FREE SOFTWARE ---------------- # ||
 || # http://www.vbulletin.com | http://www.vbulletin.com/license.html # ||
@@ -14,14 +14,15 @@
 error_reporting(E_ALL & ~E_NOTICE);
 
 // ##################### DEFINE IMPORTANT CONSTANTS #######################
-define('CVS_REVISION', '$RCSfile$ - $Revision: 16962 $');
+define('CVS_REVISION', '$RCSfile$ - $Revision: 26562 $');
 
 // #################### PRE-CACHE TEMPLATES AND DATA ######################
-$phrasegroups = array('cron', 'cpuser');
+$phrasegroups = array('cron', 'cpuser', 'prefix');
 $specialtemplates = array();
 
 // ########################## REQUIRE BACK-END ############################
 require_once('./global.php');
+require_once(DIR . '/includes/adminfunctions_prefix.php');
 
 if (empty($_REQUEST['do']))
 {
@@ -116,6 +117,7 @@ $input_vars = array(
 	'bodytemplate'      => TYPE_STR,
 	'username'          => TYPE_NOHTML,
 	'forumid'           => TYPE_UINT,
+	'prefixid'          => TYPE_NOHTML,
 	'iconid'            => TYPE_UINT,
 	'searchwords'       => TYPE_STR,
 	'itemtype'          => TYPE_STR,
@@ -172,6 +174,7 @@ if ($_POST['do'] == 'update')
 		$feeddata->set('bodytemplate', $vbulletin->GPC['bodytemplate']);
 		$feeddata->set('searchwords', $vbulletin->GPC['searchwords']);
 		$feeddata->set('forumid', $vbulletin->GPC['forumid']);
+		$feeddata->set('prefixid', $vbulletin->GPC['prefixid']);
 		$feeddata->set('iconid', $vbulletin->GPC['iconid']);
 		$feeddata->set('threadactiondelay', $vbulletin->GPC['threadactiondelay']);
 		$feeddata->set('itemtype', $vbulletin->GPC['itemtype']);
@@ -234,7 +237,7 @@ if ($_POST['do'] == 'preview')
 	}
 	else if ($xml->parse_xml() === false)
 	{
-		print_stop_message('xml_error_x_at_line_y', $xml->xml_object->error_string(), $xml->xml_object->error_line());
+		print_stop_message('xml_error_x_at_line_y', ($xml->feedtype == 'unknown' ? 'Unknown Feed Type' : $xml->xml_object->error_string()), $xml->xml_object->error_line());
 	}
 
 	require_once(DIR . '/includes/class_bbcode.php');
@@ -267,7 +270,7 @@ if ($_POST['do'] == 'preview')
 		$body = $xml->parse_template($body_template, $item);
 		if ($vbulletin->GPC['options']['html2bbcode'])
 		{
-			$body = convert_wysiwyg_html_to_bbcode($body);
+			$body = convert_wysiwyg_html_to_bbcode($body, false, true);
 		}
 		$body = $bbcode_parser->parse($body, 0, false);
 
@@ -380,7 +383,16 @@ if ($_REQUEST['do'] == 'edit')
 	print_description_row('<div class="smallfont">' . $vbphrase['rss_templates_description'] . '</div>');
 	print_input_row($vbphrase['title_template'], 'titletemplate', $feed['titletemplate'], true, 50);
 	print_textarea_row($vbphrase['body_template'], 'bodytemplate', $feed['bodytemplate'], 10, 50);
+
 	print_description_row('<label for="rb_itemtype_thread"><input type="radio" name="itemtype" value="thread" id="rb_itemtype_thread"' . $checked['itemtype']['thread'] . "  />$vbphrase[post_items_as_threads]</label>", false, 2, 'thead', 'left', 'itemtype');
+	if ($prefix_options = construct_prefix_options(0, $feed['prefixid']))
+	{
+		print_label_row(
+			$vbphrase['prefix'] . '<dfn>' . $vbphrase['note_prefix_must_allowed_forum'] . '</dfn>',
+			'<select name="prefixid" class="bginput">' . $prefix_options . '</select>',
+			'', 'top', 'prefixid'
+		);
+	}
 
 	// build thread icon picker
 	$icons = array();
@@ -516,8 +528,8 @@ print_cp_footer();
 
 /*======================================================================*\
 || ####################################################################
-|| # Downloaded: 18:52, Sat Jul 14th 2007
-|| # CVS: $RCSfile$ - $Revision: 16962 $
+|| # Downloaded: 16:21, Sat Apr 6th 2013
+|| # CVS: $RCSfile$ - $Revision: 26562 $
 || ####################################################################
 \*======================================================================*/
 ?>

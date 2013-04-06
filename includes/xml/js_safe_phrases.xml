@@ -34,6 +34,12 @@
 	<phrase>select_a_day</phrase>
 	<phrase>please_enter_a_proper_year</phrase>
 	<phrase>error_confirmation_phrase</phrase>
+	<phrase>server_failed_respond_try_again</phrase>
+	<phrase>edit_value_js</phrase>
+	<phrase>remove_from_userlist_confirm</phrase>
+	<phrase>have_new_pm_popup_x_y</phrase>
+	<phrase>open_message_in_new_window</phrase>
+	<phrase>window_open_failed_blocker</phrase>
 </phrases>
 
-<!-- CVS: $RCSfile$ - $Revision: 15876 $ -->
+<!-- CVS: $RCSfile$ - $Revision: 25657 $ -->

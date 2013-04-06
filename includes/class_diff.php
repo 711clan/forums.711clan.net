@@ -1,9 +1,9 @@
 <?php
 /*======================================================================*\
 || #################################################################### ||
-|| # vBulletin 3.6.7 PL1 - Licence Number VBF2470E4F
+|| # vBulletin 3.7.2 Patch Level 2 - Licence Number VBF2470E4F
 || # ---------------------------------------------------------------- # ||
-|| # Copyright ©2000-2007 Jelsoft Enterprises Ltd. All Rights Reserved. ||
+|| # Copyright ©2000-2013 Jelsoft Enterprises Ltd. All Rights Reserved. ||
 || # This file may not be redistributed in whole or significant part. # ||
 || # ---------------- VBULLETIN IS NOT FREE SOFTWARE ---------------- # ||
 || # http://www.vbulletin.com | http://www.vbulletin.com/license.html # ||
@@ -14,7 +14,7 @@
 * Finds the difference between two strings using a line as the atom.
 *
 * @package 		vBulletin
-* @version		$Revision: 13325 $
+* @version		$Revision: 13326 $
 * @date 		$Date: 2005-09-25 19:12:35 -0500 (Sun, 25 Sep 2005) $
 *
 */
@@ -292,7 +292,7 @@ class vB_Text_Diff
 * Can be a group of unchanged, added, deleted, or changed lines.
 *
 * @package 		vBulletin
-* @version		$Revision: 13325 $
+* @version		$Revision: 13326 $
 * @date 		$Date: 2005-09-25 19:12:35 -0500 (Sun, 25 Sep 2005) $
 *
 */
@@ -428,8 +428,8 @@ class vB_Text_Diff_Entry
 
 /*======================================================================*\
 || ####################################################################
-|| # Downloaded: 18:52, Sat Jul 14th 2007
-|| # CVS: $RCSfile$ - $Revision: 13325 $
+|| # Downloaded: 16:21, Sat Apr 6th 2013
+|| # CVS: $RCSfile$ - $Revision: 13326 $
 || ####################################################################
 \*======================================================================*/
 ?>

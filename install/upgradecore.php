@@ -1,9 +1,9 @@
 <?php
 /*======================================================================*\
 || #################################################################### ||
-|| # vBulletin 3.6.7 PL1 - Licence Number VBF2470E4F
+|| # vBulletin 3.7.2 Patch Level 2 - Licence Number VBF2470E4F
 || # ---------------------------------------------------------------- # ||
-|| # Copyright ©2000-2007 Jelsoft Enterprises Ltd. All Rights Reserved. ||
+|| # Copyright ©2000-2013 Jelsoft Enterprises Ltd. All Rights Reserved. ||
 || # This file may not be redistributed in whole or significant part. # ||
 || # ---------------- VBULLETIN IS NOT FREE SOFTWARE ---------------- # ||
 || # http://www.vbulletin.com | http://www.vbulletin.com/license.html # ||
@@ -64,7 +64,15 @@ $vbulletin->input->clean_array_gpc('r', array(
 	'perpage' => TYPE_UINT,
 ));
 
-$vbulletin->GPC['step'] = empty($vbulletin->GPC['step']) ? 'welcome' : intval($vbulletin->GPC['step']);
+if (empty($vbulletin->GPC['step']))
+{
+	$vbulletin->GPC['step'] = 'welcome';
+}
+else if ($vbulletin->GPC['step'] !== 'backup')
+{
+	$vbulletin->GPC['step'] = intval($vbulletin->GPC['step']);
+}
+
 $query = array();
 $explain = array();
 $hiddenfields = array();
@@ -84,7 +92,7 @@ if (empty($_REQUEST['do']))
 		{
 			// check to see if MySQL is running strict mode and recommend disabling it
 			$db->hide_errors();
-			$strict_mode_check = $db->query_first("SHOW VARIABLES LIKE 'sql\_mode'");
+			$strict_mode_check = $db->query_first("SHOW VARIABLES LIKE 'sql\\_mode'");
 			if (strpos(strtolower($strict_mode_check['Value']), 'strict_') !== false)
 			{
 				echo "<p><strong>{$upgradecore_phrases['mysql_strict_mode']}</strong></p>";
@@ -98,7 +106,7 @@ if (empty($_REQUEST['do']))
 
 // #############################################################################
 // backup system
-if ($vbulletin->GPC['step'] == 'backup')
+if ($vbulletin->GPC['step'] === 'backup')
 {
 	$newer_version_installed = false;
 	if (defined('VERSION_COMPAT_STARTS') AND (version_compare($vbulletin->options['templateversion'], VERSION_COMPAT_STARTS, '<') OR version_compare($vbulletin->options['templateversion'], VERSION_COMPAT_ENDS, '>=')))
@@ -508,9 +516,9 @@ function print_upgrade_header($steptitle = '')
 
 	if ($fp = @fopen(DIR . '/install/vbulletin-settings.xml', 'rb'))
 	{
-		$data = @fread($fp, 300);
+		$data = @fread($fp, 1024);
 
-		if (preg_match('#<defaultvalue>(.*?)</defaultvalue>#', $data, $matches))
+		if (preg_match('#<setting varname="templateversion".*>(.*)</setting>#sU', $data, $matches) AND preg_match('#<defaultvalue>(.*?)</defaultvalue>#', $matches[1], $matches))
 		{
 			$settings_xml = $matches[1];
 		}
@@ -550,7 +558,7 @@ function print_upgrade_header($steptitle = '')
 <head>
 	<meta http-equiv="Content-Type" content="text/html; charset=<?php echo $stylevar['charset']; ?>" />
 	<title><?php echo $upgradecore_phrases['vb3_upgrade_system'] . " " . $steptitle; ?></title>
-	<link rel="stylesheet" href="<?php echo THIS_SCRIPT == 'upgrade_300b3.php' ? '../cpstyles/vBulletin_3_Default/controlpanel.css' : "../cpstyles/{$vbulletin->options['cpstylefolder']}/controlpanel.css"; ?>" />
+	<link rel="stylesheet" href="<?php echo THIS_SCRIPT == 'upgrade_300b3.php' ? '../cpstyles/vBulletin_3_Silver/controlpanel.css' : "../cpstyles/{$vbulletin->options['cpstylefolder']}/controlpanel.css"; ?>" />
 	<style type="text/css">
 	#all {
 		margin: 10px;
@@ -564,7 +572,7 @@ function print_upgrade_header($steptitle = '')
 <body style="margin:0px">
 <table cellpadding="4" cellspacing="0" border="0" width="100%" class="navbody" style="border:outset 2px">
 <tr>
-	<td width="160"><img src="../cpstyles/<?php echo THIS_SCRIPT == 'upgrade_300b3.php' ? 'vBulletin_3_Default' : $vbulletin->options['cpstylefolder']; ?>/cp_logo.gif" alt="" title="vBulletin 3 &copy;2000 - <?php echo date('Y'); ?>, Jelsoft Enterprises Ltd." /></td>
+	<td width="160"><img src="../cpstyles/<?php echo THIS_SCRIPT == 'upgrade_300b3.php' ? 'vBulletin_3_Silver' : $vbulletin->options['cpstylefolder']; ?>/cp_logo.gif" alt="" title="vBulletin 3 &copy;2000 - <?php echo date('Y'); ?>, Jelsoft Enterprises Ltd." /></td>
 	<td style="padding-left:50px">
 		<a href="upgrade.php"><b><?php echo $upgradecore_phrases['vb3_upgrade_system']; ?></b><br />
 		<?php echo $upgradecore_phrases['may_take_some_time']; ?></a><br />
@@ -621,8 +629,16 @@ function log_upgrade_step()
 
 	if (defined('SCRIPTCOMPLETE'))
 	{
-		echo "<ul><li>" . $upgradecore_phrases['update_v_number'];
-		$vbulletin->db->query_write("UPDATE " . TABLE_PREFIX . "setting SET value = '" . VERSION . "' WHERE varname = 'templateversion'");
+		require_once(DIR . '/includes/adminfunctions_template.php');
+		if (is_newer_version(VERSION, $vbulletin->options['templateversion']))
+		{
+			echo "<ul><li>" . $upgradecore_phrases['update_v_number'];
+			$vbulletin->db->query_write("UPDATE " . TABLE_PREFIX . "setting SET value = '" . VERSION . "' WHERE varname = 'templateversion'");
+		}
+		else
+		{
+			echo "<ul><li>" . $upgradecore_phrases['skipping_v_number_update'];
+		}
 		build_options();
 		echo "<b>{$upgradecore_phrases['done']}</b></li></ul>";
 	}
@@ -652,7 +668,7 @@ function fetch_step_title($step)
 
 // #########################################################################
 // redirects browser to next page in a multi-cycle step
-function print_next_page($delay = 1)
+function print_next_page($delay = 1, $startat = false)
 {
 	global $vbulletin, $upgradecore_phrases;
 
@@ -660,7 +676,14 @@ function print_next_page($delay = 1)
 
 	define('NONEXTSTEP', true);
 
-	$vbulletin->GPC['startat'] = $vbulletin->GPC['startat'] + $vbulletin->GPC['perpage'];
+	if ($startat)
+	{
+		$vbulletin->GPC['startat'] = $startat;
+	}
+	else
+	{
+		$vbulletin->GPC['startat'] = $vbulletin->GPC['startat'] + $vbulletin->GPC['perpage'];
+	}
 
 	print_cp_redirect(THIS_SCRIPT . "?step={$vbulletin->GPC['step']}&startat={$vbulletin->GPC['startat']}#end", $delay);
 
@@ -736,8 +759,15 @@ function print_next_step()
 		}
 	}
 
+	global $upgrade;
+	if ($vbulletin->debug AND is_object($upgrade) AND !empty($upgrade->modifications))
+	{ /* Looks like execute wasn't called, this doesn't need phrased because its a dev error! */
+		echo "<p style=\"color: red;\"><b>Some queries were not executed, did you forget to call execute() on the upgrade queries?</b></p>\n";
+	}
+
+	echo '</div> <!-- end #all -->';
+	
 	?>
-	</div>
 	<form action="<?php echo $formaction; ?>" method="get" name="nextStep">
 	<?php
 	if (!defined('SCRIPTCOMPLETE'))
@@ -957,8 +987,8 @@ define('FIELD_DEFAULTS', '__use_default__');
 * Handles the queries that need to be run to perform an upgrade
 *
 * @package	vBulletin
-* @version	$Revision: 15975 $
-* @date		$Date: 2006-12-05 14:13:56 -0600 (Tue, 05 Dec 2006) $
+* @version	$Revision: 25957 $
+* @date		$Date: 2008-03-05 06:15:54 -0600 (Wed, 05 Mar 2008) $
 */
 class vB_UpgradeQueries
 {
@@ -1065,7 +1095,7 @@ class vB_UpgradeQueries
 				case 'int':
 				case 'bigint':
 				{
-					$extra = array(
+					$defaults = array(
 						'attributes' => 'UNSIGNED',
 						'null' => false,
 						'default' => 0,
@@ -1084,7 +1114,7 @@ class vB_UpgradeQueries
 						trigger_error("<strong>vB_UpgradeQueries</strong>: You must specify a length for fields of type $type to use the defaults.", E_USER_ERROR);
 					}
 
-					$extra = array(
+					$defaults = array(
 						'length' => $extra['length'],
 						'attributes' => '',
 						'null' => false,
@@ -1103,7 +1133,7 @@ class vB_UpgradeQueries
 				case 'mediumblob':
 				case 'longblob':
 				{
-					$extra = array(
+					$defaults = array(
 						'attributes' => '',
 						'null' => true,
 						'extra' => ''
@@ -1115,6 +1145,15 @@ class vB_UpgradeQueries
 				{
 					trigger_error("<strong>vB_UpgradeQueries</strong>: No defaults specified for fields of type $type.", E_USER_ERROR);
 				}
+			}
+			if (is_array($extra))
+			{
+				unset($extra['attributes']);
+				$extra = array_merge($defaults, $extra);
+			}
+			else
+			{
+				$extra = $defaults;
 			}
 		}
 
@@ -1411,8 +1450,8 @@ $upgrade =& new vB_UpgradeQueries($db);
 
 /*======================================================================*\
 || ####################################################################
-|| # Downloaded: 18:52, Sat Jul 14th 2007
-|| # CVS: $RCSfile$ - $Revision: 15975 $
+|| # Downloaded: 16:21, Sat Apr 6th 2013
+|| # CVS: $RCSfile$ - $Revision: 25957 $
 || ####################################################################
 \*======================================================================*/
 ?>

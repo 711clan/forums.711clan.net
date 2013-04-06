@@ -1,9 +1,9 @@
 <?php
 /*======================================================================*\
 || #################################################################### ||
-|| # vBulletin 3.6.7 PL1 - Licence Number VBF2470E4F
+|| # vBulletin 3.7.2 Patch Level 2 - Licence Number VBF2470E4F
 || # ---------------------------------------------------------------- # ||
-|| # Copyright ©2000-2007 Jelsoft Enterprises Ltd. All Rights Reserved. ||
+|| # Copyright ©2000-2013 Jelsoft Enterprises Ltd. All Rights Reserved. ||
 || # This file may not be redistributed in whole or significant part. # ||
 || # ---------------- VBULLETIN IS NOT FREE SOFTWARE ---------------- # ||
 || # http://www.vbulletin.com | http://www.vbulletin.com/license.html # ||
@@ -14,6 +14,9 @@
 function exec_digest($type = 2)
 {
 	global $vbulletin;
+
+	// for fetch_phrase
+	require_once(DIR . '/includes/functions_misc.php');
 
 	// type = 2 : daily
 	// type = 3 : weekly
@@ -33,16 +36,18 @@ function exec_digest($type = 2)
 	require_once(DIR . '/includes/class_bbcode_alt.php');
 	$plaintext_parser =& new vB_BbCodeParser_PlainText($vbulletin, fetch_tag_list());
 
+
 	vbmail_start();
 
 	// get new threads
-	$threads = $vbulletin->db->query_read_slave("SELECT
+	$threads = $vbulletin->db->query_read_slave("
+		SELECT
 		user.userid, user.salt, user.username, user.email, user.languageid, user.usergroupid, user.membergroupids,
 			user.timezoneoffset, IF(user.options & " . $vbulletin->bf_misc_useroptions['dstonoff'] . ", 1, 0) AS dstonoff,
 			IF(user.options & " . $vbulletin->bf_misc_useroptions['hasaccessmask'] . ", 1, 0) AS hasaccessmask,
-		thread.threadid, thread.title, thread.dateline, thread.forumid, thread.lastpost, pollid,
+		thread.threadid, thread.title, thread.prefixid, thread.dateline, thread.forumid, thread.lastpost, pollid,
 		open, replycount, postusername, postuserid, lastposter, thread.dateline, views, subscribethreadid,
-		language.dateoverride AS lang_dateoverride, language.timeoverride AS lane_timeoverride
+			language.dateoverride AS lang_dateoverride, language.timeoverride AS lang_timeoverride, language.locale AS lang_locale
 		FROM " . TABLE_PREFIX . "subscribethread AS subscribethread
 		INNER JOIN " . TABLE_PREFIX . "thread AS thread ON (thread.threadid = subscribethread.threadid)
 		INNER JOIN " . TABLE_PREFIX . "user AS user ON (user.userid = subscribethread.userid)
@@ -65,17 +70,30 @@ function exec_digest($type = 2)
 			continue;
 		}
 
-		$hourdiff = (date('Z', TIMENOW) / 3600 - ($thread['timezoneoffset'] + ($thread['dstonoff'] ? 1 : 0))) * 3600;
-		$lastpost_adjusted = max(0, $thread['lastpost'] - $hourdiff);
+		$userinfo = array(
+			'lang_locale'    => $thread['lang_locale'],
+			'dstonoff'       => $thread['dstonoff'],
+			'timezoneoffset' => $thread['timezoneoffset'],
+		);
 
-		$thread['lastreplydate'] = date($vbulletin->options['dateformat'], $lastpost_adjusted);
-		$thread['lastreplytime'] = date($vbulletin->options['timeformat'], $lastpost_adjusted);
+		$thread['lastreplydate'] = vbdate($thread['lang_dateoverride'] ? $thread['lang_dateoverride'] : $vbulletin->options['default_dateformat'], $thread['lastpost'], false, true, true, false, $userinfo);
+		$thread['lastreplytime'] = vbdate($thread['lang_timeoverride'] ? $thread['lang_timeoverride'] : $vbulletin->options['default_timeformat'], $thread['lastpost'], false, true, true, false, $userinfo);
 		$thread['title'] = unhtmlspecialchars($thread['title']);
 		$thread['username'] = unhtmlspecialchars($thread['username']);
 		$thread['postusername'] = unhtmlspecialchars($thread['postusername']);
 		$thread['lastposter'] = unhtmlspecialchars($thread['lastposter']);
 		$thread['newposts'] = 0;
 		$thread['auth'] = md5($thread['userid'] . $thread['subscribethreadid'] . $thread['salt'] . COOKIE_SALT);
+
+		if ($thread['prefixid'])
+		{
+			// need prefix in correct language
+			$thread['prefix_plain'] = fetch_phrase("prefix_$thread[prefixid]_title_plain", 'global', '', false, true, $thread['languageid'], false) . ' ';
+		}
+		else
+		{
+			$thread['prefix_plain'] = '';
+		}
 
 		// get posts
 		$posts = $vbulletin->db->query_read_slave("SELECT
@@ -101,10 +119,9 @@ function exec_digest($type = 2)
 			}
 			$thread['newposts']++;
 
-			$dateline_adjusted = max(0, $post['dateline'] - $hourdiff);
+			$post['postdate'] = vbdate($thread['lang_dateoverride'] ? $thread['lang_dateoverride'] : $vbulletin->options['default_dateformat'], $post['dateline'], false, true, true, false, $userinfo);
+			$post['posttime'] = vbdate($thread['lang_timeoverride'] ? $thread['lang_timeoverride'] : $vbulletin->options['default_timeformat'], $post['dateline'], false, true, true, false, $userinfo);
 
-			$post['postdate'] = date($vbulletin->options['dateformat'], $dateline_adjusted);
-			$post['posttime'] = date($vbulletin->options['timeformat'], $dateline_adjusted);
 			$post['postusername'] = unhtmlspecialchars($post['postusername']);
 
 			$plaintext_parser->set_parsing_language($thread['languageid']);
@@ -167,9 +184,9 @@ function exec_digest($type = 2)
 		$forum['auth'] = md5($forum['userid'] . $forum['subscribeforumid'] . $forum['salt'] . COOKIE_SALT);
 
 		$threads = $vbulletin->db->query_read_slave("
-			SELECT forum.title_clean AS forumtitle, thread.threadid, thread.title, thread.dateline, thread.forumid,
-				thread.lastpost, pollid, open, thread.replycount, postusername, postuserid,
-				thread.lastposter, thread.dateline, views
+			SELECT forum.title_clean AS forumtitle, thread.threadid, thread.title, thread.prefixid,
+				thread.dateline, thread.forumid, thread.lastpost, pollid, open, thread.replycount,
+				postusername, postuserid, thread.lastposter, thread.dateline, views
 			FROM " . TABLE_PREFIX . "forum AS forum
 			INNER JOIN " . TABLE_PREFIX . "thread AS thread USING(forumid)
 			WHERE FIND_IN_SET('" . intval($forum['forumid']) . "', forum.parentlist) AND
@@ -193,6 +210,16 @@ function exec_digest($type = 2)
 			$thread['title'] = unhtmlspecialchars($thread['title']);
 			$thread['postusername'] = unhtmlspecialchars($thread['postusername']);
 			$thread['lastposter'] = unhtmlspecialchars($thread['lastposter']);
+
+			if ($thread['prefixid'])
+			{
+				// need prefix in correct language
+				$thread['prefix_plain'] = fetch_phrase("prefix_$thread[prefixid]_title_plain", 'global', '', false, true, $forum['languageid'], false) . ' ';
+			}
+			else
+			{
+				$thread['prefix_plain'] = '';
+			}
 
 			($hook = vBulletinHook::fetch_hook('digest_forum_thread')) ? eval($hook) : false;
 
@@ -226,8 +253,8 @@ function exec_digest($type = 2)
 
 /*======================================================================*\
 || ####################################################################
-|| # Downloaded: 18:52, Sat Jul 14th 2007
-|| # CVS: $RCSfile$ - $Revision: 15971 $
+|| # Downloaded: 16:21, Sat Apr 6th 2013
+|| # CVS: $RCSfile$ - $Revision: 25833 $
 || ####################################################################
 \*======================================================================*/
 ?>

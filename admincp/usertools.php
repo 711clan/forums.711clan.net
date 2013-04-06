@@ -1,9 +1,9 @@
 <?php
 /*======================================================================*\
 || #################################################################### ||
-|| # vBulletin 3.6.7 PL1 - Licence Number VBF2470E4F
+|| # vBulletin 3.7.2 Patch Level 2 - Licence Number VBF2470E4F
 || # ---------------------------------------------------------------- # ||
-|| # Copyright ©2000-2007 Jelsoft Enterprises Ltd. All Rights Reserved. ||
+|| # Copyright ©2000-2013 Jelsoft Enterprises Ltd. All Rights Reserved. ||
 || # This file may not be redistributed in whole or significant part. # ||
 || # ---------------- VBULLETIN IS NOT FREE SOFTWARE ---------------- # ||
 || # http://www.vbulletin.com | http://www.vbulletin.com/license.html # ||
@@ -14,7 +14,7 @@
 error_reporting(E_ALL & ~E_NOTICE);
 
 // ##################### DEFINE IMPORTANT CONSTANTS #######################
-define('CVS_REVISION', '$RCSfile$ - $Revision: 16997 $');
+define('CVS_REVISION', '$RCSfile$ - $Revision: 26706 $');
 
 // #################### PRE-CACHE TEMPLATES AND DATA ######################
 $phrasegroups = array('cpuser', 'forum', 'timezone', 'user');
@@ -213,8 +213,7 @@ if ($_POST['do'] == 'domerge')
 		print_stop_message('source_and_destination_identical');
 	}
 
-	$noalter = explode(',', $vbulletin->config['SpecialUsers']['undeletableusers']);
-	if (!empty($noalter[0]) AND (in_array($sourceinfo['userid'], $noalter) OR in_array($destinfo['userid'], $noalter)))
+	if (is_unalterable_user($sourceinfo['userid']) OR is_unalterable_user($destinfo['userid']))
 	{
 		print_stop_message('user_is_protected_from_alteration_by_undeletableusers_var');
 	}
@@ -389,6 +388,7 @@ if ($_POST['do'] == 'reallydomerge')
 	$userdm->set_existing($destinfo);
 
 	$userdm->set('posts', "posts + $sourceinfo[posts]", false);
+	$userdm->set_ladder_usertitle_relative($sourceinfo['posts']);
 	$userdm->set('reputation', "reputation + $sourceinfo[reputation] - " . $vbulletin->options['reputationdefault'], false);
 	$userdm->set('lastvisit', "IF(lastvisit < $sourceinfo[lastvisit], $sourceinfo[lastvisit], lastvisit)", false);
 	$userdm->set('lastactivity', "IF(lastactivity < $sourceinfo[lastactivity], $sourceinfo[lastactivity], lastactivity)", false);
@@ -404,37 +404,13 @@ if ($_POST['do'] == 'reallydomerge')
 	$userdm->set('warnings', "warnings + " . intval($sourceinfo['warnings']), false);
 	$userdm->set('infractions', "infractions + " . intval($sourceinfo['infractions']), false);
 
-	/* Ignore list, we can't use CONCAT any more */
-	$sourcelist = (!empty($sourceinfo['ignorelist']) ? explode(' ', $sourceinfo['ignorelist']) : array());
-	$destlist = (!empty($destinfo['ignorelist']) ? explode(' ', $destinfo['ignorelist']) : array());
-	$addlist = array_diff($sourcelist, $destlist);
-
-	$ignorelist = '';
-	if (is_array($addlist) AND !empty($addlist))
-	{
-		$list = array_merge($destlist, $addlist);
-		$ignorelist = implode(' ', $list);
-	}
-
-
-	$userdm->set('ignorelist', "$ignorelist");
-
-	/* buddy list, we can't use CONCAT any more */
-	$sourcelist = (!empty($sourceinfo['buddylist']) ? explode(' ', $sourceinfo['buddylist']) : array());
-	$destlist = (!empty($destinfo['buddylist']) ? explode(' ', $destinfo['buddylist']) : array());
-	$addlist = array_diff($sourcelist, $destlist);
-
-	$buddylist = '';
-	if (is_array($addlist) AND !empty($addlist))
-	{
-		$list = array_merge($destlist, $addlist);
-		$buddylist = implode(' ', $list);
-	}
-
-	$userdm->set('buddylist', "$buddylist"); 
+	$db->query_write("INSERT IGNORE INTO " . TABLE_PREFIX . "userlist (userid, relationid, type, friend) SELECT $destinfo[userid], relationid, type, friend FROM " . TABLE_PREFIX . "userlist WHERE userid = $sourceinfo[userid]");
+	$db->query_write("UPDATE IGNORE " . TABLE_PREFIX . "userlist SET relationid = $destinfo[userid] WHERE relationid = $sourceinfo[userid] AND relationid <> $destinfo[userid]");
 
 	$userdm->save();
 	unset($userdm);
+
+	build_userlist($destinfo['userid']);
 
 	// if the source user has infractions, then we need to update the infraction groups on the dest
 	// easier to do it this way to make
@@ -554,7 +530,7 @@ if ($_POST['do'] == 'reallydomerge')
 	$db->query_write("
 		UPDATE " . TABLE_PREFIX . "deletionlog
 		SET userid = $destinfo[userid],
-		username = '" . $db->escape_string($destinfo['username']) . "'
+			username = '" . $db->escape_string($destinfo['username']) . "'
 		WHERE userid = $sourceinfo[userid]
 	");
 
@@ -562,16 +538,74 @@ if ($_POST['do'] == 'reallydomerge')
 	$db->query_write("
 		UPDATE " . TABLE_PREFIX . "editlog
 		SET userid = $destinfo[userid],
-		username = '" . $db->escape_string($destinfo['username']) . "'
+			username = '" . $db->escape_string($destinfo['username']) . "'
 		WHERE userid = $sourceinfo[userid]
 	");
 
-	// Update Poll Votes
+	// Update Poll Votes - find any poll where we both voted
+	// we need to remove the source user's vote
+	$pollconflicts = array();
+	$polls = $db->query("
+		SELECT DISTINCT poll.*
+		FROM " . TABLE_PREFIX . "pollvote AS sourcevote
+		INNER JOIN " . TABLE_PREFIX . "poll AS poll ON (sourcevote.pollid = poll.pollid)
+		INNER JOIN " . TABLE_PREFIX . "pollvote AS destvote ON (destvote.pollid = poll.pollid AND destvote.userid = $destinfo[userid])
+		WHERE sourcevote.userid = $sourceinfo[userid]
+	");
+	while ($poll = $db->fetch_array($polls))
+	{
+		$pollconflicts["$poll[pollid]"] = $poll;
+	}
+
 	$db->query_write("
-		UPDATE " . TABLE_PREFIX . "pollvote
+		UPDATE IGNORE " . TABLE_PREFIX . "pollvote
 		SET userid = $destinfo[userid]
 		WHERE userid = $sourceinfo[userid]
 	");
+
+	if (!empty($pollconflicts))
+	{
+		$db->query_write("
+			DELETE FROM " . TABLE_PREFIX . "pollvote
+			WHERE userid = $sourceinfo[userid]
+		");
+
+		// Polls that need to be rebuilt now
+		foreach ($pollconflicts AS $pollconflict)
+		{
+			$votes = array();
+			for ($x = 1; $x <= $pollconflict['numberoptions']; $x++)
+			{
+				$votes["$x"] = 0;
+			}
+
+			$pollvotes = $db->query_read("
+				SELECT voteoption, votedate
+				FROM " . TABLE_PREFIX . "pollvote
+				WHERE pollid = $pollconflict[pollid]
+			");
+			$lastvote = 0;
+			while ($pollvote = $db->fetch_array($pollvotes))
+			{
+				$votes["$pollvote[voteoption]"]++;
+
+				if ($pollvote['votedate'] > $lastvote)
+				{
+					$lastvote = $pollvote['votedate'];
+				}
+			}
+
+			// It appears that pollvote.votedate wasn't always set in the past so we could have votes with no datetime, hence the check on lastvote below
+			$db->query_write("
+				UPDATE " . TABLE_PREFIX . "poll
+				SET
+					votes = '" . $db->escape_string(implode('|||', $votes)) . "',
+					voters = IF(voters > 0, voters - 1, 0)
+					" . ($lastvote ? ", lastvote = $lastvote" : "") . "
+				WHERE pollid = $pollconflict[pollid]
+			");
+		}
+	}
 
 	// Update Thread Ratings
 	$db->query_write("
@@ -627,6 +661,13 @@ if ($_POST['do'] == 'reallydomerge')
 
 	// Update Private Messages
 	$db->query_write("
+ 		UPDATE " . TABLE_PREFIX . "pm
+		SET userid = $destinfo[userid]
+		WHERE userid = $sourceinfo[userid]
+			AND folderid = -1
+	");
+
+	$db->query_write("
 		UPDATE " . TABLE_PREFIX . "pm
 		SET userid = $destinfo[userid], folderid = 0
 		WHERE userid = $sourceinfo[userid]
@@ -651,6 +692,28 @@ if ($_POST['do'] == 'reallydomerge')
 		WHERE fromuserid = $sourceinfo[userid]
 	");
 
+	// Update Visitor Messages
+	$db->query_write("
+		UPDATE " . TABLE_PREFIX . "visitormessage
+		SET postuserid = $destinfo[userid],
+			postusername = '" . $db->escape_string($destinfo['username']) . "'
+		WHERE postuserid = $sourceinfo[userid]
+	");
+
+	$db->query_write("
+		UPDATE " . TABLE_PREFIX . "visitormessage
+		SET userid = $destinfo[userid]
+		WHERE userid = $sourceinfo[userid]
+	");
+
+	// Update Group Messages
+	$db->query_write("
+		UPDATE " . TABLE_PREFIX . "groupmessage
+		SET postuserid = $destinfo[userid],
+			postusername = '" . $db->escape_string($destinfo['username']) . "'
+		WHERE postuserid = $sourceinfo[userid]
+	");
+
 	// Delete requests if the dest user already has them
 	$db->query_write("
 		DELETE FROM " . TABLE_PREFIX . "usergrouprequest
@@ -671,6 +734,166 @@ if ($_POST['do'] == 'reallydomerge')
 		SET touserarray = REPLACE(touserarray, 'i:$sourceinfo[userid];s:$olduser:\"" . $db->escape_string($sourceinfo['username']) . "\";','i:$destinfo[userid];s:$newuser:\"" . $db->escape_string($destinfo['username']) . "\";')
 	");
 
+	$groups = array();
+	$groupids = array();
+
+	$memberships_dest = array();
+	$memberships_source = array();
+
+	$memberships_combined = array();
+	$groups_recount = array();
+	$groups_newowner = array();
+
+	$groupmemberships = $vbulletin->db->query_read("
+		SELECT * FROM " . TABLE_PREFIX . "socialgroupmember
+		WHERE userid IN (" . $sourceinfo['userid'] . "," . $destinfo['userid'] . ")
+	");
+
+	while ($groupmembership = $vbulletin->db->fetch_array($groupmemberships))
+	{
+		if ($groupmembership['userid'] == $destinfo['userid'])
+		{
+			$memberships_dest["$groupmembership[groupid]"] = $groupmembership;
+		}
+		else if ($groupmembership['userid'] == $sourceinfo['userid'])
+		{
+			$memberships_source["$groupmembership[groupid]"] = $groupmembership;
+		}
+
+		$groupids["$groupmembership[groupid]"] = $groupmembership['groupid'];
+	}
+
+	if (!empty($groupids))
+	{
+		$groups_result = $vbulletin->db->query_read("
+			SELECT * FROM " . TABLE_PREFIX . "socialgroup
+			WHERE groupid IN (" . implode(",", $groupids) . ")
+		");
+
+		while ($group = $vbulletin->db->fetch_array($groups_result))
+		{
+			$groups["$group[groupid]"] = $group;
+		}
+
+		foreach ($groups AS $group)
+		{
+			if ($group['creatoruserid'] == $sourceinfo['userid'])
+			{
+				$groups_newowner[] = $group['groupid'];
+			}
+
+			if (!empty($memberships_source["$group[groupid]"]) AND !empty($memberships_dest["$group[groupid]"]))
+			{
+
+				/*	This may look weird, but it is correct. If both users are in the same group, and their status
+					is NOT the same, then they should be a member, as this means that either one or the other is
+					a member, or one is moderated, and one is invited, combining these makes them a member */
+
+				if ($memberships_source["$group[groupid]"]['type'] == $memberships_dest["$group[groupid]"]['type'])
+				{
+					$memberships_combined[] = $memberships_dest["$group[groupid]"];
+					continue;
+				}
+				else
+				{
+					$memberships_dest["$group[groupid]"]['type'] = 'member';
+					$memberships_combined[] = $memberships_dest["$group[groupid]"];
+					continue;
+				}
+			}
+			else if (empty($memberships_source["$group[groupid]"]))
+			{ // Only the destination user is a member of the group
+				$memberships_combined[] = $memberships_dest["$group[groupid]"];
+				continue;
+			}
+			else
+			{ // Only the source user is a member of the group
+				$memberships_combined[] = $memberships_source["$group[groupid]"];
+				continue;
+			}
+		}
+
+		$memberships_sql = array();
+
+		foreach ($memberships_combined AS $membership)
+		{
+			$memberships_sql[] = "(" . intval($membership['userid']) . ", " . intval($membership['groupid']) . ", " . intval($membership['dateline']) . ", '" . $vbulletin->db->escape_string($membership['type']) . "')";
+		}
+
+		$vbulletin->db->query_write("
+			DELETE FROM " . TABLE_PREFIX . "socialgroupmember
+			WHERE userid IN (" . $sourceinfo['userid'] . "," . $destinfo['userid'] . ")
+		");
+
+		$vbulletin->db->query_write("
+			INSERT INTO " . TABLE_PREFIX . "socialgroupmember
+			(userid, groupid, dateline, type) VALUES
+			" . implode(", ", $memberships_sql)
+		);
+
+		if (!empty($groups_newowner))
+		{
+			$vbulletin->db->query_write("
+				UPDATE " . TABLE_PREFIX . "socialgroup
+				SET creatoruserid = " . $destinfo['userid'] . "
+				WHERE groupid IN (" . implode(",", $groups_newowner) . ")
+			");
+		}
+
+		list($invitedgroups) = $vbulletin->db->query_first("
+			SELECT COUNT(*) FROM " . TABLE_PREFIX . "socialgroupmember WHERE
+			userid = " . intval($destinfo['userid']) . "
+			AND TYPE = 'invited'
+		", DBARRAY_NUM);
+
+		$vbulletin->db->query_write("
+			UPDATE " . TABLE_PREFIX . "user SET
+			socgroupinvitecount = " . intval($invitedgroups) . "
+			WHERE userid = " . intval($destinfo['userid'])
+		);
+
+		$groupdm =& datamanager_init("SocialGroup", $vbulletin, ERRTYPE_STANDARD);
+
+		foreach ($groups AS $group)
+		{
+			$groupdm->set_existing($group);
+			$groupdm->rebuild_membercounts();
+			$groupdm->rebuild_picturecount();
+			$groupdm->save();
+
+			list($pendingcountforowner) = $vbulletin->db->query_first("
+				SELECT SUM(moderatedmembers) FROM " . TABLE_PREFIX . "socialgroup
+				WHERE creatoruserid = " . $group['creatoruserid']
+			, DBARRAY_NUM);
+
+			$vbulletin->db->query_write("
+				UPDATE " . TABLE_PREFIX . "user
+				SET socgroupreqcount = " . intval($pendingcountforowner) . "
+				WHERE userid = " . $group['creatoruserid']
+			);
+		}
+	}
+
+	$db->query_write("
+		UPDATE " . TABLE_PREFIX . "album
+		SET userid = $destinfo[userid]
+		WHERE userid = $sourceinfo[userid]
+	");
+	$db->query_write("
+		UPDATE " . TABLE_PREFIX . "picture
+		SET userid = $destinfo[userid]
+		WHERE userid = $sourceinfo[userid]
+	");
+	$db->query_write("
+		UPDATE " . TABLE_PREFIX . "picturecomment SET
+			postuserid = $destinfo[userid],
+			postusername = '" . $db->escape_string($destinfo['username']) . "'
+		WHERE postuserid = $sourceinfo[userid]
+	");
+
+	require_once(DIR . '/includes/functions_picturecomment.php');
+	build_picture_comment_counters($destinfo['userid']);
+
 	($hook = vBulletinHook::fetch_hook('useradmin_merge')) ? eval($hook) : false;
 
 	// Remove remnants of source user
@@ -679,6 +902,7 @@ if ($_POST['do'] == 'reallydomerge')
 	$userdm->delete();
 	unset($userdm);
 
+	define('CP_BACKURL', '');
 	print_stop_message('user_accounts_merged', $sourceinfo['username'], $destinfo['username']);
 
 }
@@ -687,7 +911,12 @@ if ($_POST['do'] == 'reallydomerge')
 if ($_REQUEST['do'] == 'profilepic')
 {
 
-	$userinfo = fetch_userinfo($vbulletin->GPC['userid'], 8); // 8 sets profilepic
+	$userinfo = fetch_userinfo($vbulletin->GPC['userid'], FETCH_USERINFO_PROFILEPIC);
+	if (!$userinfo)
+	{
+		print_stop_message('invalid_user_specified');
+	}
+
 	if ($userinfo['profilepicwidth'] AND $userinfo['profilepicheight'])
 	{
 		$size = " width=\"$userinfo[profilepicwidth]\" height=\"$userinfo[profilepicheight]\" ";
@@ -736,6 +965,10 @@ if ($_POST['do'] == 'updateprofilepic')
 	));
 
 	$userinfo = fetch_userinfo($vbulletin->GPC['userid']);
+	if (!$userinfo)
+	{
+		print_stop_message('invalid_user_specified');
+	}
 
 	if ($vbulletin->GPC['useprofilepic'])
 	{
@@ -784,7 +1017,7 @@ if ($_POST['do'] == 'updateprofilepic')
 		$userpic->delete();
 	}
 
-	define('CP_REDIRECT', "user.php?do=modify&amp;u=$userinfo[userid]");
+	define('CP_REDIRECT', "user.php?do=edit&amp;u=$userinfo[userid]");
 	print_stop_message('saved_profile_picture_successfully');
 }
 
@@ -792,7 +1025,12 @@ if ($_POST['do'] == 'updateprofilepic')
 // ###################### Start modify Signature Pic ###########
 if ($_REQUEST['do'] == 'sigpic')
 {
-	$userinfo = fetch_userinfo($vbulletin->GPC['userid'], 32); // 32 sets sigpic
+	$userinfo = fetch_userinfo($vbulletin->GPC['userid'], FETCH_USERINFO_SIGPIC);
+	if (!$userinfo)
+	{
+		print_stop_message('invalid_user_specified');
+	}
+
 	if ($userinfo['sigpicwidth'] AND $userinfo['sigpicheight'])
 	{
 		$size = " width=\"$userinfo[sigpicwidth]\" height=\"$userinfo[sigpicheight]\" ";
@@ -841,7 +1079,7 @@ if ($_POST['do'] == 'updatesigpic')
 	));
 
 	$userinfo = fetch_userinfo($vbulletin->GPC['userid']);
-	if (!$userinfo['userid'])
+	if (!$userinfo)
 	{
 		print_stop_message('invalid_user_specified');
 	}
@@ -882,7 +1120,7 @@ if ($_POST['do'] == 'updatesigpic')
 		$userpic->delete();
 	}
 
-	define('CP_REDIRECT', "user.php?do=modify&amp;u=$userinfo[userid]");
+	define('CP_REDIRECT', "user.php?do=edit&amp;u=$userinfo[userid]");
 	print_stop_message('saved_signature_picture_successfully');
 }
 
@@ -895,12 +1133,12 @@ if ($_REQUEST['do'] == 'avatar')
 		'startpage' => TYPE_INT,
 	));
 
-	if (!$vbulletin->GPC['userid'])
+	$userinfo = fetch_userinfo($vbulletin->GPC['userid']);
+	if (!$userinfo)
 	{
 		print_stop_message('invalid_user_specified');
 	}
 
-	$userinfo = fetch_userinfo($vbulletin->GPC['userid']);
 	$avatarchecked["{$userinfo['avatarid']}"] = 'checked="checked"';
 	$nouseavatarchecked = '';
 	if (!$avatarinfo = $db->query_first("SELECT * FROM " . TABLE_PREFIX . "customavatar WHERE userid = " . $vbulletin->GPC['userid']))
@@ -1118,6 +1356,10 @@ if ($_POST['do'] == 'updateavatar')
 	$useavatar = iif($vbulletin->GPC['avatarid'] == -1, 0, 1);
 
 	$userinfo = fetch_userinfo($vbulletin->GPC['userid']);
+	if (!$userinfo)
+	{
+		print_stop_message('invalid_user_specified');
+	}
 
 	// init user datamanager
 	$userdata =& datamanager_init('User', $vbulletin, ERRTYPE_CP);
@@ -1183,7 +1425,7 @@ if ($_POST['do'] == 'updateavatar')
 	$userdata->set('avatarid', $vbulletin->GPC['avatarid']);
 	$userdata->save();
 
-	define('CP_REDIRECT', "user.php?do=modify&amp;u=" . $vbulletin->GPC['userid']);
+	define('CP_REDIRECT', "user.php?do=edit&amp;u=" . $vbulletin->GPC['userid']);
 	print_stop_message('saved_avatar_successfully');
 }
 
@@ -1374,11 +1616,12 @@ if ($_REQUEST['do'] == 'doips')
 			WHERE username = '" . $db->escape_string(htmlspecialchars_uni($vbulletin->GPC['username'])) . "'
 		");
 		$userid = intval($getuserid['userid']);
-		if (!$userid)
+
+		$userinfo = fetch_userinfo($userid);
+		if (!$userinfo)
 		{
 			print_stop_message('invalid_user_specified');
 		}
-		$userinfo = fetch_userinfo($userid);
 	}
 	else if ($vbulletin->GPC['userid'])
 	{
@@ -1406,7 +1649,7 @@ if ($_REQUEST['do'] == 'doips')
 			{
 				$hostname = $vbphrase['could_not_resolve_hostname'];
 			}
-			print_description_row("<div style=\"margin-left:20px\"><a href=\"usertools.php?" . $vbulletin->session->vars['sessionurl'] . "do=gethost&amp;ip=" . $vbulletin->GPC['ipaddress'] . "\">" . $vbulletin->GPC['ipaddress'] . "</a> : <b>$hostname</b></div>");
+			print_description_row("<div style=\"margin-$stylevar[left]:20px\"><a href=\"usertools.php?" . $vbulletin->session->vars['sessionurl'] . "do=gethost&amp;ip=" . $vbulletin->GPC['ipaddress'] . "\">" . $vbulletin->GPC['ipaddress'] . "</a> : <b>$hostname</b></div>");
 
 			$results = construct_ip_usage_table($vbulletin->GPC['ipaddress'], 0, $vbulletin->GPC['depth']);
 			print_description_row($vbphrase['post_ip_addresses'], false, 2, 'thead');
@@ -1437,7 +1680,7 @@ if ($_REQUEST['do'] == 'doips')
 			{
 				$results = '';
 			}
-			print_description_row($vbphrase['post_ip_addresses'], false, 2, 'thead');
+			print_description_row($vbphrase['registration_ip_addresses'], false, 2, 'thead');
 			print_description_row($results ? $results : $vbphrase['no_matches_found']);
 
 			print_table_footer();
@@ -1620,12 +1863,306 @@ if ($_REQUEST['do'] == 'showreferrals')
 	print_table_footer();
 }
 
+// ########################################################################
+
+if ($_REQUEST['do'] == 'usercss' OR $_POST['do'] == 'updateusercss')
+{
+	$vbulletin->input->clean_array_gpc('r', array(
+		'userid' => TYPE_UINT
+	));
+
+	$userinfo = fetch_userinfo($vbulletin->GPC['userid']);
+
+	if (!$userinfo)
+	{
+		print_stop_message('invalid_user_specified');
+	}
+
+	cache_permissions($userinfo, false);
+
+	$usercsspermissions = array(
+		'caneditfontfamily' => $userinfo['permissions']['usercsspermissions'] & $vbulletin->bf_ugp_usercsspermissions['caneditfontfamily'] ? true  : false,
+		'caneditfontsize'   => $userinfo['permissions']['usercsspermissions'] & $vbulletin->bf_ugp_usercsspermissions['caneditfontsize'] ? true : false,
+		'caneditcolors'     => $userinfo['permissions']['usercsspermissions'] & $vbulletin->bf_ugp_usercsspermissions['caneditcolors'] ? true : false,
+		'caneditbgimage'    => $userinfo['permissions']['usercsspermissions'] & $vbulletin->bf_ugp_usercsspermissions['caneditbgimage'] ? true : false,
+		'caneditborders'    => $userinfo['permissions']['usercsspermissions'] & $vbulletin->bf_ugp_usercsspermissions['caneditborders'] ? true : false
+	);
+
+	require_once(DIR . '/includes/class_usercss.php');
+	$usercss = new vB_UserCSS($vbulletin, $userinfo['userid']);
+}
+
+// ########################################################################
+
+if ($_POST['do'] == 'updateusercss')
+{
+	$vbulletin->input->clean_array_gpc('p', array(
+		'usercss' => TYPE_ARRAY
+	));
+
+	$allowedfonts = $usercss->build_select_option($vbulletin->options['usercss_allowed_fonts']);
+	$allowedfontsizes = $usercss->build_select_option($vbulletin->options['usercss_allowed_font_sizes']);
+	$allowedborderwidths = $usercss->build_select_option($vbulletin->options['usercss_allowed_border_widths']);
+	$allowedpaddings = $usercss->build_select_option($vbulletin->options['usercss_allowed_padding']);
+
+	foreach ($vbulletin->GPC['usercss'] AS $selectorname => $selector)
+	{
+		if (!isset($usercss->cssedit["$selectorname"]) OR !empty($usercss->cssedit["$selectorname"]['noinputset']))
+		{
+			$usercss->error[] = fetch_error('invalid_selector_name_x', $selectorname);
+			continue;
+		}
+
+		if (!is_array($selector))
+		{
+			continue;
+		}
+
+		foreach ($selector AS $property => $value)
+		{
+			$prop_perms = $usercss->properties["$property"]['permission'];
+
+			if (empty($usercsspermissions["$prop_perms"]) OR !in_array($property, $usercss->cssedit["$selectorname"]['properties']))
+			{
+				$usercss->error[] = fetch_error('no_permission_edit_selector_x_property_y', $selectorname, $property);
+				continue;
+			}
+
+			unset($allowedlist);
+			switch ($property)
+			{
+				case 'font_size':    $allowedlist = $allowedfontsizes; break;
+				case 'font_family':  $allowedlist = $allowedfonts; break;
+				case 'border_width': $allowedlist = $allowedborderwidths; break;
+				case 'padding':      $allowedlist = $allowedpaddings; break;
+			}
+
+			if (isset($allowedlist))
+			{
+				if (!in_array($value, $allowedlist) AND $value != '')
+				{
+					$usercss->invalid["$selectorname"]["$property"] = ' usercsserror ';
+					continue;
+				}
+			}
+
+			$usercss->parse($selectorname, $property, $value);
+		}
+	}
+
+	if (!empty($usercss->error))
+	{
+		print_cp_message(implode("<br />", $usercss->error));
+	}
+	else if (!empty($usercss->invalid))
+	{
+		print_stop_message('invalid_values_customize_profile');
+	}
+
+	$usercss->save();
+
+	define('CP_REDIRECT', "user.php?do=edit&amp;u=$userinfo[userid]");
+	print_stop_message('saved_profile_customizations_successfully');
+}
+
+// ########################################################################
+
+if ($_REQUEST['do'] == 'usercss')
+{
+	require_once(DIR . '/includes/adminfunctions_template.php');
+
+	?>
+	<script type="text/javascript" src="../clientscript/vbulletin_cpcolorpicker.js"></script>
+	<?php
+
+	$colorPicker = construct_color_picker(11);
+
+	$allowedfonts = $usercss->build_admin_select_option($vbulletin->options['usercss_allowed_fonts'], 'usercss_font_');
+	$allowedfontsizes = $usercss->build_admin_select_option($vbulletin->options['usercss_allowed_font_sizes'], 'usercss_fontsize_');
+	$allowedborderwidths = $usercss->build_admin_select_option($vbulletin->options['usercss_allowed_border_widths'], 'usercss_borderwidth_');
+	$allowedpaddings = $usercss->build_admin_select_option($vbulletin->options['usercss_allowed_padding'], 'usercss_padding_');
+
+	$allowedborderstyles = array(
+		''       => '',
+		'none'   => $vbphrase['usercss_borderstyle_none'],
+		'hidden' => $vbphrase['usercss_borderstyle_hidden'],
+		'dotted' => $vbphrase['usercss_borderstyle_dotted'],
+		'dashed' => $vbphrase['usercss_borderstyle_dashed'],
+		'solid'  => $vbphrase['usercss_borderstyle_solid'],
+		'double' => $vbphrase['usercss_borderstyle_double'],
+		'groove' => $vbphrase['usercss_borderstyle_groove'],
+		'ridge'  => $vbphrase['usercss_borderstyle_ridge'],
+		'inset'  => $vbphrase['usercss_borderstyle_inset'],
+		'outset' => $vbphrase['usercss_borderstyle_outset']
+	);
+
+	$allowedbackgroundrepeats = array(
+		'' => '',
+		'repeat' => $vbphrase['usercss_repeat_repeat'],
+		'repeat-x' => $vbphrase['usercss_repeat_repeat_x'],
+		'repeat-y' => $vbphrase['usercss_repeat_repeat_y'],
+		'no-repeat' => $vbphrase['usercss_repeat_no_repeat']
+	);
+
+	$cssdisplayinfo = $usercss->build_display_array();
+
+	print_form_header('usertools', 'updateusercss');
+	print_table_header(construct_phrase($vbphrase['edit_profile_style_customizations_for_x'], $userinfo['username']));
+	construct_hidden_code('userid', $userinfo['userid']);
+
+	$have_output = false;
+
+	foreach ($cssdisplayinfo AS $selectorname => $selectorinfo)
+	{
+		if (empty($selectorinfo['properties']))
+		{
+			$selectorinfo['properties'] = $usercss->cssedit["$selectorname"]['properties'];
+		}
+
+		if (!is_array($selectorinfo['properties']))
+		{
+			continue;
+		}
+
+		$field_names = array();
+		$selector = array();
+
+		foreach ($selectorinfo['properties'] AS $key => $value)
+		{
+			if (is_numeric($key))
+			{
+				$this_property = $value;
+				$this_selector = $selectorname;
+			}
+			else
+			{
+				$this_property = $key;
+				$this_selector = $value;
+			}
+
+			if (!$usercsspermissions[$usercss->properties["$this_property"]['permission']])
+			{
+				continue;
+			}
+
+			$field_names["$this_property"] = "usercss[$this_selector][$this_property]";
+			$selector["$this_property"] = $usercss->existing["$this_selector"]["$this_property"];
+		}
+
+		if (!$field_names)
+		{
+			continue;
+		}
+
+		$have_output = true;
+
+		print_description_row($vbphrase["$selectorinfo[phrasename]"], false, 2, 'thead', 'center');
+
+		if ($field_names['font_family'])
+		{
+			print_select_row($vbphrase['usercss_font_family'], $field_names['font_family'], $allowedfonts, $selector['font_family']);
+		}
+
+		if ($field_names['font_size'])
+		{
+			print_select_row($vbphrase['usercss_font_size'], $field_names['font_size'], $allowedfontsizes, $selector['font_size']);
+		}
+
+		if ($field_names['color'])
+		{
+			print_color_input_row($vbphrase['usercss_color'], $field_names['color'], $selector['color'], true, 10);
+		}
+
+		if ($field_names['shadecolor'])
+		{
+			print_color_input_row($vbphrase['usercss_shadecolor'], $field_names['shadecolor'], $selector['shadecolor'], true, 10);
+		}
+
+		if ($field_names['linkcolor'])
+		{
+			print_color_input_row($vbphrase['usercss_linkcolor'], $field_names['linkcolor'], $selector['linkcolor'], true, 10);
+		}
+
+		if ($field_names['border_color'])
+		{
+			print_color_input_row($vbphrase['usercss_border_color'], $field_names['border_color'], $selector['border_color'], true, 10);
+		}
+
+		if ($field_names['border_style'])
+		{
+			print_select_row($vbphrase['usercss_border_style'], $field_names['border_style'], $allowedborderstyles, $selector['border_style']);
+		}
+
+		if ($field_names['border_width'])
+		{
+			print_select_row($vbphrase['usercss_border_width'], $field_names['border_width'], $allowedborderwidths, $selector['border_width']);
+		}
+
+		if ($field_names['padding'])
+		{
+			print_select_row($vbphrase['usercss_padding'], $field_names['padding'], $allowedpaddings, $selector['padding']);
+		}
+
+		if ($field_names['background_color'])
+		{
+			print_color_input_row($vbphrase['usercss_background_color'], $field_names['background_color'], $selector['background_color'], true, 10);
+		}
+
+		if ($field_names['background_image'])
+		{
+			if (preg_match("/^([0-9]+),([0-9]+)$/", $selector['background_image'], $picture))
+			{
+				$selector['background_image'] = "picture.php?albumid=" . $picture[1] . "&pictureid=" . $picture[2];
+			}
+			else
+			{
+				$selector['background_image'] = '';
+			}
+			print_input_row($vbphrase['usercss_background_image'], $field_names['background_image'], $selector['background_image']);
+		}
+
+		if ($field_names['background_repeat'])
+		{
+			print_select_row($vbphrase['usercss_background_repeat'], $field_names['background_repeat'], $allowedbackgroundrepeats, $selector['background_repeat']);
+		}
+	}
+
+	if ($have_output == false)
+	{
+		print_description_row($vbphrase['user_no_permission_customize_profile']);
+		print_table_footer();
+	}
+	else
+	{
+		print_submit_row();
+
+		echo $colorPicker;
+	?>
+	<script type="text/javascript">
+	<!--
+
+	var bburl = "<?php echo $vbulletin->options['bburl']; ?>/";
+	var cpstylefolder = "<?php echo $vbulletin->options['cpstylefolder']; ?>";
+	var numColors = <?php echo intval($numcolors); ?>;
+	var colorPickerWidth = <?php echo intval($colorPickerWidth); ?>;
+	var colorPickerType = <?php echo intval($colorPickerType); ?>;
+
+	init_color_preview();
+
+	//-->
+	</script>
+	<?php
+	}
+}
+
+// ########################################################################
+
 print_cp_footer();
 
 /*======================================================================*\
 || ####################################################################
-|| # Downloaded: 18:52, Sat Jul 14th 2007
-|| # CVS: $RCSfile$ - $Revision: 16997 $
+|| # Downloaded: 16:21, Sat Apr 6th 2013
+|| # CVS: $RCSfile$ - $Revision: 26706 $
 || ####################################################################
 \*======================================================================*/
 ?>

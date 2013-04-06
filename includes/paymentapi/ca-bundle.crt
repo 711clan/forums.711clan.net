@@ -3,7 +3,7 @@
 ##  Converted by the service run by Daniel Stenberg
 ##  URL: http://curl.haxx.se/docs/caextract.html
 ##  Converted at: Wed May 17 03:14:58 UTC 2006
-##  Mozilla: $Revision: 14729 $ $Date: 2006-05-24 12:17:57 -0500 (Wed, 24 May 2006) $"
+##  Mozilla: $Revision: 14730 $ $Date: 2006-05-24 12:17:57 -0500 (Wed, 24 May 2006) $"
 ##
 ## This is a bundle of X.509 certificates of public Certificate Authorities
 ## (CA). These were automatically extracted from Mozilla's root certificates

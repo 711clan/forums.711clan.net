@@ -1,9 +1,9 @@
 <?php
 /*======================================================================*\
 || #################################################################### ||
-|| # vBulletin 3.6.7 PL1 - Licence Number VBF2470E4F
+|| # vBulletin 3.7.2 Patch Level 2 - Licence Number VBF2470E4F
 || # ---------------------------------------------------------------- # ||
-|| # Copyright ©2000-2007 Jelsoft Enterprises Ltd. All Rights Reserved. ||
+|| # Copyright ©2000-2013 Jelsoft Enterprises Ltd. All Rights Reserved. ||
 || # This file may not be redistributed in whole or significant part. # ||
 || # ---------------- VBULLETIN IS NOT FREE SOFTWARE ---------------- # ||
 || # http://www.vbulletin.com | http://www.vbulletin.com/license.html # ||
@@ -15,6 +15,8 @@ error_reporting(E_ALL & ~E_NOTICE);
 
 // #################### DEFINE IMPORTANT CONSTANTS #######################
 define('THIS_SCRIPT', 'login');
+define('CSRF_PROTECTION', true);
+define('CSRF_SKIP_LIST', 'login');
 
 // ################### PRE-CACHE TEMPLATES AND DATA ######################
 // get special phrase groups
@@ -36,6 +38,7 @@ $actiontemplates = array(
 // ######################### REQUIRE BACK-END ############################
 require_once('./global.php');
 require_once(DIR . '/includes/functions_login.php');
+
 // #######################################################################
 // ######################## START MAIN SCRIPT ############################
 // #######################################################################
@@ -50,11 +53,13 @@ if (empty($_REQUEST['do']) AND empty($vbulletin->GPC['a']))
 // ############################### start logout ###############################
 if ($_REQUEST['do'] == 'logout')
 {
+	define('NOPMPOPUP', true);
+
 	$vbulletin->input->clean_gpc('r', 'logouthash', TYPE_STR);
 
-	if ($vbulletin->userinfo['userid'] != 0 AND $vbulletin->GPC['logouthash'] != $vbulletin->userinfo['logouthash'])
+	if ($vbulletin->userinfo['userid'] != 0 AND !verify_security_token($vbulletin->GPC['logouthash'], $vbulletin->userinfo['securitytoken_raw']))
 	{
-		eval(standard_error(fetch_error('logout_error', $vbulletin->session->vars['sessionurl'], $vbulletin->userinfo['logouthash'])));
+		eval(standard_error(fetch_error('logout_error', $vbulletin->session->vars['sessionurl'], $vbulletin->userinfo['securitytoken'])));
 	}
 
 	process_logout();
@@ -78,7 +83,7 @@ if ($_POST['do'] == 'login')
 		'vb_login_password'        => TYPE_STR,
 		'vb_login_md5password'     => TYPE_STR,
 		'vb_login_md5password_utf' => TYPE_STR,
-		'postvars'                 => TYPE_STR,
+		'postvars'                 => TYPE_BINARY,
 		'cookieuser'               => TYPE_BOOL,
 		'logintype'                => TYPE_STR,
 		'cssprefs'                 => TYPE_STR,
@@ -159,7 +164,10 @@ if ($_REQUEST['do'] == 'lostpw')
 if ($_POST['do'] == 'emailpassword')
 {
 
-	$vbulletin->input->clean_gpc('p', 'email', TYPE_STR);
+	$vbulletin->input->clean_array_gpc('p', array(
+		'email' => TYPE_STR,
+		'userid' => TYPE_UINT,
+	));
 
 	if ($vbulletin->GPC['email'] == '')
 	{
@@ -177,6 +185,10 @@ if ($_POST['do'] == 'emailpassword')
 	{
 		while ($user = $db->fetch_array($users))
 		{
+			if ($vbulletin->GPC['userid'] AND $vbulletin->GPC['userid'] != $user['userid'])
+			{
+				continue;
+			}
 			$user['username'] = unhtmlspecialchars($user['username']);
 
 			$user['activationid'] = build_user_activation_id($user['userid'], 2, 1);
@@ -263,8 +275,8 @@ if ($vbulletin->GPC['a'] == 'pwd' OR $_REQUEST['do'] == 'resetpassword')
 
 /*======================================================================*\
 || ####################################################################
-|| # Downloaded: 18:52, Sat Jul 14th 2007
-|| # CVS: $RCSfile$ - $Revision: 16422 $
+|| # Downloaded: 16:21, Sat Apr 6th 2013
+|| # CVS: $RCSfile$ - $Revision: 26512 $
 || ####################################################################
 \*======================================================================*/
 ?>

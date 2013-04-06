@@ -1,9 +1,9 @@
 <?php
 /*======================================================================*\
 || #################################################################### ||
-|| # vBulletin 3.6.7 PL1 - Licence Number VBF2470E4F
+|| # vBulletin 3.7.2 Patch Level 2 - Licence Number VBF2470E4F
 || # ---------------------------------------------------------------- # ||
-|| # Copyright ©2000-2007 Jelsoft Enterprises Ltd. All Rights Reserved. ||
+|| # Copyright ©2000-2013 Jelsoft Enterprises Ltd. All Rights Reserved. ||
 || # This file may not be redistributed in whole or significant part. # ||
 || # ---------------- VBULLETIN IS NOT FREE SOFTWARE ---------------- # ||
 || # http://www.vbulletin.com | http://www.vbulletin.com/license.html # ||
@@ -71,10 +71,16 @@ if (!empty($vbulletin->GPC['vbulletin_collapse']))
 // #############################################################################
 // start server too busy
 $servertoobusy = false;
-if (PHP_OS == 'Linux' AND $vbulletin->options['loadlimit'] > 0 AND @file_exists('/proc/loadavg') AND $filestuff = @file_get_contents('/proc/loadavg'))
+
+if (PHP_OS == 'Linux' AND $vbulletin->options['loadlimit'] > 0)
 {
-	$loadavg = explode(' ', $filestuff);
-	if (trim($loadavg[0]) > $vbulletin->options['loadlimit'])
+	if(!is_array($vbulletin->loadcache) OR $vbulletin->loadcache['lastcheck'] < (TIMENOW - 300))
+	{
+		update_loadavg();
+	}
+
+
+	if ($vbulletin->loadcache['loadavg'] > $vbulletin->options['loadlimit'])
 	{
 		$servertoobusy = true;
 	}
@@ -269,17 +275,31 @@ if (is_array($actiontemplates["$_templatedo"]))
 	$globaltemplates = array_merge($globaltemplates, $actiontemplates["$_templatedo"]);
 }
 
+// Choose proper human verification template
+if ($vbulletin->options['hv_type'] AND in_array('humanverify', $globaltemplates))
+{
+	$globaltemplates[] = 'humanverify_' . strtolower($vbulletin->options['hv_type']);
+}
+
 // templates to be included in every single page...
 $globaltemplates = array_merge($globaltemplates, array(
 	// the really important ones
 	'header',
 	'footer',
 	'headinclude',
+	// ad location templates
+	'ad_header_logo',
+	'ad_header_end',
+	'ad_navbar_below',
+	'ad_footer_start',
+	'ad_footer_end',
 	// new private message script
 	'pm_popup_script',
 	// navbar construction
 	'navbar',
 	'navbar_link',
+	'navbar_noticebit',
+	'navbar_notifications_menubit',
 	// forumjump and go button
 	'forumjump',
 	'gobutton',
@@ -299,6 +319,7 @@ $globaltemplates = array_merge($globaltemplates, array(
 ));
 
 // if we are in a message editing page then get the editor templates
+$show['editor_css'] = false;
 if (defined('GET_EDIT_TEMPLATES'))
 {
 	$_get_edit_templates = explode(',', GET_EDIT_TEMPLATES);
@@ -309,6 +330,7 @@ if (defined('GET_EDIT_TEMPLATES'))
 			'editor_toolbar_on',
 			'editor_smilie',
 			// message area for wysiwyg / non wysiwyg
+			'editor_css',
 			'editor_clientscript',
 			'editor_toolbar_off',
 			// javascript menu builders
@@ -335,6 +357,8 @@ if (defined('GET_EDIT_TEMPLATES'))
 			'newpost_errormessage',
 			'forumrules'
 		));
+
+		$show['editor_css'] = true;
 	}
 }
 
@@ -351,6 +375,27 @@ $template_hook = array();
 // #############################################################################
 // get style variables
 $stylevar = fetch_stylevars($style, $vbulletin->userinfo);
+
+if (defined('CSRF_ERROR'))
+{
+	define('VB_ERROR_LITE', true);
+	eval('$headinclude = "' . fetch_template('headinclude') . '";');
+	switch (CSRF_ERROR)
+	{
+		case 'missing':
+			eval(standard_error(fetch_error('security_token_missing', $vbulletin->options['contactuslink'])));
+			break;
+
+		case 'guest':
+			eval(standard_error(fetch_error('security_token_guest')));
+			break;
+
+		case 'invalid':
+		default:
+			eval(standard_error(fetch_error('security_token_invalid', $vbulletin->options['contactuslink'])));
+	}
+	exit;
+}
 
 // #############################################################################
 // parse PHP include
@@ -395,7 +440,7 @@ if ($vbulletin->userinfo['pmpopup'] == 2 AND $vbulletin->options['checknewpm'] A
 $pmbox = array();
 $pmbox['lastvisitdate'] = vbdate($vbulletin->options['dateformat'], $vbulletin->userinfo['lastvisit'], 1);
 $pmbox['lastvisittime'] = vbdate($vbulletin->options['timeformat'], $vbulletin->userinfo['lastvisit']);
-$pmunread_html = iif($vbulletin->userinfo['pmunread'], '<strong>' . $vbulletin->userinfo['pmunread'] . '</strong>', $vbulletin->userinfo['pmunread']);
+$pmunread_html = construct_phrase(($vbulletin->userinfo['pmunread'] ? $vbphrase['numeric_value_emphasized'] : $vbphrase['numeric_value']), $vbulletin->userinfo['pmunread']);
 $vbphrase['unread_x_nav_compiled'] = construct_phrase($vbphrase['unread_x_nav'], $pmunread_html);
 $vbphrase['total_x_nav_compiled'] = construct_phrase($vbphrase['total_x_nav'], $vbulletin->userinfo['pmtotal']);
 
@@ -425,12 +470,14 @@ else
 // do cron stuff - goes into footer
 if ($vbulletin->cron <= TIMENOW)
 {
-	$cronimage = '<img src="' . create_full_url('cron.php?' . $vbulletin->session->vars['sessionurl'] . '&amp;rand=' .  vbrand(1, 1000000)) . '" alt="" width="1" height="1" border="0" />';
+	$cronimage = '<img src="' . create_full_url('cron.php?' . $vbulletin->session->vars['sessionurl'] . 'rand=' .  vbrand(1, 1000000)) . '" alt="" width="1" height="1" border="0" />';
 }
 else
 {
 	$cronimage = '';
 }
+
+$show['rtl'] = ($stylevar['textdirection'] == 'rtl');
 
 $show['admincplink'] = iif($vbulletin->userinfo['permissions']['adminpermissions'] & $vbulletin->bf_ugp_adminpermissions['cancontrolpanel'], true, false);
 // This generates an extra query for non-admins/supermods on many pages so we have chosen to only display it to supermods & admins
@@ -439,17 +486,26 @@ $show['modcplink'] = ($vbulletin->userinfo['permissions']['adminpermissions'] & 
 
 $show['registerbutton'] = (!$show['search_engine'] AND $vbulletin->options['allowregistration'] AND (!$vbulletin->userinfo['userid'] OR $vbulletin->options['allowmultiregs']));
 $show['searchbuttons'] = (!$show['search_engine'] AND $vbulletin->userinfo['permissions']['forumpermissions'] & $vbulletin->bf_ugp_forumpermissions['cansearch'] AND $vbulletin->options['enablesearches']);
-$show['quicksearch'] = ($vbulletin->userinfo['userid'] OR !$vbulletin->options['searchimagecheck'] OR !$vbulletin->options['regimagetype']);
+$show['quicksearch'] = ($vbulletin->userinfo['userid'] OR !$vbulletin->options['hvcheck_search']);
 
-if ($vbulletin->userinfo['userid'])
+$loggedout = false;
+if (THIS_SCRIPT == 'login' AND $_REQUEST['do'] == 'logout' AND $vbulletin->userinfo['userid'] != 0)
 {
-	$show['guest'] = false;
-	$show['member'] = true;
+	$vbulletin->input->clean_gpc('r', 'logouthash', TYPE_STR);
+	if (verify_security_token($vbulletin->GPC['logouthash'], $vbulletin->userinfo['securitytoken_raw']))
+	{
+		$loggedout = true;
+	}
 }
-else
+if (!$vbulletin->userinfo['userid'] OR $loggedout)
 {
 	$show['guest'] = true;
 	$show['member'] = false;
+}
+else
+{
+	$show['guest'] = false;
+	$show['member'] = true;
 }
 
 $show['detailedtime'] = iif($vbulletin->options['yestoday'] == 2, true, false);
@@ -546,6 +602,8 @@ else
 // you may define this if you don't want the password in the login box to be zapped onsubmit; good for integration
 $show['nopasswordempty'] = defined('DISABLE_PASSWORD_CLEARING') ? 1 : 0; // this nees to be an int for the templates
 
+$ad_location = array();
+
 // parse some global templates
 eval('$gobutton = "' . fetch_template('gobutton') . '";');
 eval('$spacer_open = "' . fetch_template('spacer_open') . '";');
@@ -557,6 +615,209 @@ eval('$spacer_close = "' . fetch_template('spacer_close') . '";');
 $admincpdir =& $vbulletin->config['Misc']['admincpdir'];
 $modcpdir =& $vbulletin->config['Misc']['modcpdir'];
 
+// advertising location setup
+eval('$ad_location[\'ad_header_logo\'] = "' . fetch_template('ad_header_logo') . '";');
+eval('$ad_location[\'ad_header_end\'] = "' . fetch_template('ad_header_end') . '";');
+eval('$ad_location[\'ad_navbar_below\'] = "' . fetch_template('ad_navbar_below') . '";');
+eval('$ad_location[\'ad_footer_start\'] = "' . fetch_template('ad_footer_start') . '";');
+eval('$ad_location[\'ad_footer_end\'] = "' . fetch_template('ad_footer_end') . '";');
+
+// process editor css if required
+if ($show['editor_css'])
+{
+	require_once(DIR . '/includes/functions_editor.php');
+	construct_editor_styles_js($style['editorstyles']);
+	eval('$editor_css = "' . fetch_template('editor_css') . '";');
+}
+
+// #############################################################################
+// handle notices
+if (!empty($vbulletin->noticecache) AND is_array($vbulletin->noticecache))
+{
+	$notices = '';
+
+	require_once(DIR . '/includes/functions_notice.php');
+	foreach (fetch_relevant_notice_ids() AS $_noticeid)
+	{
+		$show['notices'] = true;
+		$notice_html = str_replace(array('{musername}', '{username}', '{userid}', '{sessionurl}'), array($vbulletin->userinfo['musername'], $vbulletin->userinfo['username'], $vbulletin->userinfo['userid'], $vbulletin->session->vars['sessionurl']), $vbphrase["notice_{$_noticeid}_html"]);
+
+		($hook = vBulletinHook::fetch_hook('notices_noticebit')) ? eval($hook) : false;
+
+		eval('$notices .= "' . fetch_template('navbar_noticebit') . '";');
+	}
+}
+else
+{
+	$show['notices'] = false;
+	$notices = '';
+}
+
+// #############################################################################
+// set up user notifications
+$show['notifications'] = false;
+if ($vbulletin->userinfo['userid'])
+{
+	$notifications = array();
+
+	if ($show['pmstats'])
+	{
+		$notifications['pmunread'] = array(
+			'phrase' => $vbphrase['unread_private_messages'],
+			'link'   => 'private.php' . $vbulletin->session->vars['sessionurl_q'],
+			'order'  => 10
+		);
+	}
+
+	if (
+		$vbulletin->userinfo['vm_enable']
+			AND
+		$vbulletin->options['socnet'] & $vbulletin->bf_misc_socnet['enable_visitor_messaging']
+			AND
+		$permissions['genericpermissions'] & $vbulletin->bf_ugp_genericpermissions['canviewmembers']
+	)
+	{
+		$notifications['vmunreadcount'] = array(
+			'phrase' => $vbphrase['unread_profile_visitor_messages'],
+			'link'   => 'member.php?' . $vbulletin->session->vars['sessionurl'] . 'u=' . $vbulletin->userinfo['userid'] . '&amp;tab=visitor_messaging',
+			'order'  => 20
+		);
+
+		if ($permissions['visitormessagepermissions'] & $vbulletin->bf_ugp_visitormessagepermissions['canmanageownprofile'])
+		{
+			$notifications['vmmoderatedcount'] = array(
+				'phrase' => $vbphrase['profile_visitor_messages_awaiting_approval'],
+				'link'   => 'member.php?' . $vbulletin->session->vars['sessionurl'] . 'u=' . $vbulletin->userinfo['userid'] . '&amp;tab=visitor_messaging',
+				'order'  => 30
+			);
+		}
+	}
+
+	// check for incoming friend requests if user has permission to use the friends system
+	if (($vbulletin->options['socnet'] & $vbulletin->bf_misc_socnet['enable_friends']) AND ($permissions['genericpermissions2'] & $vbulletin->bf_ugp_genericpermissions2['canusefriends']))
+	{
+		$notifications['friendreqcount'] = array(
+			'phrase' => $vbphrase['incoming_friend_requests'],
+			'link'   => 'profile.php?' . $vbulletin->session->vars['sessionurl'] . 'do=buddylist#irc',
+			'order'  => 40
+		);
+	}
+
+	// social group invitations and join requests
+	if ($vbulletin->options['socnet'] & $vbulletin->bf_misc_socnet['enable_groups'])
+	{
+		// check for requests to join your own social groups, if user has permission to create groups
+		if ($permissions['socialgrouppermissions'] & $vbulletin->bf_ugp_socialgrouppermissions['cancreategroups'])
+		{
+			$notifications['socgroupreqcount'] = array(
+				'phrase' => $vbphrase['requests_to_join_your_social_groups'],
+				'link'   => 'group.php?' . $vbulletin->session->vars['sessionurl'] . 'do=requests',
+				'order'  => 50
+			);
+		}
+
+		// check for invitations to join social groups, if user has permission to join groups
+		if ($permissions['socialgrouppermissions'] & $vbulletin->bf_ugp_socialgrouppermissions['canjoingroups'])
+		{
+			$notifications['socgroupinvitecount'] = array(
+				'phrase' => $vbphrase['invitations_to_join_social_groups'],
+				'link'   => 'group.php?' . $vbulletin->session->vars['sessionurl'] . 'do=invitations',
+				'order'  => 60
+			);
+		}
+	}
+
+	// picture comment notifications
+	if ($vbulletin->options['pc_enabled']
+		AND $vbulletin->options['socnet'] & $vbulletin->bf_misc_socnet['enable_albums']
+		AND $permissions['genericpermissions'] & $vbulletin->bf_ugp_genericpermissions['canviewmembers']
+		AND $permissions['albumpermissions'] & $vbulletin->bf_ugp_albumpermissions['canviewalbum']
+		AND $permissions['albumpermissions'] & $vbulletin->bf_ugp_albumpermissions['canalbum']
+	)
+	{
+		$notifications['pcunreadcount'] = array(
+			'phrase' => $vbphrase['unread_picture_comments'],
+			'link'   => 'album.php?' . $vbulletin->session->vars['sessionurl'] . 'do=unread',
+			'order'  => 70
+		);
+
+		if ($permissions['albumpermissions'] & $vbulletin->bf_ugp_albumpermissions['canmanagepiccomment'])
+		{
+			$notifications['pcmoderatedcount'] = array(
+				'phrase' => $vbphrase['picture_comments_awaiting_approval'],
+				'link'   => 'album.php?' . $vbulletin->session->vars['sessionurl'] . 'do=moderated',
+				'order'  => 80
+			);
+		}
+	}
+
+	if (
+		$vbulletin->options['socnet'] & $vbulletin->bf_misc_socnet['enable_groups']
+		AND $vbulletin->options['socnet_groups_msg_enabled']
+		AND $vbulletin->userinfo['permissions']['socialgrouppermissions'] & $vbulletin->bf_ugp_socialgrouppermissions['canmanageowngroups']
+	)
+	{
+		$notifications['gmmoderatedcount'] = array(
+			'phrase' => $vbphrase['group_messages_awaiting_approval'],
+			'link'   => 'group.php?' . $vbulletin->session->vars['sessionurl'] . 'do=moderatedgms',
+			'order'  => 90
+		);
+	}
+
+	($hook = vBulletinHook::fetch_hook('notifications_list')) ? eval($hook) : false;
+
+	$notifications_order = array();
+	foreach ($notifications AS $userfield => $notification)
+	{
+		$notifications_order["$notification[order]"]["$userfield"] = $userfield;
+	}
+
+	ksort($notifications_order);
+
+	$notifications_total = 0;
+	$notifications_menubits = '';
+
+	foreach ($notifications_order AS $notification_order => $userfields)
+	{
+		ksort($notifications_order["$notification_order"]);
+
+		foreach ($userfields AS $userfield)
+		{
+			$notification =& $notifications["$userfield"];
+
+			if ($vbulletin->userinfo["$userfield"] > 0)
+			{
+				$show['notifications'] = true;
+			}
+
+			$notifications_total += $vbulletin->userinfo["$userfield"];
+			$notification['total'] = vb_number_format($vbulletin->userinfo["$userfield"]);
+
+			eval('$notifications_menubits .= "' . fetch_template('navbar_notifications_menubit') . '";');
+		}
+	}
+
+	$notifications_total = vb_number_format($notifications_total);
+}
+
+// #############################################################################
+// Determine display of certain navbar Quick Links
+$show['quick_links_groups'] = (
+	$vbulletin->options['socnet'] & $vbulletin->bf_misc_socnet['enable_groups']
+	AND $vbulletin->userinfo['permissions']['socialgrouppermissions'] & $vbulletin->bf_ugp_socialgrouppermissions['canjoingroups']
+);
+$show['quick_links_albums'] = (
+	$vbulletin->options['socnet'] & $vbulletin->bf_misc_socnet['enable_albums']
+	AND $permissions['genericpermissions'] & $vbulletin->bf_ugp_genericpermissions['canviewmembers']
+	AND $permissions['albumpermissions'] & $vbulletin->bf_ugp_albumpermissions['canviewalbum']
+	AND $permissions['albumpermissions'] & $vbulletin->bf_ugp_albumpermissions['canalbum']
+);
+$show['friends_and_contacts'] = (
+	$vbulletin->options['socnet'] & $vbulletin->bf_misc_socnet['enable_friends']
+	AND $vbulletin->userinfo['permissions']['genericpermissions2'] & $vbulletin->bf_ugp_genericpermissions2['canusefriends']
+);
+
+// #############################################################################
 // page number is used in meta tags (sometimes)
 $pagenumber = $vbulletin->input->clean_gpc('r', 'pagenumber', TYPE_UINT);
 eval('$headinclude = "' . fetch_template('headinclude') . '";');
@@ -575,6 +836,22 @@ if (trim($foruminfo['link']) != '' AND (THIS_SCRIPT != 'subscription' OR $_REQUE
 	{
 		print_no_permission();
 	}
+
+	// add session hash to local links if necessary
+	if (preg_match('#^([a-z0-9_]+\.php)(\?.*$)?#i', $foruminfo['link'], $match))
+	{
+		if ($match[2])
+		{
+			// we have a ?xyz part, put session url at beginning if necessary
+			$query_string = preg_replace('/([^a-z0-9])(s|sessionhash)=[a-z0-9]{32}(&amp;|&)?/', '\\1', $match[2]);
+			$foruminfo['link'] = $match[1] . '?' . $vbulletin->session->vars['sessionurl_js'] . substr($query_string, 1);
+		}
+		else
+		{
+			$foruminfo['link'] .= $vbulletin->session->vars['sessionurl_q'];
+		}
+	}
+
 	exec_header_redirect($foruminfo['link'], true);
 }
 
@@ -639,7 +916,7 @@ if (!$vbulletin->options['bbactive'] AND THIS_SCRIPT != 'login')
 			exit;
 		}
 		$show['enableforumjump'] = true;
-		eval('standard_error("' . str_replace("\'", "'", addslashes($vbulletin->options['bbclosedreason'])) . '");');
+		eval('standard_error("' . str_replace("\\'", "'", addslashes($vbulletin->options['bbclosedreason'])) . '");');
 		unset($db->shutdownqueries['lastvisit']);
 	}
 	else
@@ -797,8 +1074,8 @@ if (!empty($db->explain))
 
 /*======================================================================*\
 || ####################################################################
-|| # Downloaded: 18:52, Sat Jul 14th 2007
-|| # CVS: $RCSfile$ - $Revision: 16604 $
+|| # Downloaded: 16:21, Sat Apr 6th 2013
+|| # CVS: $RCSfile$ - $Revision: 26891 $
 || ####################################################################
 \*======================================================================*/
 ?>

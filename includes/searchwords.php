@@ -1,9 +1,9 @@
 <?php
 /*======================================================================*\
 || #################################################################### ||
-|| # vBulletin 3.6.7 PL1 - Licence Number VBF2470E4F
+|| # vBulletin 3.7.2 Patch Level 2 - Licence Number VBF2470E4F
 || # ---------------------------------------------------------------- # ||
-|| # Copyright ©2000-2007 Jelsoft Enterprises Ltd. All Rights Reserved. ||
+|| # Copyright ©2000-2013 Jelsoft Enterprises Ltd. All Rights Reserved. ||
 || # This file may not be redistributed in whole or significant part. # ||
 || # ---------------- VBULLETIN IS NOT FREE SOFTWARE ---------------- # ||
 || # http://www.vbulletin.com | http://www.vbulletin.com/license.html # ||
@@ -19,7 +19,7 @@ if (!isset($GLOBALS['vbulletin']->db))
 $vbulletin->options['goodwords'] = trim($vbulletin->options['goodwords']);
 if ($vbulletin->options['goodwords'])
 {
-	$goodwords = preg_split('#\s+#s', strtolower($vbulletin->options['goodwords']), -1, PREG_SPLIT_NO_EMPTY);
+	$goodwords = preg_split('#[ \r\n\t]+#s', strtolower($vbulletin->options['goodwords']), -1, PREG_SPLIT_NO_EMPTY);
 }
 else
 {
@@ -603,8 +603,8 @@ $badwords = array(
 
 /*======================================================================*\
 || ####################################################################
-|| # Downloaded: 18:52, Sat Jul 14th 2007
-|| # CVS: $RCSfile$ - $Revision: 12795 $
+|| # Downloaded: 16:21, Sat Apr 6th 2013
+|| # CVS: $RCSfile$ - $Revision: 25710 $
 || ####################################################################
 \*======================================================================*/
 ?>

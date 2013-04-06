@@ -1,9 +1,9 @@
 <?php
 /*======================================================================*\
 || #################################################################### ||
-|| # vBulletin 3.6.7 PL1 - Licence Number VBF2470E4F
+|| # vBulletin 3.7.2 Patch Level 2 - Licence Number VBF2470E4F
 || # ---------------------------------------------------------------- # ||
-|| # Copyright ©2000-2007 Jelsoft Enterprises Ltd. All Rights Reserved. ||
+|| # Copyright ©2000-2013 Jelsoft Enterprises Ltd. All Rights Reserved. ||
 || # This file may not be redistributed in whole or significant part. # ||
 || # ---------------- VBULLETIN IS NOT FREE SOFTWARE ---------------- # ||
 || # http://www.vbulletin.com | http://www.vbulletin.com/license.html # ||
@@ -14,15 +14,16 @@
 error_reporting(E_ALL & ~E_NOTICE);
 
 // ##################### DEFINE IMPORTANT CONSTANTS #######################
-define('CVS_REVISION', '$RCSfile$ - $Revision: 16035 $');
+define('CVS_REVISION', '$RCSfile$ - $Revision: 25059 $');
 define('NOZIP', 1);
 
 // #################### PRE-CACHE TEMPLATES AND DATA ######################
-$phrasegroups = array('thread', 'threadmanage');
+$phrasegroups = array('thread', 'threadmanage', 'prefix');
 $specialtemplates = array();
 
 // ########################## REQUIRE BACK-END ############################
 require_once('./global.php');
+require_once(DIR . '/includes/adminfunctions_prefix.php');
 
 @set_time_limit(0);
 
@@ -118,6 +119,11 @@ function print_move_prune_rows($permcheck = '')
 		print_input_row($vbphrase['title'], 'thread[titlecontains]');
 		print_moderator_forum_chooser('thread[forumid]', -1, $vbphrase['all_forums'], $vbphrase['forum'], true, false, true, $permcheck);
 		print_yes_no_row($vbphrase['include_child_forums'], 'thread[subforums]');
+
+		if ($prefix_options = construct_prefix_options(0, '', true, true))
+		{
+			print_label_row($vbphrase['prefix'], '<select name="thread[prefixid]" class="bginput">' . $prefix_options . '</select>', '', 'top', 'prefixid');
+		}
 }
 
 // ###################### Function to generate move/prune query #######################
@@ -257,6 +263,21 @@ function fetch_thread_move_prune_sql($thread, &$forumids, $type)
 		$query .= " AND thread.forumid = $thread[forumid] AND thread.forumid IN (" . implode(',', $forumids) . ")";
 	}
 
+	// prefixid
+	switch ($thread['prefixid'])
+	{
+		case '': // any prefix, no limit
+			break;
+
+		case '-1': // none
+			$query .= " AND thread.prefixid = ''";
+			break;
+
+		default: // a prefix
+			$query .= " AND thread.prefixid = '" . $vbulletin->db->escape_string($thread['prefixid']) . "'";
+			break;
+	}
+
 	return $query;
 }
 
@@ -341,9 +362,9 @@ if ($_POST['do'] == 'dothreads')
 
 	print_form_header('thread', 'dothreadsall');
 	construct_hidden_code('type', $vbulletin->GPC['type']);
-	construct_hidden_code('criteria', serialize($vbulletin->GPC['thread']));
+	construct_hidden_code('criteria', sign_client_string(serialize($vbulletin->GPC['thread'])));
 
-	print_table_header(construct_phrase($vbphrase['x_thread_matches_found'], $count[count]));
+	print_table_header(construct_phrase($vbphrase['x_thread_matches_found'], $count['count']));
 	if ($vbulletin->GPC['type'] == 'prune')
 	{
 		print_submit_row($vbphrase['prune_all_threads'], '');
@@ -356,7 +377,7 @@ if ($_POST['do'] == 'dothreads')
 
 	print_form_header('thread', 'dothreadssel');
 	construct_hidden_code('type', $vbulletin->GPC['type']);
-	construct_hidden_code('criteria', serialize($vbulletin->GPC['thread']));
+	construct_hidden_code('criteria', sign_client_string(serialize($vbulletin->GPC['thread'])));
 	print_table_header(construct_phrase($vbphrase['x_thread_matches_found'], $count['count']));
 	if ($vbulletin->GPC['type'] == 'prune')
 	{
@@ -373,11 +394,16 @@ if ($_POST['do'] == 'dothreads')
 if ($_POST['do'] == 'dothreadsall')
 {
 	$vbulletin->input->clean_array_gpc('p', array(
-		'criteria'    => TYPE_STR,
+		'criteria'    => TYPE_BINARY,
 		'destforumid' => TYPE_INT
 	));
 
-	$thread = unserialize($vbulletin->GPC['criteria']);
+	$thread = @unserialize(verify_client_string($vbulletin->GPC['criteria']));
+	if (!is_array($thread) OR sizeof($thread) == 0)
+	{
+		print_stop_message('please_complete_required_fields');
+	}
+
 	$whereclause = fetch_thread_move_prune_sql($thread, $forumids, $vbulletin->GPC['type']);
 
 	$fullquery = "
@@ -423,6 +449,11 @@ if ($_POST['do'] == 'dothreadsall')
 			WHERE threadid IN ($threadslist)
 		");
 
+		$vbulletin->db->query_write("TRUNCATE TABLE " . TABLE_PREFIX . "postparsed");
+
+		require_once(DIR . '/includes/functions_prefix.php');
+		remove_invalid_prefixes($threadslist, $vbulletin->GPC['destforumid']);
+
 		require_once(DIR . '/includes/functions_databuild.php');
 		build_forum_counters($vbulletin->GPC['destforumid']);
 
@@ -435,11 +466,16 @@ if ($_POST['do'] == 'dothreadsall')
 if ($_POST['do'] == 'dothreadssel')
 {
 	$vbulletin->input->clean_array_gpc('p', array(
-		'criteria'    => TYPE_STR,
+		'criteria'    => TYPE_BINARY,
 		'destforumid' => TYPE_INT
 	));
 
-	$thread = unserialize($vbulletin->GPC['criteria']);
+	$thread = @unserialize(verify_client_string($vbulletin->GPC['criteria']));
+	if (!is_array($thread) OR sizeof($thread) == 0)
+	{
+		print_stop_message('please_complete_required_fields');
+	}
+
 	$whereclause = fetch_thread_move_prune_sql($thread, $forumids, $vbulletin->GPC['type']);
 
 	$fullquery = "
@@ -472,9 +508,11 @@ if ($_POST['do'] == 'dothreadssel')
 
 	while ($thread = $db->fetch_array($threads))
 	{
+		$thread['prefix_plain_html'] = ($thread['prefixid'] ? htmlspecialchars_uni($vbphrase["prefix_$thread[prefixid]_title_plain"]) : '');
+
 		$cells = array();
 		$cells[] = "<input type=\"checkbox\" name=\"thread[$thread[threadid]]\" tabindex=\"1\" checked=\"checked\" />";
-		$cells[] = '<a href="../showthread.php?' . $vbulletin->session->vars['sessionurl'] . "t=$thread[threadid]\" target=\"_blank\">$thread[title]</a>";
+		$cells[] = $thread['prefix_plain_html'] . ' <a href="../showthread.php?' . $vbulletin->session->vars['sessionurl'] . "t=$thread[threadid]\" target=\"_blank\">$thread[title]</a>";
 		if ($thread['postuserid'])
 		{
 			$cells[] = '<span class="smallfont"><a href="../member.php?' . $vbulletin->session->vars['sessionurl'] . "u=$thread[postuserid]\">$thread[postusername]</a></span>";
@@ -547,6 +585,11 @@ if ($_POST['do'] == 'dothreadsselfinish')
 					AND forumid IN (" . implode(',', $forumids) . ")
 			");
 
+			$vbulletin->db->query_write("TRUNCATE TABLE " . TABLE_PREFIX . "postparsed");
+
+			require_once(DIR . '/includes/functions_prefix.php');
+			remove_invalid_prefixes($threadslist, $vbulletin->GPC['destforumid']);
+
 			require_once(DIR . '/includes/functions_databuild.php');
 			build_forum_counters($vbulletin->GPC['destforumid']);
 
@@ -560,8 +603,8 @@ print_cp_footer();
 
 /*======================================================================*\
 || ####################################################################
-|| # Downloaded: 18:52, Sat Jul 14th 2007
-|| # CVS: $RCSfile$ - $Revision: 16035 $
+|| # Downloaded: 16:21, Sat Apr 6th 2013
+|| # CVS: $RCSfile$ - $Revision: 25059 $
 || ####################################################################
 \*======================================================================*/
 ?>

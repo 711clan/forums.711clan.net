@@ -1,9 +1,9 @@
 <?php
 /*======================================================================*\
 || #################################################################### ||
-|| # vBulletin 3.6.7 PL1 - Licence Number VBF2470E4F
+|| # vBulletin 3.7.2 Patch Level 2 - Licence Number VBF2470E4F
 || # ---------------------------------------------------------------- # ||
-|| # All PHP code in this file is ©2000-2007 Jelsoft Enterprises Ltd. # ||
+|| # All PHP code in this file is ©2000-2013 Jelsoft Enterprises Ltd. # ||
 || # This file may not be redistributed in whole or significant part. # ||
 || # ---------------- VBULLETIN IS NOT FREE SOFTWARE ---------------- # ||
 || # http://www.vbulletin.com | http://www.vbulletin.com/license.html # ||
@@ -73,7 +73,7 @@ class Diffie_Hellman
 * This class lets us generate keys from a foreign network, this is useful when we want to do things like authentication
 *
 * @package 		vBulletin
-* @version		$Revision: 14296 $
+* @version		$Revision: 14297 $
 * @date 		$Date: 2006-02-15 08:35:26 -0600 (Wed, 15 Feb 2006) $
 * @copyright 	http://www.vbulletin.com/license.html
 *
@@ -174,7 +174,7 @@ class Diffie_Hellman_Abstract
 * Public Key generation class using the GMP module
 *
 * @package 		vBulletin
-* @version		$Revision: 14296 $
+* @version		$Revision: 14297 $
 * @date 		$Date: 2006-02-15 08:35:26 -0600 (Wed, 15 Feb 2006) $
 *
 */
@@ -233,7 +233,7 @@ class Diffie_Hellman_GMP extends Diffie_Hellman_Abstract
 * Public Key generation class using the BCMath module
 *
 * @package 		vBulletin
-* @version		$Revision: 14296 $
+* @version		$Revision: 14297 $
 * @date 		$Date: 2006-02-15 08:35:26 -0600 (Wed, 15 Feb 2006) $
 *
 */
@@ -306,7 +306,7 @@ class Diffie_Hellman_BCM extends Diffie_Hellman_Abstract
 * Public Key generation class using the BigInt PECL module
 *
 * @package 		vBulletin
-* @version		$Revision: 14296 $
+* @version		$Revision: 14297 $
 * @date 		$Date: 2006-02-15 08:35:26 -0600 (Wed, 15 Feb 2006) $
 *
 */
@@ -371,7 +371,7 @@ class Diffie_Hellman_BI extends Diffie_Hellman_Abstract
 * This is an implementation of the RC4 algorithm
 *
 * @package 		vBulletin
-* @version		$Revision: 14296 $
+* @version		$Revision: 14297 $
 * @date 		$Date: 2006-02-15 08:35:26 -0600 (Wed, 15 Feb 2006) $
 * @copyright 	http://www.vbulletin.com/license.html
 *

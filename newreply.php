@@ -1,9 +1,9 @@
 <?php
 /*======================================================================*\
 || #################################################################### ||
-|| # vBulletin 3.6.7 PL1 - Licence Number VBF2470E4F
+|| # vBulletin 3.7.2 Patch Level 2 - Licence Number VBF2470E4F
 || # ---------------------------------------------------------------- # ||
-|| # Copyright ©2000-2007 Jelsoft Enterprises Ltd. All Rights Reserved. ||
+|| # Copyright ©2000-2013 Jelsoft Enterprises Ltd. All Rights Reserved. ||
 || # This file may not be redistributed in whole or significant part. # ||
 || # ---------------- VBULLETIN IS NOT FREE SOFTWARE ---------------- # ||
 || # http://www.vbulletin.com | http://www.vbulletin.com/license.html # ||
@@ -16,6 +16,7 @@ error_reporting(E_ALL & ~E_NOTICE);
 // #################### DEFINE IMPORTANT CONSTANTS #######################
 define('GET_EDIT_TEMPLATES', true);
 define('THIS_SCRIPT', 'newreply');
+define('CSRF_PROTECTION', true);
 if ($_POST['do'] == 'postreply')
 {
 	if (isset($_POST['ajax']))
@@ -71,7 +72,7 @@ $globaltemplates = array(
 	'bbcode_html',
 	'bbcode_php',
 	'bbcode_quote',
-	'imagereg',
+	'humanverify',
 );
 
 // pre-cache templates used by specific actions
@@ -153,6 +154,7 @@ if (in_coventry($thread['postuserid']) AND !can_moderate($thread['forumid']))
 $newpost['message'] = '';
 $unquoted_posts = 0;
 $multiquote_empty = '';
+$specifiedpost = 0;
 
 if ($_REQUEST['do'] == 'newreply')
 {
@@ -184,6 +186,8 @@ if ($_REQUEST['do'] == 'newreply')
 
 		// fetch the quoted post title
 		$newpost['title'] = htmlspecialchars_uni(vbchop(fetch_quote_title($postinfo['title'], $threadinfo['title']), $vbulletin->options['titlemaxchars']));
+
+		$specifiedpost = 1; // the post we're replying to we explicitly picked
 	}
 	else
 	{
@@ -234,10 +238,10 @@ if ($_POST['do'] == 'unquotedposts')
 		if ($vbulletin->GPC['wysiwyg'])
 		{
 			require_once(DIR . '/includes/functions_wysiwyg.php');
-			$quote_text = parse_wysiwyg_html($quote_text, false, $threadinfo['forumid'], ($foruminfo['allowsmilies'] ? 1 : 0));
+			$quote_text = parse_wysiwyg_html(htmlspecialchars_uni($quote_text), false, $threadinfo['forumid'], ($foruminfo['allowsmilies'] ? 1 : 0));
 		}
 
-		$xml->add_tag('quotes', $quote_text);
+		$xml->add_tag('quotes', process_replacement_vars($quote_text));
 	}
 
 	$xml->print_xml();
@@ -270,9 +274,9 @@ if ($_POST['do'] == 'postreply')
 		'ajax'           => TYPE_BOOL,
 		'ajax_lastpost'  => TYPE_INT,
 		'loggedinuser'   => TYPE_INT,
-		'imagestamp'     => TYPE_STR,
-		'imagehash'      => TYPE_STR,
-		'multiquoteempty'=> TYPE_NOHTML
+		'humanverify'    => TYPE_ARRAY,
+		'multiquoteempty'=> TYPE_NOHTML,
+		'specifiedpost'  => TYPE_BOOL
 	));
 
 	if ($vbulletin->GPC['loggedinuser'] != 0 AND $vbulletin->userinfo['userid'] == 0)
@@ -347,8 +351,7 @@ if ($_POST['do'] == 'postreply')
 	$newpost['quickreply']     =& $vbulletin->GPC['quickreply'];
 	$newpost['poststarttime']  =& $poststarttime;
 	$newpost['posthash']       =& $posthash;
-	$newpost['imagehash']      =& $vbulletin->GPC['imagehash'];
-	$newpost['imagestamp']     =& $vbulletin->GPC['imagestamp'];
+	$newpost['humanverify']    =& $vbulletin->GPC['humanverify'];
 	// moderation options
 	$newpost['stickunstick']   =& $vbulletin->GPC['stickunstick'];
 	$newpost['openclose']      =& $vbulletin->GPC['openclose'];
@@ -359,12 +362,18 @@ if ($_POST['do'] == 'postreply')
 	}
 	else
 	{
-		$newpost['emailupdate'] = array_pop(array_keys(fetch_emailchecked($threadinfo, $vbulletin->userinfo)));
+		$newpost['emailupdate'] = array_pop($array = array_keys(fetch_emailchecked($threadinfo, $vbulletin->userinfo)));
+	}
+
+	if ($vbulletin->GPC['specifiedpost'] AND $postinfo)
+	{
+		$postinfo['specifiedpost'] = true;
 	}
 
 	build_new_post('reply', $foruminfo, $threadinfo, $postinfo, $newpost, $errors);
 
 	$multiquote_empty = $vbulletin->GPC['multiquoteempty']; // cleaned to nohtml above
+	$specifiedpost = ($vbulletin->GPC['specifiedpost'] ? 1 : 0); // keep the sent value (for automoderation stuff)
 
 	if (sizeof($errors) > 0)
 	{
@@ -379,7 +388,7 @@ if ($_POST['do'] == 'postreply')
 				$xml->add_tag('error', $error);
 			}
 			$xml->close_group();
-			$xml->print_xml();
+			$xml->print_xml(true);
 		}
 		else
 		{
@@ -517,7 +526,7 @@ if ($_POST['do'] == 'postreply')
 				" . iif($vbulletin->options['avatarenabled'], 'avatar.avatarpath, NOT ISNULL(customavatar.userid) AS hascustomavatar, customavatar.dateline AS avatardateline,customavatar.width AS avwidth,customavatar.height AS avheight,') . "
 				" . iif($deljoin, 'deletionlog.userid AS del_userid, deletionlog.username AS del_username, deletionlog.reason AS del_reason,') . "
 				editlog.userid AS edit_userid, editlog.username AS edit_username, editlog.dateline AS edit_dateline,
-				editlog.reason AS edit_reason,
+				editlog.reason AS edit_reason, editlog.hashistory,
 				postparsed.pagetext_html, postparsed.hasimages,
 				sigparsed.signatureparsed, sigparsed.hasimages AS sighasimages,
 				sigpic.userid AS sigpic, sigpic.dateline AS sigpicdateline, sigpic.width AS sigpicwidth, sigpic.height AS sigpicheight,
@@ -601,6 +610,10 @@ if ($_POST['do'] == 'postreply')
 				}
 				$fetchtype = 'post_deleted';
 			}
+			else if ($post['visible'] == 0 AND !can_moderate($thread['forumid'], 'canmoderateposts'))
+			{
+				$fetchtype = 'auto_moderated';
+			}
 			else
 			{
 				$fetchtype = 'post';
@@ -613,6 +626,27 @@ if ($_POST['do'] == 'postreply')
 			else
 			{
 				$post['postcount'] = ++$postcount;
+			}
+
+			if ($post['attach'])
+			{
+				$attachments = $db->query_read_slave("
+					SELECT dateline, thumbnail_dateline, filename, filesize, visible, attachmentid, counter,
+						postid, IF(thumbnail_filesize > 0, 1, 0) AS hasthumbnail, thumbnail_filesize,
+						attachmenttype.thumbnail AS build_thumbnail, attachmenttype.newwindow
+					FROM " . TABLE_PREFIX . "attachment
+					LEFT JOIN " . TABLE_PREFIX . "attachmenttype AS attachmenttype USING (extension)
+					WHERE postid = $post[postid]
+					ORDER BY attachmentid
+				");
+				while ($attachment = $db->fetch_array($attachments))
+				{
+					if (!$attachment['build_thumbnail'])
+					{
+						$attachment['hasthumbnail'] = false;
+					}
+					$post['attachments']["$attachment[attachmentid]"] = $attachment;
+				}
 			}
 
 			// address padding issues in postbit_legacy. These 2 lines will place only
@@ -632,7 +666,7 @@ if ($_POST['do'] == 'postreply')
 
 		$xml->add_tag('time', TIMENOW);
 		$xml->close_group();
-		$xml->print_xml();
+		$xml->print_xml(true);
 
 		// #############################################################################
 		// #############################################################################
@@ -935,10 +969,9 @@ if ($_REQUEST['do'] == 'newreply')
 
 
 	$posts = $db->query_read_slave("
-		SELECT post.postid, IF(post.userid = 0, post.username, user.username) AS username,
-			post.pagetext, post.allowsmilie, post.userid, post.dateline
+		SELECT post.*, IF(post.userid = 0, post.username, user.username) AS username
 		FROM " . TABLE_PREFIX . "post AS post
-		LEFT JOIN " . TABLE_PREFIX . "user AS user ON(user.userid = post.userid)
+		LEFT JOIN " . TABLE_PREFIX . "user AS user ON (user.userid = post.userid)
 		WHERE post.visible = 1
 			$globalignore
 			AND post.threadid = $threadinfo[threadid]
@@ -962,6 +995,11 @@ if ($_REQUEST['do'] == 'newreply')
 			{
 				$reviewmessage = $bbcode_parser->parse($post['pagetext'], $foruminfo['forumid'], $post['allowsmilie']);
 			}
+
+			// do word wrap
+			$reviewtitle = ($vbulletin->options['wordwrap'] ? fetch_word_wrapped_string($post['title']) : '');
+			$reviewtitle = fetch_censored_text($reviewtitle);
+
 			($hook = vBulletinHook::fetch_hook('newreply_form_reviewbit')) ? eval($hook) : false;
 			eval('$threadreviewbits .= "' . fetch_template('newreply_reviewbit') . '";');
 		}
@@ -981,15 +1019,15 @@ if ($_REQUEST['do'] == 'newreply')
 
 	eval('$usernamecode = "' . fetch_template('newpost_usernamecode') . '";');
 
-	if ($vbulletin->options['postimagecheck'] AND !$vbulletin->userinfo['userid'] AND $vbulletin->options['regimagetype'])
+	if ($vbulletin->options['hvcheck_post'] AND !$vbulletin->userinfo['userid'])
 	{
-		require_once(DIR . '/includes/functions_regimage.php');
-		$imagehash = fetch_regimage_hash();
-		eval('$imagereg = "' . fetch_template('imagereg') . '";');
+		require_once(DIR . '/includes/class_humanverify.php');
+		$verification =& vB_HumanVerify::fetch_library($vbulletin);
+		$human_verify = $verification->output_token();
 	}
 	else
 	{
-		$imagereg = '';
+		$human_verify = '';
 	}
 
 	// *********************************************************************
@@ -1007,11 +1045,11 @@ if ($_REQUEST['do'] == 'newreply')
 	}
 	if ($postid)
 	{
-		$navbits['showthread.php?' . $vbulletin->session->vars['sessionurl'] . "p=$postid#post$postid"] = $threadinfo['title'];
+		$navbits['showthread.php?' . $vbulletin->session->vars['sessionurl'] . "p=$postid#post$postid"] = $threadinfo['prefix_plain_html'] . ' ' . $threadinfo['title'];
 	}
 	else
 	{
-		$navbits['showthread.php?' . $vbulletin->session->vars['sessionurl'] . "t=$threadinfo[threadid]"] = $threadinfo['title'];
+		$navbits['showthread.php?' . $vbulletin->session->vars['sessionurl'] . "t=$threadinfo[threadid]"] = $threadinfo['prefix_plain_html'] . ' ' . $threadinfo['title'];
 	}
 	$navbits[''] = $vbphrase['reply_to_thread'];
 
@@ -1031,8 +1069,8 @@ if ($_REQUEST['do'] == 'newreply')
 
 /*======================================================================*\
 || ####################################################################
-|| # Downloaded: 18:52, Sat Jul 14th 2007
-|| # CVS: $RCSfile$ - $Revision: 16042 $
+|| # Downloaded: 16:21, Sat Apr 6th 2013
+|| # CVS: $RCSfile$ - $Revision: 26581 $
 || ####################################################################
 \*======================================================================*/
 ?>

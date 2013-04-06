@@ -1,9 +1,9 @@
 <?php
 /*======================================================================*\
 || #################################################################### ||
-|| # vBulletin 3.6.7 PL1 - Licence Number VBF2470E4F
+|| # vBulletin 3.7.2 Patch Level 2 - Licence Number VBF2470E4F
 || # ---------------------------------------------------------------- # ||
-|| # Copyright ©2000-2007 Jelsoft Enterprises Ltd. All Rights Reserved. ||
+|| # Copyright ©2000-2013 Jelsoft Enterprises Ltd. All Rights Reserved. ||
 || # This file may not be redistributed in whole or significant part. # ||
 || # ---------------- VBULLETIN IS NOT FREE SOFTWARE ---------------- # ||
 || # http://www.vbulletin.com | http://www.vbulletin.com/license.html # ||
@@ -14,7 +14,7 @@
 error_reporting(E_ALL & ~E_NOTICE);
 
 // ##################### DEFINE IMPORTANT CONSTANTS #######################
-define('CVS_REVISION', '$RCSfile$ - $Revision: 16897 $');
+define('CVS_REVISION', '$RCSfile$ - $Revision: 26533 $');
 define('FORCE_HOOKS', true);
 
 // #################### PRE-CACHE TEMPLATES AND DATA ######################
@@ -374,6 +374,7 @@ if ($_REQUEST['do'] == 'edit' OR $_REQUEST['do'] == 'add')
 	$products = fetch_product_list();
 
 	$hooklocations = array();
+
 	require_once(DIR . '/includes/class_xml.php');
 	$handle = opendir(DIR . '/includes/xml/');
 	while (($file = readdir($handle)) !== false)
@@ -409,8 +410,6 @@ if ($_REQUEST['do'] == 'edit' OR $_REQUEST['do'] == 'add')
 
 			$hooktype = $phrased_product . ' : ' . $phrased_type;
 
-			$hooklocations["$hooktype"] = array();
-
 			if (!is_array($hooks['hook']))
 			{
 				$hooks['hook'] = array($hooks['hook']);
@@ -418,11 +417,15 @@ if ($_REQUEST['do'] == 'edit' OR $_REQUEST['do'] == 'add')
 
 			foreach ($hooks['hook'] AS $hook)
 			{
-				$hookid = (is_string($hook) ? $hook : $hook['value']);
-				$hooklocations["$hooktype"]["$hookid"] = $hookid;
+				$hookid = trim(is_string($hook) ? $hook : $hook['value']);
+				if ($hookid !== '')
+				{
+					$hooklocations["$hookid"] = $hookid . ($product != 'vbulletin' ? " ($phrased_product)" : '');
+				}
 			}
 		}
 	}
+
 	uksort($hooklocations, 'strnatcasecmp');
 
 	$plugin = $db->query_first("
@@ -447,20 +450,24 @@ if ($_REQUEST['do'] == 'edit' OR $_REQUEST['do'] == 'add')
 	}
 	else
 	{
-		$heading = construct_phrase($vbphrase['edit_plugin_x'], $plugin['title']);
+		$heading = construct_phrase($vbphrase['edit_plugin_x'], htmlspecialchars_uni($plugin['title']));
 	}
 
 	print_table_header($heading);
 
 	print_select_row($vbphrase['product'], 'product', fetch_product_list(), $plugin['product'] ? $plugin['product'] : 'vbulletin');
-	print_select_row("$vbphrase[hook_location] <dfn>$vbphrase[hook_location_desc]</dfn>", 'hookname', $hooklocations, $plugin['hookname']);
+	print_select_row("$vbphrase[hook_location] <dfn>$vbphrase[hook_location_desc]</dfn>",
+		'hookname',
+		array_merge(array('' => ''), $hooklocations),
+		$plugin['hookname']
+	);
 	print_input_row("$vbphrase[title] <dfn>$vbphrase[plugin_title_desc]</dfn>", 'title', $plugin['title'], 1, 60);
 	print_input_row("$vbphrase[plugin_execution_order] <dfn>$vbphrase[plugin_order_desc]</dfn>", 'executionorder', $plugin['executionorder'], 1, 10);
 	print_textarea_row(
 		"$vbphrase[plugin_php_code] <dfn>$vbphrase[plugin_code_desc]</dfn>",
 		'phpcode',
 		htmlspecialchars($plugin['phpcode']),
-		10, 45,
+		10, '45" style="width:100%',
 		false,
 		true,
 		'ltr',
@@ -715,13 +722,13 @@ if ($_REQUEST['do'] == 'product')
 		$options['productexport'] = $vbphrase['export'];
 		$options['productdelete'] = $vbphrase['uninstall'];
 
-		$safeid = preg_replace('#[^a-z0-9_]#i', '', $product['productid']);
+		$safeid = preg_replace('#[^a-z0-9_]#', '', $product['productid']);
 		if (file_exists(DIR . '/includes/version_' . $safeid . '.php'))
 		{
 			include_once(DIR . '/includes/version_' . $safeid . '.php');
 		}
 		$define_name = 'FILE_VERSION_' . strtoupper($safeid);
-		if (defined($define_name))
+		if (defined($define_name) AND constant($define_name) !== '')
 		{
 			$product['version'] = constant($define_name);
 		}
@@ -825,13 +832,13 @@ if ($_REQUEST['do'] == 'productversioncheck')
 	}
 
 	// see if we have a patch or something
-	$safeid = preg_replace('#[^a-z0-9_]#i', '', $product['productid']);
+	$safeid = preg_replace('#[^a-z0-9_]#', '', $product['productid']);
 	if (file_exists(DIR . '/includes/version_' . $safeid . '.php'))
 	{
 		include_once(DIR . '/includes/version_' . $safeid . '.php');
 	}
 	$define_name = 'FILE_VERSION_' . strtoupper($safeid);
-	if (defined($define_name))
+	if (defined($define_name) AND constant($define_name) !== '')
 	{
 		$product['version'] = constant($define_name);
 	}
@@ -1058,14 +1065,14 @@ if ($_REQUEST['do'] == 'productadd' OR $_REQUEST['do'] == 'productedit')
 	else
 	{
 		print_table_header($vbphrase['add_new_product']);
-		print_input_row($vbphrase['product_id'], 'productid', '', true, 35, 25); // max length = 25
+		print_input_row($vbphrase['product_id'], 'productid', '', true, 50, 25); // max length = 25
 	}
 
-	print_input_row($vbphrase['title'], 'title', $product['title']);
-	print_input_row($vbphrase['version'], 'version', $product['version']);
-	print_input_row($vbphrase['description'], 'description', $product['description']);
-	print_input_row($vbphrase['product_url'], 'url', $product['url'], true, 35, 250);
-	print_input_row($vbphrase['version_check_url'], 'versioncheckurl', $product['versioncheckurl'], true, 35, 250);
+	print_input_row($vbphrase['title'], 'title', $product['title'], true, 50, 50);
+	print_input_row($vbphrase['version'], 'version', $product['version'], true, 50, 25);
+	print_input_row($vbphrase['description'], 'description', $product['description'], true, 50, 250);
+	print_input_row($vbphrase['product_url'], 'url', $product['url'], true, 50, 250);
+	print_input_row($vbphrase['version_check_url'], 'versioncheckurl', $product['versioncheckurl'], true, 50, 250);
 
 	print_submit_row();
 
@@ -1174,9 +1181,9 @@ if ($_REQUEST['do'] == 'productadd' OR $_REQUEST['do'] == 'productedit')
 				foreach ($productcodes_grouped["$version"] AS $productcode)
 				{
 					print_cells_row(array(
-						"<input type=\"text\" name=\"productcode[$productcode[productcodeid]][version]\" value=\"" . htmlspecialchars_uni($productcode['version']) . "\" size=\"10\" />",
-						"<textarea name=\"productcode[$productcode[productcodeid]][installcode]\" rows=\"5\" cols=\"40\" wrap=\"virtual\" tabindex=\"1\">" . htmlspecialchars($productcode['installcode']) . "</textarea>",
-						"<textarea name=\"productcode[$productcode[productcodeid]][uninstallcode]\" rows=\"5\" cols=\"40\" wrap=\"virtual\" tabindex=\"1\">" . htmlspecialchars($productcode['uninstallcode']) . "</textarea>",
+						"<input type=\"text\" name=\"productcode[$productcode[productcodeid]][version]\" value=\"" . htmlspecialchars_uni($productcode['version']) . "\" style=\"width:100%\" size=\"10\" />",
+						"<textarea name=\"productcode[$productcode[productcodeid]][installcode]\" rows=\"5\" cols=\"40\" style=\"width:100%\" wrap=\"virtual\" tabindex=\"1\">" . htmlspecialchars($productcode['installcode']) . "</textarea>",
+						"<textarea name=\"productcode[$productcode[productcodeid]][uninstallcode]\" rows=\"5\" cols=\"40\" style=\"width:100%\" wrap=\"virtual\" tabindex=\"1\">" . htmlspecialchars($productcode['uninstallcode']) . "</textarea>",
 						"<input type=\"checkbox\" name=\"productcode[$productcode[productcodeid]][delete]\" value=\"1\" />"
 					));
 				}
@@ -1188,8 +1195,8 @@ if ($_REQUEST['do'] == 'productadd' OR $_REQUEST['do'] == 'productedit')
 		print_table_header($vbphrase['add_new_install_uninstall_code']);
 
 		print_input_row($vbphrase['version'], 'version');
-		print_textarea_row($vbphrase['install_code'], 'installcode');
-		print_textarea_row($vbphrase['uninstall_code'], 'uninstallcode');
+		print_textarea_row($vbphrase['install_code'], 'installcode', '', 5, '70" style="width:100%');
+		print_textarea_row($vbphrase['uninstall_code'], 'uninstallcode', '', 5, '70" style="width:100%');
 
 		print_submit_row();
 	}
@@ -1237,6 +1244,14 @@ if ($_POST['do'] == 'productsave')
 	))
 	{
 		print_stop_message('product_x_installed_version_y_z', $vbulletin->GPC['title'], $existingprod['version'], $vbulletin->GPC['version']);
+	}
+
+	require_once(DIR . '/includes/adminfunctions_template.php');
+
+	$invalid_version_structure = array(0, 0, 0, 0, 0, 0);
+	if (fetch_version_array($vbulletin->GPC['version']) == $invalid_version_structure)
+	{
+		print_stop_message('invalid_product_version');
 	}
 
 	if ($vbulletin->GPC['editing'])
@@ -1334,20 +1349,26 @@ if ($_POST['do'] == 'productdependency')
 		$vbulletin->GPC['parentproductid'] = '';
 	}
 
-	if (($vbulletin->GPC['dependencytype'] OR $vbulletin->GPC['parentproductid'])
-		AND ($vbulletin->GPC['minversion'] OR $vbulletin->GPC['maxversion']))
+	if ($vbulletin->GPC['dependencytype'] OR $vbulletin->GPC['parentproductid'])
 	{
-		/* insert query */
-		$db->query_write("
-			INSERT INTO " . TABLE_PREFIX . "productdependency
-				(productid, dependencytype, parentproductid, minversion, maxversion)
-			VALUES
-				('" . $db->escape_string($vbulletin->GPC['productid']) . "',
-				'" . $db->escape_string($vbulletin->GPC['dependencytype']) . "',
-				'" . $db->escape_string($vbulletin->GPC['parentproductid']) . "',
-				'" . $db->escape_string($vbulletin->GPC['minversion']) . "',
-				'" . $db->escape_string($vbulletin->GPC['maxversion']) . "')
-		");
+		if ($vbulletin->GPC['minversion'] OR $vbulletin->GPC['maxversion'])
+		{
+			/* insert query */
+			$db->query_write("
+				INSERT INTO " . TABLE_PREFIX . "productdependency
+					(productid, dependencytype, parentproductid, minversion, maxversion)
+				VALUES
+					('" . $db->escape_string($vbulletin->GPC['productid']) . "',
+					'" . $db->escape_string($vbulletin->GPC['dependencytype']) . "',
+					'" . $db->escape_string($vbulletin->GPC['parentproductid']) . "',
+					'" . $db->escape_string($vbulletin->GPC['minversion']) . "',
+					'" . $db->escape_string($vbulletin->GPC['maxversion']) . "')
+			");
+		}
+		else
+		{
+			print_stop_message('please_complete_required_fields');
+		}
 	}
 
 	foreach ($vbulletin->GPC['productdependency'] AS $productdependencyid => $product_dependency)
@@ -1648,7 +1669,7 @@ if ($_POST['do'] == 'productimport')
 
 	// ############## general product information
 	$info = array(
-		'productid'       => substr($arr['productid'], 0, 25),
+		'productid'       => substr(preg_replace('#[^a-z0-9_]#', '', strtolower($arr['productid'])), 0, 25),
 		'title'           => $arr['title'],
 		'description'     => $arr['description'],
 		'version'         => $arr['version'],
@@ -2371,7 +2392,7 @@ if ($_POST['do'] == 'productimport')
 		}
 	}
 
-	// ############## import cron
+	// ############## import faq
 	if (is_array($arr['faqentries']['faq']))
 	{
 		$faq_entries =& $arr['faqentries']['faq'];
@@ -2511,7 +2532,7 @@ if ($_REQUEST['do'] == 'productexport')
 
 	// ############## main product info
 	$xml->add_group('product', array(
-		'productid' => $product_details['productid'],
+		'productid' => strtolower($product_details['productid']),
 		'active' => $product_details['active']
 	)); // Parent for product
 
@@ -2880,8 +2901,8 @@ print_cp_footer();
 
 /*======================================================================*\
 || ####################################################################
-|| # Downloaded: 18:52, Sat Jul 14th 2007
-|| # CVS: $RCSfile$ - $Revision: 16897 $
+|| # Downloaded: 16:21, Sat Apr 6th 2013
+|| # CVS: $RCSfile$ - $Revision: 26533 $
 || ####################################################################
 \*======================================================================*/
 ?>

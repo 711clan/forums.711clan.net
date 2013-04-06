@@ -1,9 +1,9 @@
 <?php
 /*======================================================================*\
 || #################################################################### ||
-|| # vBulletin 3.6.7 PL1 - Licence Number VBF2470E4F
+|| # vBulletin 3.7.2 Patch Level 2 - Licence Number VBF2470E4F
 || # ---------------------------------------------------------------- # ||
-|| # Copyright ©2000-2007 Jelsoft Enterprises Ltd. All Rights Reserved. ||
+|| # Copyright ©2000-2013 Jelsoft Enterprises Ltd. All Rights Reserved. ||
 || # This file may not be redistributed in whole or significant part. # ||
 || # ---------------- VBULLETIN IS NOT FREE SOFTWARE ---------------- # ||
 || # http://www.vbulletin.com | http://www.vbulletin.com/license.html # ||
@@ -15,6 +15,7 @@ error_reporting(E_ALL & ~E_NOTICE);
 
 // ##################### DEFINE IMPORTANT CONSTANTS #######################
 define('THIS_SCRIPT', 'calendar');
+define('CSRF_PROTECTION', true);
 define('GET_EDIT_TEMPLATES', 'edit,add,manage');
 
 // #################### PRE-CACHE TEMPLATES AND DATA ######################
@@ -87,7 +88,10 @@ $actiontemplates = array(
 	),
 	'manage' => array(
 		'calendar_edit',
-		'calendar_manage'
+		'calendar_edit_customfield',
+		'calendar_edit_recurrence',
+		'calendar_manage',
+		'userfield_select_option'
 	),
 	'viewreminder' => array(
 		'CALENDAR_REMINDER',
@@ -243,7 +247,7 @@ if ($vbulletin->GPC['holidayid']) // $holidayid > 0 ?
 	if ($eventinfo = $db->query_first_slave("
 		SELECT *
 		FROM " . TABLE_PREFIX . "holiday AS holiday
-		WHERE holidayid = $holidayid")
+		WHERE holidayid = " . $vbulletin->GPC['holidayid'])
 	)
 	{
 		$eventinfo['visible'] = 1;
@@ -285,7 +289,8 @@ if ($vbulletin->GPC['sb'])
 	$calendarinfo['showbirthdays'] = true;
 }
 
-if ($vbulletin->userinfo['startofweek'] > 7 OR $vbulletin->userinfo['startofweek'] < 1)
+// chande the start of week for invalid values or guests (which are currently forced to 1, Sunday)
+if ($vbulletin->userinfo['startofweek'] > 7 OR $vbulletin->userinfo['startofweek'] < 1 OR $vbulletin->userinfo['userid'] == 0)
 {
 	$vbulletin->userinfo['startofweek'] = $calendarinfo['startofweek'];
 }
@@ -383,6 +388,8 @@ else
 
 // For calendarjump
 $monthselected["{$vbulletin->GPC['month']}"] = 'selected="selected"';
+
+($hook = vBulletinHook::fetch_hook('calendar_start2')) ? eval($hook) : false;
 
 // ############################################################################
 // ############################### MONTHLY VIEW ###############################
@@ -931,15 +938,8 @@ if ($_POST['do'] == 'manage')
 		}
 		break;
 
-		// edit - skip through to do=edit
-		case 'edit':
-		{
-			$_POST['do'] = 'edit';
-		}
-		break;
-
-		// move + failsafe
-		default:
+		// move
+		case 'move':
 		{
 			if (!can_moderate_calendar($calendarinfo['calendarid'], 'canmoveevents'))
 			{
@@ -978,6 +978,16 @@ if ($_POST['do'] == 'manage')
 				}
 			}
 		}
+		break;
+
+		// edit - skip through to do=edit
+		case 'edit':
+		default:
+		{
+			$_POST['do'] = 'edit';
+		}
+		break;
+
 	}
 
 	($hook = vBulletinHook::fetch_hook('calendar_manage_complete')) ? eval($hook) : false;
@@ -1802,6 +1812,7 @@ if ($_REQUEST['do'] == 'add')
 
 	$editorid = construct_edit_toolbar('', 0, 'calendar', $calendarinfo['allowsmilies']);
 
+	$dstchecked = 'checked="checked"';
 	$show['parseurl'] = $calendarinfo['allowbbcode'];
 	$show['misc_options'] = ($show['parseurl'] OR !empty($disablesmiliesoption));
 	$show['additional_options'] = ($show['misc_options'] OR $show['custom_optional']);
@@ -1823,20 +1834,16 @@ if ($_POST['do'] == 'update')
 		'disablesmilies' => TYPE_BOOL,
 		'deletepost'     => TYPE_BOOL,
 		'deletebutton'   => TYPE_STR,
-		'wysiwyg'	     => TYPE_BOOL,
+		'wysiwyg'	       => TYPE_BOOL,
 		'timezoneoffset' => TYPE_NUM,
 		'userfield'      => TYPE_ARRAY_STR,
 		'dst'            => TYPE_UINT,
-
 		'fromdate'       => TYPE_ARRAY_UINT,
 		'fromtime'       => TYPE_ARRAY_STR,
 		'todate'         => TYPE_ARRAY_INT,
 		'totime'         => TYPE_ARRAY_STR,
-
 		'recur'          => TYPE_ARRAY_UINT,
-
 		'type'           => TYPE_STR,
-
 		'loggedinuser'   => TYPE_INT
 	));
 
@@ -1970,7 +1977,7 @@ if ($_POST['do'] == 'update')
 			require_once(DIR . '/includes/class_bbcode_alt.php');
 			$plaintext_parser =& new vB_BbCodeParser_PlainText($vbulletin, fetch_tag_list());
 			$plaintext_parser->set_parsing_language(0); // email addresses don't have a language ID
-			$eventmessage = $plaintext_parser->parse($vbulletin->GPC['message'], 'calendar');
+			$eventmessage = $plaintext_parser->parse($message, 'calendar');
 
 			foreach ($calemails AS $index => $toemail)
 			{
@@ -2290,7 +2297,7 @@ if ($_REQUEST['do'] == 'addreminder')
 	{
 		eval(standard_error(fetch_error('invalidid', $idname, $vbulletin->options['contactuslink'])));
 	}
-	
+
 	// make title safe for display
 	$eventinfo['title'] = htmlspecialchars_uni($eventinfo['title']);
 
@@ -2314,8 +2321,8 @@ eval(standard_error(fetch_error('invalidid', $idname, $vbulletin->options['conta
 
 /*======================================================================*\
 || ####################################################################
-|| # Downloaded: 18:52, Sat Jul 14th 2007
-|| # CVS: $RCSfile$ - $Revision: 17001 $
+|| # Downloaded: 16:21, Sat Apr 6th 2013
+|| # CVS: $RCSfile$ - $Revision: 26399 $
 || ####################################################################
 \*======================================================================*/
 ?>

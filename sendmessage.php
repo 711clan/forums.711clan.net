@@ -1,9 +1,9 @@
 <?php
 /*======================================================================*\
 || #################################################################### ||
-|| # vBulletin 3.6.7 PL1 - Licence Number VBF2470E4F
+|| # vBulletin 3.7.2 Patch Level 2 - Licence Number VBF2470E4F
 || # ---------------------------------------------------------------- # ||
-|| # Copyright ©2000-2007 Jelsoft Enterprises Ltd. All Rights Reserved. ||
+|| # Copyright ©2000-2013 Jelsoft Enterprises Ltd. All Rights Reserved. ||
 || # This file may not be redistributed in whole or significant part. # ||
 || # ---------------- VBULLETIN IS NOT FREE SOFTWARE ---------------- # ||
 || # http://www.vbulletin.com | http://www.vbulletin.com/license.html # ||
@@ -15,6 +15,7 @@ error_reporting(E_ALL & ~E_NOTICE);
 
 // #################### DEFINE IMPORTANT CONSTANTS #######################
 define('THIS_SCRIPT', 'sendmessage');
+define('CSRF_PROTECTION', true);
 
 // ################### PRE-CACHE TEMPLATES AND DATA ######################
 // get special phrase groups
@@ -44,10 +45,10 @@ $actiontemplates = array(
 	),
 	'sendtofriend' => array(
 		'newpost_usernamecode',
-		'imagereg'
+		'humanverify'
 	),
 	'contactus' => array(
-		'imagereg',
+		'humanverify',
 	),
 );
 
@@ -206,8 +207,7 @@ if ($_POST['do'] == 'docontactus')
 		'subject'       => TYPE_STR,
 		'message'       => TYPE_STR,
 		'other_subject' => TYPE_STR,
-		'imagestamp'    => TYPE_STR,
-		'imagehash'     => TYPE_STR,
+		'humanverify'   => TYPE_ARRAY,
 	));
 
 	($hook = vBulletinHook::fetch_hook('sendmessage_docontactus_start')) ? eval($hook) : false;
@@ -216,6 +216,7 @@ if ($_POST['do'] == 'docontactus')
 	$subject =& $vbulletin->GPC['subject'];
 	$name =& $vbulletin->GPC['name'];
 	$message =& $vbulletin->GPC['message'];
+	$email =& $vbulletin->GPC['email'];
 
 	// check we have a message and a subject
 	if ($message == '' OR $subject == '' OR ($vbulletin->options['contactusoptions'] AND $subject == 'other' AND $vbulletin->GPC['other_subject'] == ''))
@@ -229,12 +230,13 @@ if ($_POST['do'] == 'docontactus')
 		$errors[] = fetch_error('bademail');
 	}
 
-	if (!$vbulletin->userinfo['userid'] AND $vbulletin->options['contactustype'] == 2 AND $vbulletin->options['regimagetype'])
+	if (!$vbulletin->userinfo['userid'] AND $vbulletin->options['hvcheck_contactus'])
 	{
-		require_once(DIR . '/includes/functions_regimage.php');
-		if (!verify_regimage_hash($vbulletin->GPC['imagehash'], $vbulletin->GPC['imagestamp']))
+		require_once(DIR . '/includes/class_humanverify.php');
+		$verify =& vB_HumanVerify::fetch_library($vbulletin);
+		if (!$verify->verify_token($vbulletin->GPC['humanverify']))
 		{
-	  		$errors[] = fetch_error('register_imagecheck');
+	  		$errors[] = fetch_error($verify->fetch_error());
 	  	}
 	}
 
@@ -243,11 +245,6 @@ if ($_POST['do'] == 'docontactus')
 	// if it's all good... send the email
 	if (empty($errors))
 	{
-		if ($imagehash)
-		{
-			$db->query_write("DELETE FROM " . TABLE_PREFIX . "regimage WHERE regimagehash = '" . $db->escape_string($imagehash) . "'");
-		}
-
 		$languageid = -1;
 		if ($vbulletin->options['contactusoptions'])
 		{
@@ -379,15 +376,15 @@ if ($_REQUEST['do'] == 'contactus')
 		}
 	}
 
-	if (!$vbulletin->userinfo['userid'] AND $vbulletin->options['contactustype'] == 2 AND $vbulletin->options['regimagetype'])
+	if (!$vbulletin->userinfo['userid'] AND $vbulletin->options['hvcheck_contactus'])
 	{
-		require_once(DIR . '/includes/functions_regimage.php');
-		$imagehash = fetch_regimage_hash();
-		eval('$imagereg = "' . fetch_template('imagereg') . '";');
+		require_once(DIR . '/includes/class_humanverify.php');
+		$verification =& vB_HumanVerify::fetch_library($vbulletin);
+		$human_verify = $verification->output_token();
 	}
 	else
 	{
-		$imagereg = '';
+		$human_verify = '';
 	}
 
 	// generate navbar
@@ -434,12 +431,16 @@ if ($_REQUEST['do'] == 'sendtofriend')
 
 	eval('$usernamecode = "' . fetch_template('newpost_usernamecode') . '";');
 
-	// image verification
-	if (!$vbulletin->userinfo['userid'] AND $vbulletin->options['regimagetype'])
+	// human verification
+	if (!$vbulletin->userinfo['userid'] AND $vbulletin->options['hvcheck_contactus'])
 	{
-		require_once(DIR . '/includes/functions_regimage.php');
-		$imagehash = fetch_regimage_hash();
-		eval('$imagereg = "' . fetch_template('imagereg') . '";');
+		require_once(DIR . '/includes/class_humanverify.php');
+		$verification =& vB_HumanVerify::fetch_library($vbulletin);
+		$human_verify = $verification->output_token();
+	}
+	else
+	{
+		$human_verify = '';
 	}
 
 	// draw nav bar
@@ -450,7 +451,7 @@ if ($_REQUEST['do'] == 'sendtofriend')
 		$forumTitle =& $vbulletin->forumcache["$forumID"]['title'];
 		$navbits['forumdisplay.php?' . $vbulletin->session->vars['sessionurl'] . "f=$forumID"] = $forumTitle;
 	}
-	$navbits['showthread.php?' . $vbulletin->session->vars['sessionurl'] . "t=$threadid"] = $threadinfo['title'];
+	$navbits['showthread.php?' . $vbulletin->session->vars['sessionurl'] . "t=$threadid"] = $threadinfo['prefix_plain_html'] . ' ' . $threadinfo['title'];
 	$navbits[''] = $vbphrase['email_to_friend'];
 
 	$navbits = construct_navbits($navbits);
@@ -467,13 +468,12 @@ if ($_REQUEST['do'] == 'sendtofriend')
 if ($_POST['do'] == 'dosendtofriend')
 {
 	$vbulletin->input->clean_array_gpc('p', array(
-		'sendtoname'	=> TYPE_STR,
-		'sendtoemail'	=> TYPE_STR,
-		'emailsubject'	=> TYPE_STR,
-		'emailmessage'	=> TYPE_STR,
-		'username'		=> TYPE_STR,
-		'imagestamp'    => TYPE_STR,
-		'imagehash'     => TYPE_STR,
+		'sendtoname'   => TYPE_STR,
+		'sendtoemail'  => TYPE_STR,
+		'emailsubject' => TYPE_STR,
+		'emailmessage' => TYPE_STR,
+		'username'     => TYPE_STR,
+		'humanverify'  => TYPE_ARRAY
 	));
 
 	// Values that are used in phrases or error messages
@@ -496,12 +496,13 @@ if ($_POST['do'] == 'dosendtofriend')
 		}
 	}
 
-	if (!$vbulletin->userinfo['userid'] AND $vbulletin->options['regimagetype'])
+	if (!$vbulletin->userinfo['userid'] AND $vbulletin->options['hvcheck_contactus'])
 	{
-		require_once(DIR . '/includes/functions_regimage.php');
-		if (!verify_regimage_hash($vbulletin->GPC['imagehash'], $vbulletin->GPC['imagestamp']))
+		require_once(DIR . '/includes/class_humanverify.php');
+		$verify =& vB_HumanVerify::fetch_library($vbulletin);
+		if (!$verify->verify_token($vbulletin->GPC['humanverify']))
 		{
-	  		standard_error(fetch_error('register_imagecheck'));
+	  		standard_error(fetch_error($verify->fetch_error()));
 	  	}
 	}
 
@@ -546,7 +547,7 @@ if ($_REQUEST['do'] == 'mailmember' OR $_POST['do'] == 'domailmember')
 		'userid'	=> TYPE_UINT
 	));
 
-	if (!($vbulletin->userinfo['permissions']['genericpermissions'] & $vbulletin->bf_ugp_genericpermissions['canemailmember']))
+	if (!$vbulletin->userinfo['userid'] OR !($vbulletin->userinfo['permissions']['genericpermissions'] & $vbulletin->bf_ugp_genericpermissions['canemailmember']))
 	{
 		print_no_permission();
 	}
@@ -648,8 +649,8 @@ if ($_POST['do'] == 'domailmember')
 
 /*======================================================================*\
 || ####################################################################
-|| # Downloaded: 18:52, Sat Jul 14th 2007
-|| # CVS: $RCSfile$ - $Revision: 15988 $
+|| # Downloaded: 16:21, Sat Apr 6th 2013
+|| # CVS: $RCSfile$ - $Revision: 26399 $
 || ####################################################################
 \*======================================================================*/
 ?>

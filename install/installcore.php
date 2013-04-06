@@ -1,9 +1,9 @@
 <?php
 /*======================================================================*\
 || #################################################################### ||
-|| # vBulletin 3.6.7 PL1 - Licence Number VBF2470E4F
+|| # vBulletin 3.7.2 Patch Level 2 - Licence Number VBF2470E4F
 || # ---------------------------------------------------------------- # ||
-|| # Copyright ©2000-2007 Jelsoft Enterprises Ltd. All Rights Reserved. ||
+|| # Copyright ©2000-2013 Jelsoft Enterprises Ltd. All Rights Reserved. ||
 || # This file may not be redistributed in whole or significant part. # ||
 || # ---------------- VBULLETIN IS NOT FREE SOFTWARE ---------------- # ||
 || # http://www.vbulletin.com | http://www.vbulletin.com/license.html # ||
@@ -42,7 +42,7 @@ verify_vb3_enviroment();
 exec_nocache_headers();
 
 $vbulletin->input->clean_array_gpc('r', array(
-	'step' => TYPE_STR,
+	'step'    => TYPE_STR,
 	'startat' => TYPE_UINT,
 	'perpage' => TYPE_UINT,
 ));
@@ -72,7 +72,7 @@ if (empty($_REQUEST['do']))
 // call this BEFORE calling init.php or any other files
 function verify_vb3_enviroment()
 {
-	global $installcore_phrases;
+	global $installcore_phrases, $vbulletin;
 
 	$errorthrown = false;
 
@@ -139,6 +139,13 @@ function verify_vb3_enviroment()
 		echo "<p>$installcore_phrases[need_config_file]</p>";
 	}
 
+	// check that we are NOT using the 'mysql' database
+	if (strtolower($vbulletin->config['Database']['dbname']) == 'mysql')
+	{
+		$errorthrown = true;
+		echo "<p>$installcore_phrases[dbname_is_mysql]</p>";
+	}
+
 	if (($err = verify_optimizer_environment()) !== true)
 	{
 		$errorthrown = true;
@@ -174,7 +181,7 @@ function print_upgrade_header($steptitle = '')
 <head>
 	<meta http-equiv="Content-Type" content="text/html; charset=<?php echo $stylevar['charset']; ?>" />
 	<title><?php echo $installcore_phrases['vb3_install_script'] . " " . $steptitle; ?></title>
-	<link rel="stylesheet" href="../cpstyles/vBulletin_3_Default/controlpanel.css" />
+	<link rel="stylesheet" href="../cpstyles/vBulletin_3_Silver/controlpanel.css" />
 	<style type="text/css">
 	#all {
 		margin: 10px;
@@ -188,7 +195,7 @@ function print_upgrade_header($steptitle = '')
 <body style="margin:0px">
 <table cellpadding="4" cellspacing="0" border="0" width="100%" class="navbody" style="border:outset 2px">
 <tr>
-	<td width="160"><img src="../cpstyles/vBulletin_3_Default/cp_logo.gif" alt="" title="vBulletin 3 &copy;2000 - <?php echo date('Y'); ?> Jelsoft Enterprises Ltd." /></td>
+	<td width="160"><img src="../cpstyles/vBulletin_3_Silver/cp_logo.gif" alt="" title="vBulletin 3 &copy;2000 - <?php echo date('Y'); ?> Jelsoft Enterprises Ltd." /></td>
 	<td style="padding-left:100px">
 		<b><?php echo $installcore_phrases['vb3_install_script']; ?></b><br />
 		<?php echo $installcore_phrases['may_take_some_time']; ?><br />
@@ -213,7 +220,7 @@ function print_upgrade_header($steptitle = '')
 function print_upgrade_footer()
 {
 	unset($GLOBALS['DEVDEBUG']);
-	echo '</div>';
+	//echo '</div>';
 	print_cp_footer();
 }
 
@@ -296,9 +303,11 @@ function print_next_step()
 			print_cp_redirect(THIS_SCRIPT . "?step=$nextstep", 0.5);
 		}
 	}
+	
+	echo '</div> <!-- end #all -->';
 
 	?>
-	</div>
+	<!-- </div> -->
 	<form action="<?php echo $formaction; ?>" method="get" name="nextStep">
 	<input type="hidden" name="step" value="<?php echo $nextstep; ?>" />
 	<?php foreach($hiddenfields AS $varname => $value) { echo "<input type=\"hidden\" name=\"" . htmlspecialchars_uni($varname) . "\" value=\"" . htmlspecialchars_uni($value) . "\" />\r\n"; } ?>
@@ -425,8 +434,8 @@ function build_forum_child_lists()
 
 /*======================================================================*\
 || ####################################################################
-|| # Downloaded: 18:52, Sat Jul 14th 2007
-|| # CVS: $RCSfile$ - $Revision: 15975 $
+|| # Downloaded: 16:21, Sat Apr 6th 2013
+|| # CVS: $RCSfile$ - $Revision: 25957 $
 || ####################################################################
 \*======================================================================*/
 ?>

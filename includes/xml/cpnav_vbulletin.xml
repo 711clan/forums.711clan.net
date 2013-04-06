@@ -14,11 +14,21 @@
 			<link>options.php?do=searchtype</link>
 		</navoption>
 
-		<navoption debug="1" link="help.php?do=manage&amp;script=NOSCRIPT" displayorder="40">
+		<navoption displayorder="30">
+			<phrase>human_verification_manager</phrase>
+			<link>verify.php</link>
+		</navoption>
+
+		<navoption displayorder="40">
+			<phrase>social_bookmarking_manager</phrase>
+			<link>bookmarksite.php?do=modify</link>
+		</navoption>
+
+		<navoption debug="1" link="help.php?do=manage&amp;script=NOSCRIPT" displayorder="50">
 			<phrase>admin_help_manager</phrase>
 		</navoption>
 
-		<navoption debug="1" displayorder="50">
+		<navoption debug="1" displayorder="60">
 			<phrase>rebuild_bitfields</phrase>
 			<link>index.php?do=buildbitfields</link>
 		</navoption>
@@ -96,6 +106,20 @@
 
 	</navgroup>
 
+	<navgroup phrase="notices" permissions="canadminnotices" displayorder="45">
+
+		<navoption displayorder="10">
+			<phrase>notices_manager</phrase>
+			<link>notice.php?do=modify</link>
+		</navoption>
+
+		<navoption displayorder="20">
+			<phrase>add_new_notice</phrase>
+			<link>notice.php?do=add</link>
+		</navoption>
+
+	</navgroup>
+
 	<navgroup phrase="announcements" displayorder="50">
 
 		<navoption displayorder="10">
@@ -135,6 +159,11 @@
 		<navoption displayorder="50">
 			<phrase>view_permissions</phrase>
 			<link>resources.php</link>
+		</navoption>
+
+		<navoption displayorder="60">
+			<phrase>thread_prefixes</phrase>
+			<link>prefix.php</link>
 		</navoption>
 
 	</navgroup>
@@ -190,6 +219,25 @@
 			<link>thread.php?do=votes</link>
 		</navoption>
 
+		<navoption displayorder="60">
+			<phrase>tags</phrase>
+			<link>thread.php?do=tags</link>
+		</navoption>
+
+	</navgroup>
+
+	<navgroup phrase="thread_prefixes" permissions="canadminforums" displayorder="85">
+
+		<navoption displayorder="10">
+			<phrase>thread_prefix_manager</phrase>
+			<link>prefix.php</link>
+		</navoption>
+
+		<navoption displayorder="10">
+			<phrase>add_new_prefix_set</phrase>
+			<link>prefix.php?do=addset</link>
+		</navoption>
+
 	</navgroup>
 
 	<navgroup phrase="moderation" displayorder="90">
@@ -212,6 +260,11 @@
 		<navoption displayorder="40">
 			<phrase>moderate_events</phrase>
 			<link>../{$vbulletin->config[Misc][modcpdir]}/moderate.php?do=events</link>
+		</navoption>
+
+		<navoption displayorder="50">
+			<phrase>moderate_visitor_messages</phrase>
+			<link>../{$vbulletin->config[Misc][modcpdir]}/moderate.php?do=messages</link>
 		</navoption>
 
 		<navoption displayorder="60">
@@ -351,6 +404,11 @@
 			<link>adminpermissions.php?do=modify</link>
 		</navoption>
 
+		<navoption displayorder="70">
+			<phrase>prune_social_groups</phrase>
+			<link>socialgroups.php</link>
+		</navoption>
+
 	</navgroup>
 
 	<navgroup phrase="user_infractions" permissions="canadminusers" displayorder="125">
@@ -434,6 +492,20 @@
 
 	</navgroup>
 
+	<navgroup phrase="user_albums" permissions="canadminusers" displayorder="155">
+
+		<navoption displayorder="10">
+			<phrase>album_picture_storage_type</phrase>
+			<link>album.php?do=storage</link>
+		</navoption>
+
+		<navoption displayorder="20">
+			<phrase>rebuild_thumbnails</phrase>
+			<link>album.php?do=thumb</link>
+		</navoption>
+
+	</navgroup>
+
 	<navgroup phrase="user_titles" permissions="canadminusers" displayorder="160">
 
 		<navoption displayorder="10">
@@ -448,7 +520,7 @@
 
 	</navgroup>
 
-	<navgroup phrase="paid_subscriptions" permissions="canadminusers" hr="true" displayorder="170">
+	<navgroup phrase="paid_subscriptions" permissions="canadminusers"  hr="true" displayorder="170">
 
 		<navoption displayorder="10">
 			<phrase>subscription_manager</phrase>
@@ -617,7 +689,7 @@
 
 	</navgroup>
 
-	<navgroup phrase="statistics_and_logs" hr="true" displayorder="240">
+	<navgroup phrase="statistics_and_logs" displayorder="240">
 
 		<navoption displayorder="10">
 			<phrase>statistics</phrase>

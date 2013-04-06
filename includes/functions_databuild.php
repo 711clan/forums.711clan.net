@@ -1,9 +1,9 @@
 <?php
 /*======================================================================*\
 || #################################################################### ||
-|| # vBulletin 3.6.7 PL1 - Licence Number VBF2470E4F
+|| # vBulletin 3.7.2 Patch Level 2 - Licence Number VBF2470E4F
 || # ---------------------------------------------------------------- # ||
-|| # Copyright ©2000-2007 Jelsoft Enterprises Ltd. All Rights Reserved. ||
+|| # Copyright ©2000-2013 Jelsoft Enterprises Ltd. All Rights Reserved. ||
 || # This file may not be redistributed in whole or significant part. # ||
 || # ---------------- VBULLETIN IS NOT FREE SOFTWARE ---------------- # ||
 || # http://www.vbulletin.com | http://www.vbulletin.com/license.html # ||
@@ -36,9 +36,8 @@ function build_usertextfields($field, $value, $userid = 0)
 }
 
 // ###################### Start build_userlist #######################
-// This forces the table to be rebuilt, messes around with the DM a little since it only deals with changes
-// so this gives the option of a post install to rebuild the table for whatever reason.
-function build_userlist($userid)
+// This forces the cache for X list to be rebuilt, only generally needed for modifications.
+function build_userlist($userid, $lists = array())
 {
 	global $vbulletin;
 	$userid = intval($userid);
@@ -47,22 +46,40 @@ function build_userlist($userid)
 		return false;
 	}
 
-	$userinfo = $vbulletin->db->query_first_slave("SELECT * FROM " . TABLE_PREFIX . "usertextfield WHERE userid = $userid");
-	if (empty($userinfo))
+	if (empty($lists))
 	{
-		return false;
+		$userlists = $vbulletin->db->query_read("
+			SELECT user.*, userlist.type FROM " . TABLE_PREFIX . "userlist AS userlist
+				INNER JOIN " . TABLE_PREFIX . "user AS user ON (user.userid = userlist.relationid)
+			WHERE userlist.userid = $userid
+		");
+
+		while ($userlist = $vbulletin->db->fetch_array($userlists))
+		{
+			$lists["$userlist[type]"][] = $userlist['userid'];
+		}
 	}
 
 	$userdata =& datamanager_init('User', $vbulletin, ERRTYPE_STANDARD);
 	$existing = array('userid' => $userid);
 	$userdata->set_existing($existing);
 
+	foreach ($lists AS $listtype => $values)
+	{
+		$key = $listtype . 'list';
+		if (isset($userdata->validfields["$key"]))
+		{
+			$userdata->set($key, implode(',', $values));
+		}
+	}
+
+	/* Now to set the ones that weren't set. */
 	foreach ($userdata->list_types AS $listtype)
 	{
 		$key = $listtype . 'list';
-		if (isset($userinfo["$key"]) AND isset($userdata->validfields["$key"]))
+		if (empty($userdata->setfields["$key"]))
 		{
-			$userdata->set($key, $userinfo["$key"]);
+			$userdata->set($key, '');
 		}
 	}
 
@@ -118,91 +135,161 @@ function build_forum_counters($forumid, $censor = false)
 	global $vbulletin;
 
 	$forumid = intval($forumid);
-
 	$foruminfo = fetch_foruminfo($forumid);
 
-	// get counters
-	$threads = $vbulletin->db->query_first("
-		SELECT COUNT(*) AS threads, SUM(replycount) AS replies
-		FROM " . TABLE_PREFIX . "thread AS thread
-		WHERE forumid = $forumid AND
-			visible = 1 AND
-			open <> 10
-	");
+	if (!$foruminfo)
+	{
+		// prevent fatal errors when a forum doesn't exist
+		return;
+	}
 
 	require_once(DIR . '/includes/functions_bigthree.php');
-	$coventry = fetch_coventry('string');
+	$coventry = fetch_coventry('string', true);
 
-	// get last thread
+	$vbulletin->db->query_write("DELETE FROM " . TABLE_PREFIX . "tachyforumcounter WHERE forumid = $forumid");
+	$vbulletin->db->query_write("DELETE FROM " . TABLE_PREFIX . "tachyforumpost WHERE forumid = $forumid");
+
+	if ($coventry)
+	{
+		// Thread count
+		$tachy_db = $vbulletin->db->query_read("
+			SELECT thread.postuserid, COUNT(*) AS threadcount
+			FROM " . TABLE_PREFIX . "thread AS thread
+			WHERE thread.postuserid IN ($coventry)
+				AND thread.visible = 1
+				AND thread.open <> 10
+				AND thread.forumid = $forumid
+			GROUP BY thread.postuserid
+		");
+
+		$tachystats = array();
+
+		while ($tachycounter = $vbulletin->db->fetch_array($tachy_db))
+		{
+			$tachystats["$tachycounter[postuserid]"]['threads'] = $tachycounter['threadcount'];
+		}
+
+		$tachy_db = $vbulletin->db->query_read("
+			SELECT post.userid, COUNT(*) AS replycount
+			FROM " . TABLE_PREFIX . "post AS post
+			INNER JOIN " . TABLE_PREFIX . "thread AS thread ON (post.threadid = thread.threadid)
+			WHERE post.userid IN ($coventry)
+				AND post.visible = 1
+				AND thread.forumid = $forumid
+			GROUP BY post.userid
+		");
+
+		while ($tachycounter = $vbulletin->db->fetch_array($tachy_db))
+		{
+			if (!isset($tachystats["$tachycounter[userid]"]))
+			{
+				$tachystats["$tachycounter[userid]"]['threads'] = 0;
+			}
+
+			$tachystats["$tachycounter[userid]"]['replies'] = $tachycounter['replycount'];
+		}
+
+		foreach ($tachystats AS $user => $stats)
+		{
+			$vbulletin->db->query_write("
+				REPLACE INTO " . TABLE_PREFIX . "tachyforumcounter
+					(userid, forumid, threadcount, replycount)
+				VALUES
+					(" . intval($user) . ",
+					" . intval($forumid) . ",
+					" . intval($stats['threads']) . ",
+					" . intval($stats['replies']) . ")
+			");
+		}
+	}
+
+	$totals = $vbulletin->db->query_first("
+		SELECT
+			COUNT(*) AS threads,
+			SUM(thread.replycount) AS replies
+		FROM " . TABLE_PREFIX . "thread AS thread
+		WHERE thread.forumid = $forumid
+			AND visible = 1
+			AND open <> 10
+			" . ($coventry ? " AND thread.postuserid NOT IN ($coventry)" : '')
+	);
+
+	$totals['replies'] += $totals['threads'];
+
 	$lastthread = $vbulletin->db->query_first("
 		SELECT thread.*
 		FROM " . TABLE_PREFIX . "thread AS thread
-		WHERE forumid = $forumid AND
-			visible = 1 AND
-			open <> 10
-			". ($coventry ? "AND thread.postuserid NOT IN ($coventry)" : '') . "
+		WHERE forumid = $forumid
+			AND visible = 1
+			AND open <> 10
+			" . ($coventry ? "AND thread.postuserid NOT IN ($coventry)"  : '') ."
 		ORDER BY lastpost DESC
 		LIMIT 1
 	");
 
-	$tachy_posts = array();
-	$tachy_db = $vbulletin->db->query_read("
-		SELECT thread.*, tachythreadpost.*
-		FROM " . TABLE_PREFIX . "tachythreadpost AS tachythreadpost,
-			" . TABLE_PREFIX . "thread AS thread
-		WHERE tachythreadpost.threadid = thread.threadid
-			AND thread.forumid = $forumid
-			AND tachythreadpost.lastpost > " . intval($lastthread['lastpost']) . "
-		ORDER BY tachythreadpost.lastpost DESC
-	");
-	while ($tachy = $vbulletin->db->fetch_array($tachy_db))
+	if ($coventry)
 	{
-		if (!isset($tachy_posts["$tachy[userid]"]))
+		$tachy_posts = array();
+		$tachy_db = $vbulletin->db->query_read("
+			SELECT thread.*, tachythreadpost.*
+			FROM " . TABLE_PREFIX . "tachythreadpost AS tachythreadpost
+			INNER JOIN " . TABLE_PREFIX . "thread AS thread ON (tachythreadpost.threadid = thread.threadid)
+			WHERE thread.forumid = $forumid
+				AND tachythreadpost.lastpost > " . intval($lastthread['lastpost']) . "
+				AND thread.visible = 1
+				AND thread.open <> 10
+			ORDER BY tachythreadpost.lastpost DESC
+		");
+
+		while ($tachy = $vbulletin->db->fetch_array($tachy_db))
 		{
-			$tachy_posts["$tachy[userid]"] = $tachy;
+			if (!isset($tachy_posts["$tachy[userid]"]))
+			{
+				$tachy_posts["$tachy[userid]"] = $tachy;
+			}
+		}
+
+		$tachy_replace = array();
+
+		foreach ($tachy_posts AS $tachy)
+		{
+			if ($censor)
+			{
+				$tachy['title'] = fetch_censored_text($tachy['title']);
+			}
+
+			$tachy_replace[] = "
+				($tachy[userid], $forumid, $tachy[lastpost],
+				'" . $vbulletin->db->escape_string($tachy['lastposter']) ."',
+				'" . $vbulletin->db->escape_string($tachy['title']) . "',
+				$tachy[threadid],
+				$tachy[iconid],
+				$tachy[lastpostid],
+				'" . $vbulletin->db->escape_string($tachy['prefixid']) . "')
+			";
+		}
+
+		if ($tachy_replace)
+		{
+			$vbulletin->db->query_write("
+				REPLACE INTO " . TABLE_PREFIX . "tachyforumpost
+					(userid, forumid, lastpost, lastposter, lastthread, lastthreadid, lasticonid, lastpostid, lastprefixid)
+				VALUES
+					" . implode(', ', $tachy_replace)
+			);
 		}
 	}
 
-	$vbulletin->db->query_write("
-		DELETE FROM " . TABLE_PREFIX . "tachyforumpost
-		WHERE forumid = $forumid
-	");
-
-	$tachy_replace = array();
-	foreach ($tachy_posts AS $tachy)
-	{
-		if ($censor)
-		{
-			$tachy['title'] = fetch_censored_text($tachy['title']);
-		}
-		$tachy_replace[] = "
-			($tachy[userid], $forumid, $tachy[lastpost],
-			'" . $vbulletin->db->escape_string($tachy['lastposter']) ."',
-			'" . $vbulletin->db->escape_string($tachy['title']) . "',
-			$tachy[threadid],
-			$tachy[iconid],
-			$tachy[lastpostid])
-		";
-	}
-
-	if ($tachy_replace)
-	{
-		$vbulletin->db->query_write("
-			REPLACE INTO " . TABLE_PREFIX . "tachyforumpost
-				(userid, forumid, lastpost, lastposter, lastthread, lastthreadid, lasticonid, lastpostid)
-			VALUES
-				" . implode(', ', $tachy_replace)
-		);
-	}
-
-	// update forum
+	//done, update the forum
 	$forumdm =& datamanager_init('Forum', $vbulletin, ERRTYPE_SILENT);
 	$forumdm->set_existing($foruminfo);
-	$forumdm->set('threadcount', $threads['threads'], true, false);
-	$forumdm->set('replycount', $threads['threads'] + $threads['replies'], true, false);
-	$forumdm->set('lastpost', $lastthread['lastpost'], true, false);
-	$forumdm->set('lastposter', $lastthread['lastposter'], true, false);
-	$forumdm->set('lastpostid', $lastthread['lastpostid'], true, false);
+	$forumdm->set_info('rebuild', 1);
+	$forumdm->set('threadcount', $totals['threads'], true, false);
+	$forumdm->set('replycount',  $totals['replies'],true, false);
+	$forumdm->set('lastpost',    $lastthread['lastpost'], true, false);
+	$forumdm->set('lastposter',  $lastthread['lastposter'], true, false);
+	$forumdm->set('lastpostid',  $lastthread['lastpostid'], true, false);
+
 	if ($censor)
 	{
 		$forumdm->set('lastthread', fetch_censored_text($lastthread['title']), true, false);
@@ -211,8 +298,10 @@ function build_forum_counters($forumid, $censor = false)
 	{
 		$forumdm->set('lastthread', $lastthread['title'], true, false);
 	}
+
 	$forumdm->set('lastthreadid', $lastthread['threadid'], true, false);
-	$forumdm->set('lasticonid', ($lastthread['pollid'] ? -1 : $lastthread['iconid']), true, false);
+	$forumdm->set('lasticonid',   ($lastthread['pollid'] ? -1 : $lastthread['iconid']), true, false);
+	$forumdm->set('lastprefixid', $lastthread['prefixid'], true, false);
 	$forumdm->save();
 	unset($forumdm);
 }
@@ -224,97 +313,162 @@ function build_thread_counters($threadid)
 
 	$threadid = intval($threadid);
 
-	$replies = $vbulletin->db->query_first("
-		SELECT
-			SUM(IF(visible = 1, attach, 0)) AS attachsum,
-			SUM(IF(visible = 1, 1, 0)) AS visible,
-			SUM(IF(visible = 0, 1, 0)) AS hidden,
-			SUM(IF(visible = 2, 1, 0)) AS deleted
-		FROM " . TABLE_PREFIX . "post
-		WHERE threadid = $threadid
-	");
-	if ($replies['visible'] == 0)
-	{	// All threads should have at least the first post visible, no matter the thread state
-		return;
-	}
+	require_once(DIR . '/includes/functions_bigthree.php');
+	$coventry = fetch_coventry('string', true);
 
-	$vbulletin->db->query_write("
-		DELETE FROM " . TABLE_PREFIX . "tachythreadpost
-		WHERE threadid = $threadid
-	");
-
-	// read the last posts out of the thread, looking for tachy'd users.
-	// if we find one, give them that as the last post but continue looking
-	// for the displayed last post.
-	$offset = 0;
-	$users_processed = array();
-	do
-	{
-		$lastposts = $vbulletin->db->query_first("
-			SELECT user.username, post.userid, post.username AS postuser, post.dateline, post.postid
-			FROM " . TABLE_PREFIX . "post AS post
-			LEFT JOIN " . TABLE_PREFIX . "user AS user ON user.userid = post.userid
-			WHERE post.threadid = $threadid AND
-				post.visible = 1
-			ORDER BY dateline DESC
-			LIMIT $offset, 1
-		");
-
-		if (in_coventry($lastposts['userid'], true))
-		{
-			$offset++;
-
-			if (!isset($users_processed["$lastposts[userid]"]))
-			{
-				$vbulletin->db->query_write("
-					REPLACE INTO " . TABLE_PREFIX . "tachythreadpost
-						(userid, lastpostid, threadid, lastpost, lastposter)
-					VALUES
-						($lastposts[userid],
-						$lastposts[postid],
-						$threadid,
-						" . intval($lastposts['dateline']) . ",
-						'" . $vbulletin->db->escape_string(empty($lastposts['username']) ? $lastposts['postuser'] : $lastposts['username']) . "')
-				");
-				$users_processed["$lastposts[userid]"] = true;
-			}
-		}
-		else
-		{
-			break;
-		}
-	}
-	while ($lastposts);
-
-	$firstposts = $vbulletin->db->query_first("
+	$firstpost = $vbulletin->db->query_first("
 		SELECT post.postid, post.userid, user.username, post.username AS postuser, post.dateline
 		FROM " . TABLE_PREFIX . "post AS post
-		LEFT JOIN " . TABLE_PREFIX . "user AS user ON user.userid = post.userid
+		LEFT JOIN " . TABLE_PREFIX . "user AS user ON (user.userid = post.userid)
 		WHERE post.threadid = $threadid AND
 			post.visible = 1
 		ORDER BY dateline, postid
 		LIMIT 1
 	");
 
-	if ($lastposts)
+	if (!$firstpost)
 	{
-		$lastposter = (empty($lastposts['username']) ? $lastposts['postuser'] : $lastposts['username']);
-		$lastposttime = intval($lastposts['dateline']);
-		$lastpostid = intval($lastposts['postid']);
+		// sanity -- this should never happen; one post should always be visible
+		return;
+	}
+
+	$vbulletin->db->query_write("DELETE FROM " . TABLE_PREFIX . "tachythreadcounter WHERE threadid = $threadid");
+	$vbulletin->db->query_write("DELETE FROM " . TABLE_PREFIX . "tachythreadpost WHERE threadid = $threadid");
+
+	$replies = $vbulletin->db->query_first("
+		SELECT
+			SUM(IF(visible = 1, attach, 0)) AS attachsum,
+			SUM(IF(visible = 1, 1, 0)) AS visible,
+			SUM(IF(visible = 0, 1, 0)) AS hidden,
+			SUM(IF(visible = 2, 1, 0)) AS deleted
+		FROM " . TABLE_PREFIX . "post AS post
+		WHERE threadid = $threadid
+			" . ($coventry ? "AND post.userid NOT IN ($coventry)" : '') . "
+	");
+
+	if ($coventry)
+	{
+		// Build Tachy Counters
+		$tachy_db = $vbulletin->db->query_read("
+			SELECT post.userid, COUNT(*) AS replycount
+			FROM " . TABLE_PREFIX . "post AS post
+			WHERE post.userid IN ($coventry)
+				AND post.visible = 1
+				AND post.threadid = $threadid
+				AND post.postid <> $firstpost[postid]
+			GROUP BY userid
+		");
+
+		$tachystats = array();
+		while ($tachycounter = $vbulletin->db->fetch_array($tachy_db))
+		{
+			$tachystats["$tachycounter[userid]"]['replycount'] = $tachycounter['replycount'];
+		}
+
+		if ($tachystats)
+		{
+			foreach ($tachystats as $user => $stats)
+			{
+				$vbulletin->db->query_write("
+					INSERT INTO ". TABLE_PREFIX . "tachythreadcounter
+						(userid, threadid, replycount)
+					VALUES
+						(" . intval($user) . ",
+						" . intval($threadid) . ",
+						" . intval($stats['replycount']) . ")
+				");
+			}
+		}
+	}
+
+	$lastpost = $vbulletin->db->query_first("
+		SELECT
+			user.username,
+			post.userid,
+			post.username AS postuser,
+			post.dateline,
+			post.postid
+		FROM " . TABLE_PREFIX . "post AS post
+		LEFT JOIN " . TABLE_PREFIX . "user AS user ON (user.userid = post.userid)
+		WHERE post.threadid = $threadid
+			AND post.visible = 1
+			" . ($coventry ? "AND post.userid NOT IN ($coventry)" : '') . "
+		ORDER BY dateline DESC
+		LIMIT 1
+	");
+
+	if ($lastpost AND $coventry)
+	{
+		// if we have a last post (by a non-tachy user) and coventry users,
+		// look for a newer last post by a coventry user
+		$tachy_db = $vbulletin->db->query_read("
+			SELECT
+				user.username,
+				post.userid,
+				post.username AS postuser,
+				post.dateline,
+				post.postid
+			FROM " . TABLE_PREFIX . "post AS post
+			LEFT JOIN " . TABLE_PREFIX ."user AS user ON (user.userid = post.userid)
+			WHERE post.threadid = $threadid
+				AND post.visible = 1
+				AND post.userid IN ($coventry)
+				AND post.dateline > $lastpost[dateline]
+			ORDER BY dateline DESC
+		");
+
+		$tachy_posts = array();
+		while ($tachy = $vbulletin->db->fetch_array($tachy_db))
+		{
+			if (!isset($tachy_posts["$tachy[userid]"]))
+			{
+				$tachy_posts["$tachy[userid]"] = $tachy;
+			}
+		}
+
+		if ($tachy_posts)
+		{
+			$tachy_replace = array();
+			foreach ($tachy_posts as $tachy)
+			{
+				$tachy_replace[] = "
+					($tachy[userid], $threadid, " . intval($tachy['dateline']) . ",
+					'" . $vbulletin->db->escape_string($tachy['postuser']) . "',
+					'" . $vbulletin->db->escape_string($tachy['postid']) . "')
+				";
+			}
+
+			if ($tachy_replace)
+			{
+				$vbulletin->db->query_write("
+					REPLACE INTO " . TABLE_PREFIX . "tachythreadpost
+						(userid, threadid, lastpost, lastposter, lastpostid)
+					VALUES
+						" . implode(', ', $tachy_replace)
+				);
+			}
+		}
+	}
+
+	if ($lastpost)
+	{
+		$lastposter = (empty($lastpost['username']) ? $lastpost['postuser'] : $lastpost['username']);
+		$lastposttime = intval($lastpost['dateline']);
+		$lastpostid = intval($lastpost['postid']);
 	}
 	else
 	{
 		// this will occur on a thread posted by a tachy user.
 		// since only they will see the thread, the lastpost info can say their name
-		$lastposter = (empty($firstposts['username']) ? $firstposts['postuser'] : $firstposts['username']);
-		$lastposttime = intval($firstposts['dateline']);
-		$lastpostid = intval($firstposts['postid']);
+		$lastposter = (empty($firstpost['username']) ? $firstpost['postuser'] : $firstpost['username']);
+		$lastposttime = intval($firstpost['dateline']);
+		$lastpostid = intval($firstpost['postid']);
 	}
 
-	$firstposter = (empty($firstposts['username']) ? $firstposts['postuser'] : $firstposts['username']);
-	$firstposterid = intval($firstposts['userid']);
-	$firstpostid = intval($firstposts['postid']);
-	$threadcreation = $firstposts['dateline'];
+	$firstposter = (empty($firstpost['username']) ? $firstpost['postuser'] : $firstpost['username']);
+	$firstposterid = intval($firstpost['userid']);
+	$firstpostid = intval($firstpost['postid']);
+	$threadcreation = $firstpost['dateline'];
 
 	$ratings = $vbulletin->db->query_first("
 		SELECT
@@ -328,19 +482,20 @@ function build_thread_counters($threadid)
 
 	$threadman =& datamanager_init('Thread', $vbulletin, ERRTYPE_SILENT, 'threadpost');
 	$threadman->set_existing($threadinfo);
-	$threadman->set('firstpostid', $firstpostid, true, false);
-	$threadman->set('postuserid', $firstposterid, true, false);
+	$threadman->set_info('rebuild', true);
+	$threadman->set('firstpostid',  $firstpostid, true, false);
+	$threadman->set('postuserid',   $firstposterid, true, false);
 	$threadman->set('postusername', $firstposter, true, false);
-	$threadman->set('lastpost', $lastposttime, true, false);
-	$threadman->set('replycount', $replies['visible'] - 1, true, false);
-	$threadman->set('hiddencount', $replies['hidden'], true, false);
+	$threadman->set('lastpost',     $lastposttime, true, false);
+	$threadman->set('replycount',   $replies['visible'] - 1, true, false);
+	$threadman->set('hiddencount',  $replies['hidden'], true, false);
 	$threadman->set('deletedcount', $replies['deleted'], true, false);
-	$threadman->set('attach', $replies['attachsum'], true, false);
-	$threadman->set('dateline', $threadcreation, true, false);
-	$threadman->set('lastposter', $lastposter, true, false);
-	$threadman->set('lastpostid', $lastpostid, true, false);
-	$threadman->set('votenum', $ratings['votenum'], true, false);
-	$threadman->set('votetotal', intval($ratings['votetotal']), true, false);
+	$threadman->set('attach',       $replies['attachsum'], true, false);
+	$threadman->set('dateline',     $threadcreation, true, false);
+	$threadman->set('lastposter',   $lastposter, true, false);
+	$threadman->set('lastpostid',   $lastpostid, true, false);
+	$threadman->set('votenum',      $ratings['votenum'], true, false);
+	$threadman->set('votetotal',    intval($ratings['votetotal']), true, false);
 	$threadman->save();
 
 }
@@ -382,6 +537,7 @@ function unapprove_post($postid, $countposts, $dolog = true, $postinfo = NULL, $
 		$userdata =& datamanager_init('User', $vbulletin, ERRTYPE_SILENT);
 		$userdata->set_existing($postinfo);
 		$userdata->set('posts', 'IF(posts > 1, posts - 1, 0)', false);
+		$userdata->set_ladder_usertitle_relative(-1);
 		$userdata->save();
 		unset($userdata);
 	}
@@ -398,9 +554,9 @@ function unapprove_post($postid, $countposts, $dolog = true, $postinfo = NULL, $
 	// Insert Moderation record
 	$vbulletin->db->query_write("
 		INSERT IGNORE INTO " . TABLE_PREFIX . "moderation
-		(postid, threadid, type, dateline)
+		(primaryid, type, dateline)
 		VALUES
-		($postinfo[postid], $threadinfo[threadid], 'reply', " . TIMENOW . ")
+		($postinfo[postid], 'reply', " . TIMENOW . ")
 	");
 
 	$postman =& datamanager_init('Post', $vbulletin, ERRTYPE_SILENT, 'threadpost');
@@ -453,16 +609,27 @@ function approve_post($postid, $countposts, $dolog = true, $postinfo = NULL, $th
 	}
 
 	// Only increment post for a visible thread in a counting forum
-	if ($countposts AND $postinfo['userid'] AND $threadinfo['visible'] == 1)
+	if (($countposts OR $postinfo['dateline']) AND $postinfo['userid'] AND $threadinfo['visible'] == 1)
 	{
 		$userdata =& datamanager_init('User', $vbulletin, ERRTYPE_SILENT);
 		$userdata->set_existing($postinfo);
-		$userdata->set('posts', 'posts + 1', false);
+		if ($countposts)
+		{
+			$userdata->set('posts', 'posts + 1', false);
+			$userdata->set_ladder_usertitle_relative(1);
+		}
+
+		if ($postinfo['dateline'])
+		{
+			$userdata->set('lastpost', "IF($postinfo[dateline] >= lastpost, $postinfo[dateline], lastpost)", false);
+			$userdata->set('lastpostid', "IF($postinfo[dateline] >= lastpost, $postinfo[postid], lastpostid)", false);
+		}
 		$userdata->save();
 		unset($userdata);
 	}
 
-	$vbulletin->db->query_write("DELETE FROM " . TABLE_PREFIX . "moderation WHERE postid = $postid AND type = 'reply'");
+	$vbulletin->db->query_write("DELETE FROM " . TABLE_PREFIX . "moderation WHERE primaryid = $postid AND type = 'reply'");
+	$vbulletin->db->query_write("DELETE FROM " . TABLE_PREFIX . "spamlog WHERE postid = $postid");
 
 	$postman =& datamanager_init('Post', $vbulletin, ERRTYPE_SILENT, 'threadpost');
 	$postman->set_existing($postinfo);
@@ -547,10 +714,11 @@ function approve_thread($threadid, $countposts = true, $dolog = true, $threadinf
 			$vbulletin->db->query_write("
 				UPDATE " . TABLE_PREFIX . "user
 				SET posts = posts +
-				CASE
-					$casesql
-					ELSE 0
-				END
+					CASE
+						$casesql
+						ELSE 0
+					END,
+					lastpostid = 0
 				WHERE userid IN (0$alluserids)
 			");
 		}
@@ -560,7 +728,18 @@ function approve_thread($threadid, $countposts = true, $dolog = true, $threadinf
 	$vbulletin->db->query_write("
 		DELETE FROM " . TABLE_PREFIX . "moderation
 		WHERE type = 'thread'
-			AND threadid = $threadid
+			AND primaryid = $threadid
+	");
+	$vbulletin->db->query_write("
+		DELETE FROM " . TABLE_PREFIX . "spamlog
+		WHERE postid = $threadinfo[firstpostid]
+	");
+
+	// Set thread redirects visible
+	$vbulletin->db->query_write("
+		UPDATE " . TABLE_PREFIX . "thread
+		SET visible = 1
+		WHERE open = 10 AND pollid = $threadid
 	");
 
 	// Set thread visible
@@ -648,6 +827,13 @@ function unapprove_thread($threadid, $countposts = true, $dolog = true, $threadi
 		}
 	}
 
+	// Set thread redirects hidden
+	$vbulletin->db->query_write("
+		UPDATE " . TABLE_PREFIX . "thread
+		SET visible = 0
+		WHERE open = 10 AND pollid = $threadid
+	");
+
 	if ($threadinfo['visible'] == 2)
 	{	// This is a deleted thread - remove deletionlog entry
 		$deletiondata =& datamanager_init('Deletionlog_ThreadPost', $vbulletin, ERRTYPE_SILENT, 'deletionlog');
@@ -660,9 +846,9 @@ function unapprove_thread($threadid, $countposts = true, $dolog = true, $threadi
 	// Insert moderation record
 	$vbulletin->db->query_write("
 		REPLACE INTO " . TABLE_PREFIX . "moderation
-		(threadid, postid, type, dateline)
+		(primaryid, type, dateline)
 		VALUES
-		($threadid, $threadinfo[firstpostid], 'thread', " . TIMENOW . ")
+		($threadid, 'thread', " . TIMENOW . ")
 	");
 
 	// Set thread invisible
@@ -832,9 +1018,9 @@ function delete_thread($threadid, $countposts = true, $physicaldel = true, $deli
 	}
 
 	if (!$threadinfo['visible'])
-	{
-		// Delete Moderation
-		$vbulletin->db->query_write("DELETE FROM " . TABLE_PREFIX . "moderation WHERE threadid = $threadid AND type = 'thread'");
+	{ // clear out spamlog if its deleted, it was probably really spam
+		$vbulletin->db->query_write("DELETE FROM " . TABLE_PREFIX . "moderation WHERE primaryid = $threadid AND type = 'thread'");
+		$vbulletin->db->query_write("DELETE FROM " . TABLE_PREFIX . "spamlog WHERE postid = " . intval($threadinfo['firstpostid']));
 	}
 
 	if (!$physicaldel)
@@ -872,10 +1058,11 @@ function delete_thread($threadid, $countposts = true, $physicaldel = true, $deli
 	{
 		$vbulletin->db->query_write("DELETE FROM " . TABLE_PREFIX . "post WHERE postid IN ($postids" . "0)");
 		$vbulletin->db->query_write("DELETE FROM " . TABLE_PREFIX . "postparsed WHERE postid IN ($postids" . "0)");
-		$vbulletin->db->query_write("DELETE FROM " . TABLE_PREFIX . "reputation WHERE postid IN ($postids" . "0)");
-		$vbulletin->db->query_write("DELETE FROM " . TABLE_PREFIX . "moderation WHERE postid IN ($postids" . "0)");
+		//$vbulletin->db->query_write("DELETE FROM " . TABLE_PREFIX . "reputation WHERE postid IN ($postids" . "0)");
+		$vbulletin->db->query_write("DELETE FROM " . TABLE_PREFIX . "moderation WHERE type = 'reply' AND primaryid IN ($postids" . "0)");
 		$vbulletin->db->query_write("DELETE FROM " . TABLE_PREFIX . "editlog WHERE postid IN ($postids" . "0)");
-		$vbulletin->db->query_write("DELETE FROM " . TABLE_PREFIX . "deletionlog WHERE type='post' AND primaryid IN ($postids" . "0)");
+		$vbulletin->db->query_write("DELETE FROM " . TABLE_PREFIX . "postedithistory WHERE postid IN ($postids" . "0)");
+		$vbulletin->db->query_write("DELETE FROM " . TABLE_PREFIX . "deletionlog WHERE type= 'post' AND primaryid IN ($postids" . "0)");
 		$vbulletin->db->query_write("DELETE FROM " . TABLE_PREFIX . "podcastitem WHERE postid = " . intval($threadinfo['firstpostid']));
 
 		// remove deleted posts from inline moderation cookie
@@ -911,15 +1098,21 @@ function delete_thread($threadid, $countposts = true, $physicaldel = true, $deli
 	$vbulletin->db->query_write("DELETE FROM " . TABLE_PREFIX . "thread WHERE threadid = $threadid");
 	$vbulletin->db->query_write("DELETE FROM " . TABLE_PREFIX . "thread WHERE open=10 AND pollid = $threadid"); // delete redirects
 	$vbulletin->db->query_write("DELETE FROM " . TABLE_PREFIX . "threadrate WHERE threadid = $threadid");
+	$vbulletin->db->query_write("DELETE FROM " . TABLE_PREFIX . "threadread WHERE threadid = $threadid");
 	$vbulletin->db->query_write("DELETE FROM " . TABLE_PREFIX . "subscribethread WHERE threadid = $threadid");
 	$vbulletin->db->query_write("DELETE FROM " . TABLE_PREFIX . "tachythreadpost WHERE threadid = $threadid");
-	$vbulletin->db->query_write("UPDATE " . TABLE_PREFIX . "moderatorlog SET threadtitle = '". $vbulletin->db->escape_string($threadinfo['title']) ."' WHERE threadid = $threadid");
-	// Delete threadredirect entry
+	$vbulletin->db->query_write("DELETE FROM " . TABLE_PREFIX . "tachythreadcounter WHERE threadid = $threadid");
+	$vbulletin->db->query_write("DELETE FROM " . TABLE_PREFIX . "tagthread WHERE threadid = $threadid");
 	if ($threadinfo['open'] == 10)
 	{
 		$vbulletin->db->query_write("DELETE FROM " . TABLE_PREFIX . "threadredirect WHERE threadid = $threadid");
 	}
 
+	$vbulletin->db->query_write("
+		UPDATE " . TABLE_PREFIX . "moderatorlog SET
+			threadtitle = '". $vbulletin->db->escape_string($threadinfo['title']) ."'
+		WHERE threadid = $threadid
+	");
 }
 
 // ###################### Start deletepost #######################
@@ -999,6 +1192,7 @@ function delete_post($postid, $countposts = true, $threadid = 0, $physicaldel = 
 			$userdata =& datamanager_init('User', $vbulletin, ERRTYPE_SILENT);
 			$userdata->set_existing($postinfo);
 			$userdata->set('posts', 'IF(posts > 1, posts - 1, 0)', false);
+			$userdata->set_ladder_usertitle_relative(-1);
 			$userdata->save();
 			unset($userdata);
 		}
@@ -1031,8 +1225,9 @@ function delete_post($postid, $countposts = true, $threadid = 0, $physicaldel = 
 			unset($postman);
 
 			if (!$postinfo['visible'])
-			{
-				$vbulletin->db->query_write("DELETE FROM " . TABLE_PREFIX . "moderation WHERE postid = $postinfo[postid] AND type = 'reply'");
+			{ // only posts that are already moderated need tidied up
+				$vbulletin->db->query_write("DELETE FROM " . TABLE_PREFIX . "moderation WHERE primaryid = $postinfo[postid] AND type = 'reply'");
+				$vbulletin->db->query_write("DELETE FROM " . TABLE_PREFIX . "spamlog WHERE postid = $postinfo[postid]");
 			}
 
 			return;
@@ -1121,8 +1316,10 @@ function delete_post($postid, $countposts = true, $threadid = 0, $physicaldel = 
 		$vbulletin->db->query_write("DELETE FROM " . TABLE_PREFIX . "post WHERE postid = $postid");
 		$vbulletin->db->query_write("DELETE FROM " . TABLE_PREFIX . "postparsed WHERE postid = $postid");
 		$vbulletin->db->query_write("DELETE FROM " . TABLE_PREFIX . "editlog WHERE postid = $postid");
-		$vbulletin->db->query_write("DELETE FROM " . TABLE_PREFIX . "reputation WHERE postid = $postid");
-		$vbulletin->db->query_write("DELETE FROM " . TABLE_PREFIX . "moderation WHERE postid = $postid AND type = 'reply'");
+		$vbulletin->db->query_write("DELETE FROM " . TABLE_PREFIX . "postedithistory WHERE postid = $postid");
+		//$vbulletin->db->query_write("DELETE FROM " . TABLE_PREFIX . "reputation WHERE postid = $postid");
+		$vbulletin->db->query_write("DELETE FROM " . TABLE_PREFIX . "moderation WHERE primaryid = $postid AND type = 'reply'");
+		$vbulletin->db->query_write("DELETE FROM " . TABLE_PREFIX . "spamlog WHERE postid = $postid");
 	}
 }
 
@@ -1132,11 +1329,10 @@ function is_index_word($word)
 	global $vbulletin, $badwords, $goodwords;
 	static $compiledlist;
 
-	require_once(DIR . '/includes/searchwords.php'); // get the stop word list
-
 	if (!$compiledlist)
 	{
-		$badwords = array_merge($badwords, explode(' ', $vbulletin->options['badwords']));
+		require(DIR . '/includes/searchwords.php'); // get the stop word list; allow multiple requires
+		$badwords = array_merge($badwords, preg_split('/\s+/s', $vbulletin->options['badwords'], -1, PREG_SPLIT_NO_EMPTY));
 		$compiledlist = true;
 	}
 
@@ -1401,10 +1597,10 @@ function fetch_postindex_text($text)
 	{
 		$find = array(
 			'#[()"\'!\#{};<>]|\\\\|:(?!//)#s',			// allow through +- for boolean operators and strip colons that are not part of URLs
-			"#([.,?&/_]+)( |\.|\r|\n|\t)#s",			// \?\&\,
+			'#([.,?&/_]+)( |\.|\r|\n|\t)#s',			// \?\&\,
 			'#\s+(-+|\++)+([^\s]+)#si',					// remove leading +/- characters
 			'#(\s?\w*\*\w*)#s',							// remove words containing asterisks
-			'#\s+#s',									// whitespace to space
+			'#[ \r\n\t]+#s',							// whitespace to space
 		);
 		$replace = array(
 			'',		// allow through +- for boolean operators and strip colons that are not part of URLs
@@ -1560,6 +1756,7 @@ function build_birthdays()
 	");
 
 	$year = date('Y');
+	$day1 = $day2 = array();
 
 	while ($birthday = $vbulletin->db->fetch_array($bdays))
 	{
@@ -1576,11 +1773,19 @@ function build_birthdays()
 		}
 		if ($todayneggmt == $day[0] . '-' . $day[1])
 		{
-			$day1 .= iif($day1, ', ') . "<!--rlm--><a href=\"member.php?" . $vbulletin->session->vars['sessionurl'] . "u=$userid\">$username</a>" . iif($age, " <!--rlm-->($age)");
+			$day1[] = array(
+				'userid'   => $userid,
+				'username' => $username,
+				'age'      => $age
+			);
 		}
 		else
 		{
-			$day2 .= iif($day2, ', ') . "<!--rlm--><a href=\"member.php?" . $vbulletin->session->vars['sessionurl'] . "u=$userid\">$username</a>" . iif($age, " <!--rlm-->($age)");
+			$day2[] = array(
+				'userid'   => $userid,
+				'username' => $username,
+				'age'      => $age
+			);
 		}
 	}
 	$storebirthdays['users1'] = $day1;
@@ -1705,6 +1910,7 @@ function undelete_post($postid, $countposts, $postinfo = NULL, $threadinfo = NUL
 		$userdata =& datamanager_init('User', $vbulletin, ERRTYPE_SILENT);
 		$userdata->set_existing($postinfo);
 		$userdata->set('posts', 'posts + 1', false);
+		$userdata->set_ladder_usertitle_relative(1);
 		$userdata->save();
 		unset($userdata);
 	}
@@ -1827,10 +2033,35 @@ function fetch_phrase_group($groupname)
 	$vbphrase = array_merge($vbphrase, unserialize($group["$groupname"]));
 }
 
+/**
+* Deletes the post cache for an array of threads
+*
+* @param	array	Array of thread IDs
+*/
+function delete_post_cache_threads($threadarray)
+{
+	global $vbulletin;
+
+	if (!is_array($threadarray) OR empty($threadarray))
+	{
+		return;
+	}
+
+	$threadarray = array_map('intval', $threadarray);
+
+	// do not alias the tables in this query -- this deals with a MySQL 4 issue
+	$vbulletin->db->query_write("
+		DELETE " . TABLE_PREFIX . "postparsed
+		FROM " . TABLE_PREFIX . "post
+		INNER JOIN " . TABLE_PREFIX . "postparsed ON (" . TABLE_PREFIX . "post.postid = " . TABLE_PREFIX . "postparsed.postid)
+		WHERE " . TABLE_PREFIX . "post.threadid IN (" . implode(',', $threadarray) . ")
+	");
+}
+
 /*======================================================================*\
 || ####################################################################
-|| # Downloaded: 18:52, Sat Jul 14th 2007
-|| # CVS: $RCSfile$ - $Revision: 16969 $
+|| # Downloaded: 16:21, Sat Apr 6th 2013
+|| # CVS: $RCSfile$ - $Revision: 26724 $
 || ####################################################################
 \*======================================================================*/
 ?>

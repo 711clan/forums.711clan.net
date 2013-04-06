@@ -1,9 +1,9 @@
 <?php
 /*======================================================================*\
 || #################################################################### ||
-|| # vBulletin 3.6.7 PL1 - Licence Number VBF2470E4F
+|| # vBulletin 3.7.2 Patch Level 2 - Licence Number VBF2470E4F
 || # ---------------------------------------------------------------- # ||
-|| # Copyright ©2000-2007 Jelsoft Enterprises Ltd. All Rights Reserved. ||
+|| # Copyright ©2000-2013 Jelsoft Enterprises Ltd. All Rights Reserved. ||
 || # This file may not be redistributed in whole or significant part. # ||
 || # ---------------- VBULLETIN IS NOT FREE SOFTWARE ---------------- # ||
 || # http://www.vbulletin.com | http://www.vbulletin.com/license.html # ||
@@ -39,7 +39,10 @@ function &fetch_file_via_socket($rawurl, $postfields = array())
 
 	if (empty($postfields))
 	{
-		$url['path'] .= "?$url[query]";
+		if ($url['query'])
+		{
+			$url['path'] .= "?$url[query]";
+		}
 		$url['query'] = '';
 		$method = 'GET';
 	}
@@ -154,11 +157,11 @@ function &fetch_file_via_socket($rawurl, $postfields = array())
 	return array('headers' => $matches[1], 'body' => $matches[2]);
 }
 
-function getElementsByTagName(&$array, $tagname, $init = false)
+function getElementsByTagName(&$array, $tagname, $reinitialise = false, $depth = 0)
 {
 	static $output = array();
 
-	if ($init)
+	if ($reinitialise)
 	{
 		$output = array();
 	}
@@ -184,14 +187,19 @@ function getElementsByTagName(&$array, $tagname, $init = false)
 					}
 				}
 			}
-			else if (is_array($array["$key"]))
+			else if (is_array($array["$key"]) AND $depth < 30)
 			{
-				getElementsByTagName($array["$key"], $tagname);
+				getElementsByTagName($array["$key"], $tagname, false, $depth + 1);
 			}
 		}
 	}
 
 	return $output;
+}
+
+function get_item_value($item)
+{
+	return (is_array($item) ? $item['value'] : $item);
 }
 
 class vB_RSS_Poster
@@ -201,6 +209,7 @@ class vB_RSS_Poster
 	var $xml_array = null;
 	var $xml_object = null;
 	var $template = null;
+	var $feedtype = null;
 
 	function vB_RSS_Poster(&$registry)
 	{
@@ -250,32 +259,81 @@ class vB_RSS_Poster
 		if ($this->xml_object->parse_xml())
 		{
 			$this->xml_array =& $this->xml_object->parseddata;
+			if (preg_match("#^http://www.w3.org/2005/atom$#i", $this->xml_array['xmlns']))
+			{
+				$this->feedtype = 'atom';
+			}
+			else if (is_array($this->xml_array['channel']))
+			{
+				$this->feedtype = 'rss';
+			}
+			else
+			{ // Rather than just continue with an unknown type, show an error
+				$this->xml_array = array();
+				$this->feedtype = 'unknown';
+				return false;
+			}
 			return true;
 		}
 		else
 		{
 			$this->xml_array = array();
+			$this->feedtype = '';
 			return false;
 		}
 	}
 
 	function fetch_item($id = -1)
 	{
+		switch($this->feedtype)
+		{
+			case 'atom':
+			{
+				return fetch_item_atom($id);
+				break;
+			}
+			case 'rss':
+			default:
+			{
+				return fetch_item_rss($id);
+			}
+		}
+	}
+
+	function fetch_item_atom($id = -1)
+	{
+		static $count = 0;
+
+		if (is_array($this->xml_array['entry'][0]))
+		{
+			$item =& $this->xml_array['entry'][($id == -1 ? $count++ : $id)];
+		}
+		else if ($count == 0 OR $id == 0)
+		{
+			$item =& $this->xml_array['entry'];
+		}
+		else
+		{
+			$item = null;
+		}
+
+		return $item;
+	}
+
+	function fetch_item_rss($id = -1)
+	{
 		static $count = 0;
 
 		if (is_array($this->xml_array['channel']['item'][0]))
 		{
-			#echo "<p>it's an array</p>";
 			$item =& $this->xml_array['channel']['item'][($id == -1 ? $count++ : $id)];
 		}
 		else if ($count == 0 OR $id == 0)
 		{
-			#echo "<p>it's not an array</p>";
 			$item =& $this->xml_array['channel']['item'];
 		}
 		else
 		{
-			#echo "<p>it's broken</p>";
 			$item = null;
 		}
 
@@ -284,31 +342,30 @@ class vB_RSS_Poster
 
 	function fetch_items()
 	{
-		return getElementsByTagName($this->xml_array, 'item', true);
+		switch($this->feedtype)
+		{
+			case 'atom':
+			{
+				$tagname = 'entry';
+				break;
+			}
+			case 'rss':
+			default:
+			{
+				$tagname = 'item';
+			}
+		}
+		return getElementsByTagName($this->xml_array, $tagname, true);
 	}
 
 	function parse_template($template, $item, $unhtmlspecialchars = true)
 	{
-		if (preg_match_all('#\{rss:([\w:]+)\}#siU', $template, $matches))
+		if (preg_match_all('#\{(?:feed|rss):([\w:\[\]]+)\}#siU', $template, $matches))
 		{
-			foreach ($matches[1] AS $field)
+			foreach ($matches[0] AS $match_number => $field)
 			{
-				if (is_array($item["$field"]))
-				{
-					if (is_string($item["$field"]['value']))
-					{
-						$replace =& $item["$field"]['value'];
-					}
-					else
-					{
-						$replace = '';
-					}
-				}
-				else
-				{
-					$replace =& $item["$field"];
-				}
-				$template = preg_replace("#\{rss:$field\}#siU", str_replace('$', '\$', $replace), $template);
+				$replace = $this->fetch_replacement($matches[1][$match_number], $item);
+				$template = str_replace($field, $replace, $template);
 			}
 		}
 
@@ -319,12 +376,287 @@ class vB_RSS_Poster
 
 		return $template;
 	}
+
+	function fetch_replacement($field, $item)
+	{
+
+		switch ($this->feedtype)
+		{
+			case 'atom':
+			{
+				$handled_value = null;
+				($hook = vBulletinHook::fetch_hook('rssposter_parse_atom')) ? eval($hook) : false;
+				if ($handled_value !== null)
+				{
+					return $handled_value;
+				}
+
+				switch($field)
+				{
+					case 'link':
+					{
+						if (empty($item['link'][0]))
+						{
+							return $item['link']['href'];
+						}
+						else
+						{
+							foreach ($item['link'] AS $link)
+							{
+								if ($link['rel'] == 'alternate' OR empty($link['rel']))
+								{
+									return $link['href'];
+								}
+							}
+						}
+					}
+					break;
+
+					case 'description':
+					{
+						return get_item_value($item['summary']);
+					}
+					break;
+
+					case 'title':
+					{
+						return get_item_value($item['title']);
+					}
+					break;
+
+					case 'id':
+					{
+						return get_item_value($item['id']);
+					}
+					break;
+
+					case 'date':
+					{
+						$timestamp = strtotime(get_item_value($item['updated']));
+
+						if ($timestamp > 0)
+						{
+							return vbdate($this->registry->options['dateformat'] . " " . $this->registry->options['timeformat'], $timestamp);
+						}
+						else
+						{
+							return get_item_value($item['updated']);
+						}
+					}
+					break;
+
+					case 'enclosure_link':
+					{
+						if (empty($item['link'][0]))
+						{
+							return '';
+						}
+						else
+						{
+							foreach ($item['link'] AS $link)
+							{
+								if ($link['rel'] == 'enclosure')
+								{
+									return $link['href'];
+								}
+							}
+						}
+					}
+					break;
+
+					case 'content:encoded':
+					{
+						if (empty($item['content'][0]))
+						{
+							return get_item_value($item['content']);
+						}
+						else
+						{
+							$return = array();
+							foreach($item['content'] AS $contents)
+							{
+								if (is_array($contents))
+								{
+									if ($contents['type'] == 'html' AND !($return['type'] == 'xhtml'))
+									{
+										$return = $contents;
+									}
+									elseif ($contents['type'] == 'text' AND !($return['type'] == 'html' OR $return['type'] == 'xhtml'))
+									{
+										$return = $contents;
+									}
+									elseif ($contents['type'] == 'xhtml')
+									{
+										$return = $contents;
+									}
+									elseif ($contents['type'] != 'xhtml' OR $contents['type'] != 'xhtml' OR $contents['type'] != 'xhtml')
+									{
+										$return = $contents;
+									}
+								}
+								else
+								{
+									if (empty($return['type']))
+									{
+										$return['value'] = $contents;
+									}
+								}
+							}
+
+							return $return['value'];
+						}
+					}
+					break;
+
+					case 'author':
+					{
+						return get_item_value($item['author']['name']);
+					}
+					break;
+
+					default:
+					{
+						if (is_array($item["$field"]))
+						{
+							if (is_string($item["$field"]['value']))
+							{
+								return $item["$field"]['value'];
+							}
+							else
+							{
+								return '';
+							}
+						}
+						else
+						{
+							return $item["$field"];
+						}
+					}
+				}
+			}
+
+			case 'rss':
+			{
+				$handled_value = null;
+				($hook = vBulletinHook::fetch_hook('rssposter_parse_rss')) ? eval($hook) : false;
+				if ($handled_value !== null)
+				{
+					return $handled_value;
+				}
+
+				switch ($field)
+				{
+					case 'link':
+					{
+						if (is_array($item['link']) AND isset($item['link']['href']))
+						{
+							return $item['link']['href'];
+						}
+						else
+						{
+							return get_item_value($item['link']);
+						}
+					}
+					break;
+
+					case 'description':
+					{	// this can be handled by the default case
+						return get_item_value($item['description']);
+					}
+					break;
+
+					case 'title':
+					{	// this can be handled by the default case
+						return get_item_value($item['title']);
+					}
+					break;
+
+					case 'id':
+					case 'guid':
+					{
+						return get_item_value($item['guid']);
+					}
+					break;
+
+					case 'pubDate':
+					case 'date':
+					{
+						$timestamp = strtotime(get_item_value($item['pubDate']));
+
+						if ($timestamp > 0)
+						{
+							return vbdate($this->registry->options['dateformat'] . " " . $this->registry->options['timeformat'], $timestamp);
+						}
+						else
+						{
+							return $item['pubDate'];
+						}
+					}
+					break;
+
+					case 'enclosure_link':
+					case 'enclosure_href':
+					{
+						if (is_array($item['enclosure']))
+						{
+							return $item['enclosure']['url'];
+						}
+						else
+						{
+							return '';
+						}
+					}
+					break;
+
+					case 'content:encoded':
+					{
+						return get_item_value($item['content:encoded']);
+					}
+					break;
+
+					case 'author':
+					case 'dc:creator':
+					{
+						if (isset($item['dc:creator']))
+						{
+							return get_item_value($item['dc:creator']);
+						}
+						else
+						{
+							return $item['author'];
+						}
+					}
+					break;
+
+					default:
+					{
+						if (is_array($item["$field"]))
+						{
+							if (is_string($item["$field"]['value']))
+							{
+								return $item["$field"]['value'];
+							}
+							else
+							{
+								return '';
+							}
+						}
+						else
+						{
+							return $item["$field"];
+						}
+					}
+
+				}
+			}
+		}
+	}
 }
 
 /*======================================================================*\
 || ####################################################################
-|| # Downloaded: 18:52, Sat Jul 14th 2007
-|| # CVS: $RCSfile$ - $Revision: 16841 $
+|| # Downloaded: 16:21, Sat Apr 6th 2013
+|| # CVS: $RCSfile$ - $Revision: 26551 $
 || ####################################################################
 \*======================================================================*/
 ?>

@@ -1,9 +1,9 @@
 <?php
 /*======================================================================*\
 || #################################################################### ||
-|| # vBulletin 3.6.7 PL1 - Licence Number VBF2470E4F
+|| # vBulletin 3.7.2 Patch Level 2 - Licence Number VBF2470E4F
 || # ---------------------------------------------------------------- # ||
-|| # Copyright ©2000-2007 Jelsoft Enterprises Ltd. All Rights Reserved. ||
+|| # Copyright ©2000-2013 Jelsoft Enterprises Ltd. All Rights Reserved. ||
 || # This file may not be redistributed in whole or significant part. # ||
 || # ---------------- VBULLETIN IS NOT FREE SOFTWARE ---------------- # ||
 || # http://www.vbulletin.com | http://www.vbulletin.com/license.html # ||
@@ -28,7 +28,6 @@ $bannedusers = $vbulletin->db->query_read("
 	FROM " . TABLE_PREFIX . "userban AS userban
 	INNER JOIN " . TABLE_PREFIX . "user AS user USING(userid)
 	WHERE liftdate <> 0 AND liftdate < " . TIMENOW . "
-	### SELECTING BANNED USERS WHO ARE DUE TO BE RESTORED ###
 ");
 
 // do we have some results?
@@ -78,7 +77,6 @@ if ($vbulletin->db->num_rows($bannedusers))
 	$vbulletin->db->query_write("
 		DELETE FROM " . TABLE_PREFIX . "userban
 		WHERE userid IN(" . implode(', ', array_keys($users)) . ")
-		### DELETE PROCESSED BAN RECORDS ###
 	");
 
 	// log the cron action
@@ -89,8 +87,8 @@ $vbulletin->db->free_result($bannedusers);
 
 /*======================================================================*\
 || ####################################################################
-|| # Downloaded: 18:52, Sat Jul 14th 2007
-|| # CVS: $RCSfile$ - $Revision: 15877 $
+|| # Downloaded: 16:21, Sat Apr 6th 2013
+|| # CVS: $RCSfile$ - $Revision: 26900 $
 || ####################################################################
 \*======================================================================*/
 ?>

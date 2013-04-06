@@ -1,112 +1,11 @@
 /*======================================================================*\
 || #################################################################### ||
-|| # vBulletin 3.6.7 PL1
+|| # vBulletin 3.7.2 Patch Level 2
 || # ---------------------------------------------------------------- # ||
-|| # Copyright ©2000-2007 Jelsoft Enterprises Ltd. All Rights Reserved. ||
+|| # Copyright ©2000-2013 Jelsoft Enterprises Ltd. All Rights Reserved. ||
 || # This file may not be redistributed in whole or significant part. # ||
 || # ---------------- VBULLETIN IS NOT FREE SOFTWARE ---------------- # ||
 || # http://www.vbulletin.com | http://www.vbulletin.com/license.html # ||
 || #################################################################### ||
 \*======================================================================*/
-
-/**
-* Adds onclick event to the save search prefs buttons
-*
-* @param	string	The ID of the button that fires the search prefs
-*/
-function vB_AJAX_ImageReg_Init()
-{
-	if (AJAX_Compatible && (typeof vb_disable_ajax == 'undefined' || vb_disable_ajax < 2) && fetch_object('refresh_imagereg'))
-	{
-		fetch_object('refresh_imagereg').onclick = vB_AJAX_ImageReg.prototype.image_click;
-		fetch_object('refresh_imagereg').style.cursor = pointer_cursor;
-		fetch_object('refresh_imagereg').style.display = '';
-
-		if (fetch_object('imagereg'))
-		{
-			fetch_object('imagereg').style.cursor = pointer_cursor;
-			fetch_object('imagereg').onclick = vB_AJAX_ImageReg.prototype.image_click;
-		}
-	}
-};
-
-/**
-* Class to handle saveing search prefs
-*
-* @param	object	The form object containing the search options
-*/
-function vB_AJAX_ImageReg()
-{
-	// AJAX handler
-	this.xml_sender = null;
-
-	// Imagehach
-	this.imagehash = '';
-
-	// Closure
-	var me = this;
-
-	/**
-	* OnReadyStateChange callback. Uses a closure to keep state.
-	* Remember to use me instead of this inside this function!
-	*/
-	this.handle_ajax_response = function()
-	{
-		if (me.xml_sender.handler.readyState == 4 && me.xml_sender.handler.status == 200)
-		{
-			fetch_object('progress_imagereg').style.display = 'none';
-			if (me.xml_sender.handler.responseXML)
-			{
-				// check for error
-				var error = me.xml_sender.fetch_data(fetch_tags(me.xml_sender.handler.responseXML, 'error')[0]);
-				if (error)
-				{
-					alert(error);
-				}
-				else
-				{
-					var imagehash = me.xml_sender.fetch_data(fetch_tags(me.xml_sender.handler.responseXML, 'imagehash')[0]);
-					if (imagehash)
-					{
-						fetch_object('imagehash').value = imagehash;
-						fetch_object('imagereg').src = 'image.php?' + SESSIONURL + 'type=regcheck&imagehash=' + imagehash;
-					}
-				}
-			}
-
-			if (is_ie)
-			{
-				me.xml_sender.handler.abort();
-			}
-		}
-	}
-};
-
-/**
-* Submits the form via Ajax
-*/
-vB_AJAX_ImageReg.prototype.fetch_image = function()
-{
-	fetch_object('progress_imagereg').style.display = '';
-	this.xml_sender = new vB_AJAX_Handler(true);
-	this.xml_sender.onreadystatechange(this.handle_ajax_response);
-	this.xml_sender.send('ajax.php?do=imagereg&imagehash=' + this.imagehash, 'do=imagereg&imagehash=' + this.imagehash);
-};
-
-/**
-* Handles the form 'submit' action
-*/
-vB_AJAX_ImageReg.prototype.image_click = function()
-{
-	var AJAX_ImageReg = new vB_AJAX_ImageReg();
-	AJAX_ImageReg.imagehash = fetch_object('imagehash').value;
-	AJAX_ImageReg.fetch_image();
-	return false;
-};
-
-/*======================================================================*\
-|| ####################################################################
-|| # Downloaded: 18:52, Sat Jul 14th 2007
-|| # CVS: $RCSfile$ - $Revision: 16533 $
-|| ####################################################################
-\*======================================================================*/
+function vB_AJAX_ImageReg(){this.init()}vB_AJAX_ImageReg.prototype.init=function(){if(AJAX_Compatible&&(typeof vb_disable_ajax=="undefined"||vb_disable_ajax<2)&&YAHOO.util.Dom.get("refresh_imagereg")){YAHOO.util.Event.on("refresh_imagereg","click",this.fetch_image,this,true);YAHOO.util.Dom.setStyle("refresh_imagereg","cursor",pointer_cursor);YAHOO.util.Dom.setStyle("refresh_imagereg","display","");YAHOO.util.Event.on("imagereg","click",this.fetch_image,this,true);YAHOO.util.Dom.setStyle("imagereg","cursor",pointer_cursor)}};vB_AJAX_ImageReg.prototype.fetch_image=function(A){YAHOO.util.Event.stopEvent(A);YAHOO.util.Dom.setStyle("progress_imagereg","display","");YAHOO.util.Connect.asyncRequest("POST","ajax.php?do=imagereg",{success:this.handle_ajax_response,failure:this.handle_ajax_error,timeout:vB_Default_Timeout,scope:this},SESSIONURL+"securitytoken="+SECURITYTOKEN+"&do=imagereg&hash="+YAHOO.util.Dom.get("hash").getAttribute("value"));return false};vB_AJAX_ImageReg.prototype.handle_ajax_error=function(A){vBulletin_AJAX_Error_Handler(A)};vB_AJAX_ImageReg.prototype.handle_ajax_response=function(B){YAHOO.util.Dom.setStyle("progress_imagereg","display","none");if(B.responseXML){var A=B.responseXML.getElementsByTagName("error");if(A.length){alert(A[0].firstChild.nodeValue)}else{var C=B.responseXML.getElementsByTagName("hash")[0].firstChild.nodeValue;if(C){YAHOO.util.Dom.get("hash").setAttribute("value",C);YAHOO.util.Dom.get("imagereg").setAttribute("src","image.php?"+SESSIONURL+"type=hv&hash="+C)}}}};function vB_AJAX_ImageReg_Init(){new vB_AJAX_ImageReg()};

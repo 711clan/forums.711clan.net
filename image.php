@@ -1,9 +1,9 @@
 <?php
 /*======================================================================*\
 || #################################################################### ||
-|| # vBulletin 3.6.7 PL1 - Licence Number VBF2470E4F
+|| # vBulletin 3.7.2 Patch Level 2 - Licence Number VBF2470E4F
 || # ---------------------------------------------------------------- # ||
-|| # Copyright ©2000-2007 Jelsoft Enterprises Ltd. All Rights Reserved. ||
+|| # Copyright ©2000-2013 Jelsoft Enterprises Ltd. All Rights Reserved. ||
 || # This file may not be redistributed in whole or significant part. # ||
 || # ---------------- VBULLETIN IS NOT FREE SOFTWARE ---------------- # ||
 || # http://www.vbulletin.com | http://www.vbulletin.com/license.html # ||
@@ -17,6 +17,7 @@ error_reporting(E_ALL & ~E_NOTICE);
 define('NOSHUTDOWNFUNC', 1);
 define('NOCOOKIES', 1);
 define('THIS_SCRIPT', 'image');
+define('CSRF_PROTECTION', true);
 define('VB_AREA', 'Forum');
 define('NOPMPOPUP', 1);
 
@@ -86,28 +87,28 @@ $vbulletin->input->clean_array_gpc('r', array(
 
 if ($vbulletin->GPC['userid'] == 0)
 {
-	$vbulletin->GPC['type'] = 'regcheck';
+	$vbulletin->GPC['type'] = 'hv';
 }
 
-if ($vbulletin->GPC['type'] == 'regcheck')
+if ($vbulletin->GPC['type'] == 'hv')
 {
 	require_once(DIR . '/includes/class_image.php');
 
 	$vbulletin->input->clean_array_gpc('r', array(
-		'imagehash' => TYPE_STR,
-		'i'         => TYPE_STR,
+		'hash' => TYPE_STR,
+		'i'    => TYPE_STR,
 	));
 
 	$moveabout = true;
-	if ($vbulletin->GPC['imagehash'] == '' OR $vbulletin->GPC['imagehash'] == 'test')
+	if ($vbulletin->GPC['hash'] == '' OR $vbulletin->GPC['hash'] == 'test' OR $vbulletin->options['hv_type'] != 'Image')
 	{
 		$imageinfo = array(
-			'imagestamp' => 'vBulletin',
+			'answer' => 'vBulletin',
 		);
 
-		$moveabout = false;
+		$moveabout = $vbulletin->GPC['hash'] == 'test' ? true : false;
 	}
-	else  if (!$vbulletin->options['regimagetype'] OR $vbulletin->GPC['imagehash'] == '' OR !($imageinfo = $db->query_first("SELECT imagestamp FROM " . TABLE_PREFIX . "regimage WHERE regimagehash = '" . $db->escape_string($vbulletin->GPC['imagehash']) . "' AND viewed = 0")))
+	else if (!($imageinfo = $db->query_first("SELECT answer FROM " . TABLE_PREFIX . "humanverify WHERE hash = '" . $db->escape_string($vbulletin->GPC['hash']) . "' AND viewed = 0")))
 	{
 		header('Content-type: image/gif');
 		readfile(DIR . '/' . $vbulletin->options['cleargifurl']);
@@ -116,9 +117,9 @@ if ($vbulletin->GPC['type'] == 'regcheck')
 	else
 	{
 		$db->query_write("
-			UPDATE " . TABLE_PREFIX . "regimage
+			UPDATE " . TABLE_PREFIX . "humanverify
 			SET viewed = 1
-			WHERE regimagehash = '" . $db->escape_string($vbulletin->GPC['imagehash']) . "' AND
+			WHERE hash = '" . $db->escape_string($vbulletin->GPC['hash']) . "' AND
 				viewed = 0
 		");
 		if ($db->affected_rows() == 0)
@@ -143,7 +144,7 @@ if ($vbulletin->GPC['type'] == 'regcheck')
 	}
 
 	$db->close();
-	$image->print_image_from_string($imageinfo['imagestamp'], $moveabout);
+	$image->print_image_from_string($imageinfo['answer'], $moveabout);
 }
 else
 {
@@ -151,9 +152,11 @@ else
 		'dateline' => TYPE_UINT,
 	));
 
+	$filedata = 'filedata';
 	if ($vbulletin->GPC['type'] == 'profile')
 	{
 		$table = 'customprofilepic';
+
 		// No permissions to see profile pics
 		if (!$vbulletin->options['profilepicenabled'] OR (!($vbulletin->userinfo['permissions']['genericpermissions'] & $vbulletin->bf_ugp_genericpermissions['canseeprofilepic']) AND $vbulletin->userinfo['userid'] != $vbulletin->GPC['userid']))
 		{
@@ -170,13 +173,19 @@ else
 	else
 	{
 		$table = 'customavatar';
+		if ($vbulletin->GPC['type'] == 'thumb')
+		{
+			$filedata = 'filedata_thumb AS filedata';
+		}
+
 		($hook = vBulletinHook::fetch_hook('image_table')) ? eval($hook) : false;
 	}
 
 	if ($imageinfo = $db->query_first_slave("
-			SELECT filedata, dateline, filename
+			SELECT $filedata, dateline, filename
 			FROM " . TABLE_PREFIX . "$table
 			WHERE userid = " . $vbulletin->GPC['userid'] . " AND visible = 1
+			HAVING filedata <> ''
 		"))
 	{
 		($hook = vBulletinHook::fetch_hook('image_exists')) ? eval($hook) : false;
@@ -215,8 +224,8 @@ else
 
 /*======================================================================*\
 || ####################################################################
-|| # Downloaded: 18:52, Sat Jul 14th 2007
-|| # CVS: $RCSfile$ - $Revision: 16178 $
+|| # Downloaded: 16:21, Sat Apr 6th 2013
+|| # CVS: $RCSfile$ - $Revision: 26399 $
 || ####################################################################
 \*======================================================================*/
 ?>
