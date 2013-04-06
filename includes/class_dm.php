@@ -1,9 +1,9 @@
 <?php
 /*======================================================================*\
 || #################################################################### ||
-|| # vBulletin 3.6.7 PL1 - Licence Number VBF2470E4F
+|| # vBulletin 3.7.2 Patch Level 2 - Licence Number VBF2470E4F
 || # ---------------------------------------------------------------- # ||
-|| # Copyright ©2000-2007 Jelsoft Enterprises Ltd. All Rights Reserved. ||
+|| # Copyright ©2000-2013 Jelsoft Enterprises Ltd. All Rights Reserved. ||
 || # This file may not be redistributed in whole or significant part. # ||
 || # ---------------- VBULLETIN IS NOT FREE SOFTWARE ---------------- # ||
 || # http://www.vbulletin.com | http://www.vbulletin.com/license.html # ||
@@ -14,8 +14,8 @@
 * Abstract class to do data save/delete operations for a particular data type (such as user, thread, post etc.)
 *
 * @package	vBulletin
-* @version	$Revision: 16959 $
-* @date		$Date: 2007-05-10 09:54:37 -0500 (Thu, 10 May 2007) $
+* @version	$Revision: 26843 $
+* @date		$Date: 2008-06-04 17:36:42 -0500 (Wed, 04 Jun 2008) $
 */
 class vB_DataManager
 {
@@ -561,7 +561,7 @@ class vB_DataManager
 			}
 			else
 			{
-				$sql .= "\r\n\t$fieldname = " . (isset($this->rawfields["$fieldname"]) ? $value : $this->dbobject->sql_prepare($value)) . ",";
+				$sql .= "\r\n\t$fieldname = " . (isset($this->rawfields["$fieldname"]) ? ($value === null ? 'NULL' : $value) : $this->dbobject->sql_prepare($value)) . ",";
 			}
 		}
 
@@ -638,12 +638,13 @@ class vB_DataManager
 	* @param	string	The system's table prefix
 	* @param	string	The name of the database table to be affected (do not include TABLE_PREFIX in your argument)
 	* @param bool		Perform REPLACE INTO instead of INSERT
+	* @param bool		Perform INSERT IGNORE instead of INSERT
 	*
 	* @return	string	SQL Insert query
 	*/
-	function fetch_insert_sql($tableprefix, $table, $replace = false)
+	function fetch_insert_sql($tableprefix, $table, $replace = false, $ignore = false)
 	{
-		$sql = ($replace ? "REPLACE" : "INSERT") . " INTO {$tableprefix}{$table}\r\n\t(" . implode(', ', array_keys($this->$table)) . ")\r\nVALUES\r\n\t(";
+		$sql = ($replace ? "REPLACE" : ($ignore ? "INSERT IGNORE" : "INSERT")) . " INTO {$tableprefix}{$table}\r\n\t(" . implode(', ', array_keys($this->$table)) . ")\r\nVALUES\r\n\t(";
 
 		foreach ($this->$table AS $fieldname => $value)
 		{
@@ -657,7 +658,7 @@ class vB_DataManager
 				$value = $bits;
 			}
 
-			$sql .= (isset($this->rawfields["$fieldname"]) ? $value : $this->dbobject->sql_prepare($value)) . ', ';
+			$sql .= (isset($this->rawfields["$fieldname"]) ? ($value === NULL ? 'NULL' : $value) : $this->dbobject->sql_prepare($value)) . ', ';
 		}
 
 		$sql = substr($sql, 0, -2);
@@ -711,6 +712,50 @@ class vB_DataManager
 			{
 				echo "<pre>$sql<hr /></pre>";
 				return 123456789;
+			}
+		}
+		else
+		{
+			return 0;
+		}
+	}
+
+	/**
+	* Creates and runs an INSERT query to save the data from the object into the database
+	*
+	* @param	string	The system's table prefix
+	* @param	string	The name of the database table to be affected (do not include TABLE_PREFIX in your argument)
+	* @param	boolean	Whether or not to actually run the query
+	*
+	* @return	integer	Returns the affected rows
+	*/
+	function db_insert_ignore($tableprefix, $table, $doquery = true)
+	{
+		static $requiredfields = null;
+
+		if ($requiredfields === null)
+		{
+			$requiredfields = $this->check_required();
+		}
+
+		if ($this->has_errors())
+		{
+			return false;
+		}
+		else if (is_array($this->$table) AND !empty($this->$table) AND $requiredfields)
+		{
+			$sql = $this->fetch_insert_sql($tableprefix, $table, false, true);
+
+			if ($doquery)
+			{
+				/*insert query*/
+				$this->dbobject->query_write($sql);
+				return $this->dbobject->affected_rows();
+			}
+			else
+			{
+				echo "<pre>$sql<hr /></pre>";
+				return 0;
 			}
 		}
 		else
@@ -776,13 +821,14 @@ class vB_DataManager
 	* Saves the data from the object into the specified database tables
 	*
 	* @param	boolean	Do the query?
-	* @param	mixed		Whether to run the query now; see db_update() for more info
-	* @param bool 		Whether to return the number of affected rows.
+	* @param	mixed	Whether to run the query now; see db_update() for more info
+	* @param bool 	Whether to return the number of affected rows.
 	* @param bool		Perform REPLACE INTO instead of INSERT
+	8 @param bool		Perfrom INSERT IGNORE instead of INSERT
 	*
 	* @return	mixed	If this was an INSERT query, the INSERT ID is returned
 	*/
-	function save($doquery = true, $delayed = false, $affected_rows = false, $replace = false)
+	function save($doquery = true, $delayed = false, $affected_rows = false, $replace = false, $ignore = false)
 	{
 		if ($this->has_errors())
 		{
@@ -797,7 +843,14 @@ class vB_DataManager
 
 		if ($this->condition === null)
 		{
-			$return = $this->db_insert(TABLE_PREFIX, $this->table, $doquery, $replace);
+			if ($ignore)
+			{
+				$return = $this->db_insert_ignore(TABLE_PREFIX, $this->table, $doquery);
+			}
+			else
+			{
+				$return = $this->db_insert(TABLE_PREFIX, $this->table, $doquery, $replace);
+			}
 			if ($return)
 			{
 				$autoid = '';
@@ -1043,7 +1096,24 @@ class vB_DataManager
 		// this is duplicated from the user manager
 
 		// fix extra whitespace and invisible ascii stuff
-		$username = trim(preg_replace('#\s+#si', ' ', strip_blank_ascii($username, ' ')));
+		$username = trim(preg_replace('#[ \r\n\t]+#si', ' ', strip_blank_ascii($username, ' ')));
+		$username_raw = $username;
+
+		global $stylevar;
+		$username = preg_replace(
+			'/&#([0-9]+);/ie',
+			"convert_unicode_char_to_charset('\\1', \$stylevar['charset'])",
+			$username
+		);
+
+		$username = preg_replace(
+			'/&#0*([0-9]{1,2}|1[01][0-9]|12[0-7]);/ie',
+			"convert_int_to_utf8('\\1')",
+			$username
+		);
+
+		$username = str_replace(chr(0), '', $username);
+		$username = trim($username);
 
 		$length = vbstrlen($username);
 		if ($length < $this->registry->options['minuserlength'])
@@ -1077,24 +1147,24 @@ class vB_DataManager
 			(
 				username = '" . $this->dbobject->escape_string(htmlspecialchars_uni($username)) . "'
 				OR
-				username = '" . $this->dbobject->escape_string(htmlspecialchars_uni(preg_replace('/&#([0-9]+);/esiU', "convert_int_to_utf8('\\1')", $username))) . "'
+				username = '" . $this->dbobject->escape_string(htmlspecialchars_uni($username_raw)) . "'
 			)
 		"))
 		{
 			// name is already in use
-			$this->error('usernametaken', $username, $this->registry->session->vars['sessionurl']);
+			$this->error('usernametaken', htmlspecialchars_uni($username), $this->registry->session->vars['sessionurl']);
 			return false;
 		}
 		else if (!empty($this->registry->options['illegalusernames']))
 		{
 			// check for illegal username
-			$usernames = preg_split('/\s+/', $this->registry->options['illegalusernames'], -1, PREG_SPLIT_NO_EMPTY);
+			$usernames = preg_split('/[ \r\n\t]+/', $this->registry->options['illegalusernames'], -1, PREG_SPLIT_NO_EMPTY);
 			foreach ($usernames AS $val)
 			{
 				if (strpos(strtolower($username), strtolower($val)) !== false)
 				{
 					// wierd error to show, but hey...
-					$this->error('usernametaken', $username, $this->registry->session->vars['sessionurl']);
+					$this->error('usernametaken', htmlspecialchars_uni($username), $this->registry->session->vars['sessionurl']);
 					return false;
 				}
 			}
@@ -1352,8 +1422,9 @@ class vB_DataManager
 	* @param	string	Page text
 	*
 	* @param	bool	Whether the text is valid
+	* @param	bool	Whether to run the case stripper
 	*/
-	function verify_pagetext(&$pagetext)
+	function verify_pagetext(&$pagetext, $noshouting = true)
 	{
 		require_once(DIR . '/includes/functions_newpost.php');
 
@@ -1361,7 +1432,7 @@ class vB_DataManager
 		$pagetext = trim($pagetext);
 
 		// remove empty bbcodes
-		$pagetext = $this->strip_empty_bbcode($pagetext);
+		//$pagetext = $this->strip_empty_bbcode($pagetext);
 
 		// add # to color tags using hex if it's not there
 		$pagetext = preg_replace('#\[color=(&quot;|"|\'|)([a-f0-9]{6})\\1]#i', '[color=\1#\2\1]', $pagetext);
@@ -1392,7 +1463,10 @@ class vB_DataManager
 		require_once(DIR . '/includes/functions_login.php');
 		$pagetext = fetch_removed_sessionhash($pagetext);
 
-		$pagetext = fetch_no_shouting_text($pagetext);
+		if ($noshouting)
+		{
+			$pagetext = fetch_no_shouting_text($pagetext);
+		}
 
 		return true;
 	}
@@ -1446,7 +1520,7 @@ class vB_DataManager
 			$bbcode_parser =& new vB_BbCodeParser_ImgCheck($this->registry, fetch_tag_list());
 			$bbcode_parser->set_parse_userinfo($vbulletin->userinfo);
 
-			if ($this->registry->options['maximages'] AND !$this->info['skip_maximagescheck'])
+			if ($this->registry->options['maximages'] AND !$this->info['is_automated'])
 			{
 				$imagecount = fetch_character_count($bbcode_parser->parse($_pagetext, $parsetype, $_allowsmilie, true), '<img');
 				if ($imagecount > $this->registry->options['maximages'])
@@ -1469,8 +1543,8 @@ class vB_DataManager
 * Works on multiple records simultaneously. Updates will occur on all records matching set_condition().
 *
 * @package	vBulletin
-* @version	$Revision: 16959 $
-* @date		$Date: 2007-05-10 09:54:37 -0500 (Thu, 10 May 2007) $
+* @version	$Revision: 26843 $
+* @date		$Date: 2008-06-04 17:36:42 -0500 (Wed, 04 Jun 2008) $
 */
 class vB_DataManager_Multiple
 {
@@ -1892,8 +1966,8 @@ class vB_DataManager_Multiple
 
 /*======================================================================*\
 || ####################################################################
-|| # Downloaded: 18:52, Sat Jul 14th 2007
-|| # CVS: $RCSfile$ - $Revision: 16959 $
+|| # Downloaded: 16:21, Sat Apr 6th 2013
+|| # CVS: $RCSfile$ - $Revision: 26843 $
 || ####################################################################
 \*======================================================================*/
 ?>

@@ -1,18 +1,21 @@
 <?php
 /*======================================================================*\
 || #################################################################### ||
-|| # vBulletin 3.6.7 PL1 - Licence Number VBF2470E4F
+|| # vBulletin 3.7.2 Patch Level 2 - Licence Number VBF2470E4F
 || # ---------------------------------------------------------------- # ||
-|| # Copyright ©2000-2007 Jelsoft Enterprises Ltd. All Rights Reserved. ||
+|| # Copyright ©2000-2013 Jelsoft Enterprises Ltd. All Rights Reserved. ||
 || # This file may not be redistributed in whole or significant part. # ||
 || # ---------------- VBULLETIN IS NOT FREE SOFTWARE ---------------- # ||
 || # http://www.vbulletin.com | http://www.vbulletin.com/license.html # ||
 || #################################################################### ||
 \*======================================================================*/
 
-// ###################### Start makecpnav #######################
-// quick method of building the cpnav template
-function construct_usercp_nav($selectedcell = 'usercp', $option = 0)
+/**
+ * Quick Method of building the CPNav Template
+ *
+ * @param	string	The selected item in the CPNav
+ */
+function construct_usercp_nav($selectedcell = 'usercp')
 {
 	global $navclass, $cpnav, $gobutton, $stylevar, $vbphrase;
 	global $messagecounters, $subscribecounters, $vbulletin;
@@ -27,6 +30,7 @@ function construct_usercp_nav($selectedcell = 'usercp', $option = 0)
 		'password',
 		'avatar',
 		'profilepic',
+		'album',
 
 		'pm_messagelist',
 		'pm_newpm',
@@ -40,12 +44,21 @@ function construct_usercp_nav($selectedcell = 'usercp', $option = 0)
 		'deletedposts',
 		'moderatedthreads',
 		'moderatedposts',
+		'moderatedvms',
+		'deletedvms',
+		'moderatedgms',
+		'deletedgms',
+		'moderatedpcs',
+		'deletedpcs',
+		'moderatedpics',
 
 		'event_reminders',
 		'paid_subscriptions',
 		'usergroups',
 		'buddylist',
-		'attachments'
+		'ignorelist',
+		'attachments',
+		'customize'
 	);
 
 	($hook = vBulletinHook::fetch_hook('usercp_nav_start')) ? eval($hook) : false;
@@ -78,6 +91,25 @@ function construct_usercp_nav($selectedcell = 'usercp', $option = 0)
 		$totalattachments = intval($attachments['total']);
 	}
 
+	if (!($vbulletin->options['socnet'] & $vbulletin->bf_misc_socnet['enable_profile_styling']))
+	{
+		$show['customizelink'] = false;
+	}
+	else if (
+		($vbulletin->userinfo['permissions']['usercsspermissions'] & $vbulletin->bf_ugp_usercsspermissions['caneditfontfamily'])
+		OR ($vbulletin->userinfo['permissions']['usercsspermissions'] & $vbulletin->bf_ugp_usercsspermissions['caneditfontsize'])
+		OR ($vbulletin->userinfo['permissions']['usercsspermissions'] & $vbulletin->bf_ugp_usercsspermissions['caneditcolors'])
+		OR ($vbulletin->userinfo['permissions']['usercsspermissions'] & $vbulletin->bf_ugp_usercsspermissions['caneditbgimage'])
+		OR ($vbulletin->userinfo['permissions']['usercsspermissions'] & $vbulletin->bf_ugp_usercsspermissions['caneditborders'])
+	)
+	{
+		$show['customizelink'] = true;
+	}
+	else
+	{
+		$show['customizelink'] = false;
+	}
+
 	if ($show['avatarlink'] AND !($vbulletin->userinfo['permissions']['genericpermissions'] & $vbulletin->bf_ugp_genericpermissions['canuseavatar']))
 	{
 		$membergroups = fetch_membergroupids_array($vbulletin->userinfo);
@@ -95,6 +127,11 @@ function construct_usercp_nav($selectedcell = 'usercp', $option = 0)
 	if ($totalattachments OR $canpost)
 	{
 		$show['attachments'] = true;
+	}
+	if ($vbulletin->options['socnet'] & $vbulletin->bf_misc_socnet['enable_groups']
+		AND $vbulletin->userinfo['permissions']['socialgrouppermissions'] & $vbulletin->bf_ugp_socialgrouppermissions['canviewgroups'])
+	{
+		$show['socialgroupslink'] = true;
 	}
 
 	if (!$vbulletin->options['subscriptionmethods'])
@@ -134,12 +171,44 @@ function construct_usercp_nav($selectedcell = 'usercp', $option = 0)
 	if (can_moderate())
 	{
 		$show['deleteditems'] = true;
+		$show['deletedmessages'] = true;
+		$show['deletedvms'] = ($vbulletin->options['socnet'] & $vbulletin->bf_misc_socnet['enable_visitor_messaging']) ? true : false;
+		$show['deletedgms'] = ($vbulletin->options['socnet'] & $vbulletin->bf_misc_socnet['enable_groups'] AND $vbulletin->options['socnet_groups_msg_enabled']) ? true : false;
+		$show['deletedpcs'] = ($vbulletin->options['socnet'] & $vbulletin->bf_misc_socnet['enable_albums'] AND $vbulletin->options['pc_enabled']) ? true : false;
 	}
 
 	if (can_moderate(0, 'canmoderateposts'))
 	{
-		$show['moderateditems'] = true;
+		$show['moderatedposts'] = true;
 	}
+
+	if (can_moderate(0, 'canmoderatevisitormessages') AND $vbulletin->options['socnet'] & $vbulletin->bf_misc_socnet['enable_visitor_messaging'])
+	{
+		$show['moderatedvms'] = true;
+	}
+	if (can_moderate(0, 'canmoderategroupmessages') AND $vbulletin->options['socnet'] & $vbulletin->bf_misc_socnet['enable_groups'] AND $vbulletin->options['socnet_groups_msg_enabled'])
+	{
+		$show['moderatedgms'] = true;
+	}
+	if (can_moderate(0, 'canmoderatepicturecomments') AND $vbulletin->options['socnet'] & $vbulletin->bf_misc_socnet['enable_albums'] AND $vbulletin->options['pc_enabled'])
+	{
+		$show['moderatedpcs'] = true;
+	}
+	if (can_moderate(0, 'canmoderatepictures') AND $vbulletin->options['socnet'] & $vbulletin->bf_misc_socnet['enable_albums'])
+	{
+		$show['moderatedpics'] = true;
+	}
+
+	$show['moderateditems'] = ($show['moderatedposts'] OR $show['moderatedvms'] OR $show['moderatedgms'] OR $show['moderatedpcs'] OR $show['moderatedpics']);
+
+	$show['moderation'] = ($show['deleteditems'] OR $show['moderateditems']);
+
+	// album setup
+	$show['albumlink'] = ($vbulletin->options['socnet'] & $vbulletin->bf_misc_socnet['enable_albums']
+		AND $vbulletin->userinfo['permissions']['genericpermissions'] & $vbulletin->bf_ugp_genericpermissions['canviewmembers']
+		AND $vbulletin->userinfo['permissions']['albumpermissions'] & $vbulletin->bf_ugp_albumpermissions['canviewalbum']
+		AND $vbulletin->userinfo['permissions']['albumpermissions'] & $vbulletin->bf_ugp_albumpermissions['canalbum']
+	);
 
 	// set the class for each cell/group
 	$navclass = array();
@@ -186,7 +255,14 @@ function construct_usercp_nav($selectedcell = 'usercp', $option = 0)
 	($hook = vBulletinHook::fetch_hook('usercp_nav_complete')) ? eval($hook) : false;
 }
 
-// ###################### Start fetch_avatar_permissions ###########
+/**
+ * Fetches the Avatar Category Cache
+ *
+ * @param	array	User Information
+ *
+ * @return	array	Avatar Category Cache
+ *
+ */
 function &fetch_avatar_categories(&$userinfo)
 {
 	global $vbulletin;
@@ -255,14 +331,22 @@ function &fetch_avatar_categories(&$userinfo)
 	return $categorycache["$userinfo[userid]"];
 }
 
-// ###################### Start getavatarurl #######################
-function fetch_avatar_url($userid)
+/**
+ * Fetches the URL for a User's Avatar
+ *
+ * @param	integer	The User ID
+ * @param	boolean	Whether to get the Thumbnailed avatar or not
+ *
+ * @return	array	Information regarding the avatar
+ *
+ */
+function fetch_avatar_url($userid, $thumb = false)
 {
 	global $vbulletin;
 
 	if ($avatarinfo = $vbulletin->db->query_first_slave("
 		SELECT user.avatarid, user.avatarrevision, avatarpath, NOT ISNULL(customavatar.userid) AS hascustom, customavatar.dateline,
-			customavatar.width, customavatar.height
+			customavatar.width, customavatar.height, customavatar.width_thumb, customavatar.height_thumb
 		FROM " . TABLE_PREFIX . "user AS user
 		LEFT JOIN " . TABLE_PREFIX . "avatar AS avatar ON avatar.avatarid = user.avatarid
 		LEFT JOIN " . TABLE_PREFIX . "customavatar AS customavatar ON customavatar.userid = user.userid
@@ -278,16 +362,26 @@ function fetch_avatar_url($userid)
 
 			if ($vbulletin->options['usefileavatar'])
 			{
-				$avatarurl[] = $vbulletin->options['avatarurl'] . "/avatar{$userid}_{$avatarinfo['avatarrevision']}.gif";
+				$avatarurl[] = $vbulletin->options['avatarurl'] . ($thumb ? '/thumbs' : '') . "/avatar{$userid}_{$avatarinfo['avatarrevision']}.gif";
 			}
 			else
 			{
-				$avatarurl[] = "image.php?u=$userid&amp;dateline=$avatarinfo[dateline]";
+				$avatarurl[] = "image.php?u=$userid&amp;dateline=$avatarinfo[dateline]" . ($thumb ? '&type=thumb' : '') ;
 			}
 
-			if ($avatarinfo['width'] AND $avatarinfo['height'])
+			if ($thumb)
 			{
-				$avatarurl[] = " width=\"$avatarinfo[width]\" height=\"$avatarinfo[height]\" ";
+				if ($avatarinfo['width_thumb'] AND $avatarinfo['height_thumb'])
+				{
+					$avatarurl[] = " width=\"$avatarinfo[width_thumb]\" height=\"$avatarinfo[height_thumb]\" ";
+				}
+			}
+			else
+			{
+				if ($avatarinfo['width'] AND $avatarinfo['height'])
+				{
+					$avatarurl[] = " width=\"$avatarinfo[width]\" height=\"$avatarinfo[height]\" ";
+				}
 			}
 			return $avatarurl;
 		}
@@ -298,8 +392,108 @@ function fetch_avatar_url($userid)
 	}
 }
 
-// ###################### Start makesalt #######################
-// generates a totally random string of $length chars
+/**
+ * Fetches the User's Avatar from Pre-processed information. Avatar data placed
+ * in $userinfo (avatarurl, avatarwidth, avatarheight)
+ *
+ * @param	array	User Information
+ * @param	boolean	Whether to return a Thumbnail
+ * @param	boolean	Whether to return a placeholder Avatar if no avatar is found
+*/
+function fetch_avatar_from_userinfo(&$userinfo, $thumb = false, $returnfakeavatar = true)
+{
+	global $vbulletin, $stylevar;
+
+	if (!empty($userinfo['avatarpath']))
+	{
+		// using a non custom avatar
+		if ($thumb)
+		{
+			if (@file_exists(DIR . '/images/avatars/thumbs/' . $userinfo['avatarid'] . '.gif'))
+			{
+				$userinfo['avatarurl'] = 'images/avatars/thumbs/' . $userinfo['avatarid'] . '.gif';
+			}
+			else
+			{
+				// no width/height known, scale to the maximum allowed width
+				$userinfo['avatarwidth'] = FIXED_SIZE_AVATAR_WIDTH;
+				$userinfo['avatarurl'] = $userinfo['avatarpath'];
+			}
+		}
+		else
+		{
+			$userinfo['avatarurl'] = $userinfo['avatarpath'];
+		}
+	}
+	else if ($userinfo['hascustom'] OR $userinfo['hascustomavatar'])
+	{
+		// custom avatar
+		if ($vbulletin->options['usefileavatar'])
+		{
+			if ($thumb AND @file_exists($vbulletin->options['avatarpath'] . "/thumbs/avatar$userinfo[userid]_$userinfo[avatarrevision].gif"))
+			{
+				$userinfo['avatarurl'] = $vbulletin->options['avatarurl'] . "/thumbs/avatar$userinfo[userid]_$userinfo[avatarrevision].gif";
+			}
+			else
+			{
+				$userinfo['avatarurl'] =  $vbulletin->options['avatarurl'] . "/avatar$userinfo[userid]_$userinfo[avatarrevision].gif";
+			}
+		}
+		else
+		{
+			if ($thumb AND $userinfo['filedata_thumb'])
+			{
+				$userinfo['avatarurl'] = 'image.php?' . $vbulletin->session->vars['sessionurl'] . 'u=' . $userinfo['userid'] . "&amp;dateline=$userinfo[avatardateline]&amp;type=thumb";
+			}
+			else
+			{
+				$userinfo['avatarurl'] = 'image.php?' . $vbulletin->session->vars['sessionurl'] . 'u=' . $userinfo['userid'] . "&amp;dateline=$userinfo[avatardateline]";
+			}
+		}
+
+		if ($thumb)
+		{
+			// use the known sizes if available, otherwise calculate as necessary
+			if ($userinfo['width_thumb'])
+			{
+				$userinfo['avatarwidth'] = $userinfo['width_thumb'];
+				$userinfo['avatarheight'] = $userinfo['height_thumb'];
+			}
+			else if ($userinfo['avwidth'] AND $userinfo['avheight'])
+			{
+				// resize to the most restrictive size; never increase size (ratios > 1)
+				$resize_ratio = min(1, FIXED_SIZE_AVATAR_WIDTH / $userinfo['avwidth'], FIXED_SIZE_AVATAR_HEIGHT / $userinfo['avheight']);
+				$userinfo['avatarwidth'] = floor($userinfo['avwidth'] * $resize_ratio);
+				$userinfo['avatarheight'] = floor($userinfo['avheight'] * $resize_ratio);
+			}
+			else
+			{
+				// no width/height known, scale to the maximum allowed width
+				$userinfo['avatarwidth'] = FIXED_SIZE_AVATAR_WIDTH;
+			}
+		}
+		else
+		{
+			$userinfo['avatarwidth'] = $userinfo['avwidth'];
+			$userinfo['avatarheight'] = $userinfo['avheight'];
+		}
+	}
+
+	// final case: didn't get an avatar, so use the fake one
+	if (empty($userinfo['avatarurl']) AND $returnfakeavatar)
+	{
+		$userinfo['avatarurl'] = $stylevar['imgdir_misc'] . '/unknown.gif';
+	}
+}
+
+/**
+ * Generates a totally random string
+ *
+ * @param	integer	Length of string to create
+ *
+ * @return	string	Generated String
+ *
+ */
 function fetch_user_salt($length = 3)
 {
 	$salt = '';
@@ -312,7 +506,12 @@ function fetch_user_salt($length = 3)
 
 // nb: function verify_profilefields no longer exists, and is handled by vB_DataManager_User::set_userfields($values)
 
-// ###################### Start getprofilefields #######################
+/**
+ * Fetches the Profile Fields for a User input form
+ *
+ * @param	integer	Forum Type: 0 indicates a profile field, 1 indicates an option field
+ *
+ */
 function fetch_profilefields($formtype = 0) // 0 indicates a profile field, 1 indicates an option field
 {
 	global $vbulletin, $stylevar, $customfields, $bgclass, $show;
@@ -327,11 +526,12 @@ function fetch_profilefields($formtype = 0) // 0 indicates a profile field, 1 in
 	");
 	while ($profilefield = $vbulletin->db->fetch_array($profilefields))
 	{
+		$profilefieldname = "field$profilefield[profilefieldid]";
 		if ($profilefield['editable'] == 2 AND !empty($vbulletin->userinfo["$profilefieldname"]))
 		{
 			continue;
 		}
-		
+
 		if ($formtype == 1 AND in_array($profilefield['type'], array('select', 'select_multiple')))
 		{
 			$show['optionspage'] = true;
@@ -349,10 +549,10 @@ function fetch_profilefields($formtype = 0) // 0 indicates a profile field, 1 in
 		{
 			exec_switch_bg($profilefield['form']);
 		}
-		
+
 		$tempcustom = fetch_profilefield($profilefield);
-		
-		// now add the HTML to the completed lists		
+
+		// now add the HTML to the completed lists
 
 		if (($profilefield['required'] == 1 OR $profilefield['required'] == 3) AND $profilefield['form'] == 0) // Ignore the required setting for fields on the options page
 		{
@@ -393,8 +593,16 @@ function fetch_profilefields($formtype = 0) // 0 indicates a profile field, 1 in
 	}
 }
 
-// #############################################################################
-function fetch_profilefield($profilefield)
+/**
+ * Fetches a single profile Field
+ *
+ * @param	array	Profile Field Record from the database
+ * @param	string	Template to wrap this profilefield in
+ *
+ * @return	string	HTML for this Profile Field
+ *
+ */
+function fetch_profilefield($profilefield, $wrapper_template = 'userfield_wrapper')
 {
 	global $vbulletin, $stylevar, $customfields, $bgclass, $show;
 	global $vbphrase, $altbgclass, $bgclass1, $tempclass;
@@ -411,11 +619,11 @@ function fetch_profilefield($profilefield)
 
 	if ($profilefield['type'] == 'input')
 	{
-		eval('$tempcustom = "' . fetch_template('userfield_textbox') . '";');
+		eval('$custom_field_holder = "' . fetch_template('userfield_textbox') . '";');
 	}
 	else if ($profilefield['type'] == 'textarea')
 	{
-		eval('$tempcustom = "' . fetch_template('userfield_textarea') . '";');
+		eval('$custom_field_holder = "' . fetch_template('userfield_textarea') . '";');
 	}
 	else if ($profilefield['type'] == 'select')
 	{
@@ -458,7 +666,7 @@ function fetch_profilefield($profilefield)
 			$selected = '';
 		}
 		$show['noemptyoption'] = iif($profilefield['def'] != 2, true, false);
-		eval('$tempcustom = "' . fetch_template('userfield_select') . '";');
+		eval('$custom_field_holder = "' . fetch_template('userfield_select') . '";');
 	}
 	else if ($profilefield['type'] == 'radio')
 	{
@@ -466,6 +674,7 @@ function fetch_profilefield($profilefield)
 		$radiobits = '';
 		$foundfield = 0;
 		$perline = 0;
+		$unclosedtr = true;
 
 		foreach ($data AS $key => $val)
 		{
@@ -480,14 +689,25 @@ function fetch_profilefield($profilefield)
 				$checked = 'checked="checked"';
 				$foundfield = 1;
 			}
+			if ($perline == 0)
+			{
+				$radiobits .= '<tr>';
+			}
 			eval('$radiobits .= "' . fetch_template('userfield_radio_option') . '";');
 			$perline++;
 			if ($profilefield['perline'] > 0 AND $perline >= $profilefield['perline'])
 			{
-				$radiobits .= '<br />';
+				$radiobits .= '</tr>';
 				$perline = 0;
+				$unclosedtr = false;
 			}
 		}
+
+		if ($unclosedtr)
+		{
+			$radiobits .= '</tr>';
+		}
+
 		if ($profilefield['optional'])
 		{
 			if (!$foundfield AND $vbulletin->userinfo["$profilefieldname"])
@@ -496,13 +716,14 @@ function fetch_profilefield($profilefield)
 			}
 			eval('$optionalfield = "' . fetch_template('userfield_optional_input') . '";');
 		}
-		eval('$tempcustom = "' . fetch_template('userfield_radio') . '";');
+		eval('$custom_field_holder = "' . fetch_template('userfield_radio') . '";');
 	}
 	else if ($profilefield['type'] == 'checkbox')
 	{
 		$data = unserialize($profilefield['data']);
 		$radiobits = '';
 		$perline = 0;
+		$unclosedtr = true;
 		foreach ($data AS $key => $val)
 		{
 			if ($vbulletin->userinfo["$profilefieldname"] & pow(2,$key))
@@ -514,20 +735,35 @@ function fetch_profilefield($profilefield)
 				$checked = '';
 			}
 			$key++;
+			if ($perline == 0)
+			{
+				$radiobits .= '<tr>';
+			}
 			eval('$radiobits .= "' . fetch_template('userfield_checkbox_option') . '";');
 			$perline++;
 			if ($profilefield['perline'] > 0 AND $perline >= $profilefield['perline'])
 			{
-				$radiobits .= '<br />';
+				$radiobits .= '</tr>';
 				$perline = 0;
+				$unclosedtr = false;
 			}
 		}
-		eval('$tempcustom = "' . fetch_template('userfield_radio') . '";');
+		if ($unclosedtr)
+		{
+			$radiobits .= '</tr>';
+		}
+		eval('$custom_field_holder = "' . fetch_template('userfield_radio') . '";');
 	}
 	else if ($profilefield['type'] == 'select_multiple')
 	{
 		$data = unserialize($profilefield['data']);
 		$selectbits = '';
+
+		if ($profilefield['height'] == 0)
+		{
+			$profilefield['height'] = count($data);
+		}
+
 		foreach ($data AS $key => $val)
 		{
 			if ($vbulletin->userinfo["$profilefieldname"] & pow(2, $key))
@@ -541,13 +777,22 @@ function fetch_profilefield($profilefield)
 			$key++;
 			eval('$selectbits .= "' . fetch_template('userfield_select_option') . '";');
 		}
-		eval('$tempcustom = "' . fetch_template('userfield_select_multiple') . '";');
+		eval('$custom_field_holder = "' . fetch_template('userfield_select_multiple') . '";');
 	}
-	
+
+	eval('$tempcustom = "' . fetch_template($wrapper_template) . '";');
+
 	return $tempcustom;
 }
 
-// ###################### Start checkbannedemail #######################
+/**
+ * Checks whether the email provided is banned from the forums
+ *
+ * @param	string	The email address to check
+ *
+ * @return	boolean	Whether the email address is banned or not
+ *
+ */
 function is_banned_email($email)
 {
 	global $vbulletin;
@@ -577,7 +822,17 @@ function is_banned_email($email)
 	return 0;
 }
 
-// ###################### Start useractivation #######################
+/**
+ * (Re)Generates an Activation ID for a user
+ *
+ * @param	integer	User's ID
+ * @param	integer	The group to move the user to when they are activated
+ * @param	integer	0 for Normal Activation, 1 for Forgotten Password
+ * @param	boolean	Whether this is an email change or not
+ *
+ * @return	string	The Activation ID
+ *
+ */
 function build_user_activation_id($userid, $usergroupid, $type, $emailchange = 0)
 {
 	global $vbulletin;
@@ -608,23 +863,17 @@ function build_user_activation_id($userid, $usergroupid, $type, $emailchange = 0
 	return $activateid;
 }
 
-// ###################### Start regstring #######################
-function fetch_registration_string($length)
-{
-	$somechars = '234689ABCEFGHJMNPQRSTWY';
-	$morechars = '234689ABCEFGHJKMNPQRSTWXYZabcdefghjkmnpstwxyz';
-
-	for ($x = 1; $x <= $length; $x++)
-	{
-		$chars = ($x <= 2 OR $x == $length) ? $morechars : $somechars;
-		$number = rand(1, strlen($chars));
-		$word .= substr($chars, $number - 1, 1);
- 	}
-
- 	return $word;
-}
-
-// ################### Start Mod Forum Jump #####################
+/**
+ * Constructs a Forum Jump Menu based on moderator permissions
+ *
+ * @param	integer	The "root" forum to work from
+ * @param	integer	The ID of the forum that is currently selected
+ * @param	integer	Characters to prepend to the item in the menu
+ * @param	string	The moderator permission to check when building the Forum Jump Menu
+ *
+ * @return	string	The built forum Jump menu
+ *
+ */
 function construct_mod_forum_jump($parentid = -1, $selectedid, $prependchars, $modpermission = '')
 {
 	global $vbulletin;
@@ -671,10 +920,83 @@ function construct_mod_forum_jump($parentid = -1, $selectedid, $prependchars, $m
 
 }
 
+/**
+* Constructs the User's Custom CSS
+*
+* @param	array	An array of userinfo
+* @param	bool	(Return) Whether to show the user css on/off switch to the user
+*
+* @return	string	HTML for the User's CSS
+*/
+function construct_usercss(&$userinfo, &$show_usercss_switch)
+{
+	global $vbulletin;
+
+	// profile styling globally disabled
+	if (!($vbulletin->options['socnet'] & $vbulletin->bf_misc_socnet['enable_profile_styling']))
+	{
+		$show_usercss_switch = false;
+		return '';
+	}
+
+	// check if permissions have changed and we need to rebuild this user's css
+	if ($userinfo['hascachedcss'] AND $userinfo['cssbuildpermissions'] != $userinfo['permissions']['usercsspermissions'])
+	{
+		require_once(DIR . '/includes/class_usercss.php');
+		$usercss =& new vB_UserCSS($vbulletin, $userinfo['userid'], false);
+		$userinfo['cachedcss'] = $usercss->update_css_cache();
+	}
+
+	if (!($vbulletin->userinfo['options'] & $vbulletin->bf_misc_useroptions['showusercss']) AND $vbulletin->userinfo['userid'] != $userinfo['userid'])
+	{
+		// user has disabled viewing css; they can reenable
+		$show_usercss_switch = (trim($userinfo['cachedcss']) != '');
+		$usercss = '';
+	}
+	else if (trim($userinfo['cachedcss']))
+	{
+		$show_usercss_switch = true;
+		$userinfo['cachedcss'] = str_replace('/*sessionurl*/', $vbulletin->session->vars['sessionurl_js'], $userinfo['cachedcss']);
+		eval('$usercss = "' . fetch_template('memberinfo_usercss') . '";');
+	}
+	else
+	{
+		$show_usercss_switch = false;
+		$usercss = '';
+	}
+
+	return $usercss;
+}
+
+/**
+* Constructs the User's Custom CSS Switch Phrase
+*
+* @param	bool	If the switch is going to be shown or not
+* @param	string	The phrase to use (Reference)
+*
+* @return	void
+*/
+function construct_usercss_switch($show_usercss_switch, &$usercss_switch_phrase)
+{
+	global $vbphrase, $vbulletin;
+
+	if ($show_usercss_switch AND $vbulletin->userinfo['userid'])
+	{
+		if ($vbulletin->userinfo['options'] & $vbulletin->bf_misc_useroptions['showusercss'])
+		{
+			$usercss_switch_phrase = $vbphrase['hide_user_customizations'];
+		}
+		else
+		{
+			$usercss_switch_phrase = $vbphrase['show_user_customizations'];
+		}
+	}
+}
+
 /*======================================================================*\
 || ####################################################################
-|| # Downloaded: 18:52, Sat Jul 14th 2007
-|| # CVS: $RCSfile$ - $Revision: 16849 $
+|| # Downloaded: 16:21, Sat Apr 6th 2013
+|| # CVS: $RCSfile$ - $Revision: 26918 $
 || ####################################################################
 \*======================================================================*/
 ?>

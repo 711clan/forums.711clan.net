@@ -1,9 +1,9 @@
 <?php
 /*======================================================================*\
 || #################################################################### ||
-|| # vBulletin 3.6.7 PL1 - Licence Number VBF2470E4F
+|| # vBulletin 3.7.2 Patch Level 2 - Licence Number VBF2470E4F
 || # ---------------------------------------------------------------- # ||
-|| # Copyright ©2000-2007 Jelsoft Enterprises Ltd. All Rights Reserved. ||
+|| # Copyright ©2000-2013 Jelsoft Enterprises Ltd. All Rights Reserved. ||
 || # This file may not be redistributed in whole or significant part. # ||
 || # ---------------- VBULLETIN IS NOT FREE SOFTWARE ---------------- # ||
 || # http://www.vbulletin.com | http://www.vbulletin.com/license.html # ||
@@ -15,6 +15,7 @@ error_reporting(E_ALL & ~E_NOTICE);
 
 // #################### DEFINE IMPORTANT CONSTANTS #######################
 define('THIS_SCRIPT', 'reputation');
+define('CSRF_PROTECTION', true);
 
 // ################### PRE-CACHE TEMPLATES AND DATA ######################
 // get special phrase groups
@@ -216,9 +217,9 @@ if ($_POST['do'] == 'addreputation')
 		require_once(DIR . '/includes/class_xml.php');
 		require_once(DIR . '/includes/functions_misc.php');
 		$xml = new vB_AJAX_XML_Builder($vbulletin, 'text/xml');
-		$xml->add_tag('reputation', fetch_phrase('redirect_reputationadd', 'frontredirect', 'redirect_'), array(
+		$xml->add_tag('reputation', process_replacement_vars(fetch_phrase('redirect_reputationadd', 'frontredirect', 'redirect_')), array(
 			'reppower'   => fetch_reppower($userinfo, $userinfo['permissions']),
-			'repdisplay' => $post['reputationdisplay'],
+			'repdisplay' => process_replacement_vars($post['reputationdisplay']),
 			'userid'     => $userinfo['userid'],
 		));
 		$xml->print_xml();
@@ -388,7 +389,7 @@ else
 
 		require_once(DIR . '/includes/class_xml.php');
 		$xml = new vB_AJAX_XML_Builder($vbulletin, 'text/xml');
-		$xml->add_tag('reputationbit', $reputation);
+		$xml->add_tag('reputationbit', process_replacement_vars($reputation));
 		$xml->print_xml();
 	}
 
@@ -400,7 +401,7 @@ else
 		$forumTitle = $vbulletin->forumcache["$forumID"]['title'];
 		$navbits['forumdisplay.php?' . $vbulletin->session->vars['sessionurl'] . "f=$forumID"] = $forumTitle;
 	}
-	$navbits['showthread.php?' . $vbulletin->session->vars['sessionurl'] . "p=$postid"] = $threadinfo['title'];
+	$navbits['showthread.php?' . $vbulletin->session->vars['sessionurl'] . "p=$postid"] = $threadinfo['prefix_plain_html'] . ' ' . $threadinfo['title'];
 	$navbits[''] = $vbphrase['reputation'];
 	$navbits = construct_navbits($navbits);
 
@@ -411,8 +412,8 @@ else
 
 /*======================================================================*\
 || ####################################################################
-|| # Downloaded: 18:52, Sat Jul 14th 2007
-|| # CVS: $RCSfile$ - $Revision: 15381 $
+|| # Downloaded: 16:21, Sat Apr 6th 2013
+|| # CVS: $RCSfile$ - $Revision: 26399 $
 || ####################################################################
 \*======================================================================*/
 ?>

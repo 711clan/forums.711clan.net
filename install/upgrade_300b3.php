@@ -1,9 +1,9 @@
 <?php
 /*======================================================================*\
 || #################################################################### ||
-|| # vBulletin 3.6.7 PL1 - Licence Number VBF2470E4F
+|| # vBulletin 3.7.2 Patch Level 2 - Licence Number VBF2470E4F
 || # ---------------------------------------------------------------- # ||
-|| # Copyright ©2000-2007 Jelsoft Enterprises Ltd. All Rights Reserved. ||
+|| # Copyright ©2000-2013 Jelsoft Enterprises Ltd. All Rights Reserved. ||
 || # This file may not be redistributed in whole or significant part. # ||
 || # ---------------- VBULLETIN IS NOT FREE SOFTWARE ---------------- # ||
 || # http://www.vbulletin.com | http://www.vbulletin.com/license.html # ||
@@ -23,6 +23,18 @@ define('UPGRADE_COMPAT', true);
 define('VB3UPGRADE', 1);
 // require the code that makes it all work...
 require_once('./upgradecore.php');
+
+// 3.7.0 changes mean that...
+if (!empty($vbulletin->GPC['step']))
+{
+	echo '<div style="margin:75px">' . $upgrade_phrases['upgrade_300b3.php']['upgrade_from_vb2_not_supported'] . '</div>';
+	
+	print_upgrade_footer();
+	
+	exit;
+}
+
+
 if (TABLE_PREFIX != '')
 {
 	?>
@@ -2173,7 +2185,7 @@ if ($vbulletin->GPC['step'] == 20)
 			NULL,
 			'quote',
 			'<blockquote><span class=\"smallfont\">Quote:</span><hr size=\"1\" />Originally Posted by <b>\\\\5</b><br /><i>\\\\7</i><hr size=\"1\" /></blockquote>',
-			'[quote=\'John Doe\']This is a quote[/quote]',
+			'[quote=\\'John Doe\\']This is a quote[/quote]',
 			'The [quote] tag is used to denote a quote that is from another source.',
 			1,
 			'Quote With Username'
@@ -4170,8 +4182,8 @@ print_upgrade_footer();
 
 /*======================================================================*\
 || ####################################################################
-|| # Downloaded: 18:52, Sat Jul 14th 2007
-|| # CVS: $RCSfile$ - $Revision: 16195 $
+|| # Downloaded: 16:21, Sat Apr 6th 2013
+|| # CVS: $RCSfile$ - $Revision: 26662 $
 || ####################################################################
 \*======================================================================*/
 ?>

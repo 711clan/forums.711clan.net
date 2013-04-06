@@ -1,9 +1,9 @@
 <?php
 /*======================================================================*\
 || #################################################################### ||
-|| # vBulletin 3.6.7 PL1 - Licence Number VBF2470E4F
+|| # vBulletin 3.7.2 Patch Level 2 - Licence Number VBF2470E4F
 || # ---------------------------------------------------------------- # ||
-|| # Copyright ©2000-2007 Jelsoft Enterprises Ltd. All Rights Reserved. ||
+|| # Copyright ©2000-2013 Jelsoft Enterprises Ltd. All Rights Reserved. ||
 || # This file may not be redistributed in whole or significant part. # ||
 || # ---------------- VBULLETIN IS NOT FREE SOFTWARE ---------------- # ||
 || # http://www.vbulletin.com | http://www.vbulletin.com/license.html # ||
@@ -28,12 +28,23 @@ function construct_ip_usage_table($ipaddress, $prevuserid, $depth = 1)
 		$userscript = 'user.php';
 	}
 
+	if (substr($ipaddress, -1) == '.' OR substr_count($ipaddress, '.') < 3)
+	{
+		// ends in a dot OR less than 3 dots in IP -> partial search
+		$ipaddress_match = "post.ipaddress LIKE '" . $vbulletin->db->escape_string_like($ipaddress) . "%'";
+	}
+	else
+	{
+		// exact match
+		$ipaddress_match = "post.ipaddress = '" . $vbulletin->db->escape_string($ipaddress) . "'";
+	}
+
 	$users = $vbulletin->db->query_read_slave("
 		SELECT DISTINCT user.userid, user.username, post.ipaddress
 		FROM " . TABLE_PREFIX . "post AS post,
 		" . TABLE_PREFIX . "user AS user
 		WHERE user.userid = post.userid AND
-			post.ipaddress LIKE '" . $vbulletin->db->escape_string_like($ipaddress) . "%' AND
+			$ipaddress_match AND
 			post.ipaddress <> '' AND
 			user.userid <> $prevuserid
 		ORDER BY user.username
@@ -80,10 +91,21 @@ function construct_ip_register_table($ipaddress, $prevuserid, $depth = 1)
 		$userscript = 'user.php';
 	}
 
+	if (substr($ipaddress, -1) == '.' OR substr_count($ipaddress, '.') < 3)
+	{
+		// ends in a dot OR less than 3 dots in IP -> partial search
+		$ipaddress_match = "ipaddress LIKE '" . $vbulletin->db->escape_string_like($ipaddress) . "%'";
+	}
+	else
+	{
+		// exact match
+		$ipaddress_match = "ipaddress = '" . $vbulletin->db->escape_string($ipaddress) . "'";
+	}
+
 	$users = $vbulletin->db->query_read_slave("
 		SELECT  userid, username, ipaddress
 		FROM " . TABLE_PREFIX . "user AS user
-		WHERE ipaddress LIKE '" . $vbulletin->db->escape_string_like($ipaddress) . "%' AND
+		WHERE $ipaddress_match AND
 			ipaddress <> '' AND
 			userid <> $prevuserid
 		ORDER BY username
@@ -285,13 +307,40 @@ function print_user_search_rows($email = false)
 	print_input_row($vbphrase['infractions_are_less_than'], 'user[infractionsupper]', '', 1, 7);
 	print_input_row($vbphrase['infraction_points_are_greater_than'], 'user[pointslower]', '', 1, 7);
 	print_input_row($vbphrase['infraction_points_are_less_than'], 'user[pointsupper]', '', 1, 7);
+	print_input_row($vbphrase['userid_is_greater_than'], 'user[useridlower]', '', 1, 7);
+	print_input_row($vbphrase['userid_is_less_than'], 'user[useridupper]', '', 1, 7);
 	print_input_row($vbphrase['registration_ip_address'], 'user[ipaddress]');
 	print_description_row('<div align="' . $stylevar['right'] .'"><input type="submit" class="button" value=" ' . iif($email, $vbphrase['submit'], $vbphrase['find']) . ' " tabindex="1" /></div>');
 
+	$forms = array(
+		0 => $vbphrase['edit_your_details'],
+		1 => "$vbphrase[options]: $vbphrase[log_in] / $vbphrase[privacy]",
+		2 => "$vbphrase[options]: $vbphrase[messaging] / $vbphrase[notification]",
+		3 => "$vbphrase[options]: $vbphrase[thread_viewing]",
+		4 => "$vbphrase[options]: $vbphrase[date] / $vbphrase[time]",
+		5 => "$vbphrase[options]: $vbphrase[other]",
+	);
+
+	$currentform = -1;
+
 	print_table_header($vbphrase['user_profile_fields']);
-	$profilefields = $vbulletin->db->query_read("SELECT * FROM " . TABLE_PREFIX . "profilefield");
+
+	$profilefields = $vbulletin->db->query_read("
+		SELECT *
+		FROM " . TABLE_PREFIX . "profilefield AS profilefield
+		LEFT JOIN " . TABLE_PREFIX . "profilefieldcategory AS profilefieldcategory ON
+			(profilefield.profilefieldcategoryid = profilefieldcategory.profilefieldcategoryid)
+		ORDER BY profilefield.form, profilefieldcategory.displayorder, profilefield.displayorder
+	");
+
 	while ($profilefield = $vbulletin->db->fetch_array($profilefields))
 	{
+		if ($profilefield['form'] != $currentform)
+		{
+			print_description_row(construct_phrase($vbphrase['fields_from_form_x'], $forms["$profilefield[form]"]), false, 2, 'optiontitle');
+			$currentform = $profilefield['form'];
+		}
+
 		$profilefield['def'] = 0;
 		print_profilefield_row('profile', $profilefield);
 	}
@@ -379,6 +428,10 @@ function fetch_user_search_sql(&$user, &$profile, $prefix = 'user')
 
 	$condition .= iif($user['reputationupper'], " AND {$prefix}reputation < " . intval($user['reputationupper']));
 	$condition .= iif($user['reputationlower'], " AND {$prefix}reputation >= " . intval($user['reputationlower']));
+
+	$condition .= iif($user['useridlower'], " AND {$prefix}userid >= "  . intval($user['useridlower']));
+	$condition .= iif($user['useridupper'], " AND {$prefix}userid < " . intval($user['useridupper']));
+
 	$condition .= iif($user['ipaddress'], " AND {$prefix}ipaddress LIKE '%" . $vbulletin->db->escape_string_like($user['ipaddress']) . "%'");
 
 	$profilefields = $vbulletin->db->query_read("
@@ -395,8 +448,8 @@ function fetch_user_search_sql(&$user, &$profile, $prefix = 'user')
 
 /*======================================================================*\
 || ####################################################################
-|| # Downloaded: 18:52, Sat Jul 14th 2007
-|| # CVS: $RCSfile$ - $Revision: 16941 $
+|| # Downloaded: 16:21, Sat Apr 6th 2013
+|| # CVS: $RCSfile$ - $Revision: 25833 $
 || ####################################################################
 \*======================================================================*/
 ?>

@@ -1,9 +1,9 @@
 <?php
 /*======================================================================*\
 || #################################################################### ||
-|| # vBulletin 3.6.7 PL1 - Licence Number VBF2470E4F
+|| # vBulletin 3.7.2 Patch Level 2 - Licence Number VBF2470E4F
 || # ---------------------------------------------------------------- # ||
-|| # Copyright ©2000-2007 Jelsoft Enterprises Ltd. All Rights Reserved. ||
+|| # Copyright ©2000-2013 Jelsoft Enterprises Ltd. All Rights Reserved. ||
 || # This file may not be redistributed in whole or significant part. # ||
 || # ---------------- VBULLETIN IS NOT FREE SOFTWARE ---------------- # ||
 || # http://www.vbulletin.com | http://www.vbulletin.com/license.html # ||
@@ -41,16 +41,18 @@ function parse_wysiwyg_html($html, $ishtml = 0, $forumid = 0, $allowsmilie = 1)
 }
 
 // ###################### Start safeUrl #######################
-function sanitize_url($type, $url)
+function sanitize_url($type, $url, $delimiter = '\\"')
 {
 	static $find, $replace;
 	if (!is_array($find))
 	{
-		$find = array('<', '>');
-		$replace = array('&lt;', '&gt;');
+		$find =    array('<',    '>',    '\\"');
+		$replace = array('&lt;', '&gt;', '"');
 	}
 
-	return str_replace('\\"', '"', $type) . '="' . str_replace($find, $replace, str_replace('\\"', '"', $url)) . '"';
+	$delimiter = str_replace('\\"', '"', $delimiter);
+
+	return str_replace('\\"', '"', $type) . '=' . $delimiter . str_replace($find, $replace, $url) . $delimiter;
 }
 
 // ###################### Start getsmilietext #######################
@@ -88,7 +90,7 @@ function fetch_smilie_text($smilieid)
 }
 
 // ###################### Start WYSIWYG_html2vbcode #######################
-function convert_wysiwyg_html_to_bbcode($text, $allowhtml = false)
+function convert_wysiwyg_html_to_bbcode($text, $allowhtml = false, $p_two_linebreak = false)
 {
 	global $vbulletin;
 
@@ -105,9 +107,10 @@ function convert_wysiwyg_html_to_bbcode($text, $allowhtml = false)
 			'#(<[^<>]+ (src|href))=(\'|"|)??(.*)(\\3)#esiU'  // make < and > safe in inside URL/IMG tags so they don't get stripped by strip_tags
 		), array(
 			'<a href="\1"\3>\4</a>[\2',                     // check for the browser (you know who you are!) being lame with URL tags followed by bbcode tags
-			"sanitize_url('\\1', '\\4')"                     // make < and > safe in inside URL/IMG tags so they don't get stripped by strip_tags
+			"sanitize_url('\\1', '\\4', '\\3')"                     // make < and > safe in inside URL/IMG tags so they don't get stripped by strip_tags
 		), $text
 	);
+
 
 	($hook = vBulletinHook::fetch_hook('wysiwyg_parse_start')) ? eval($hook) : false;
 
@@ -115,6 +118,7 @@ function convert_wysiwyg_html_to_bbcode($text, $allowhtml = false)
 	if (!$allowhtml)
 	{
 		$text = str_replace('<br/>', '<br />', $text);
+		$text = preg_replace('#<script[^>]*>(.*)</script>#siU', '', $text);
 		$text = strip_tags($text, '<b><strong><i><em><u><a><div><span><p><blockquote><ol><ul><li><font><img><br><h1><h2><h3><h4><h5><h6>');
 	}
 
@@ -194,6 +198,9 @@ function convert_wysiwyg_html_to_bbcode($text, $allowhtml = false)
 	$text = parse_wysiwyg_recurse('ul', $text, 'parse_wysiwyg_list');
 	$text = parse_wysiwyg_recurse('div', $text, 'parse_wysiwyg_div');
 	$text = parse_wysiwyg_recurse('span', $text, 'parse_wysiwyg_span');
+
+	// ugly ugly hack, but allow p's to be treated as 2 line breaks in some situations
+	$GLOBALS['p_two_linebreak'] = $p_two_linebreak;
 	$text = parse_wysiwyg_recurse('p', $text, 'parse_wysiwyg_paragraph');
 
 	// regex find / replace #2
@@ -212,7 +219,7 @@ function convert_wysiwyg_html_to_bbcode($text, $allowhtml = false)
 	$text = preg_replace($pregfind, $pregreplace, $text);
 
 	// simple tag removals; mainly using PCRE for case insensitivity and /?
-	$text = preg_replace('#</?(A|LI|FONT)>#siU', '', $text);
+	$text = preg_replace('#</?(A|LI|FONT|IMG)>#siU', '', $text);
 
 	// basic string replacements #2; don't replace &quot; because browsers don't auto-encode quotes
 	$strfind = array
@@ -245,7 +252,15 @@ function convert_wysiwyg_html_to_bbcode($text, $allowhtml = false)
 	}
 
 	$text = str_replace($strfind, $strreplace, $text);
-	$text = preg_replace("#(?<!\r|\n|^)\[(/list|list|\*)\]#", "\n[\\1]", $text);
+
+	if (is_browser('mozilla'))
+	{
+		// mozilla treats line breaks before/after lists a little differently from IE (see #5774)
+		$text = preg_replace('#\[(list)#i', "\n[\\1", $text);
+		$text = preg_replace('#\[(/list)\]#i', "[\\1]\n", $text);
+	}
+
+	$text = preg_replace('#(?<!\r|\n|^)\[(/list|list|\*)\]#i', "\n[\\1]", $text);
 
 	// replace advanced URL tags that should actually be basic ones
 	$text = preg_replace('#\[URL=("|\'|)(.*)\\1\]\\2\[/URL\]#siU', '[URL]$2[/URL]', $text);
@@ -296,7 +311,7 @@ function parse_style_attribute($tagoptions, &$prependtags, &$appendtags)
 		array('tag' => 'center', 'option' => false, 'regex' => '#text-align:\s*(center);?#i'),
 		array('tag' => 'right', 'option' => false, 'regex' => '#text-align:\s*(right);?#i'),
 		array('tag' => 'color', 'option' => true, 'regex' => '#(?<![a-z0-9-])color:\s*([^;]+);?#i', 'match' => 1),
-		array('tag' => 'font', 'option' => true, 'regex' => '#font-family:\s*([^;]+);?#i', 'match' => 1),
+		array('tag' => 'font', 'option' => true, 'regex' => '#font-family:\s*(\'|)([^;,\']+)\\1[^;]*;?#i', 'match' => 2),
 		array('tag' => 'b', 'option' => false, 'regex' => '#font-weight:\s*(bold);?#i'),
 		array('tag' => 'i', 'option' => false, 'regex' => '#font-style:\s*(italic);?#i'),
 		array('tag' => 'u', 'option' => false, 'regex' => '#text-decoration:\s*(underline);?#i')
@@ -375,7 +390,17 @@ function parse_wysiwyg_paragraph($poptions, $text)
 		$prepend .= "[$align]";
 		$append .= "[/$align]";
 	}
-	$append .= "\n";
+
+	// ick ick -- hack to allow p's to be have 2 line breaks
+	global $p_two_linebreak;
+	if ($p_two_linebreak)
+	{
+		$append .= "\n\n";
+	}
+	else
+	{
+		$append .= "\n";
+	}
 
 	return $prepend . parse_wysiwyg_recurse('p', $text, 'parse_wysiwyg_paragraph') . $append;
 }
@@ -439,7 +464,7 @@ function parse_wysiwyg_list($listoptions, $text, $tagname)
 		$listtype = 'decimal';
 	}
 
-	$text = preg_replace('#<li>((.(?!</li))*)(?=</?ol|</?ul|<li|\[list|\[/list)#siU', '<li>\\1</li>', $text);
+	$text = preg_replace('#<li>((?'.'>[^[<]+?|(?!</li).)*)(?=</?ol|</?ul|<li|\[list|\[/list)#siU', '<li>\\1</li>', $text);
 	$text = parse_wysiwyg_recurse('li', $text, 'parse_wysiwyg_list_element');
 
 	$validtypes = array(
@@ -663,8 +688,8 @@ function strip_tags_callback($text)
 
 /*======================================================================*\
 || ####################################################################
-|| # Downloaded: 18:52, Sat Jul 14th 2007
-|| # CVS: $RCSfile$ - $Revision: 16303 $
+|| # Downloaded: 16:21, Sat Apr 6th 2013
+|| # CVS: $RCSfile$ - $Revision: 26613 $
 || ####################################################################
 \*======================================================================*/
 ?>

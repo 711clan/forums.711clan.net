@@ -1,9 +1,9 @@
 <?php
 /*======================================================================*\
 || #################################################################### ||
-|| # vBulletin 3.6.7 PL1 - Licence Number VBF2470E4F
+|| # vBulletin 3.7.2 Patch Level 2 - Licence Number VBF2470E4F
 || # ---------------------------------------------------------------- # ||
-|| # Copyright ©2000-2007 Jelsoft Enterprises Ltd. All Rights Reserved. ||
+|| # Copyright ©2000-2013 Jelsoft Enterprises Ltd. All Rights Reserved. ||
 || # This file may not be redistributed in whole or significant part. # ||
 || # ---------------- VBULLETIN IS NOT FREE SOFTWARE ---------------- # ||
 || # http://www.vbulletin.com | http://www.vbulletin.com/license.html # ||
@@ -19,18 +19,11 @@ if (!isset($GLOBALS['vbulletin']->db))
 * Class that provides payment verification and form generation functions
 *
 * @package	vBulletin
-* @version	$Revision: 16239 $
-* @date		$Date: 2007-01-30 11:48:25 -0600 (Tue, 30 Jan 2007) $
+* @version	$Revision: 27001 $
+* @date		$Date: 2008-06-23 07:00:46 -0500 (Mon, 23 Jun 2008) $
 */
 class vB_PaidSubscriptionMethod_paypal extends vB_PaidSubscriptionMethod
 {
-	/**
-	* The currencies that are supported by this payment provider
-	*
-	* @var	array
-	*/
-	var $supported_currency = array('usd' => true, 'gbp' => true, 'eur' => true, 'aud' => true, 'cad' => true);
-
 	/**
 	* The variable indicating if this payment provider supports recurring transactions
 	*
@@ -66,10 +59,7 @@ class vB_PaidSubscriptionMethod_paypal extends vB_PaidSubscriptionMethod
 		$query[] = 'cmd=_notify-validate';
 		foreach($_POST AS $key => $val)
 		{
-			if (!empty($val))
-			{
-				$query[] = $key . '=' . urlencode ($val);
-			}
+			$query[] = $key . '=' . urlencode ($val);
 		}
 		$query = implode('&', $query);
 
@@ -142,27 +132,53 @@ class vB_PaidSubscriptionMethod_paypal extends vB_PaidSubscriptionMethod
 					{
 						$this->type = 1;
 					}
+					else
+					{
+						$this->error_code = 'invalid_payment_amount';
+					}
 				}
 				else if ($this->registry->GPC['payment_status'] == 'Reversed' OR $this->registry->GPC['payment_status'] == 'Refunded')
 				{
 					$this->type = 2;
 				}
+				else
+				{
+					$this->error_code = 'unhandled_payment_status_or_type';
+				}
 			}
+			else
+			{
+				$this->error_code = 'invalid_subscriptionid';
+			}
+
+			$status_code = '200 OK';
 
 			// Paypal likes to get told its message has been received
 			if (SAPI_NAME == 'cgi' OR SAPI_NAME == 'cgi-fcgi')
 			{
-				header('Status: 200 OK');
+				header('Status: ' . $status_code);
 			}
 			else
 			{
-				header('HTTP/1.1 200 OK');
+				header('HTTP/1.1 ' . $status_code);
 			}
 			return ($this->type > 0);
 		}
 		else
 		{
+			$this->error_code = 'authentication_failure';
 			$this->error = 'Invalid Request';
+		}
+
+		$status_code = '503 Service Unavailable';
+		// Paypal likes to get told its message has been received
+		if (SAPI_NAME == 'cgi' OR SAPI_NAME == 'cgi-fcgi')
+		{
+			header('Status: ' . $status_code);
+		}
+		else
+		{
+			header('HTTP/1.1 ' . $status_code);
 		}
 		return false;
 	}
@@ -255,8 +271,8 @@ class vB_PaidSubscriptionMethod_paypal extends vB_PaidSubscriptionMethod
 
 /*======================================================================*\
 || ####################################################################
-|| # Downloaded: 18:52, Sat Jul 14th 2007
-|| # CVS: $RCSfile$ - $Revision: 16239 $
+|| # Downloaded: 16:21, Sat Apr 6th 2013
+|| # CVS: $RCSfile$ - $Revision: 27001 $
 || ####################################################################
 \*======================================================================*/
 ?>

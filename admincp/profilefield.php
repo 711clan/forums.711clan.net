@@ -1,9 +1,9 @@
 <?php
 /*======================================================================*\
 || #################################################################### ||
-|| # vBulletin 3.6.7 PL1 - Licence Number VBF2470E4F
+|| # vBulletin 3.7.2 Patch Level 2 - Licence Number VBF2470E4F
 || # ---------------------------------------------------------------- # ||
-|| # Copyright ©2000-2007 Jelsoft Enterprises Ltd. All Rights Reserved. ||
+|| # Copyright ©2000-2013 Jelsoft Enterprises Ltd. All Rights Reserved. ||
 || # This file may not be redistributed in whole or significant part. # ||
 || # ---------------- VBULLETIN IS NOT FREE SOFTWARE ---------------- # ||
 || # http://www.vbulletin.com | http://www.vbulletin.com/license.html # ||
@@ -14,7 +14,7 @@
 error_reporting(E_ALL & ~E_NOTICE);
 
 // ##################### DEFINE IMPORTANT CONSTANTS #######################
-define('CVS_REVISION', '$RCSfile$ - $Revision: 17004 $');
+define('CVS_REVISION', '$RCSfile$ - $Revision: 26379 $');
 
 // #################### PRE-CACHE TEMPLATES AND DATA ######################
 $phrasegroups = array('profilefield', 'cprofilefield');
@@ -52,10 +52,22 @@ $types = array(
 	'checkbox'        => $vbphrase['multiple_selection_checkbox']
 );
 
+$category_locations = array(
+	''                    => $vbphrase['only_in_about_me_tab'],
+	'profile_left_first'  => $vbphrase['main_column_first_tab'],
+	'profile_left_last'   => $vbphrase['main_column_last_tab'],
+	'profile_right_first' => $vbphrase['blocks_column_first'],
+	'profile_right_mini'  => $vbphrase['blocks_column_after_mini_stats'],
+	'profile_right_album' => $vbphrase['blocks_column_after_albums'],
+	'profile_right_last'  => $vbphrase['blocks_column_last']
+);
+
 if (empty($_REQUEST['do']))
 {
 	$_REQUEST['do'] = 'modify';
 }
+
+($hook = vBulletinHook::fetch_hook('admin_profilefield_start')) ? eval($hook) : false;
 
 // #############################################################################
 if ($_REQUEST['do'] == 'deletecat')
@@ -139,17 +151,23 @@ if ($_POST['do'] == 'updatecat')
 		'profilefieldcategoryid' => TYPE_UINT,
 		'displayorder' => TYPE_UINT,
 		'title' => TYPE_NOHTML,
+		'location' => TYPE_STR,
 		'desc' => TYPE_STR
 	));
+
+	if (empty($vbulletin->GPC['title']))
+	{
+		print_stop_message('please_complete_required_fields');
+	}
 
 	if (!$_POST['profilefieldcategoryid'])
 	{
 		// we are adding a new item
 		$db->query_write("
 			INSERT INTO " .TABLE_PREFIX . "profilefieldcategory
-				(profilefieldcategoryid, displayorder)
+				(profilefieldcategoryid, displayorder, location)
 			VALUES
-				(NULL, " . $vbulletin->GPC['displayorder'] . ")
+				(NULL, " . $vbulletin->GPC['displayorder'] . ", '" . $db->escape_string($vbulletin->GPC['location']) . "')
 		");
 
 		$vbulletin->GPC['profilefieldcategoryid'] = intval($db->insert_id());
@@ -158,8 +176,9 @@ if ($_POST['do'] == 'updatecat')
 	{
 		// we are updating an existing item
 		$db->query_write("
-			UPDATE " . TABLE_PREFIX . "profilefieldcategory
-			SET displayorder = " . $vbulletin->GPC['displayorder'] . "
+			UPDATE " . TABLE_PREFIX . "profilefieldcategory SET
+				displayorder = " . $vbulletin->GPC['displayorder'] . ",
+				location = '" . $db->escape_string($vbulletin->GPC['location']) . "'
 			WHERE profilefieldcategoryid = " . $vbulletin->GPC['profilefieldcategoryid'] . "
 		");
 	}
@@ -197,7 +216,7 @@ if ($_POST['do'] == 'updatecat')
 
 	// redirect to category list page
 	define('CP_REDIRECT', 'profilefield.php?do=modifycats');
-	print_stop_message('saved_x_successfully', htmlspecialchars_uni($vbulletin->GPC['title']));
+	print_stop_message('saved_x_successfully', $vbulletin->GPC['title']);
 }
 
 // #############################################################################
@@ -211,8 +230,33 @@ if ($_REQUEST['do'] == 'addcat' OR $_REQUEST['do'] == 'editcat')
 
 	if ($_REQUEST['do'] == 'editcat' AND $pfc = $db->query_first("SELECT * FROM " . TABLE_PREFIX . "profilefieldcategory WHERE profilefieldcategoryid = " . $vbulletin->GPC['profilefieldcategoryid']))
 	{
-		print_table_header($vbphrase['edit_user_profile_field_category'] . ' <span class="normal">' . $vbphrase['category' . $pfc['profilefieldcategoryid'] . '_title'] . " (id $pfc[profilefieldcategoryid])</span>");
+		print_table_header($vbphrase['edit_user_profile_field_category'] .
+			' <span class="normal">' . $vbphrase['category' . $pfc['profilefieldcategoryid'] . '_title'] .
+			" (id $pfc[profilefieldcategoryid])</span>"
+		);
 		construct_hidden_code('profilefieldcategoryid', $pfc['profilefieldcategoryid']);
+
+		$title = 'category' . $pfc['profilefieldcategoryid'] . '_title';
+		$desc = 'category' . $pfc['profilefieldcategoryid'] . '_desc';
+
+		$phrases = $db->query_read("
+			SELECT varname, text
+			FROM " . TABLE_PREFIX . "phrase
+			WHERE languageid = 0 AND
+					fieldname = 'cprofilefield' AND
+					varname IN ('$title', '$desc')
+		");
+		while ($phrase = $db->fetch_array($phrases))
+		{
+			if ($phrase['varname'] == $title)
+			{
+				$pfc['title'] = $phrase['text'];
+			}
+			else if ($phrase['varname'] == $desc)
+			{
+				$pfc['desc'] = $phrase['text'];
+			}
+		}
 	}
 	else
 	{
@@ -220,12 +264,26 @@ if ($_REQUEST['do'] == 'addcat' OR $_REQUEST['do'] == 'editcat')
 
 		$pfc = array(
 			'profilefieldcategoryid' => 0,
-			'displayorder' => 1
+			'location' => '',
+			'displayorder' => 1,
+			'title' => '',
+			'descr' => ''
 		);
 	}
 
-	print_input_row($vbphrase['title'], 'title', $vbphrase['category' . $pfc['profilefieldcategoryid'] . '_title']);
-	print_textarea_row($vbphrase['description'], 'desc', $vbphrase['category' . $pfc['profilefieldcategoryid'] . '_desc']);
+	$trans_link = "phrase.php?" . $vbulletin->session->vars['sessionurl'] . "do=edit&fieldname=cprofilefield&t=1&varname=";
+
+	print_input_row(
+		$vbphrase['title'] .
+			($pfc['profilefieldcategoryid'] ? '<dfn>' . construct_link_code($vbphrase['translations'], $trans_link . "category$pfc[profilefieldcategoryid]_title", 1)  . '</dfn>' : ''),
+		'title', $pfc['title'], false
+	);
+	print_textarea_row(
+		$vbphrase['description'] .
+			($pfc['profilefieldcategoryid'] ? '<dfn>' . construct_link_code($vbphrase['translations'], $trans_link . "category$pfc[profilefieldcategoryid]_desc", 1)  . '</dfn>' : ''),
+		'desc', $pfc['desc']
+	);
+	print_select_row($vbphrase['location_on_profile_page_dfn'], 'location', $category_locations, $pfc['location']);
 	print_input_row($vbphrase['display_order'], 'displayorder', $pfc['displayorder']);
 	print_submit_row();
 }
@@ -358,18 +416,44 @@ if ($_POST['do'] == 'update')
 		print_stop_message('please_complete_required_fields');
 	}
 
+	if (!empty($vbulletin->GPC['profilefield']['regex']))
+	{
+		if (preg_match('#' . str_replace('#', '\#', $vbulletin->GPC['profilefield']['regex']) . '#siU', '') === false)
+		{
+			print_stop_message('regular_expression_is_invalid');
+		}
+	}
+
+	// maxlength required for text boxes or optional inputs - conditions split for readability
+	if ($vbulletin->GPC['profilefield']['maxlength'] < 1)
+	{
+		if ($vbulletin->GPC['type'] == 'textarea' OR $vbulletin->GPC['type'] == 'input')
+		{
+			print_stop_message('must_have_positive_maxlength');
+		}
+		else if (($vbulletin->GPC['type'] == 'select' OR $vbulletin->GPC['type'] == 'radio') AND $vbulletin->GPC['profilefield']['optional'])
+		{
+			print_stop_message('must_have_positive_maxlength');
+		}
+	}
+
 	if ($vbulletin->GPC['type'] == 'select' OR $vbulletin->GPC['type'] == 'radio' OR (($vbulletin->GPC['type'] == 'checkbox' OR $vbulletin->GPC['type'] == 'select_multiple') AND empty($vbulletin->GPC['profilefieldid'])))
 	{
 
 		$data = explode("\n", htmlspecialchars_uni($vbulletin->GPC['profilefield']['data']));
-		if (sizeof($data) > 32 AND ($vbulletin->GPC['type'] == 'checkbox' OR $vbulletin->GPC['type'] == 'select_multiple'))
+		$data = array_map('trim', $data);
+
+		$testdata = array_unique(array_map('strtolower', $data));
+		if (($vbulletin->GPC['type'] == 'checkbox' OR $vbulletin->GPC['type'] == 'select_multiple') AND count($testdata) != count($data))
+		{
+			print_stop_message('can_not_duplicate_options');
+		}
+
+		if (sizeof($data) > 31 AND ($vbulletin->GPC['type'] == 'checkbox' OR $vbulletin->GPC['type'] == 'select_multiple'))
 		{
 			print_stop_message('too_many_profile_field_options', sizeof($data));
 		}
-		foreach ($data AS $index => $value)
-		{
-			$data["$index"] = trim($value);
-		}
+
 		$vbulletin->GPC['profilefield']['data'] = serialize($data);
 	}
 
@@ -633,7 +717,7 @@ if ($_REQUEST['do'] == 'add' OR $_REQUEST['do'] == 'edit')
 		print_input_row($vbphrase['items_per_line'], 'profilefield[perline]', $profilefield['perline']);
 		if ($_REQUEST['do'] == 'add')
 		{
-			print_textarea_row(construct_phrase($vbphrase['x_enter_the_options_that_the_user_can_choose_from'], $vbphrase['options']) . "<br /><dfn>$vbphrase[note_max_32_options]</dfn>", 'profilefield[data]', '', 10, 40, 0);
+			print_textarea_row(construct_phrase($vbphrase['x_enter_the_options_that_the_user_can_choose_from'], $vbphrase['options']) . "<br /><dfn>$vbphrase[note_max_31_options]</dfn>", 'profilefield[data]', '', 10, 40, 0);
 		}
 		else
 		{
@@ -646,7 +730,7 @@ if ($_REQUEST['do'] == 'add' OR $_REQUEST['do'] == 'edit')
 		print_input_row($vbphrase['box_height'], 'profilefield[height]', $profilefield['boxheight']);
 		if ($_REQUEST['do'] == 'add')
 		{
-			print_textarea_row(construct_phrase($vbphrase['x_enter_the_options_that_the_user_can_choose_from'], $vbphrase['options']) . "<br /><dfn>$vbphrase[note_max_32_options]</dfn>", 'profilefield[data]', '', 10);
+			print_textarea_row(construct_phrase($vbphrase['x_enter_the_options_that_the_user_can_choose_from'], $vbphrase['options']) . "<br /><dfn>$vbphrase[note_max_31_options]</dfn>", 'profilefield[data]', '', 10);
 		}
 		else
 		{
@@ -723,7 +807,7 @@ if ($_REQUEST['do'] == 'add' OR $_REQUEST['do'] == 'edit')
 	print_table_break();
 	print_table_header($vbphrase['display_page']);
 	print_select_row($vbphrase['which_page_displays_option'], 'profilefield[form]', array(
-		$vbphrase['edit_profile'],
+		$vbphrase['edit_your_details'],
 		"$vbphrase[options]: $vbphrase[log_in] / $vbphrase[privacy]",
 		"$vbphrase[options]: $vbphrase[messaging] / $vbphrase[notification]",
 		"$vbphrase[options]: $vbphrase[thread_viewing]",
@@ -897,7 +981,7 @@ if ($_POST['do'] == 'addcheckbox')
 		");
 		$data = unserialize($boxdata['data']);
 
-		if (sizeof($data) >= 32)
+		if (sizeof($data) >= 31)
 		{
  			print_stop_message('too_many_profile_field_options', sizeof($data));
  		}
@@ -1067,12 +1151,12 @@ if ($_REQUEST['do'] == 'modifycheckbox')
 	print_table_footer();
 
 
-	if (sizeof($data) < 32)
+	if (sizeof($data) < 31)
 	{
 		print_form_header('profilefield', 'addcheckbox');
 		construct_hidden_code('profilefieldid', $vbulletin->GPC['profilefieldid']);
 		print_table_header($vbphrase['add']);
-		print_description_row($vbphrase['note_max_32_options']);
+		print_description_row($vbphrase['note_max_31_options']);
 		print_input_row($vbphrase['name'], 'newfield');
 		$output = "<select name=\"newfieldpos\" tabindex=\"1\" class=\"bginput\"><option value=\"0\">" . $vbphrase['first']."</option>\n";
 		if ($boxdata['data'] != '')
@@ -1155,7 +1239,7 @@ if ($_REQUEST['do'] == 'modify')
 	if ($db->num_rows($profilefields))
 	{
 		$forms = array(
-			0 => $vbphrase['edit_profile'],
+			0 => $vbphrase['edit_your_details'],
 			1 => "$vbphrase[options]: $vbphrase[log_in] / $vbphrase[privacy]",
 			2 => "$vbphrase[options]: $vbphrase[messaging] / $vbphrase[notification]",
 			3 => "$vbphrase[options]: $vbphrase[thread_viewing]",
@@ -1286,8 +1370,8 @@ print_cp_footer();
 
 /*======================================================================*\
 || ####################################################################
-|| # Downloaded: 18:52, Sat Jul 14th 2007
-|| # CVS: $RCSfile$ - $Revision: 17004 $
+|| # Downloaded: 16:21, Sat Apr 6th 2013
+|| # CVS: $RCSfile$ - $Revision: 26379 $
 || ####################################################################
 \*======================================================================*/
 ?>

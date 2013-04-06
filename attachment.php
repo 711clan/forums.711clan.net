@@ -1,9 +1,9 @@
 <?php
 /*======================================================================*\
 || #################################################################### ||
-|| # vBulletin 3.6.7 PL1 - Licence Number VBF2470E4F
+|| # vBulletin 3.7.2 Patch Level 2 - Licence Number VBF2470E4F
 || # ---------------------------------------------------------------- # ||
-|| # Copyright ©2000-2007 Jelsoft Enterprises Ltd. All Rights Reserved. ||
+|| # Copyright ©2000-2013 Jelsoft Enterprises Ltd. All Rights Reserved. ||
 || # This file may not be redistributed in whole or significant part. # ||
 || # ---------------- VBULLETIN IS NOT FREE SOFTWARE ---------------- # ||
 || # http://www.vbulletin.com | http://www.vbulletin.com/license.html # ||
@@ -22,6 +22,7 @@ if (@ini_get('output_handler') == 'ob_gzhandler' AND @ob_get_length() !== false)
 
 // ##################### DEFINE IMPORTANT CONSTANTS #######################
 define('THIS_SCRIPT', 'attachment');
+define('CSRF_PROTECTION', true);
 define('NOHEADER', 1);
 define('NOZIP', 1);
 define('NOCOOKIES', 1);
@@ -82,6 +83,12 @@ if (!isset($_SERVER['HTTP_RANGE']) AND (!empty($_SERVER['HTTP_IF_MODIFIED_SINCE'
 	exit;
 }
 
+// if $_POST['ajax'] is set, we need to set a $_REQUEST['do'] so we can precache the lightbox template
+if (!empty($_POST['ajax']) AND isset($_POST['uniqueid']))
+{
+	$_REQUEST['do'] = 'lightbox';
+}
+
 // #################### PRE-CACHE TEMPLATES AND DATA ######################
 // get special phrase groups
 $phrasegroups = array();
@@ -93,7 +100,7 @@ $specialtemplates = array();
 $globaltemplates = array();
 
 // pre-cache templates used by specific actions
-$actiontemplates = array();
+$actiontemplates = array('lightbox' => array('lightbox'));
 
 /*
 The following headers are usually handled internally but we do our own thing
@@ -116,6 +123,11 @@ $vbulletin->input->clean_array_gpc('r', array(
 	'postid'       => TYPE_UINT,
 ));
 
+$vbulletin->input->clean_array_gpc('p', array(
+	'ajax'     => TYPE_BOOL,
+	'uniqueid' => TYPE_UINT
+));
+
 $hook_query_fields = $hook_query_joins = $hook_query_where = '';
 ($hook = vBulletinHook::fetch_hook('attachment_start')) ? eval($hook) : false;
 
@@ -124,11 +136,11 @@ $idname = $vbphrase['attachment'];
 $imagetype = !empty($vbulletin->GPC['thumb']) ? 'thumbnail' : 'filedata';
 
 if (!$attachmentinfo = $db->query_first_slave("
-	SELECT filename, attachment.postid, attachment.userid, attachmentid,
+	SELECT filename, attachment.postid, attachment.userid, attachmentid, attachment.extension,
 		" . ((!empty($vbulletin->GPC['thumb'])
-			? 'attachment.thumbnail AS filedata, thumbnail_dateline AS dateline, thumbnail_filesize AS filesize,'
-			: 'attachment.dateline, SUBSTRING(filedata, 1, 2097152) AS filedata, filesize,')) . "
-		attachment.visible, mimetype, thread.forumid, thread.threadid, thread.postuserid,
+			? 'thumbnail_dateline AS dateline, thumbnail_filesize AS filesize,'
+			: 'attachment.dateline, filesize,')) . "
+		attachment.visible, attachmenttype.newwindow, mimetype, thread.forumid, thread.threadid, thread.postuserid,
 		post.visible AS post_visible, thread.visible AS thread_visible
 		$hook_query_fields
 	FROM " . TABLE_PREFIX . "attachment AS attachment
@@ -184,7 +196,53 @@ else
 	}
 }
 
-$extension = strtolower(file_extension($attachmentinfo['filename']));
+// handle lightbox requests
+if ($_REQUEST['do'] == 'lightbox')
+{
+	require_once(DIR . '/includes/class_xml.php');
+	$xml = new vB_AJAX_XML_Builder($vbulletin, 'text/xml');
+
+	if (in_array(strtolower($attachmentinfo['extension']), array('jpg', 'jpeg', 'jpe', 'gif', 'png')))
+	{
+		$uniqueid = $vbulletin->GPC['uniqueid'];
+		$imagelink = 'attachment.php?' . $vbulletin->session->vars['sessionurl'] . 'attachmentid=' . $attachmentinfo['attachmentid'] . '&d=' . $attachmentinfo['dateline'];
+		$attachmentinfo['date_string'] = vbdate($vbulletin->options['dateformat'], $attachmentinfo['dateline']);
+		$attachmentinfo['time_string'] = vbdate($vbulletin->options['timeformat'], $attachmentinfo['dateline']);
+		$show['newwindow'] = ($attachmentinfo['newwindow'] ? true : false);
+
+		($hook = vBulletinHook::fetch_hook('attachment_lightbox')) ? eval($hook) : false;
+
+		eval('$html = "' . fetch_template('lightbox', 0, 0) . '";');
+
+		$xml->add_group('img');
+		$xml->add_tag('html', process_replacement_vars($html));
+		$xml->add_tag('link', $imagelink);
+		$xml->add_tag('name', $attachmentinfo['filename']);
+		$xml->add_tag('date', $attachmentinfo['date_string']);
+		$xml->add_tag('time', $attachmentinfo['time_string']);
+		$xml->close_group();
+	}
+	else
+	{
+		$xml->add_group('errormessage');
+		$xml->add_tag('error', 'notimage');
+		$xml->add_tag('extension', $attachmentinfo['extension']);
+		$xml->close_group();
+	}
+
+	$xml->print_xml();
+
+	exit;
+}
+
+if ($attachmentinfo['extension'])
+{
+	$extension = strtolower($attachmentinfo['extension']);
+}
+else
+{
+	$extension = strtolower(file_extension($attachmentinfo['filename']));
+}
 
 if ($vbulletin->options['attachfile'])
 {
@@ -462,8 +520,8 @@ else
 
 /*======================================================================*\
 || ####################################################################
-|| # Downloaded: 18:52, Sat Jul 14th 2007
-|| # CVS: $RCSfile$ - $Revision: 16935 $
+|| # Downloaded: 16:21, Sat Apr 6th 2013
+|| # CVS: $RCSfile$ - $Revision: 26399 $
 || ####################################################################
 \*======================================================================*/
 ?>

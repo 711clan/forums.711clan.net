@@ -1,5 +1,5 @@
 <?php
 
-define('FILE_VERSION_VBULLETIN', '3.6.7 PL1');
+define('FILE_VERSION_VBULLETIN', '3.7.2 Patch Level 2');
 
 ?>

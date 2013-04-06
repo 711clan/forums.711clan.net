@@ -1,9 +1,9 @@
 <?php
 /*======================================================================*\
 || #################################################################### ||
-|| # vBulletin 3.6.7 PL1 - Licence Number VBF2470E4F
+|| # vBulletin 3.7.2 Patch Level 2 - Licence Number VBF2470E4F
 || # ---------------------------------------------------------------- # ||
-|| # Copyright ©2000-2007 Jelsoft Enterprises Ltd. All Rights Reserved. ||
+|| # Copyright ©2000-2013 Jelsoft Enterprises Ltd. All Rights Reserved. ||
 || # This file may not be redistributed in whole or significant part. # ||
 || # ---------------- VBULLETIN IS NOT FREE SOFTWARE ---------------- # ||
 || # http://www.vbulletin.com | http://www.vbulletin.com/license.html # ||
@@ -14,7 +14,7 @@
 error_reporting(E_ALL & ~E_NOTICE);
 
 // ##################### DEFINE IMPORTANT CONSTANTS #######################
-define('CVS_REVISION', '$RCSfile$ - $Revision: 15478 $');
+define('CVS_REVISION', '$RCSfile$ - $Revision: 26326 $');
 
 // #################### PRE-CACHE TEMPLATES AND DATA ######################
 $phrasegroups = array('cphome');
@@ -74,7 +74,7 @@ if ($_REQUEST['do'] == 'frames')
 
 ?>
 <!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Frameset//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-frameset.dtd">
-<html dir="<?php echo $stylevar['textdirection']; ?>" lang="<?php echo $stylevar['languagecode']; ?>">
+<html xmlns="http://www.w3.org/1999/xhtml" dir="<?php echo $stylevar['textdirection']; ?>" lang="<?php echo $stylevar['languagecode']; ?>">
 <head>
 <script type="text/javascript">
 <!-- // get out of any containing frameset
@@ -164,24 +164,36 @@ print_table_footer();
 
 print_table_start();
 print_table_header($vbphrase['quick_moderator_links']);
-if ($stats = @exec('uptime 2>&1') AND trim($stats) != '')
+
+$datecut = TIMENOW - $vbulletin->options['cookietimeout'];
+$guestsarry = $db->query_first("SELECT COUNT(host) AS sessions FROM " . TABLE_PREFIX . "session WHERE userid = 0 AND lastactivity > $datecut");
+$membersarry = $db->query_read("SELECT DISTINCT userid FROM " . TABLE_PREFIX . "session WHERE userid <> 0 AND lastactivity > $datecut");
+$guests = intval($guestsarry['sessions']);
+$members = intval($db->num_rows($membersarry));
+
+$loadavg = array();
+
+if (PHP_OS == 'Linux' AND $stats = @exec('uptime 2>&1') AND trim($stats) != '' AND preg_match('#: ([\d.,]+),?\s+([\d.,]+),?\s+([\d.,]+)$#', $stats, $regs))
 {
-	if (preg_match("#: ([\d.,]+),\s+([\d.,]+),\s+([\d.,]+)$#", $stats, $regs))
-	{
+	$loadavg[0] = vb_number_format($regs[1], 2);
+	$loadavg[1] = vb_number_format($regs[2], 2);
+	$loadavg[2] = vb_number_format($regs[3], 2);
+}
+else if (PHP_OS == 'Linux' AND @file_exists('/proc/loadavg') AND $stats = @file_get_contents('/proc/loadavg') AND trim($stats) != '')
+{
+	$loadavg = explode(' ', $stats);
+	$loadavg[0] = vb_number_format($loadavg[0], 2);
+	$loadavg[1] = vb_number_format($loadavg[1], 2);
+	$loadavg[2] = vb_number_format($loadavg[2], 2);
+}
 
-		$datecut = TIMENOW - $vbulletin->options['cookietimeout'];
-		$guestsarry = $db->query_first("SELECT COUNT(host) AS sessions FROM " . TABLE_PREFIX . "session WHERE userid = 0 AND lastactivity > $datecut");
-		$membersarry = $db->query_read("SELECT DISTINCT userid FROM " . TABLE_PREFIX . "session WHERE userid <> 0 AND lastactivity > $datecut");
-
-		$guests = intval($guestsarry['sessions']);
-		$members = intval($db->num_rows($membersarry));
-
-		$regs[1] = vb_number_format($regs[1], 2);
-		$regs[2] = vb_number_format($regs[2], 2);
-		$regs[3] = vb_number_format($regs[3], 2);
-
-		print_label_row($vbphrase['server_load_averages'], "$regs[1]&nbsp;&nbsp;$regs[2]&nbsp;&nbsp;$regs[3] | " . construct_phrase($vbphrase['users_online_x_members_y_guests'], vb_number_format($guests + $members), vb_number_format($members), vb_number_format($guests)), '', 'top', NULL, false);
-	}
+if (!empty($loadavg))
+{
+	print_label_row($vbphrase['server_load_averages'], "$loadavg[0]&nbsp;&nbsp;$loadavg[1]&nbsp;&nbsp;$loadavg[2] | " . construct_phrase($vbphrase['users_online_x_members_y_guests'], vb_number_format($guests + $members), vb_number_format($members), vb_number_format($guests)), '', 'top', NULL, false);
+}
+else
+{
+	print_label_row($vbphrase['users_online'], construct_phrase($vbphrase['x_y_members_z_guests'], vb_number_format($guests + $members), vb_number_format($members), vb_number_format($guests)), '', 'top', NULL, false);
 }
 
 ($hook = vBulletinHook::fetch_hook('mod_index_main')) ? eval($hook) : false;
@@ -243,12 +255,6 @@ print_table_footer(2, '', '', false);
 require_once(DIR . '/includes/vbulletin_credits.php');
 
 print_cp_footer();
-
-?>
-
-</body>
-</html>
-<?php
 }
 
 if ($_REQUEST['do'] == 'nav')
@@ -300,6 +306,11 @@ if ($_REQUEST['do'] == 'nav')
 	{
 		$canmoderate = true;
 		construct_nav_option($vbphrase['moderate_events'], 'moderate.php?do=events');
+	}
+	if (can_moderate(0, 'canmoderatevisitormessages'))
+	{
+		$canmoderate = true;
+		construct_nav_option($vbphrase['moderate_visitor_messages'], 'moderate.php?do=messages');
 	}
 	if ($canmoderate)
 	{
@@ -374,8 +385,8 @@ if ($_REQUEST['do'] == 'nav')
 
 /*======================================================================*\
 || ####################################################################
-|| # Downloaded: 18:52, Sat Jul 14th 2007
-|| # CVS: $RCSfile$ - $Revision: 15478 $
+|| # Downloaded: 16:21, Sat Apr 6th 2013
+|| # CVS: $RCSfile$ - $Revision: 26326 $
 || ####################################################################
 \*======================================================================*/
 ?>

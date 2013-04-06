@@ -1,9 +1,9 @@
 <?php
 /*======================================================================*\
 || #################################################################### ||
-|| # vBulletin 3.6.7 PL1 - Licence Number VBF2470E4F
+|| # vBulletin 3.7.2 Patch Level 2 - Licence Number VBF2470E4F
 || # ---------------------------------------------------------------- # ||
-|| # Copyright ©2000-2007 Jelsoft Enterprises Ltd. All Rights Reserved. ||
+|| # Copyright ©2000-2013 Jelsoft Enterprises Ltd. All Rights Reserved. ||
 || # This file may not be redistributed in whole or significant part. # ||
 || # ---------------- VBULLETIN IS NOT FREE SOFTWARE ---------------- # ||
 || # http://www.vbulletin.com | http://www.vbulletin.com/license.html # ||
@@ -14,7 +14,7 @@
 error_reporting(E_ALL & ~E_NOTICE);
 
 // ##################### DEFINE IMPORTANT CONSTANTS #######################
-define('CVS_REVISION', '$RCSfile$ - $Revision: 14644 $');
+define('CVS_REVISION', '$RCSfile$ - $Revision: 27099 $');
 
 // #################### PRE-CACHE TEMPLATES AND DATA ######################
 $phrasegroups = array('logging');
@@ -192,14 +192,16 @@ if ($_REQUEST['do'] == 'logfiles' AND can_access_logs($vbulletin->config['Specia
 if ($_REQUEST['do'] == 'view' AND can_access_logs($vbulletin->config['SpecialUsers']['canviewadminlog'], 1, '<p>' . $vbphrase['control_panel_log_viewing_restricted'] . '</p>'))
 {
 	$vbulletin->input->clean_array_gpc('r', array(
-		'userid'	   => TYPE_UINT,
-		'script'	   => TYPE_STR,
+		'userid'	=> TYPE_UINT,
+		'script'	=> TYPE_NOHTML,
 		'perpage'   => TYPE_INT,
 		'pagenumber'=> TYPE_INT,
-		'orderby'   => TYPE_STR
+		'orderby'   => TYPE_STR,
+		'startdate' => TYPE_UNIXTIME,
+		'enddate'   => TYPE_UNIXTIME
 	));
 
-	if ($vbulletin->GPC['userid'] OR $vbulletin->GPC['script'])
+	if ($vbulletin->GPC['userid'] OR $vbulletin->GPC['script'] OR $vbulletin->GPC['startdate'] OR $vbulletin->GPC['enddate'])
 	{
 		$sqlconds = 'WHERE 1=1 ';
 		if ($vbulletin->GPC['userid'])
@@ -209,6 +211,14 @@ if ($_REQUEST['do'] == 'view' AND can_access_logs($vbulletin->config['SpecialUse
 		if ($vbulletin->GPC['script'])
 		{
 			$sqlconds .= " AND adminlog.script = '" . $db->escape_string($vbulletin->GPC['script']) . "' ";
+		}
+		if ($vbulletin->GPC['startdate'])
+		{
+			$sqlconds .= " AND adminlog.dateline >= " . $vbulletin->GPC['startdate'];
+		}
+		if ($vbulletin->GPC['enddate'])
+		{
+			$sqlconds .= " AND adminlog.dateline <= " . $vbulletin->GPC['enddate'];
 		}
 	}
 	else
@@ -263,7 +273,10 @@ if ($_REQUEST['do'] == 'view' AND can_access_logs($vbulletin->config['SpecialUse
 							"&u=" . $vbulletin->GPC['userid'] .
 							"&pp=" . $vbulletin->GPC['perpage'] .
 							"&orderby=" . $vbulletin->GPC['orderby'] .
-							"&page=1'\">";
+							"&page=1" .
+							"&startdate=" . $vbulletin->GPC['startdate'] .
+							"&enddate=" . $vbulletin->GPC['enddate'] .
+							"'\">";
 
 			$prevpage = "<input type=\"button\" class=\"button\" value=\"&lt; " . $vbphrase['prev_page'] .
 						"\" tabindex=\"1\" onclick=\"window.location='adminlog.php?" . $vbulletin->session->vars['sessionurl'] .
@@ -271,7 +284,10 @@ if ($_REQUEST['do'] == 'view' AND can_access_logs($vbulletin->config['SpecialUse
 						"&u=" . $vbulletin->GPC['userid'] .
 						"&pp=" . $vbulletin->GPC['perpage'] .
 						"&orderby=" . $vbulletin->GPC['orderby'] .
-						"&page=$prv'\">";
+						"&page=$prv" .
+						"&startdate=" . $vbulletin->GPC['startdate'] .
+						"&enddate=" . $vbulletin->GPC['enddate'] .
+						"'\">";
 		}
 
 		if ($vbulletin->GPC['pagenumber'] != $totalpages)
@@ -284,7 +300,10 @@ if ($_REQUEST['do'] == 'view' AND can_access_logs($vbulletin->config['SpecialUse
 						"&u=" . $vbulletin->GPC['userid'] .
 						"&pp=" . $vbulletin->GPC['perpage'] .
 						"&orderby=" . $vbulletin->GPC['orderby'] .
-						"&page=$nxt'\">";
+						"&page=$nxt" .
+						"&startdate=" . $vbulletin->GPC['startdate'] .
+						"&enddate=" . $vbulletin->GPC['enddate'] .
+						"'\">";
 
 			$lastpage = "<input type=\"button\" class=\"button\" value=\"" . $vbphrase['last_page'] .
 						" &raquo;\" tabindex=\"1\" onclick=\"window.location='adminlog.php?" . $vbulletin->session->vars['sessionurl'] .
@@ -292,7 +311,10 @@ if ($_REQUEST['do'] == 'view' AND can_access_logs($vbulletin->config['SpecialUse
 						"&u=" . $vbulletin->GPC['userid'] .
 						"&pp=" . $vbulletin->GPC['perpage'] .
 						"&orderby=" . $vbulletin->GPC['orderby'] .
-						"&page=$totalpages'\">";
+						"&page=$totalpages" .
+						"&startdate=" . $vbulletin->GPC['startdate'] .
+						"&enddate=" . $vbulletin->GPC['enddate'] .
+						"'\">";
 		}
 
 		print_form_header('adminlog', 'remove');
@@ -301,9 +323,9 @@ if ($_REQUEST['do'] == 'view' AND can_access_logs($vbulletin->config['SpecialUse
 
 		$headings = array();
 		$headings[] = $vbphrase['id'];
-		$headings[] = "<a href='adminlog.php?" . $vbulletin->session->vars['sessionurl'] . "do=view&script=" . $vbulletin->GPC['script'] . "&u=" . $vbulletin->GPC['userid'] . "&pp=" . $vbulletin->GPC['perpage'] . "&orderby=user&page=" . $vbulletin->GPC['pagenumber'] . "' title='" . $vbphrase['order_by_username'] . "'>" . $vbphrase['username'] . "</a>";
-		$headings[] = "<a href='adminlog.php?" . $vbulletin->session->vars['sessionurl'] . "do=view&script=" . $vbulletin->GPC['script'] . "&u=" . $vbulletin->GPC['userid'] . "&pp=" . $vbulletin->GPC['perpage'] . "&orderby=date&page=" . $vbulletin->GPC['pagenumber'] . "' title='" . $vbphrase['order_by_date'] . "'>" . $vbphrase['date'] . "</a>";
-		$headings[] = "<a href='adminlog.php?" . $vbulletin->session->vars['sessionurl'] . "do=view&script=" . $vbulletin->GPC['script'] . "&u=" . $vbulletin->GPC['userid'] . "&pp=" . $vbulletin->GPC['perpage'] . "&orderby=script&page=" . $vbulletin->GPC['pagenumber'] . "' title='" . $vbphrase['order_by_script'] . "'>" . $vbphrase['script'] . "</a>";
+		$headings[] = "<a href='adminlog.php?" . $vbulletin->session->vars['sessionurl'] . "do=view&script=" . $vbulletin->GPC['script'] . "&u=" . $vbulletin->GPC['userid'] . "&pp=" . $vbulletin->GPC['perpage'] . "&orderby=user&page=" . $vbulletin->GPC['pagenumber'] . "&startdate=" . $vbulletin->GPC['startdate'] . "&enddate=" . $vbulletin->GPC['enddate'] . "' title='" . $vbphrase['order_by_username'] . "'>" . $vbphrase['username'] . "</a>";
+		$headings[] = "<a href='adminlog.php?" . $vbulletin->session->vars['sessionurl'] . "do=view&script=" . $vbulletin->GPC['script'] . "&u=" . $vbulletin->GPC['userid'] . "&pp=" . $vbulletin->GPC['perpage'] . "&orderby=date&page=" . $vbulletin->GPC['pagenumber'] . "&startdate=" . $vbulletin->GPC['startdate'] . "&enddate=" . $vbulletin->GPC['enddate'] . "' title='" . $vbphrase['order_by_date'] . "'>" . $vbphrase['date'] . "</a>";
+		$headings[] = "<a href='adminlog.php?" . $vbulletin->session->vars['sessionurl'] . "do=view&script=" . $vbulletin->GPC['script'] . "&u=" . $vbulletin->GPC['userid'] . "&pp=" . $vbulletin->GPC['perpage'] . "&orderby=script&page=" . $vbulletin->GPC['pagenumber'] . "&startdate=" . $vbulletin->GPC['startdate'] . "&enddate=" . $vbulletin->GPC['enddate'] . "' title='" . $vbphrase['order_by_script'] . "'>" . $vbphrase['script'] . "</a>";
 		$headings[] = $vbphrase['action'];
 		$headings[] = $vbphrase['info'];
 		$headings[] = $vbphrase['ip_address'];
@@ -315,9 +337,9 @@ if ($_REQUEST['do'] == 'view' AND can_access_logs($vbulletin->config['SpecialUse
 			$cell[] = $log['adminlogid'];
 			$cell[] = iif(!empty($log['username']), "<a href=\"user.php?" . $vbulletin->session->vars['sessionurl'] . "do=edit&u=$log[userid]\"><b>$log[username]</b></a>", $vbphrase['n_a']);
 			$cell[] = '<span class="smallfont">' . vbdate($vbulletin->options['logdateformat'], $log['dateline']) . '</span>';
-			$cell[] = $log['script'];
-			$cell[] = $log['action'];
-			$cell[] = $log['extrainfo'];
+			$cell[] = htmlspecialchars_uni($log['script']);
+			$cell[] = htmlspecialchars_uni($log['action']);
+			$cell[] = htmlspecialchars_uni($log['extrainfo']);
 			$cell[] = '<span class="smallfont">' . iif($log['ipaddress'], "<a href=\"usertools.php?" . $vbulletin->session->vars['sessionurl'] . "do=gethost&ip=$log[ipaddress]\">$log[ipaddress]</a>", '&nbsp;') . '</span>';
 			print_cells_row($cell);
 		}
@@ -420,6 +442,7 @@ if ($_REQUEST['do'] == 'choose')
 		$filelist = array('no_value' => $vbphrase['all_scripts']);
 		while ($file = $db->fetch_array($files))
 		{
+			$file['script'] = htmlspecialchars_uni($file['script']);
 			$filelist["$file[script]"] = $file['script'];
 		}
 
@@ -451,7 +474,12 @@ if ($_REQUEST['do'] == 'choose')
 		print_table_header($vbphrase['control_panel_log_viewer']);
 		print_select_row($vbphrase['log_entries_to_show_per_page'], 'perpage', $perpage_options, 15);
 		print_select_row($vbphrase['show_only_entries_relating_to_script'], 'script', $filelist);
+
 		print_select_row($vbphrase['show_only_entries_generated_by'], 'userid', $userlist);
+
+		print_time_row($vbphrase['start_date'], 'startdate', 0, 0);
+		print_time_row($vbphrase['end_date'], 'enddate', 0, 0);
+
 		print_select_row($vbphrase['order_by'], 'orderby', array('date' => $vbphrase['date'], 'user' => $vbphrase['user'], 'script' => $vbphrase['script']), 'date');
 		print_submit_row($vbphrase['view'], 0);
 
@@ -477,8 +505,8 @@ print_cp_footer();
 
 /*======================================================================*\
 || ####################################################################
-|| # Downloaded: 18:52, Sat Jul 14th 2007
-|| # CVS: $RCSfile$ - $Revision: 14644 $
+|| # Downloaded: 16:21, Sat Apr 6th 2013
+|| # CVS: $RCSfile$ - $Revision: 27099 $
 || ####################################################################
 \*======================================================================*/
 ?>

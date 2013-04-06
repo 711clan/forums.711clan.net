@@ -1,9 +1,9 @@
 <?php
 /*======================================================================*\
 || #################################################################### ||
-|| # vBulletin 3.6.7 PL1 - Licence Number VBF2470E4F
+|| # vBulletin 3.7.2 Patch Level 2 - Licence Number VBF2470E4F
 || # ---------------------------------------------------------------- # ||
-|| # Copyright ©2000-2007 Jelsoft Enterprises Ltd. All Rights Reserved. ||
+|| # Copyright ©2000-2013 Jelsoft Enterprises Ltd. All Rights Reserved. ||
 || # This file may not be redistributed in whole or significant part. # ||
 || # ---------------- VBULLETIN IS NOT FREE SOFTWARE ---------------- # ||
 || # http://www.vbulletin.com | http://www.vbulletin.com/license.html # ||
@@ -19,8 +19,8 @@ if (!class_exists('vB_DataManager'))
 * Class to do data save/delete operations for RSS Feeds
 *
 * @package	vBulletin
-* @version	$Revision: 15283 $
-* @date		$Date: 2006-07-14 10:21:34 -0500 (Fri, 14 Jul 2006) $
+* @version	$Revision: 23864 $
+* @date		$Date: 2007-09-18 08:57:22 -0500 (Tue, 18 Sep 2007) $
 */
 class vB_DataManager_RSSFeed extends vB_DataManager
 {
@@ -46,7 +46,8 @@ class vB_DataManager_RSSFeed extends vB_DataManager
 		'endannouncement'   => array(TYPE_UINT, REQ_NO),
 		'searchwords'       => array(TYPE_STR, REQ_NO),
 		'lastrun'           => array(TYPE_UINT, REQ_AUTO),
-		'options'           => array(TYPE_NOCLEAN, REQ_NO)
+		'options'           => array(TYPE_NOCLEAN, REQ_NO),
+		'prefixid'          => array(TYPE_NOHTML, REQ_NO)
 	);
 
 	/**
@@ -248,8 +249,8 @@ class vB_DataManager_RSSFeed extends vB_DataManager
 
 /*======================================================================*\
 || ####################################################################
-|| # Downloaded: 18:52, Sat Jul 14th 2007
-|| # CVS: $RCSfile$ - $Revision: 15283 $
+|| # Downloaded: 16:21, Sat Apr 6th 2013
+|| # CVS: $RCSfile$ - $Revision: 23864 $
 || ####################################################################
 \*======================================================================*/
 ?>

@@ -1,9 +1,9 @@
 <?php
 /*======================================================================*\
 || #################################################################### ||
-|| # vBulletin 3.6.7 PL1 - Licence Number VBF2470E4F
+|| # vBulletin 3.7.2 Patch Level 2 - Licence Number VBF2470E4F
 || # ---------------------------------------------------------------- # ||
-|| # Copyright ©2000-2007 Jelsoft Enterprises Ltd. All Rights Reserved. ||
+|| # Copyright ©2000-2013 Jelsoft Enterprises Ltd. All Rights Reserved. ||
 || # This file may not be redistributed in whole or significant part. # ||
 || # ---------------- VBULLETIN IS NOT FREE SOFTWARE ---------------- # ||
 || # http://www.vbulletin.com | http://www.vbulletin.com/license.html # ||
@@ -60,12 +60,17 @@ else
 	define('IMAGEPNG', false);
 }
 
+if (($current_memory_limit = ini_size_to_bytes(@ini_get('memory_limit'))) < 128 * 1024 * 1024 AND $current_memory_limit > 0)
+{
+	@ini_set('memory_limit', 128 * 1024 * 1024);
+}
+
 /**
 * Abstracted image class
 *
 * @package 		vBulletin
-* @version		$Revision: 16827 $
-* @date 		$Date: 2007-04-19 06:26:08 -0500 (Thu, 19 Apr 2007) $
+* @version		$Revision: 26949 $
+* @date 		$Date: 2008-06-16 04:54:51 -0500 (Mon, 16 Jun 2008) $
 *
 */
 class vB_Image
@@ -111,8 +116,8 @@ class vB_Image
 * Abstracted image class
 *
 * @package 		vBulletin
-* @version		$Revision: 16827 $
-* @date 		$Date: 2007-04-19 06:26:08 -0500 (Thu, 19 Apr 2007) $
+* @version		$Revision: 26949 $
+* @date 		$Date: 2008-06-16 04:54:51 -0500 (Mon, 16 Jun 2008) $
 *
 */
 class vB_Image_Abstract
@@ -399,8 +404,8 @@ class vB_Image_Abstract
 * Image class for ImageMagick
 *
 * @package 		vBulletin
-* @version		$Revision: 16827 $
-* @date 		$Date: 2007-04-19 06:26:08 -0500 (Thu, 19 Apr 2007) $
+* @version		$Revision: 26949 $
+* @date 		$Date: 2008-06-16 04:54:51 -0500 (Mon, 16 Jun 2008) $
 *
 */
 class vB_Image_Magick extends vB_Image_Abstract
@@ -461,13 +466,13 @@ class vB_Image_Magick extends vB_Image_Abstract
 
 		if (preg_match('#^WIN#i', PHP_OS))
 		{
-			$this->identifypath = $path . '\identify.exe';
-			$this->convertpath = $path . '\convert.exe';
+			$this->identifypath = '"' . $path . '\identify.exe"';
+			$this->convertpath = '"' . $path . '\convert.exe"';
 		}
 		else
 		{
-			$this->identifypath = $path .  '/identify';
-			$this->convertpath = $path . '/convert';
+			$this->identifypath = "'" . $path .  "/identify'";
+			$this->convertpath = "'" . $path . "/convert'";
 		}
 
 		$this->must_convert_types = array(
@@ -536,7 +541,7 @@ class vB_Image_Magick extends vB_Image_Abstract
 	{
 		if (!function_exists('exec'))
 		{
-			$this->error = array('PHP ERROR exec() has been disabled.');
+			$this->error = array(fetch_error('php_error_exec_disabled'));
 			return false;
 		}
 
@@ -546,6 +551,10 @@ class vB_Image_Magick extends vB_Image_Abstract
 		);
 
 		$input = $imcommands["$command"] . ' ' . $args . ' 2>&1';
+		if (strtoupper(substr(PHP_OS, 0, 3) == 'WIN') AND PHP_VERSION < '5.3.0')
+		{
+			$input = '"' . $input . '"';
+		}
 		$exec = @exec($input, $output, $this->returnvalue);
 
 		if ($this->returnvalue OR $exec === null)
@@ -554,17 +563,17 @@ class vB_Image_Magick extends vB_Image_Abstract
 			{	// command issued by @exec failed
 				if (strpos(strtolower(implode(' ', $output)), 'postscript delegate failed') !== false)
 				{
-					$output[] = 'Install Ghostscript to thumbnail .pdf files';
+					$output[] = fetch_error('install_ghostscript_to_resize_pdf');
 				}
 				$this->error = $output;
 			}
 			else if (!empty($php_errormsg))
 			{	// @exec failed so display error and remove path reveal
-				$this->error = array('PHP ERROR', str_replace($this->registry->options['magickpath'] . '\\', '', $php_errormsg));
+				$this->error = array(fetch_error('php_error_x', str_replace($this->registry->options['magickpath'] . '\\', '', $php_errormsg)));
 			}
 			else if ($this->returnvalue == -1)
 			{	// @exec failed but we don't have $php_errormsg to tell us why
-				$this->error = array('PHP ERROR exec()');
+				$this->error = array(fetch_error('php_error_unspecified_exec'));
 			}
 			return false;
 		}
@@ -582,7 +591,7 @@ class vB_Image_Magick extends vB_Image_Abstract
 
 				if (strpos(strtolower(implode(' ', $output)), 'postscript delegate failed') !== false)
 				{	// this is for IM 6.2.4+ which doesn't return false for exec(convert.exe) on .pdf when GS isn't installed
-					$this->error = array('Install Ghostscript to thumbnail .pdf files');
+					$this->error = array(fetch_error('install_ghostscript_to_resize_pdf'));
 				}
 				return $output;
 			}
@@ -704,6 +713,21 @@ class vB_Image_Magick extends vB_Image_Abstract
 	{
 		$execute = '';
 
+		if ($thumbnail)
+		{
+			// Only specify scene 1 if this is a PSD or a PDF -- allows animated gifs to be resized..
+			$execute .= (in_array($imageinfo[2], array('PDF', 'PSD'))) ? " \"{$filename}\"[0] " : " \"$filename\"";
+		}
+		else
+		{
+			$execute .= " \"$filename\"";
+		}
+
+		if ($imageinfo['scenes'] > 1)
+		{
+			$execute .= ' -coalesce ';
+		}
+
 		if ($this->convertoptions['width'] > 0 OR $this->convertoptions['height'] > 0)
 		{
 			if ($this->convertoptions['width'])
@@ -718,23 +742,22 @@ class vB_Image_Magick extends vB_Image_Abstract
 			{
 				$size .= 'x' . $this->convertoptions['height'];
 			}
-			$execute .= " -size $size";
+			$execute .= " -size $size ";
 		}
 
 		if ($thumbnail)
 		{
-			// Only specify scene 1 if this is a PSD or a PDF -- allows animated gifs to be resized..
-			$execute .= (in_array($imageinfo[2], array('PDF', 'PSD'))) ? " \"{$filename}\"[0] " : " \"$filename\"";
 			if ($size)
 			{	// have to use -thumbnail here .. -sample looks BAD for animated gifs
 				$execute .= " -thumbnail \"$size>\" ";
 			}
 		}
-		else
-		{
-			$execute .= " \"$filename\"";
-		}
 		$execute .= ($sharpen) ? " -sharpen 0x1 " : '';
+
+		if ($imageinfo['scenes'] > 1)
+		{
+			$execute .= ' -layers optimize ';
+		}
 
 		// ### Convert a CMYK jpg to RGB since IE/Firefox will not display CMYK inline .. conversion is ugly since we don't specify profiles
 		if ($this->imageinfo['channels'] == 4 AND $thumbnail)
@@ -815,8 +838,8 @@ class vB_Image_Magick extends vB_Image_Abstract
 				}
 
 				if ($finalstring)
-				{
-					$execute .= " -gravity South -background \"{$this->thumbcolor}\" -splice 0x15 -fill white  -pointsize 11 -draw \"text 0,0 '$finalstring'\" ";
+				{	// confusing -flip statements added to workaround an issue with very wide yet short images. See http://www.imagemagick.org/discourse-server/viewtopic.php?t=10367
+					$execute .= " -flip -background \"{$this->thumbcolor}\" -splice 0x15 -flip -gravity South -fill white  -pointsize 11 -annotate 0 \"$finalstring\" ";
 				}
 			}
 
@@ -827,7 +850,7 @@ class vB_Image_Magick extends vB_Image_Abstract
 
 			if (($imageinfo[2] == 'PNG' OR $imageinfo[2] == 'PSD') AND !$this->convertoptions['jpegconvert'])
 			{
-				$execute .= " -depth 8 -colors 256 -quality {$this->convertoptions['quality']} PNG:";
+				$execute .= " -depth 8 -quality {$this->convertoptions['quality']} PNG:";
 			}
 			else if ($this->fetch_must_convert($imageinfo[2]) OR $imageinfo[2] == 'JPEG' OR $this->convertoptions['jpegconvert'])
 			{
@@ -877,9 +900,9 @@ class vB_Image_Magick extends vB_Image_Abstract
 	function fetch_thumbnail($filename, $location, $maxwidth = 100, $maxheight = 100, $quality = 75, $labelimage = false, $drawborder = false, $jpegconvert = false, $sharpen = true, $owidth = null, $oheight = null, $ofilesize = null)
 	{
 		$thumbnail = array(
-			'filedata' => '',
-			'filesize' => 0,
-			'dateline' => 0,
+			'filedata'   => '',
+			'filesize'   => 0,
+			'dateline'   => 0,
 			'imageerror' => '',
 		);
 
@@ -934,6 +957,8 @@ class vB_Image_Magick extends vB_Image_Abstract
 					if ($imageinfo[0] > 0 AND $imageinfo[1] > 0)
 					{
 						$thumbnail['filedata'] = @file_get_contents($location);
+						$thumbnail['width'] = $imageinfo[0];
+						$thumbnail['height'] = $imageinfo[1];
 						$thumbnail['imageerror'] = 'thumbnailalready';
 					}
 					else
@@ -1184,8 +1209,8 @@ class vB_Image_Magick extends vB_Image_Abstract
 * Image class for GD Image Library
 *
 * @package 		vBulletin
-* @version		$Revision: 16827 $
-* @date 		$Date: 2007-04-19 06:26:08 -0500 (Thu, 19 Apr 2007) $
+* @version		$Revision: 26949 $
+* @date 		$Date: 2008-06-16 04:54:51 -0500 (Mon, 16 Jun 2008) $
 *
 */
 class vB_Image_GD extends vB_Image_Abstract
@@ -1200,6 +1225,11 @@ class vB_Image_GD extends vB_Image_Abstract
 		'g' => 0
 	);
 
+	/**
+	* Constructor. Sets up resizable types, extensions, etc.
+	*
+	* @return	void
+	*/
 	function vB_Image_GD(&$registry)
 	{
 		parent::vB_Image_Abstract($registry);
@@ -1383,7 +1413,7 @@ class vB_Image_GD extends vB_Image_Abstract
 	*
 	* @return	void
 	*/
-	function unsharpmask(&$finalimage, $amount = 100, $radius = .5, $threshold = 3)
+	function unsharpmask(&$finalimage, $amount = 50, $radius = 1, $threshold = 0)
 	{
 		// $finalimg is an image that is already created within php using
 		// imgcreatetruecolor. No url! $img must be a truecolor image.
@@ -1413,11 +1443,7 @@ class vB_Image_GD extends vB_Image_Abstract
 		$w = imagesx($finalimage);
 		$h = imagesy($finalimage);
 		$imgCanvas = imagecreatetruecolor($w, $h);
-		$imgCanvas2 = imagecreatetruecolor($w, $h);
 		$imgBlur = imagecreatetruecolor($w, $h);
-		$imgBlur2 = imagecreatetruecolor($w, $h);
-		imagecopy ($imgCanvas, $finalimage, 0, 0, 0, 0, $w, $h);
-		imagecopy ($imgCanvas2, $finalimage, 0, 0, 0, 0, $w, $h);
 
 		// Gaussian blur matrix:
 		//
@@ -1427,72 +1453,123 @@ class vB_Image_GD extends vB_Image_Abstract
 		//
 		//////////////////////////////////////////////////
 
-		// Move copies of the image around one pixel at the time and merge them with weight
-		// according to the matrix. The same matrix is simply repeated for higher radii.
-		for ($i = 0; $i < $radius; $i++)
+		if (function_exists('imageconvolution'))
 		{
-			imagecopy ($imgBlur, $imgCanvas, 0, 0, 1, 1, $w - 1, $h - 1); // up left
-			imagecopymerge ($imgBlur, $imgCanvas, 1, 1, 0, 0, $w, $h, 50); // down right
-			imagecopymerge ($imgBlur, $imgCanvas, 0, 1, 1, 0, $w - 1, $h, 33.33333); // down left
-			imagecopymerge ($imgBlur, $imgCanvas, 1, 0, 0, 1, $w, $h - 1, 25); // up right
-			imagecopymerge ($imgBlur, $imgCanvas, 0, 0, 1, 0, $w - 1, $h, 33.33333); // left
-			imagecopymerge ($imgBlur, $imgCanvas, 1, 0, 0, 0, $w, $h, 25); // right
-			imagecopymerge ($imgBlur, $imgCanvas, 0, 0, 0, 1, $w, $h - 1, 20 ); // up
-			imagecopymerge ($imgBlur, $imgCanvas, 0, 1, 0, 0, $w, $h, 16.666667); // down
-			imagecopymerge ($imgBlur, $imgCanvas, 0, 0, 0, 0, $w, $h, 50); // center
-			imagecopy ($imgCanvas, $imgBlur, 0, 0, 0, 0, $w, $h);
-
-			// During the loop above the blurred copy darkens, possibly due to a roundoff
-			// error. Therefore the sharp picture has to go through the same loop to
-			// produce a similar image for comparison. This is not a good thing, as processing
-			// time increases heavily.
-			imagecopy ($imgBlur2, $imgCanvas2, 0, 0, 0, 0, $w, $h);
-			imagecopymerge ($imgBlur2, $imgCanvas2, 0, 0, 0, 0, $w, $h, 50);
-			imagecopymerge ($imgBlur2, $imgCanvas2, 0, 0, 0, 0, $w, $h, 33.33333);
-			imagecopymerge ($imgBlur2, $imgCanvas2, 0, 0, 0, 0, $w, $h, 25);
-			imagecopymerge ($imgBlur2, $imgCanvas2, 0, 0, 0, 0, $w, $h, 33.33333);
-			imagecopymerge ($imgBlur2, $imgCanvas2, 0, 0, 0, 0, $w, $h, 25);
-			imagecopymerge ($imgBlur2, $imgCanvas2, 0, 0, 0, 0, $w, $h, 20 );
-			imagecopymerge ($imgBlur2, $imgCanvas2, 0, 0, 0, 0, $w, $h, 16.666667);
-			imagecopymerge ($imgBlur2, $imgCanvas2, 0, 0, 0, 0, $w, $h, 50);
-			imagecopy ($imgCanvas2, $imgBlur2, 0, 0, 0, 0, $w, $h);
+			$matrix = array(
+				array( 1, 2, 1 ),
+				array( 2, 4, 2 ),
+				array( 1, 2, 1 )
+			);
+			imagecopy ($imgBlur, $finalimage, 0, 0, 0, 0, $w, $h);
+			imageconvolution($imgBlur, $matrix, 16, 0);
 		}
-		imagedestroy($imgBlur);
-		imagedestroy($imgBlur2);
+		else
+		{
+			// Move copies of the image around one pixel at the time and merge them with weight
+			// according to the matrix. The same matrix is simply repeated for higher radii.
+			for ($i = 0; $i < $radius; $i++)
+			{
+				imagecopy ($imgBlur, $finalimage, 0, 0, 1, 0, $w - 1, $h); // left
+				imagecopymerge ($imgBlur, $finalimage, 1, 0, 0, 0, $w, $h, 50); // right
+				imagecopymerge ($imgBlur, $finalimage, 0, 0, 0, 0, $w, $h, 50); // center
+				imagecopy ($imgCanvas, $imgBlur, 0, 0, 0, 0, $w, $h);
 
-		// Calculate the difference between the blurred pixels and the original
-		// and set the pixels
-		for ($x = 0; $x < $w; $x++)
-		{ // each row
-			for ($y = 0; $y < $h; $y++)
-			{ // each pixel
+				imagecopymerge ($imgBlur, $imgCanvas, 0, 0, 0, 1, $w, $h - 1, 33.33333 ); // up
+				imagecopymerge ($imgBlur, $imgCanvas, 0, 1, 0, 0, $w, $h, 25); // down
+			}
+		}
 
-				$rgbOrig = ImageColorAt($imgCanvas2, $x, $y);
-				$rOrig = (($rgbOrig >> 16) & 0xFF);
-				$gOrig = (($rgbOrig >> 8) & 0xFF);
-				$bOrig = ($rgbOrig & 0xFF);
-
-				$rgbBlur = ImageColorAt($imgCanvas, $x, $y);
-
-				$rBlur = (($rgbBlur >> 16) & 0xFF);
-				$gBlur = (($rgbBlur >> 8) & 0xFF);
-				$bBlur = ($rgbBlur & 0xFF);
-
-				// When the masked pixels differ less from the original
-				// than the threshold specifies, they are set to their original value.
-				$rNew = (abs($rOrig - $rBlur) >= $threshold) ? max(0, min(255, ($amount * ($rOrig - $rBlur)) + $rOrig))	: $rOrig;
-				$gNew = (abs($gOrig - $gBlur) >= $threshold) ? max(0, min(255, ($amount * ($gOrig - $gBlur)) + $gOrig))	: $gOrig;
-				$bNew = (abs($bOrig - $bBlur) >= $threshold) ? max(0, min(255, ($amount * ($bOrig - $bBlur)) + $bOrig))	: $bOrig;
-
-				if (($rOrig != $rNew) OR ($gOrig != $gNew) OR ($bOrig != $bNew))
+		if($threshold > 0)
+		{
+			// Calculate the difference between the blurred pixels and the original
+			// and set the pixels
+			for ($x = 0; $x < $w - 1; $x++) // each row
+			{
+				for ($y = 0; $y < $h; $y++) // each pixel
 				{
-    				$pixCol = ImageColorAllocate($finalimage, $rNew, $gNew, $bNew);
-    				ImageSetPixel($finalimage, $x, $y, $pixCol);
+					$rgbOrig = ImageColorAt($finalimage, $x, $y);
+					$rOrig = (($rgbOrig >> 16) & 0xFF);
+					$gOrig = (($rgbOrig >> 8) & 0xFF);
+					$bOrig = ($rgbOrig & 0xFF);
+
+					$rgbBlur = ImageColorAt($imgBlur, $x, $y);
+
+					$rBlur = (($rgbBlur >> 16) & 0xFF);
+					$gBlur = (($rgbBlur >> 8) & 0xFF);
+					$bBlur = ($rgbBlur & 0xFF);
+
+					// When the masked pixels differ less from the original
+					// than the threshold specifies, they are set to their original value.
+					$rNew = (abs($rOrig - $rBlur) >= $threshold) ? max(0, min(255, ($amount * ($rOrig - $rBlur)) + $rOrig)) : $rOrig;
+
+					$gNew = (abs($gOrig - $gBlur) >= $threshold) ? max(0, min(255, ($amount * ($gOrig - $gBlur)) + $gOrig)) : $gOrig;
+
+					$bNew = (abs($bOrig - $bBlur) >= $threshold) ? max(0, min(255, ($amount * ($bOrig - $bBlur)) + $bOrig)) : $bOrig;
+
+
+
+					if (($rOrig != $rNew) OR ($gOrig != $gNew) OR ($bOrig != $bNew))
+					{
+					    $pixCol = ImageColorAllocate($finalimage, $rNew, $gNew, $bNew);
+					    ImageSetPixel($finalimage, $x, $y, $pixCol);
+					}
+				}
+			}
+		}
+		else
+		{
+			for ($x = 0; $x < $w; $x++) // each row
+			{
+				for ($y = 0; $y < $h; $y++) // each pixel
+				{
+					$rgbOrig = ImageColorAt($finalimage, $x, $y);
+					$rOrig = (($rgbOrig >> 16) & 0xFF);
+					$gOrig = (($rgbOrig >> 8) & 0xFF);
+					$bOrig = ($rgbOrig & 0xFF);
+
+					$rgbBlur = ImageColorAt($imgBlur, $x, $y);
+
+					$rBlur = (($rgbBlur >> 16) & 0xFF);
+					$gBlur = (($rgbBlur >> 8) & 0xFF);
+					$bBlur = ($rgbBlur & 0xFF);
+
+					$rNew = ($amount * ($rOrig - $rBlur)) + $rOrig;
+					if ($rNew > 255)
+					{
+						$rNew = 255;
+					}
+					elseif ($rNew < 0)
+					{
+						$rNew = 0;
+					}
+
+					$gNew = ($amount * ($gOrig - $gBlur)) + $gOrig;
+					if ($gNew > 255)
+					{
+						$gNew = 255;
+					}
+					elseif ($gNew < 0)
+					{
+						$gNew = 0;
+					}
+
+					$bNew = ($amount * ($bOrig - $bBlur)) + $bOrig;
+					if ($bNew > 255)
+					{
+						$bNew = 255;
+					}
+					elseif ($bNew < 0)
+					{
+						$bNew = 0;
+					}
+
+					$rgbNew = ($rNew << 16) + ($gNew << 8) + $bNew;
+					ImageSetPixel($finalimage, $x, $y, $rgbNew);
 				}
 			}
 		}
 		imagedestroy($imgCanvas);
-		imagedestroy($imgCanvas2);
+		imagedestroy($imgBlur);
 
 		return true;
 	}
@@ -1570,8 +1647,7 @@ class vB_Image_GD extends vB_Image_Abstract
 			$image =& $this->fetch_image_resource($image_width, $image_height);
 		}
 
-		$yuckygdfont = false;
-		if ($this->registry->options['regimagetype'] == 'GDttf' AND function_exists('imagettftext') AND $fonts = $this->fetch_regimage_fonts())
+		if (function_exists('imagettftext') AND $fonts = $this->fetch_regimage_fonts())
 		{
 			if ($moveabout)
 			{
@@ -1590,98 +1666,13 @@ class vB_Image_GD extends vB_Image_Abstract
 							$font = $fonts["$index"];
 						}
 					}
-					if (($result = $this->annotatettf($image, $string["$x"], $font)) == false)
-					{	# imagettftext failed for some reason (a) freetype 2 isn't in php (b) this gd doesn't like spaces in the ttf font path
-						$yuckygdfont = true;
-						break;
-					}
-					else
-					{
-						$image =& $result;
-					}
+					$image = $this->annotatettf($image, $string["$x"], $font);
 				}
 			}
-			else if (($result = $this->annotatettf($image, $string, $fonts[0], false)) == false)
+			else
 			{
-					$yuckygdfont = true;
+				$image = $this->annotatettf($image, $string, $fonts[0], false);
 			}
-		}
-		else
-		{
-			$yuckygdfont = true;
-		}
-
-		if ($yuckygdfont)
-		{	// use the built in font. YUCK
-			// Temp image that creates string
-			$temp_width  = 135;
-			$temp_height = 20;
-			$temp =& $this->fetch_image_resource($temp_width, $temp_height);
-
-			for ($x = 0; $x < strlen($string); $x++)
-			{
-				$temp =& $this->annotategd($temp, $string["$x"], $moveabout);
-			}
-
-			$temp2 =& $this->fetch_image_resource($image_width, $image_height);
-			imagecopyresized($temp2, $temp, 0, 0, 0, 0, $image_width, $image_height, $temp_width, $temp_height);
-			if ($moveabout)
-			{
-				$temp2 =& $this->wave($temp2, 8, $moveabout);
-
-				if ($this->regimageoption['randomshape'])
-				{
-					for ($x = 0; $x < strlen($string); $x++)
-					{
-						if (function_exists('imageantialias') AND version_compare(PHP_VERSION, '4.3.7', '>='))
-						{	// See http://bugs.php.net/bug.php?id=28147
-							imageantialias($image, true);
-						}
-						// Stroke Width, 1, 2 or 3
-						imagesetthickness($image, mt_rand(1, 3));
-						// Pick a random color
-						$shapecolor = imagecolorallocate($image, mt_rand(50, 200), mt_rand(50, 200), mt_rand(50, 200));
-
-						// Pick a Shape
-						$x1 = mt_rand(0, 200);
-						$y1 = mt_rand(0, 60);
-						$x2 = mt_rand(0, 200);
-						$y2 = mt_rand(0, 60);
-						$start = mt_rand(0, 360);
-						$end = mt_rand(0, 360);
-						switch(mt_rand(1, 4))
-						{
-							case 1:
-								imagearc($image, $x1, $y1, $x2, $y2, $start, $end, $shapecolor);
-								break;
-							case 2:
-								imageellipse($image, $x1, $y1, $x2, $y2, $shapecolor);
-								break;
-							case 3:
-								imageline($image, $x1, $y1, $x2, $y2, $shapecolor);
-								break;
-							case 4:
-								imagepolygon($image, array(
-									$x1, $y1,
-									$x2, $y2,
-									mt_rand(0, 200), mt_rand(0, 60),
-									mt_rand(0, 200), mt_rand(0, 60),
-									),
-									4, $shapecolor
-								);
-								break;
-						}
-					}
-				}
-
-			}
-			$transcolor = imagecolorallocate($temp2, 255, 255, 255);
-			imagecolortransparent($temp2, $transcolor);
-			imagecopymerge($image, $temp2, 0, 0, 0, 0, $image_width, $image_height, 100);
-			imagedestroy($temp2);
-
-			imagedestroy($temp);
-			#$image =& $this->swirl($image, .001, $moveabout);
 		}
 
 		if ($moveabout)
@@ -2178,7 +2169,10 @@ class vB_Image_GD extends vB_Image_Abstract
 
 					if ($freemem > 0 AND $tmemory > $freemem AND $tmemory <= ($memorylimit * 3))
 					{	// attempt to increase memory within reason, no more than triple
-						@ini_set('memory_limit', $memorylimit + $tmemory);
+						if (($current_memory_limit = ini_size_to_bytes(@ini_get('memory_limit'))) < $memorylimit + $tmemory AND $current_memory_limit > 0)
+						{
+							@ini_set('memory_limit', $memorylimit + $tmemory);
+						}
 
 						$memory_limit = @ini_get('memory_limit');
 						$memorylimit = vb_number_format($memory_limit, 0, false, null, '');
@@ -2354,13 +2348,14 @@ class vB_Image_GD extends vB_Image_Abstract
 					{
 						$thumbnail['imageerror'] = 'thumbnail_nocreateimage';
 						imagedestroy($image);
+						return $thumbnail;
 					}
 
 					$bgcolor = imagecolorallocate($finalimage, 255, 255, 255);
 					imagefill($finalimage, 0, 0, $bgcolor);
 					@imagecopyresampled($finalimage, $image, $dest_x_start, $dest_y_start, 0, 0, $new_width, $new_height, $width, $height);
 					imagedestroy($image);
-					if (PHP_VERSION != '4.3.2')
+					if ($sharpen AND PHP_VERSION != '4.3.2')
 					{
 						$this->unsharpmask($finalimage);
 					}
@@ -2407,6 +2402,8 @@ class vB_Image_GD extends vB_Image_Abstract
 				else
 				{
 					$thumbnail['filedata'] = @file_get_contents($location);
+					$thumbnail['width'] = $imageinfo[0];
+					$thumbnail['height'] = $imageinfo[1];
 					$thumbnail['imageerror'] = 'thumbnailalready';
 				}
 			}
@@ -2438,8 +2435,8 @@ class vB_Image_GD extends vB_Image_Abstract
 
 /*======================================================================*\
 || ####################################################################
-|| # Downloaded: 18:52, Sat Jul 14th 2007
-|| # CVS: $RCSfile$ - $Revision: 16827 $
+|| # Downloaded: 16:21, Sat Apr 6th 2013
+|| # CVS: $RCSfile$ - $Revision: 26949 $
 || ####################################################################
 \*======================================================================*/
 ?>

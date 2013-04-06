@@ -1,9 +1,9 @@
 <?php
 /*======================================================================*\
 || #################################################################### ||
-|| # vBulletin 3.6.7 PL1 - Licence Number VBF2470E4F
+|| # vBulletin 3.7.2 Patch Level 2 - Licence Number VBF2470E4F
 || # ---------------------------------------------------------------- # ||
-|| # Copyright ©2000-2007 Jelsoft Enterprises Ltd. All Rights Reserved. ||
+|| # Copyright ©2000-2013 Jelsoft Enterprises Ltd. All Rights Reserved. ||
 || # This file may not be redistributed in whole or significant part. # ||
 || # ---------------- VBULLETIN IS NOT FREE SOFTWARE ---------------- # ||
 || # http://www.vbulletin.com | http://www.vbulletin.com/license.html # ||
@@ -66,6 +66,9 @@ if (!empty($feeds))
 	// array to store list of forums to be updated
 	$update_forumids = array();
 
+	$feedcount = 0;
+	$itemstemp = array();
+
 	foreach (array_keys($feeds) AS $rssfeedid)
 	{
 		$feed =& $feeds["$rssfeedid"];
@@ -74,7 +77,7 @@ if (!empty($feeds))
 		$feed['xml']->fetch_xml($feed['url']);
 		if (empty($feed['xml']->xml_string))
 		{
-			if (VB_AREA == 'AdminCP')
+			if (defined('IN_CONTROL_PANEL'))
 			{
 				echo construct_phrase($vbphrase['x_unable_to_open_url'], $feed['title']);
 			}
@@ -82,9 +85,9 @@ if (!empty($feeds))
 		}
 		else if ($feed['xml']->parse_xml() === false)
 		{
-			if (VB_AREA == 'AdminCP')
+			if (defined('IN_CONTROL_PANEL'))
 			{
-				echo construct_phrase($vbphrase['x_xml_error_y_at_line_z'], $feed['title'], $feed['xml']->xml_object->error_string(), $feed['xml']->xml_object->error_line());
+				echo construct_phrase($vbphrase['x_xml_error_y_at_line_z'], $feed['title'], ($feed['xml']->feedtype == 'unknown' ? 'Unknown Feed Type' : $feed['xml']->xml_object->error_string()), $feed['xml']->xml_object->error_line());
 			}
 			continue;
 		}
@@ -94,7 +97,7 @@ if (!empty($feeds))
 		{
 			$feed['searchterms'] = array();
 			$feed['searchwords'] = preg_quote($feed['searchwords'], '#');
-			foreach (preg_split('#\s+#', $feed['searchwords'], -1, PREG_SPLIT_NO_EMPTY) AS $searchword)
+			foreach (preg_split('#[ \r\n\t]+#', $feed['searchwords'], -1, PREG_SPLIT_NO_EMPTY) AS $searchword)
 			{
 				// exact word match required
 				if (substr($searchword, 0, 2) == '\\{' AND substr($searchword, -2, 2) == '\\}')
@@ -114,17 +117,60 @@ if (!empty($feeds))
 			// attach the rssfeedid to each item
 			$item['rssfeedid'] = $rssfeedid;
 
-			if (!empty($item['content:encoded']))
+			if (!empty($item['summary']))
 			{
-				$description =& $item['content:encoded'];
+				// ATOM
+				$description = get_item_value($item['summary']);
+			}
+			elseif (!empty($item['content:encoded']))
+			{
+				$description = get_item_value($item['content:encoded']);
+			}
+			elseif (!empty($item['content']))
+			{
+				$description = get_item_value($item['content']);
 			}
 			else
 			{
-				$description =& $item['description'];
+				$description = get_item_value($item['description']);
 			}
 
-			// attach a content hash to each item
-			$item['contenthash'] = md5($item['title'] . $description . $item['link']);
+			// backward compatability to RSS
+			if (!isset($item['description']))
+			{
+				$item['description'] =& $description;
+			}
+			if (!isset($item['guid']) AND isset($item['id']))
+			{
+				$item['guid'] =& $item['id'];
+			}
+			if (!isset($item['pubDate']))
+			{
+				if (isset($item['published']))
+				{
+					$item['pubDate'] =& $item['published'];
+				}
+				elseif(isset($item['updated']))
+				{
+					$item['pubDate'] =& $item['updated'];
+				}
+			}
+
+			switch($feed['xml']->feedtype)
+			{
+				case 'atom':
+				{
+					// attach a content hash to each item
+					$item['contenthash'] = md5($item['title']['value'] . $description . $item['link']['href']);
+					break;
+				}
+				case 'rss':
+				default:
+				{
+					// attach a content hash to each item
+					$item['contenthash'] = md5($item['title'] . $description . $item['link']);
+				}
+			}
 
 			// generate unique id for each item
 			if (is_array($item['guid']) AND !empty($item['guid']['value']))
@@ -153,6 +199,7 @@ if (!empty($feeds))
 						{
 							$feed['counter']++;
 							$items["$uniquehash"] = $item;
+							$itemstemp["$uniquehash"] = $item;
 						}
 						break;
 					}
@@ -166,17 +213,36 @@ if (!empty($feeds))
 				{
 					$feed['counter']++;
 					$items["$uniquehash"] = $item;
+					$itemstemp["$uniquehash"] = $item;
 				}
 			}
+
+			if (++$feedcount % 10 == 0 AND !empty($itemstemp))
+			{
+				$rsslogs_result = $vbulletin->db->query_read("
+					SELECT * FROM " . TABLE_PREFIX . "rsslog
+					WHERE uniquehash IN ('" . implode("', '", array_map(array(&$vbulletin->db, 'escape_string'), array_keys($itemstemp))) . "')
+				");
+
+				while ($rsslog = $vbulletin->db->fetch_array($rsslogs_result))
+				{
+					// remove any items which have this unique id from the list of potential inserts.
+					unset($items["$rsslog[uniquehash]"]);
+				}
+				$vbulletin->db->free_result($rsslogs_result);
+
+				$itemstemp = array();
+			}
+
 		}
 	}
 
-	if (!empty($items))
+	if (!empty($itemstemp))
 	{
 		// query rss log table to find items that are already inserted
 		$rsslogs_result = $vbulletin->db->query_read("
 			SELECT * FROM " . TABLE_PREFIX . "rsslog
-			WHERE uniquehash IN ('" . implode("', '", array_map(array(&$vbulletin->db, 'escape_string'), array_keys($items))) . "')
+			WHERE uniquehash IN ('" . implode("', '", array_map(array(&$vbulletin->db, 'escape_string'), array_keys($itemstemp))) . "')
 		");
 		while ($rsslog = $vbulletin->db->fetch_array($rsslogs_result))
 		{
@@ -184,11 +250,17 @@ if (!empty($feeds))
 			unset($items["$rsslog[uniquehash]"]);
 		}
 		$vbulletin->db->free_result($rsslogs_result);
+	}
 
+	if (!empty($items))
+	{
 		$vbulletin->options['postminchars'] = 1; // try to avoid minimum character errors
 		$error_type = (defined('IN_CONTROL_PANEL') ? ERRTYPE_CP : ERRTYPE_SILENT);
 
-		echo "<ol>";
+		if (defined('IN_CONTROL_PANEL'))
+		{
+			echo "<ol>";
+		}
 
 		// process the remaining list of items to be inserted
 		foreach ($items AS $uniquehash => $item)
@@ -208,7 +280,7 @@ if (!empty($feeds))
 			$pagetext = $feed['xml']->parse_template($body_template, $item);
 			if ($feed['rssoptions'] & $vbulletin->bf_misc_feedoptions['html2bbcode'])
 			{
-				$pagetext = convert_wysiwyg_html_to_bbcode($pagetext);
+				$pagetext = convert_wysiwyg_html_to_bbcode($pagetext, false, true);
 				// disable for announcements
 				$feed['rssoptions'] = $feed['rssoptions'] & ~$vbulletin->bf_misc_feedoptions['allowhtml'];
 			}
@@ -267,12 +339,12 @@ if (!empty($feeds))
 					$itemdata =& datamanager_init('Thread_FirstPost', $vbulletin, $error_type, 'threadpost');
 					$itemdata->set_info('forum', fetch_foruminfo($feed['forumid']));
 					$itemdata->set_info('user', $feed);
-					$itemdata->set_info('skip_floodcheck', true);
-					$itemdata->set_info('skip_charcount', true);
-					$itemdata->set_info('skip_maximagescheck', true);
+					$itemdata->set_info('is_automated', true);
+					$itemdata->set_info('chop_title', true);
 					$itemdata->set('iconid', $feed['iconid']);
 					$itemdata->set('sticky', ($feed['rssoptions'] & $vbulletin->bf_misc_feedoptions['stickthread'] ? 1 : 0));
 					$itemdata->set('forumid', $feed['forumid']);
+					$itemdata->set('prefixid', $feed['prefixid']);
 					$itemdata->set('userid', $feed['userid']);
 					$itemdata->set('title', strip_bbcode(convert_wysiwyg_html_to_bbcode($feed['xml']->parse_template($feed['titletemplate'], $item))));
 					$itemdata->set('pagetext', $pagetext);
@@ -301,16 +373,18 @@ if (!empty($feeds))
 			}
 		}
 
-		echo "</ol>";
+		if (defined('IN_CONTROL_PANEL'))
+		{
+			echo "</ol>";
+		}
 
 		if (!empty($rsslog_insert_sql))
 		{
 			// insert logs
-			$vbulletin->db->query_write("
-				INSERT INTO " . TABLE_PREFIX . "rsslog
-					(rssfeedid, itemid, itemtype, uniquehash, contenthash, dateline, threadactiontime)
-				VALUES
-					" . implode(', ', $rsslog_insert_sql)
+			$vbulletin->db->query_replace(
+				TABLE_PREFIX . 'rsslog',
+				'(rssfeedid, itemid, itemtype, uniquehash, contenthash, dateline, threadactiontime)',
+				$rsslog_insert_sql
 			);
 
 			// rebuild forum counters
@@ -395,7 +469,10 @@ if (!empty($threads))
 // #############################################################################
 // all done
 
-echo "<p><a href=\"rssposter.php" . $vbulletin->session->vars['sessionurl_q'] . "\">$vbphrase[rss_feed_manager]</a></p>";
+if (defined('IN_CONTROL_PANEL'))
+{
+	echo "<p><a href=\"rssposter.php" . $vbulletin->session->vars['sessionurl_q'] . "\">$vbphrase[rss_feed_manager]</a></p>";
+}
 
 if ($log_items)
 {
@@ -404,8 +481,8 @@ if ($log_items)
 
 /*======================================================================*\
 || ####################################################################
-|| # Downloaded: 18:52, Sat Jul 14th 2007
-|| # CVS: $RCSfile$ - $Revision: 15939 $
+|| # Downloaded: 16:21, Sat Apr 6th 2013
+|| # CVS: $RCSfile$ - $Revision: 26778 $
 || ####################################################################
 \*======================================================================*/
 ?>

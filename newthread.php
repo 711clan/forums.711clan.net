@@ -1,9 +1,9 @@
 <?php
 /*======================================================================*\
 || #################################################################### ||
-|| # vBulletin 3.6.7 PL1 - Licence Number VBF2470E4F
+|| # vBulletin 3.7.2 Patch Level 2 - Licence Number VBF2470E4F
 || # ---------------------------------------------------------------- # ||
-|| # Copyright ©2000-2007 Jelsoft Enterprises Ltd. All Rights Reserved. ||
+|| # Copyright ©2000-2013 Jelsoft Enterprises Ltd. All Rights Reserved. ||
 || # This file may not be redistributed in whole or significant part. # ||
 || # ---------------- VBULLETIN IS NOT FREE SOFTWARE ---------------- # ||
 || # http://www.vbulletin.com | http://www.vbulletin.com/license.html # ||
@@ -16,13 +16,15 @@ error_reporting(E_ALL & ~E_NOTICE);
 // #################### DEFINE IMPORTANT CONSTANTS #######################
 define('GET_EDIT_TEMPLATES', true);
 define('THIS_SCRIPT', 'newthread');
+define('CSRF_PROTECTION', true);
 
 // ################### PRE-CACHE TEMPLATES AND DATA ######################
 // get special phrase groups
 $phrasegroups = array(
 	'threadmanage',
 	'postbit',
-	'posting'
+	'posting',
+	'prefix'
 );
 
 // get special data templates from the datastore
@@ -37,7 +39,8 @@ $globaltemplates = array(
 	'newpost_attachment',
 	'newpost_attachmentbit',
 	'newthread',
-	'imagereg',
+	'humanverify',
+	'optgroup',
 	'postbit_attachment',
 );
 
@@ -81,13 +84,15 @@ if (!$foruminfo['allowposting'] OR $foruminfo['link'] OR !$foruminfo['cancontain
 }
 
 $forumperms = fetch_permissions($forumid);
-if (!($forumperms & $vbulletin->bf_ugp_forumpermissions['canview']) OR !($forumperms & $vbulletin->bf_ugp_forumpermissions['canviewthreads']) OR !($forumperms & $vbulletin->bf_ugp_forumpermissions['canpostnew']))
+if (!($forumperms & $vbulletin->bf_ugp_forumpermissions['canview']) OR !($forumperms & $vbulletin->bf_ugp_forumpermissions['canpostnew']))
 {
 	print_no_permission();
 }
 
 // check if there is a forum password and if so, ensure the user has it set
 verify_forum_password($foruminfo['forumid'], $foruminfo['password']);
+
+$show['tag_option'] = ($vbulletin->options['threadtagging'] AND ($forumperms & $vbulletin->bf_ugp_forumpermissions['cantagown']));
 
 // ############################### start post thread ###############################
 if ($_POST['do'] == 'postthread')
@@ -98,24 +103,30 @@ if ($_POST['do'] == 'postthread')
 
 	$vbulletin->input->clean_array_gpc('p', array(
 		'wysiwyg'         => TYPE_BOOL,
+		'preview'         => TYPE_STR,
 		'message'         => TYPE_STR,
-		'postpoll'        => TYPE_BOOL,
 		'subject'         => TYPE_STR,
 		'iconid'          => TYPE_UINT,
-		'signature'       => TYPE_BOOL,
-		'preview'         => TYPE_STR,
-		'disablesmilies'  => TYPE_BOOL,
 		'rating'          => TYPE_UINT,
+		'prefixid'        => TYPE_NOHTML,
+		'taglist'         => TYPE_NOHTML,
+
+		'postpoll'        => TYPE_BOOL,
 		'polloptions'     => TYPE_UINT,
+
+		'signature'       => TYPE_BOOL,
+		'disablesmilies'  => TYPE_BOOL,
+		'parseurl'        => TYPE_BOOL,
 		'folderid'        => TYPE_UINT,
 		'emailupdate'     => TYPE_UINT,
 		'stickunstick'    => TYPE_BOOL,
 		'openclose'       => TYPE_BOOL,
-		'parseurl'        => TYPE_BOOL,
+
 		'username'        => TYPE_STR,
 		'loggedinuser'    => TYPE_INT,
-		'imagehash'       => TYPE_STR,
-		'imagestamp'      => TYPE_STR,
+
+		'humanverify'     => TYPE_ARRAY,
+
 		'podcasturl'      => TYPE_STR,
 		'podcastsize'     => TYPE_UINT,
 		'podcastexplicit' => TYPE_BOOL,
@@ -151,36 +162,45 @@ if ($_POST['do'] == 'postthread')
 
 	$newpost['title'] =& $vbulletin->GPC['subject'];
 	$newpost['iconid'] =& $vbulletin->GPC['iconid'];
-	$newpost['parseurl'] = ($foruminfo['allowbbcode'] AND $vbulletin->GPC['parseurl']);
-	$newpost['signature'] =& $vbulletin->GPC['signature'];
-	$newpost['preview'] =& $vbulletin->GPC['preview'];
-	$newpost['disablesmilies'] =& $vbulletin->GPC['disablesmilies'];
-	$newpost['rating'] =& $vbulletin->GPC['rating'];
-	$newpost['username'] =& $vbulletin->GPC['username'];
-	$newpost['postpoll'] =& $vbulletin->GPC['postpoll'];
-	$newpost['polloptions'] =& $vbulletin->GPC['polloptions'];
-	$newpost['folderid'] =& $vbulletin->GPC['folderid'];
-	$newpost['imagehash'] =& $vbulletin->GPC['imagehash'];
-	$newpost['imagestamp'] =& $vbulletin->GPC['imagestamp'];
-	$newpost['poststarttime'] = $poststarttime;
-	$newpost['posthash'] = $posthash;
+	$newpost['prefixid'] =& $vbulletin->GPC['prefixid'];
+	if ($show['tag_option'])
+	{
+		$newpost['taglist'] =& $vbulletin->GPC['taglist'];
+	}
+	$newpost['parseurl']        = ($foruminfo['allowbbcode'] AND $vbulletin->GPC['parseurl']);
+	$newpost['signature']       =& $vbulletin->GPC['signature'];
+	$newpost['preview']         =& $vbulletin->GPC['preview'];
+	$newpost['disablesmilies']  =& $vbulletin->GPC['disablesmilies'];
+	$newpost['rating']          =& $vbulletin->GPC['rating'];
+	$newpost['username']        =& $vbulletin->GPC['username'];
+	$newpost['postpoll']        =& $vbulletin->GPC['postpoll'];
+	$newpost['polloptions']     =& $vbulletin->GPC['polloptions'];
+	$newpost['folderid']        =& $vbulletin->GPC['folderid'];
+	$newpost['humanverify']     =& $vbulletin->GPC['humanverify'];
+	$newpost['poststarttime']   = $poststarttime;
+	$newpost['posthash']        = $posthash;
 	// moderation options
-	$newpost['stickunstick'] =& $vbulletin->GPC['stickunstick'];
-	$newpost['openclose'] =& $vbulletin->GPC['openclose'];
-	$newpost['podcasturl'] =& $vbulletin->GPC['podcasturl'];
-	$newpost['podcastsize'] =& $vbulletin->GPC['podcastsize'];
+	$newpost['stickunstick']    =& $vbulletin->GPC['stickunstick'];
+	$newpost['openclose']       =& $vbulletin->GPC['openclose'];
+	$newpost['podcasturl']      =& $vbulletin->GPC['podcasturl'];
+	$newpost['podcastsize']     =& $vbulletin->GPC['podcastsize'];
 	$newpost['podcastexplicit'] =& $vbulletin->GPC['podcastexplicit'];
 	$newpost['podcastkeywords'] =& $vbulletin->GPC['podcastkeywords'];
 	$newpost['podcastsubtitle'] =& $vbulletin->GPC['podcastsubtitle'];
-	$newpost['podcastauthor'] =& $vbulletin->GPC['podcastauthor'];
+	$newpost['podcastauthor']   =& $vbulletin->GPC['podcastauthor'];
 
-	if ($vbulletiun->GPC_exists['emailupdate'])
+	if ($vbulletin->GPC_exists['emailupdate'])
 	{
 		$newpost['emailupdate'] =& $vbulletin->GPC['emailupdate'];
 	}
 	else
 	{
 		$newpost['emailupdate'] = array_pop($array = array_keys(fetch_emailchecked(array(), $vbulletin->userinfo)));
+	}
+
+	if (!($forumperms & $vbulletin->bf_ugp_forumpermissions['canviewthreads']))
+	{
+		$newpost['emailupdate'] = 0;
 	}
 
 	build_new_post('thread', $foruminfo, array(), array(), $newpost, $errors);
@@ -245,12 +265,27 @@ if ($_POST['do'] == 'postthread')
 		if ($newpost['postpoll'])
 		{
 			$vbulletin->url = 'poll.php?' . $vbulletin->session->vars['sessionurl'] . "t=$newpost[threadid]&polloptions=$newpost[polloptions]";
-			eval(print_standard_redirect('redirect_postthanks', true, true));
+			if ($forumperms & $vbulletin->bf_ugp_forumpermissions['canviewthreads'])
+			{
+				eval(print_standard_redirect('redirect_postthanks', true, true));
+			}
+			else
+			{
+				eval(print_standard_redirect('redirect_postthanks_nopermission', true, true));
+			}
 		}
 		else if ($newpost['visible'])
 		{
-			$vbulletin->url = 'showthread.php?' . $vbulletin->session->vars['sessionurl'] . "p=$newpost[postid]#post$newpost[postid]";
-			eval(print_standard_redirect('redirect_postthanks'));
+			if ($forumperms & $vbulletin->bf_ugp_forumpermissions['canviewthreads'])
+			{
+				$vbulletin->url = 'showthread.php?' . $vbulletin->session->vars['sessionurl'] . "p=$newpost[postid]#post$newpost[postid]";
+				eval(print_standard_redirect('redirect_postthanks'));
+			}
+			else
+			{
+				$vbulletin->url = 'forumdisplay.php?' . $vbulletin->session->vars['sessionurl'] . "f=$foruminfo[forumid]";
+				eval(print_standard_redirect('redirect_postthanks_nopermission', true, true));
+			}
 		}
 		else
 		{
@@ -396,13 +431,17 @@ if ($_REQUEST['do'] == 'newthread')
 
 	$subject = $newpost['title'];
 
+	// display prefixes
+	require_once(DIR . '/includes/functions_prefix.php');
+	$prefix_options = fetch_prefix_html($foruminfo['forumid'], $newpost['prefixid']);
+
 	// get username code
 	eval('$usernamecode = "' . fetch_template('newpost_usernamecode') . '";');
 
 	$show['podcasturl'] = ($foruminfo['podcast']);
 
 	// can this user open / close this thread?
-	if (($vbulletin->userinfo['userid'] AND $forumperms & $vbulletin->bf_ugp_forumpermissions['canopenclose']) OR can_moderate($threadinfo['forumid'], 'canopenclose'))
+	if (($vbulletin->userinfo['userid'] AND $forumperms & $vbulletin->bf_ugp_forumpermissions['canopenclose']) OR can_moderate($foruminfo['forumid'], 'canopenclose'))
 	{
 		$threadinfo['open'] = 1;
 		$show['openclose'] = true;
@@ -413,7 +452,7 @@ if ($_REQUEST['do'] == 'newthread')
 		$show['openclose'] = false;
 	}
 	// can this user stick this thread?
-	if (can_moderate($threadinfo['forumid'], 'canmanagethreads'))
+	if (can_moderate($foruminfo['forumid'], 'canmanagethreads'))
 	{
 		$threadinfo['sticky'] = 0;
 		$show['stickunstick'] = true;
@@ -433,15 +472,32 @@ if ($_REQUEST['do'] == 'newthread')
 		$threadmanagement = '';
 	}
 
-	if ($vbulletin->options['postimagecheck'] AND !$vbulletin->userinfo['userid'] AND $vbulletin->options['regimagetype'])
+	if ($vbulletin->options['hvcheck_post'] AND !$vbulletin->userinfo['userid'])
 	{
-		require_once(DIR . '/includes/functions_regimage.php');
-		$imagehash = fetch_regimage_hash();
-		eval('$imagereg = "' . fetch_template('imagereg') . '";');
+		require_once(DIR . '/includes/class_humanverify.php');
+		$verification =& vB_HumanVerify::fetch_library($vbulletin);
+		$human_verify = $verification->output_token();
 	}
 	else
 	{
-		$imagereg = '';
+		$human_verify = '';
+	}
+
+	if ($show['tag_option'])
+	{
+		$tags_remain = null;
+		if ($vbulletin->options['tagmaxthread'])
+		{
+			$tags_remain = $vbulletin->options['tagmaxthread'];
+		}
+		if ($vbulletin->options['tagmaxstarter'] AND !can_moderate($threadinfo['forumid'], 'caneditthreads'))
+		{
+			$tags_remain = ($tags_remain === null ? $vbulletin->options['tagmaxstarter'] : min($tags_remain, $vbulletin->options['tagmaxstarter']));
+		}
+
+		$show['tags_remain'] = ($tags_remain !== null);
+		$tags_remain = vb_number_format($tags_remain);
+		$tag_delimiters = addslashes_js($vbulletin->options['tagdelimiter']);
 	}
 
 	// draw nav bar
@@ -470,8 +526,8 @@ if ($_REQUEST['do'] == 'newthread')
 
 /*======================================================================*\
 || ####################################################################
-|| # Downloaded: 18:52, Sat Jul 14th 2007
-|| # CVS: $RCSfile$ - $Revision: 16995 $
+|| # Downloaded: 16:21, Sat Apr 6th 2013
+|| # CVS: $RCSfile$ - $Revision: 26689 $
 || ####################################################################
 \*======================================================================*/
 ?>

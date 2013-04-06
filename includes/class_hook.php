@@ -1,9 +1,9 @@
 <?php
 /*======================================================================*\
 || #################################################################### ||
-|| # vBulletin 3.6.7 PL1 - Licence Number VBF2470E4F
+|| # vBulletin 3.7.2 Patch Level 2 - Licence Number VBF2470E4F
 || # ---------------------------------------------------------------- # ||
-|| # Copyright ©2000-2007 Jelsoft Enterprises Ltd. All Rights Reserved. ||
+|| # Copyright ©2000-2013 Jelsoft Enterprises Ltd. All Rights Reserved. ||
 || # This file may not be redistributed in whole or significant part. # ||
 || # ---------------- VBULLETIN IS NOT FREE SOFTWARE ---------------- # ||
 || # http://www.vbulletin.com | http://www.vbulletin.com/license.html # ||
@@ -12,16 +12,15 @@
 
 // to call a hook:
 //	require_once(DIR . '/includes/class_hook.php');
-//	($hook =& vBulletinHook::fetch_hook('unique_hook_name')) ? eval($hook) : false;
+//	($hook = vBulletinHook::fetch_hook('unique_hook_name')) ? eval($hook) : false;
 
 /**
 * Works the vBulletin Plugin Hook System
 *
 * @package 		vBulletin
-* @version		$Revision: 16945 $
+* @version		$Revision: 26661 $
 * @author		Kier & Mike
-* @checkedout	$Name$
-* @date 		$Date: 2007-05-09 06:48:42 -0500 (Wed, 09 May 2007) $
+* @date 		$Date: 2008-05-21 04:46:39 -0500 (Wed, 21 May 2008) $
 * @copyright 	http://www.vbulletin.com/license.html
 *
 */
@@ -82,7 +81,7 @@ class vBulletinHook
 	*
 	* @return	string
 	*/
-	function &fetch_hook_object($hookname)
+	function fetch_hook_object($hookname)
 	{
 		if (!empty($this->pluginlist["$hookname"]))
 		{
@@ -109,7 +108,7 @@ class vBulletinHook
 	*
 	* @return	string
 	*/
-	function &fetch_hook($hookname)
+	function fetch_hook($hookname)
 	{
 		$obj =& vBulletinHook::init();
 		return $obj->fetch_hook_object($hookname);
@@ -210,8 +209,8 @@ class vBulletinHook
 
 /*======================================================================*\
 || ####################################################################
-|| # Downloaded: 18:52, Sat Jul 14th 2007
-|| # CVS: $RCSfile$ - $Revision: 16945 $
+|| # Downloaded: 16:21, Sat Apr 6th 2013
+|| # CVS: $RCSfile$ - $Revision: 26661 $
 || ####################################################################
 \*======================================================================*/
 ?>

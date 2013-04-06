@@ -1,9 +1,9 @@
 <?php
 /*======================================================================*\
 || #################################################################### ||
-|| # vBulletin 3.6.7 PL1 - Licence Number VBF2470E4F
+|| # vBulletin 3.7.2 Patch Level 2 - Licence Number VBF2470E4F
 || # ---------------------------------------------------------------- # ||
-|| # Copyright ©2000-2007 Jelsoft Enterprises Ltd. All Rights Reserved. ||
+|| # Copyright ©2000-2013 Jelsoft Enterprises Ltd. All Rights Reserved. ||
 || # This file may not be redistributed in whole or significant part. # ||
 || # ---------------- VBULLETIN IS NOT FREE SOFTWARE ---------------- # ||
 || # http://www.vbulletin.com | http://www.vbulletin.com/license.html # ||
@@ -15,6 +15,7 @@ error_reporting(E_ALL & ~E_NOTICE);
 
 // #################### DEFINE IMPORTANT CONSTANTS #######################
 define('THIS_SCRIPT', 'subscription');
+define('CSRF_PROTECTION', true);
 
 // ################### PRE-CACHE TEMPLATES AND DATA ######################
 // get special phrase groups
@@ -227,7 +228,8 @@ if ($_REQUEST['do'] == 'addsubscription')
 			SELECT emailupdate
 			FROM " . TABLE_PREFIX . "subscribeforum
 			WHERE forumid = $foruminfo[forumid]
-		");
+				AND userid = " . $vbulletin->userinfo['userid']
+		);
 
 		$type = 'forum';
 		$id = $foruminfo['forumid'];
@@ -434,14 +436,20 @@ if ($_REQUEST['do'] == 'viewsubscription')
 		$limitlower = 1;
 	}
 
+	$hook_query_fields = $hook_query_joins = $hook_query_where = '';
+	($hook = vBulletinHook::fetch_hook('usersub_view_query_threadid')) ? eval($hook) : false;
+
 	$getthreads = $db->query_read_slave("
 		SELECT thread.threadid, emailupdate, subscribethreadid, thread.forumid, thread.postuserid
+			$hook_query_fields
 		FROM " . TABLE_PREFIX . "subscribethread AS subscribethread
 		LEFT JOIN " . TABLE_PREFIX . "thread AS thread ON(thread.threadid = subscribethread.threadid)
+		$hook_query_joins
 		WHERE subscribethread.userid = " . $vbulletin->userinfo['userid'] . "
 			AND thread.visible = 1
 			AND canview = 1
 		" . iif(!$getallfolders, "	AND folderid = $folderid") . "
+			$hook_query_where
 		ORDER BY $sqlsortfield $sqlsortorder
 		LIMIT " . ($limitlower - 1) . ", $perpage
 	");
@@ -548,8 +556,10 @@ if ($_REQUEST['do'] == 'viewsubscription')
 			SELECT
 				IF(votenum >= " . $vbulletin->options['showvotes'] . ", votenum, 0) AS votenum,
 				IF(votenum >= " . $vbulletin->options['showvotes'] . " AND votenum > 0, votetotal / votenum, 0) AS voteavg,
-				$previewfield thread.threadid, thread.title AS threadtitle, forumid, pollid, open, replycount, postusername,
-				$lastpost_info, postuserid, thread.dateline, views, thread.iconid AS threadiconid, notes, thread.visible, thread.attach
+				votetotal,
+				$previewfield thread.threadid, thread.title AS threadtitle, forumid, pollid, open, replycount, postusername, thread.prefixid,
+				$lastpost_info, postuserid, thread.dateline, views, thread.iconid AS threadiconid, notes, thread.visible, thread.attach,
+				thread.taglist
 				" . ($vbulletin->options['threadmarking'] ? ", threadread.readtime AS threadread" : '') . "
 				$hook_query_fields
 			FROM " . TABLE_PREFIX . "thread AS thread
@@ -558,7 +568,6 @@ if ($_REQUEST['do'] == 'viewsubscription')
 			$tachyjoin
 			$hook_query_joins
 			WHERE thread.threadid IN ($threadids)
-				$hook_query_where
 			ORDER BY $sqlsortfield $sqlsortorder
 		");
 		unset($sqlsortfield, $sqlsortorder);
@@ -680,11 +689,11 @@ if ($_REQUEST['do'] == 'viewsubscription')
 if ($_POST['do'] == 'movethread')
 {
 	$vbulletin->input->clean_array_gpc('p', array(
-		'ids'      => TYPE_STR,
+		'ids'      => TYPE_BINARY,
 		'folderid' => TYPE_UINT
 	));
 
-	$ids = unserialize($vbulletin->GPC['ids']);
+	$ids = @unserialize(verify_client_string($vbulletin->GPC['ids']));
 
 	if (!is_array($ids) OR empty($ids))
 	{
@@ -778,7 +787,7 @@ if ($_POST['do'] == 'dostuff')
 
 			$numthreads = sizeof($ids);
 
-			$ids = serialize($ids);
+			$ids = sign_client_string(serialize($ids));
 			unset($id, $deletebox);
 
 			require_once(DIR . '/includes/functions_misc.php');
@@ -980,8 +989,8 @@ if ($_POST['do'] == 'doeditfolders')
 
 /*======================================================================*\
 || ####################################################################
-|| # Downloaded: 18:52, Sat Jul 14th 2007
-|| # CVS: $RCSfile$ - $Revision: 15965 $
+|| # Downloaded: 16:21, Sat Apr 6th 2013
+|| # CVS: $RCSfile$ - $Revision: 26962 $
 || ####################################################################
 \*======================================================================*/
 ?>

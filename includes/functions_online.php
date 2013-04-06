@@ -1,9 +1,9 @@
 <?php
 /*======================================================================*\
 || #################################################################### ||
-|| # vBulletin 3.6.7 PL1 - Licence Number VBF2470E4F
+|| # vBulletin 3.7.2 Patch Level 2 - Licence Number VBF2470E4F
 || # ---------------------------------------------------------------- # ||
-|| # Copyright ©2000-2007 Jelsoft Enterprises Ltd. All Rights Reserved. ||
+|| # Copyright ©2000-2013 Jelsoft Enterprises Ltd. All Rights Reserved. ||
 || # This file may not be redistributed in whole or significant part. # ||
 || # ---------------- VBULLETIN IS NOT FREE SOFTWARE ---------------- # ||
 || # http://www.vbulletin.com | http://www.vbulletin.com/license.html # ||
@@ -38,10 +38,8 @@ function fetch_user_location_array($userinfo)
 // ###################### Start showonline #######################
 function construct_online_bit($userinfo, $doall = 0)
 {
-
-	global $wol_attachment, $wol_user, $wol_thread, $wol_post, $wol_event, $wol_inf, $wol_calendar;
-	global $vbulletin, $wol_pm, $wol_search;
-	global $limitlower, $limitupper, $stylevar, $vbphrase, $ipclass, $show;
+	global $vbulletin, $limitlower, $limitupper, $stylevar, $vbphrase, $ipclass, $show;
+	global $wol_album, $wol_attachment, $wol_calendar, $wol_event, $wol_inf, $wol_pm, $wol_post, $wol_search, $wol_socialgroup, $wol_thread, $wol_user;
 	static $count;
 
 	$count++;
@@ -74,6 +72,30 @@ function construct_online_bit($userinfo, $doall = 0)
 	$calendarid = $userinfo['calendarid'];
 	$eventid = $userinfo['eventid'];
 	$searchid = $userinfo['searchid'];
+	$groupid = $userinfo['socialgroupid'];
+	$albumid = $userinfo['albumid'];
+
+	if ($albumid)
+	{
+		require_once(DIR . '/includes/functions_album.php');
+		$albumname = fetch_censored_text($wol_album["$albumid"]['title']);
+		$canviewalbum = true;
+		if ($wol_album["$albumid"]['state'] == 'profile' AND !can_view_profile_albums($wol_album["$albumid"]['userid']))
+		{
+			$canviewalbum = false;
+		}
+		else if ($wol_album["$albumid"]['state'] == 'private' AND !can_view_private_albums($wol_album["$albumid"]['userid']))
+		{
+			$canviewalbum = false;
+		}
+	}
+
+	if ($groupid)
+	{
+		$groupname = fetch_censored_text($wol_socialgroup["$groupid"]['name']);
+		$canviewgroup = true;
+	}
+
 	if ($searchid)
 	{
 		$searchquery = $wol_search["$searchid"]['query'];
@@ -88,7 +110,7 @@ function construct_online_bit($userinfo, $doall = 0)
 	{
 		$forumid = $wol_thread["$wol_post[$postid]"]['forumid'];
 	}
-	$threadtitle = $wol_thread["$threadid"]['title'];
+	$threadtitle = fetch_censored_text($wol_thread["$threadid"]['title']);
 	$canview = $vbulletin->userinfo['forumpermissions']["$forumid"] & $vbulletin->bf_ugp_forumpermissions['canview'];
 	$canviewothers = $vbulletin->userinfo['forumpermissions']["$forumid"] & $vbulletin->bf_ugp_forumpermissions['canviewothers'];
 	$canviewthreads = $vbulletin->userinfo['forumpermissions']["$forumid"] & $vbulletin->bf_ugp_forumpermissions['canviewthreads'];
@@ -106,7 +128,7 @@ function construct_online_bit($userinfo, $doall = 0)
 	$canviewcalendar = $vbulletin->userinfo['calendarpermissions']["$calendarid"] & $vbulletin->bf_ugp_calendarpermissions['canviewcalendar'];
 	$canviewothersevent = $vbulletin->userinfo['calendarpermissions']["$calendarid"] & $vbulletin->bf_ugp_calendarpermissions['canviewothersevent'];
 
-	if ($wol_thread["$threadid"]['isdeleted'] AND !can_moderate($forumid))
+	if (($wol_thread["$threadid"]['isdeleted'] OR !$wol_thread["$threadid"]['visible']) AND !can_moderate($forumid))
 	{
 		$threadviewable = 0;
 	}
@@ -153,6 +175,96 @@ function construct_online_bit($userinfo, $doall = 0)
 
 	switch($userinfo['activity'])
 	{
+		case 'visitormessage_posting':
+			$userinfo['action'] = $vbphrase['posting_visitor_message'];
+			break;
+		case 'visitormessage_delete':
+			$userinfo['action'] = $vbphrase['deleting_visitor_message'];
+			break;
+		case 'viewingipaddress':
+			$userinfo['action'] = '<b><i>' . $vbphrase['moderating'] . '</b></i>';
+			if (can_moderate())
+			{
+				$userinfo['action'] = $vbphrase['viewing_ip_address'];
+			}
+			break;
+		case 'visitormessage_reporting':
+			$userinfo['action'] = $vbphrase['reporting_visitor_message'];
+			break;
+
+		case 'posthistory':
+			$userinfo['action'] = $vbphrase['viewing_post_history'];
+			if ($seetitle)
+			{
+				$userinfo['where'] = '<a href="showthread.php?' . $vbulletin->session->vars['sessionurl'] . "p=$postid#post$postid\" title=\"$threadpreview\">$threadtitle</a>";
+			}
+			break;
+
+		case 'tags':
+			$userinfo['action'] = $vbphrase['managing_tags'];
+			break;
+
+		case 'tag_list':
+			$userinfo['action'] = $vbphrase['viewing_tag_list'];
+			break;
+
+		case 'socialgroups_join':
+			$userinfo['action'] = $vbphrase['joining_social_group'];
+			if ($canviewgroup)
+			{
+				$userinfo['where'] = '<a href="group.php?' . $vbulletin->session->vars['sessionurl'] . "do=view&amp;groupid=$groupid\">$groupname</a>";
+			}
+			break;
+		case 'socialgroups_leave':
+			$userinfo['action'] = $vbphrase['leaving_social_group'];
+			if ($canviewgroup)
+			{
+				$userinfo['where'] = '<a href="group.php?' . $vbulletin->session->vars['sessionurl'] . "do=view&amp;groupid=$groupid\">$groupname</a>";
+			}
+			break;
+		case 'socialgroups_edit':
+			$userinfo['action'] = $vbphrase['editing_social_group'];
+			if ($canviewgroup)
+			{
+				$userinfo['where'] = '<a href="group.php?' . $vbulletin->session->vars['sessionurl'] . "do=view&amp;groupid=$groupid\">$groupname</a>";
+			}
+			break;
+		case 'socialgroups_view':
+			$userinfo['action'] = $vbphrase['viewing_social_group'];
+			if ($canviewgroup)
+			{
+				$userinfo['where'] = '<a href="group.php?' . $vbulletin->session->vars['sessionurl'] . "do=view&amp;groupid=$groupid\">$groupname</a>";
+			}
+			break;
+		case 'socialgroups_memberlist':
+			$userinfo['action'] = $vbphrase['viewing_social_group_memberlist'];
+			if ($canviewgroup)
+			{
+				$userinfo['where'] = '<a href="group.php?' . $vbulletin->session->vars['sessionurl'] . "do=viewmembers&amp;groupid=$groupid\">$groupname</a>";
+			}
+			break;
+		case 'socialgroups_delete':
+			$userinfo['action'] = $vbphrase['deleting_social_group'];
+			if ($canviewgroup)
+			{
+				$userinfo['where'] = '<a href="group.php?' . $vbulletin->session->vars['sessionurl'] . "do=viewmembers&amp;groupid=$groupid\">$groupname</a>";
+			}
+			break;
+		case 'socialgroups_create':
+			$userinfo['action'] = $vbphrase['creating_social_group'];
+			break;
+		case 'socialgroups_list':
+			$userinfo['action'] = $vbphrase['viewing_social_group_list'];
+			if ($canviewgroup)
+			{
+				$userinfo['where'] = '<a href="group.php?' . $vbulletin->session->vars['sessionurl'] . "do=view&amp;groupid=$groupid\">$groupname</a>";
+			}
+			break;
+
+		case 'group_inlinemod':
+			$userinfo['action'] = '<b><i>' . $vbphrase['moderating'] . '</i></b>';
+			break;
+
 		case 'showthread':
 			$userinfo['action'] = $vbphrase['viewing_thread'];
 			if ($seetitle)
@@ -250,6 +362,13 @@ function construct_online_bit($userinfo, $doall = 0)
 			if ($seeuserid)
 			{
 				$userinfo['where'] = '<a href="member.php?' . $vbulletin->session->vars['sessionurl'] . "u=$seeuserid\">$wol_user[$seeuserid]</a>";
+			}
+			break;
+		case 'converse':
+			$userinfo['action'] = $vbphrase['viewing_conversation'];
+			if ($seeuserid AND $wol_user["{$userinfo['guestuserid']}"])
+			{
+				$userinfo['where'] = construct_phrase($vbphrase['x_and_y_converse'], '<a href="member.php?' . $vbulletin->session->vars['sessionurl'] . "u=$seeuserid\">$wol_user[$seeuserid]</a>", '<a href="member.php?' . $vbulletin->session->vars['sessionurl'] . "u=$userinfo[guestuserid]\">" . $wol_user["{$userinfo['guestuserid']}"] . "</a>");
 			}
 			break;
 		case 'editprofile':
@@ -353,7 +472,7 @@ function construct_online_bit($userinfo, $doall = 0)
 		case 'addbuddy':
 		case 'addignore':
 		case 'buddyignore':
-			$userinfo['action'] = $vbphrase['modifying_buddy_ignore_list'];
+			$userinfo['action'] = $vbphrase['modifying_contact_ignore_list'];
 			break;
 		case 'subfolders':
 			$userinfo['action'] = $vbphrase['modifying_subscription_folders'];
@@ -390,8 +509,20 @@ function construct_online_bit($userinfo, $doall = 0)
 		case 'memberlist':
 			$userinfo['action'] = $vbphrase['viewing_member_list'];
 			break;
+
+		case 'member_inlinemod':
+			$userinfo['action'] = '<b><i>' . $vbphrase['moderating'] . '</i></b>';
+			if (can_moderate())
+			{
+				if ($seeuserid)
+				{
+					$userinfo['where'] = '<a href="member.php?' . $vbulletin->session->vars['sessionurl'] . "u=$seeuserid\">$wol_user[$seeuserid]</a>";
+				}
+			}
+		break;
+
 		case 'inlinemod':
-			$userinfo['action'] = '<b><i>' . $vbphrase['moderating'] . '</b></i>';
+			$userinfo['action'] = '<b><i>' . $vbphrase['moderating'] . '</i></b>';
 			if (can_moderate())
 			{
 				$userinfo['where'] = '<a href="showthread.php?' . $vbulletin->session->vars['sessionurl'] . "t=$threadid\" title=\"$threadpreview\">$threadtitle</a>";
@@ -462,9 +593,16 @@ function construct_online_bit($userinfo, $doall = 0)
 					case 'clearpost':
 						$userinfo['action'] = '<i>' . $vbphrase['inline_mod_clear'] . '</i>';
 						break;
+					case 'spampost':
+					case 'dodeletespam':
+					case 'spamconfirm':
+						$userinfo['action'] = '<i>' . $vbphrase['managing_spam'] . '</i>';
+						break;
+
 				}
 			}
 			break;
+
 		case 'postings':
 			$userinfo['action'] = '<b><i>' . $vbphrase['moderating'] . '</b></i>';
 			if (can_moderate($forumid) AND $threadtitle AND $canview AND ($canviewothers OR $postuserid == $vbulletin->userinfo['userid']))
@@ -810,6 +948,36 @@ function construct_online_bit($userinfo, $doall = 0)
 				$userinfo['action'] = $vbphrase['viewing_index'];
 			}
 			break;
+		case 'modcp_deletedvms':
+			if (can_moderate())
+			{
+				$userinfo['action'] = $vbphrase['viewing_deleted_visitor_messages'];
+			}
+			else
+			{
+				$userinfo['action'] = $vbphrase['viewing_index'];
+			}
+			break;
+		case 'modcp_deletedgms':
+			if (can_moderate())
+			{
+				$userinfo['action'] = $vbphrase['viewing_deleted_social_group_messages'];
+			}
+			else
+			{
+				$userinfo['action'] = $vbphrase['viewing_index'];
+			}
+			break;
+		case 'modcp_deletedpcs':
+			if (can_moderate())
+			{
+				$userinfo['action'] = $vbphrase['viewing_deleted_picture_comments'];
+			}
+			else
+			{
+				$userinfo['action'] = $vbphrase['viewing_index'];
+			}
+			break;
 		case 'modcp_moderatedthreads':
 			if (can_moderate(0, 'canmoderateposts'))
 			{
@@ -830,14 +998,48 @@ function construct_online_bit($userinfo, $doall = 0)
 				$userinfo['action'] = $vbphrase['viewing_index'];
 			}
 			break;
+		case 'modcp_moderatedvms':
+			if (can_moderate(0, 'canmoderatevisitormessages'))
+			{
+				$userinfo['action'] = $vbphrase['viewing_moderated_visitor_messages'];
+			}
+			else
+			{
+				$userinfo['action'] = $vbphrase['viewing_index'];
+			}
+			break;
+		case 'modcp_moderatedgms':
+			if (can_moderate(0, 'canmoderategroupmessages'))
+			{
+				$userinfo['action'] = $vbphrase['viewing_moderated_social_group_messages'];
+			}
+			else
+			{
+				$userinfo['action'] = $vbphrase['viewing_index'];
+			}
+			break;
+		case 'modcp_moderatedpcs':
+			if (can_moderate(0, 'canmoderatepicturecomments'))
+			{
+				$userinfo['action'] = $vbphrase['viewing_moderated_picture_comments'];
+			}
+			else
+			{
+				$userinfo['action'] = $vbphrase['viewing_index'];
+			}
+			break;
+		case 'modcp_moderatedpictures':
+			if (can_moderate(0, 'canmoderatepictures'))
+			{
+				$userinfo['action'] = $vbphrase['viewing_moderated_pictures'];
+			}
+			else
+			{
+				$userinfo['action'] = $vbphrase['viewing_index'];
+			}
+			break;
 		case 'payments':
 			$userinfo['action'] = $vbphrase['viewing_paid_subscriptions'];
-			break;
-		case 'chat':
-			$userinfo['action'] = $vbphrase['chat'];
-			break;
-		case 'gallery':
-			$userinfo['action'] = $vbphrase['viewing_gallery'];
 			break;
 		case 'spider':
 			$userinfo['action'] = $vbphrase['search_engine_spider'];
@@ -854,9 +1056,112 @@ function construct_online_bit($userinfo, $doall = 0)
 		case 'modcplogin':
 			$userinfo['action'] = $vbphrase['moderator_control_panel_login'];
 			break;
-		case 'bugs':
-			$userinfo['action'] = construct_phrase($vbphrase['viewing_x'], 'Bugs'); // Don't report 'bugs' as needing to be translated please :p
+		case 'album_delete':
+			$userinfo['action'] = $vbphrase['deleting_album'];
 			break;
+
+		case 'album_edit_album':
+		{
+			$userinfo['action'] = $vbphrase['editing_album'];
+			if ($canviewalbum)
+			{
+				$userinfo['where'] = '<a href="album.php?' . $vbulletin->session->vars['sessionurl'] . "albumid=$albumid\">$albumname</a>";
+			}
+			break;
+		}
+
+		case 'album_new_album':
+			$userinfo['action'] = $vbphrase['creating_album'];
+			break;
+
+		case 'album_edit_picture':
+		{
+			$userinfo['action'] = $vbphrase['editing_pictures'];
+			if ($canviewalbum)
+			{
+				if (!empty($userinfo['pictureid']))
+				{
+					$userinfo['where'] = '<a href="album.php?' . $vbulletin->session->vars['sessionurl'] . "albumid=$albumid&amp;pictureid=" . $userinfo['pictureid'] ."\">$albumname</a>";
+				}
+				else
+				{
+					$userinfo['where'] = '<a href="album.php?' . $vbulletin->session->vars['sessionurl'] . "albumid=$albumid\">$albumname</a>";
+				}
+			}
+		}
+		break;
+
+		case 'album_upload':
+		{
+			$userinfo['action'] = $vbphrase['uploading_pictures'];
+			if ($canviewalbum)
+			{
+				$userinfo['where'] = '<a href="album.php?' . $vbulletin->session->vars['sessionurl'] . "albumid=$albumid\">$albumname</a>";
+			}
+		}
+		break;
+
+		case 'album_picture':
+		{
+			$userinfo['action'] = $vbphrase['viewing_picture'];
+			if ($canviewalbum)
+			{
+				if (!empty($userinfo['pictureid']))
+				{
+					$userinfo['where'] = '<a href="album.php?' . $vbulletin->session->vars['sessionurl'] . "albumid=$albumid&amp;pictureid=" . $userinfo['pictureid'] ."\">$albumname</a>";
+				}
+				else
+				{
+					$userinfo['where'] = '<a href="album.php?' . $vbulletin->session->vars['sessionurl'] . "albumid=$albumid\">$albumname</a>";
+				}
+			}
+		}
+		break;
+
+		case 'album_album':
+		{
+			$userinfo['action'] = $vbphrase['viewing_album'];
+			if ($canviewalbum)
+			{
+				$userinfo['where'] = '<a href="album.php?' . $vbulletin->session->vars['sessionurl'] . "albumid=$albumid\">$albumname</a>";
+			}
+		}
+		break;
+
+		case 'album_user':
+		{
+			$userinfo['action'] = $vbphrase['viewing_users_album'];
+			if ($seeuserid)
+			{
+				$userinfo['where'] = '<a href="album.php?' . $vbulletin->session->vars['sessionurl'] . "userid=$seeuserid\">$wol_user[$seeuserid]</a>";
+			}
+		}
+		break;
+
+		case 'album_unread_comments':
+			$userinfo['action'] = $vbphrase['viewing_unread_picture_comments'];
+			break;
+
+		case 'album_moderated_comments':
+			$userinfo['action'] = $vbphrase['viewing_picture_comments_awaiting_approval'];
+			break;
+
+		case 'picturecomment_posting':
+			$userinfo['action'] = $vbphrase['posting_picture_comment'];
+			break;
+
+		case 'picturecomment_delete':
+			$userinfo['action'] = $vbphrase['deleting_picture_comment'];
+			break;
+
+		case 'picturecomment_reporting':
+			$userinfo['action'] = $vbphrase['reporting_picture_comment'];
+			break;
+
+		case 'picture_inlinemod':
+			$userinfo['action'] = '<b><i>' . $vbphrase['moderating'] . '</i></b>';
+			break;
+
 		default:
 			$handled = false;
 			($hook = vBulletinHook::fetch_hook('online_location_unknown')) ? eval($hook) : false;
@@ -960,9 +1265,10 @@ function construct_online_bit($userinfo, $doall = 0)
 // ###################### Start whereonline #######################
 function process_online_location($userinfo, $doall = 0)
 {
+	global $vbulletin, $limitlower, $limitupper;
 
-	global $threadids, $postids, $forumids, $infractionids, $eventids, $userids, $calendarids, $attachmentids, $pmids, $searchids, $vbulletin;
-	global $limitlower, $limitupper;
+	global $albumids, $attachmentids, $calendarids, $eventids, $forumids, $infractionids, $pictureids;
+	global $pmids, $postids, $searchids, $socialgroupids, $threadids, $userids;
 
 	static $count;
 
@@ -997,7 +1303,7 @@ function process_online_location($userinfo, $doall = 0)
 		$filename = strtok($loc, '?');
 	}
 	$token = $filename;
-	$pos = @strrpos ($filename, '/');
+	$pos = @strrpos($filename, '/');
 	if (!is_string($pos) OR $pos)
 	{
 		$filename = substr($filename, $pos + 1);
@@ -1099,6 +1405,21 @@ function process_online_location($userinfo, $doall = 0)
 		$userinfo['targetuserid'] = intval($values['userid']);
 		$userids .= ',' . $userinfo['targetuserid'];
 	}
+	if (!empty($values['u2']))
+	{
+		$userinfo['guestuserid'] = intval($values['u2']);
+		$userids .= ',' . $userinfo['guestuserid'];
+	}
+	if (!empty($values['albumid']))
+	{
+		$userinfo['albumid'] = intval($values['albumid']);
+		$albumids .= ',' . $userinfo['albumid'];
+	}
+	if (!empty($values['pictureid']))
+	{
+		$userinfo['pictureid'] = intval($values['pictureid']);
+		$pictureids .= ',' . $userinfo['pictureid'];
+	}
 	if (!empty($values['pmid']))
 	{
 		$userinfo['pmid'] = intval($values['pmid']);
@@ -1112,6 +1433,11 @@ function process_online_location($userinfo, $doall = 0)
 	if (!empty($values['usergroupid']))
 	{
 		$userinfo['usergroupid'] = intval($values['usergroupid']);
+	}
+	if(!empty($values['groupid']))
+	{
+		$userinfo['socialgroupid'] = intval($values['groupid']);
+		$socialgroupids .= ',' . $userinfo['socialgroupid'];
 	}
 
 // ################################################## Showthread
@@ -1229,7 +1555,7 @@ function process_online_location($userinfo, $doall = 0)
 		{
 			$userinfo['activity'] = 'editprofile';
 		}
-		else if ($values['do'] == 'editoptions' OR $values['do'] = 'updateoptions')
+		else if ($values['do'] == 'editoptions' OR $values['do'] == 'updateoptions')
 		{
 			$userinfo['activity'] = 'editoptions';
 		}
@@ -1258,7 +1584,7 @@ function process_online_location($userinfo, $doall = 0)
 			// Need to modify the joingroup action to support detailed information on the group being joined for admins
 			$userinfo['activity'] = 'usergroup';
 		}
-		else if (in_array($values['do'], array('editlist', 'updatelist', 'removelist', 'doremovelist')))
+		else if (in_array($values['do'], array('updatelist', 'removelist', 'doremovelist', 'buddylist', 'ignorelist')))
 		{
 			$userinfo['activity'] = 'buddyignore';
 		}
@@ -1268,9 +1594,13 @@ function process_online_location($userinfo, $doall = 0)
 			{
 				$userinfo['activity'] = 'addignore';
 			}
-			else if ($values['userlist'] == 'buddy')
+			else if (in_array($values['userlist'], array('buddy', 'friend')))
 			{
 				$userinfo['activity'] = 'addbuddy';
+			}
+			else
+			{
+				$userinfo['activity'] = 'buddyignore';
 			}
 		}
 		else if ($values['do'] == 'editattachments' OR $values['do'] == 'deleteattachments')
@@ -1337,6 +1667,7 @@ function process_online_location($userinfo, $doall = 0)
 		$userinfo['activity'] = 'payments';
 		break;
 
+
 	case 'misc.php':
 		if ($values['do'] == 'showsmilies' OR $values['do'] == 'getsmilies')
 		{
@@ -1372,6 +1703,14 @@ function process_online_location($userinfo, $doall = 0)
 		$userinfo['activity'] = 'postings';
 		break;
 
+	case 'member_inlinemod.php':
+		$userinfo['activity'] = 'member_inlinemod';
+		break;
+
+	case 'group_inlinemod.php':
+		$userinfo['activity'] = 'group_inlinemod';
+		break;
+
 	case 'inlinemod.php':
 		$userinfo['activity'] = 'inlinemod';
 		break;
@@ -1404,6 +1743,10 @@ function process_online_location($userinfo, $doall = 0)
 
 	case 'usercp.php':
 		$userinfo['activity'] = 'usercp';
+		break;
+
+	case 'converse.php':
+		$userinfo['activity'] = 'converse';
 		break;
 
 	case 'calendar.php':
@@ -1494,6 +1837,40 @@ function process_online_location($userinfo, $doall = 0)
 					$userinfo['activity'] = 'modcp_moderatedposts';
 				}
 				break;
+			case 'viewvms':
+				if ($values['type'] == 'deleted')
+				{
+					$userinfo['activity'] = 'modcp_deletedvms';
+				}
+				else
+				{
+					$userinfo['activity'] = 'modcp_moderatedvms';
+				}
+				break;
+			case 'viewgms':
+				if ($values['type'] == 'deleted')
+				{
+					$userinfo['activity'] = 'modcp_deletedgms';
+				}
+				else
+				{
+					$userinfo['activity'] = 'modcp_moderatedgms';
+				}
+				break;
+			case 'viewpcs':
+				if ($values['type'] == 'deleted')
+				{
+					$userinfo['activity'] = 'modcp_deletedpcs';
+				}
+				else
+				{
+					$userinfo['activity'] = 'modcp_moderatedpcs';
+				}
+				break;
+			case 'viewpics':
+				$userinfo['activity'] = 'modcp_moderatedpictures';
+				break;
+
 		}
 		break;
 
@@ -1519,6 +1896,42 @@ function process_online_location($userinfo, $doall = 0)
 		else
 		{
 			$userinfo['activity'] = 'usernote';
+		}
+		break;
+
+	case 'group.php':
+		switch ($values['do'])
+		{
+			case 'join':
+			case 'dojoin':
+				$userinfo['activity'] = 'socialgroups_join';
+				break;
+			case 'leave':
+			case 'doleave':
+				$userinfo['activity'] = 'socialgroups_leave';
+				break;
+			case 'edit':
+			case 'doedit':
+				$userinfo['activity'] = 'socialgroups_edit';
+				break;
+			case 'delete':
+			case 'dodelete':
+				$userinfo['activity'] = 'socialgroups_delete';
+				break;
+			case 'create':
+			case 'docreate':
+				$userinfo['activity'] = 'socialgroups_create';
+				break;
+			case '':
+			case 'view':
+				$userinfo['activity'] = 'socialgroups_view';
+				break;
+			case 'viewmembers':
+				$userinfo['activity'] = 'socialgroups_memberlist';
+				break;
+			default:
+				$userinfo['activity'] = 'socialgroups_list';
+				break;
 		}
 		break;
 
@@ -1554,21 +1967,168 @@ function process_online_location($userinfo, $doall = 0)
 		$userinfo['activity'] = 'archive';
 		break;
 
-	case 'chat.php':
-		$userinfo['activity'] = 'chat';
-		break;
-
-	case 'gallery.php':
-		$userinfo['activity'] = 'gallery';
-		break;
-
 	case '/robots.txt':
 		$userinfo['activity'] = 'spider';
 		break;
 
-	case 'bugs.php':
-		$userinfo['activity'] = 'bugs';
+	case 'posthistory.php':
+		$userinfo['activity'] = 'posthistory';
 		break;
+
+	case 'threadtag.php':
+		$userinfo['activity'] = 'tags';
+		break;
+
+	case 'tags.php':
+		$userinfo['activity'] = 'tag_list';
+		break;
+
+	case 'visitormessage.php':
+	{
+		switch ($values['do'])
+		{
+			case 'message':
+			{
+				$userinfo['activity'] = 'visitormessage_posting';
+			}
+			break;
+
+			case 'deletemessage':
+			{
+				$userinfo['activity'] = 'visitormessage_delete';
+			}
+			break;
+
+			case 'viewip':
+			{
+				$userinfo['activity'] = 'viewingipaddress';
+			}
+			break;
+
+			case 'report':
+			case 'sendemail':
+			{
+				$userinfo['activity'] = 'visitormessage_reporting';
+			}
+			break;
+
+		}
+	}
+	break;
+
+	case 'album.php':
+	{
+		switch ($values['do'])
+		{
+			case 'killalbum':
+			{
+				$userinfo['activity'] = 'album_delete';
+			}
+			break;
+
+			case 'updatealbum':
+			case 'editalbum':
+			{
+				$userinfo['activity'] = 'album_edit_album';
+			}
+			break;
+
+			case 'addalbum':
+			{
+				$userinfo['activity'] = 'album_new_album';
+			}
+			break;
+
+			case 'editpictures':
+			case 'updatepictures':
+			{
+				$userinfo['activity'] = 'album_edit_picture';
+			}
+			break;
+
+			case 'addpictures':
+			case 'uploadpictures':
+			{
+				$userinfo['activity'] = 'album_upload';
+			}
+			break;
+
+			case 'unread':
+			{
+				$userinfo['activity'] = 'album_unread_comments';
+			}
+			break;
+
+			case 'moderated':
+			{
+				$userinfo['activity'] = 'album_moderated_comments';
+			}
+			break;
+
+			default:
+			{
+				if(!empty($values['pictureid']))
+				{
+					$userinfo['activity'] = 'album_picture';
+				}
+				elseif (!empty($values['albumid']))
+				{
+					$userinfo['activity'] = 'album_album';
+				}
+				elseif (!empty($values['userid']))
+				{
+					$userinfo['activity'] = 'album_user';
+				}
+				else
+				{
+					$userinfo['activity'] = 'album_user';
+					if ($userinfo['userid'])
+					{
+						$userids .= ',' . $userinfo['userid'];
+						$userinfo['targetuserid'] = $userinfo['userid'];
+					}
+				}
+			}
+		}
+	}
+	break;
+
+	case 'picturecomment.php':
+	{
+		switch ($values['do'])
+		{
+			case 'message':
+			{
+				$userinfo['activity'] = 'picturecomment_posting';
+			}
+			break;
+
+			case 'deletemessage':
+			{
+				$userinfo['activity'] = 'picturecomment_delete';
+			}
+			break;
+
+			case 'viewip':
+			{
+				$userinfo['activity'] = 'viewingipaddress';
+			}
+			break;
+
+			case 'report':
+			case 'sendemail':
+			{
+				$userinfo['activity'] = 'picturecomment_reporting';
+			}
+			break;
+
+		}
+	}
+	break;
+
+	case 'picture_inlinemod.php':
+		$userinfo['activity'] = 'picture_inlinemod';
+	break;
 
 	default:
 		$userinfo['activity'] = 'unknown';
@@ -1582,9 +2142,9 @@ function process_online_location($userinfo, $doall = 0)
 function convert_ids_to_titles()
 {
 
-	global $vbulletin, $threadids, $forumids, $infractionids, $eventids, $userids, $calendarids, $postids, $pmids, $attachmentids;
-	global $wol_attachment, $wol_user, $wol_thread, $wol_post, $wol_event, $wol_inf, $wol_calendar, $wol_pm, $vbulletin;
-	global $searchids, $wol_search;
+	global $vbulletin;
+	global $albumids, $attachmentids, $calendarids, $eventids, $forumids, $infractionids, $pmids, $postids, $searchids, $socialgroupids, $threadids, $userids;
+	global $wol_album, $wol_attachment, $wol_calendar, $wol_event, $wol_inf, $wol_pm, $wol_post, $wol_search, $wol_socialgroup, $wol_thread, $wol_user;
 
 	if ($attachmentids)
 	{
@@ -1611,6 +2171,34 @@ function convert_ids_to_titles()
 		{
 			$threadids .= ',' . $postidqueryr['threadid'];
 			$wol_post["$postidqueryr[postid]"] = $postidqueryr['threadid'];
+		}
+	}
+
+	if ($socialgroupids)
+	{
+		$socialgroups = $vbulletin->db->query_read_slave("
+			SELECT name, groupid
+			FROM " . TABLE_PREFIX . "socialgroup
+			WHERE groupid IN (0$socialgroupids)
+		");
+
+		while ($socialgroup = $vbulletin->db->fetch_array($socialgroups))
+		{
+			$wol_socialgroup["$socialgroup[groupid]"]['name'] = $socialgroup['name'];
+		}
+	}
+
+	if ($albumids)
+	{
+		$albums = $vbulletin->db->query_read_slave("
+			SELECT title, albumid, state, userid
+			FROM " . TABLE_PREFIX . "album
+			WHERE albumid IN (0$albumids)
+		");
+
+		while ($album = $vbulletin->db->fetch_array($albums))
+		{
+			$wol_album["$album[albumid]"] = $album;
 		}
 	}
 
@@ -1807,8 +2395,8 @@ function sanitize_perpage($perpage, $max, $default = 25)
 
 /*======================================================================*\
 || ####################################################################
-|| # Downloaded: 18:52, Sat Jul 14th 2007
-|| # CVS: $RCSfile$ - $Revision: 15734 $
+|| # Downloaded: 16:21, Sat Apr 6th 2013
+|| # CVS: $RCSfile$ - $Revision: 26377 $
 || ####################################################################
 \*======================================================================*/
 ?>

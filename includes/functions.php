@@ -1,9 +1,9 @@
 <?php
 /*======================================================================*\
 || #################################################################### ||
-|| # vBulletin 3.6.7 PL1 - Licence Number VBF2470E4F
+|| # vBulletin 3.7.2 Patch Level 2 - Licence Number VBF2470E4F
 || # ---------------------------------------------------------------- # ||
-|| # Copyright ©2000-2007 Jelsoft Enterprises Ltd. All Rights Reserved. ||
+|| # Copyright ©2000-2013 Jelsoft Enterprises Ltd. All Rights Reserved. ||
 || # This file may not be redistributed in whole or significant part. # ||
 || # ---------------- VBULLETIN IS NOT FREE SOFTWARE ---------------- # ||
 || # http://www.vbulletin.com | http://www.vbulletin.com/license.html # ||
@@ -51,6 +51,35 @@ define('COOKIE_SALT', 'VBF2470E4F');
 function iif($expression, $returntrue, $returnfalse = '')
 {
 	return ($expression ? $returntrue : $returnfalse);
+}
+
+// #############################################################################
+/**
+* Converts shorthand string version of a size to bytes, 8M = 8388608
+*
+* @param	string			The value from ini_get that needs converted to bytes
+*
+* @return	integer			Value expanded to bytes
+*/
+function ini_size_to_bytes($value)
+{
+	$value = trim($value);
+	$retval = intval($value);
+
+	switch(strtolower($value[strlen($value) - 1]))
+	{
+		case 'g':
+			$retval *= 1024;
+			/* break missing intentionally */
+		case 'm':
+			$retval *= 1024;
+			/* break missing intentionally */
+		case 'k':
+			$retval *= 1024;
+			break;
+	}
+
+	return $retval;
 }
 
 // #############################################################################
@@ -160,13 +189,23 @@ function split_string($string)
 
 // #############################################################################
 /**
-* Converts html entities to a regular character so strlen can be performed
+* Attempts to do a character-based strlen on data that might contain HTML entities.
+* By default, it only converts numeric entities but can optional convert &quot;,
+* &lt;, etc. Uses a multi-byte aware function to do the counting if available.
 *
 * @param	string	String to be measured
+* @param	boolean	If true, run unhtmlspecialchars on string to count &quot; as one, etc.
+*
+* @return	integer	Length of string
 */
-function vbstrlen($string)
+function vbstrlen($string, $unhtmlspecialchars = false)
 {
 	$string = preg_replace('#&\#([0-9]+);#', '_', $string);
+	if ($unhtmlspecialchars)
+	{
+		// don't try to translate unicode entities ever, as we want them to count as 1 (above)
+		$string = unhtmlspecialchars($string, false);
+	}
 
 	global $stylevar;
 	if (function_exists('mb_strlen') AND $length = @mb_strlen($string, $stylevar['charset']))
@@ -198,7 +237,7 @@ function vbchop($string, $length)
 		return $string;
 	}
 
-	if (preg_match_all('/&#[0-9]+;/', $string, $matches, PREG_OFFSET_CAPTURE))
+	if (preg_match_all('/&(#[0-9]+|lt|gt|quot|amp);/', $string, $matches, PREG_OFFSET_CAPTURE))
 	{
 		// find all entities because we need to count them as 1 character
 		foreach ($matches[0] AS $match)
@@ -340,7 +379,7 @@ function vbrand($min, $max, $seed = -1)
 *
 * @return	array	Usergroup IDs to which the user belongs
 */
-function fetch_membergroupids_array(&$user, $getprimary = true)
+function fetch_membergroupids_array($user, $getprimary = true)
 {
 	if ($user['membergroupids'])
 	{
@@ -365,33 +404,49 @@ function fetch_membergroupids_array(&$user, $getprimary = true)
 *
 * This function can be overloaded to test multiple usergroups: is_member_of($user, 1, 3, 4, 6...)
 *
-* @param	array		User info array - must contain userid, usergroupid and membergroupids fields
+* @param	array	User info array - must contain userid, usergroupid and membergroupids fields
 * @param	integer	Usergroup ID to test
-* @param boolean	Pull result from cache
+* @param	boolean	Pull result from cache
 *
 * @return	boolean
 */
-function is_member_of(&$userinfo, $usergroupid, $cache = true)
+function is_member_of($userinfo, $usergroupid, $cache = true)
 {
 	static $user_memberships;
 
-	if (func_num_args() == 2)
+	switch (func_num_args())
 	{
-		// only one group specified - stuff it into an array
-		if (is_array($usergroupid))
-		{
-			$groups = $usergroupid;
-		}
-		else
-		{
-			$groups = array($usergroupid);
-		}
-	}
-	else
-	{
-		// many groups specified - put them into an array
-		$groups = func_get_args();
-		unset($groups[0]);
+		// 1 can't happen
+
+		case 2: // note: func_num_args doesn't count args with default values unless they're overridden
+			$groups = is_array($usergroupid) ? $usergroupid : array($usergroupid);
+		break;
+
+		case 3:
+			if (is_array($usergroupid))
+			{
+				$groups = $usergroupid;
+				$cache = (bool)$cache;
+			}
+			else if (is_bool($cache))
+			{
+				// passed in 1 group and a cache state
+				$groups = array($usergroupid);
+			}
+			else
+			{
+				// passed in 2 groups
+				$groups = array($usergroupid, $cache);
+				$cache = true;
+			}
+		break;
+
+		default:
+			// passed in 4+ args, which means it has to be in the 1,2,3 method
+			$groups = func_get_args();
+			unset($groups[0]);
+
+			$cache = true;
 	}
 
 	if (!is_array($user_memberships["$userinfo[userid]"]) OR !$cache)
@@ -531,7 +586,7 @@ function fetch_censored_text($text)
 		if (empty($censorwords))
 		{
 			$vbulletin->options['censorwords'] = preg_quote($vbulletin->options['censorwords'], '#');
-			$censorwords = preg_split('#\s+#', $vbulletin->options['censorwords'], -1, PREG_SPLIT_NO_EMPTY);
+			$censorwords = preg_split('#[ \r\n\t]+#', $vbulletin->options['censorwords'], -1, PREG_SPLIT_NO_EMPTY);
 		}
 
 		foreach ($censorwords AS $censorword)
@@ -543,9 +598,13 @@ function fetch_censored_text($text)
 					// prevents errors from the replace if the { and } are mismatched
 					$censorword = substr($censorword, 2, -2);
 				}
-				// words are delimited by ASCII characters outside of A-Z and a-z
+
+				// ASCII character search 0-47, 58-64, 91-96, 123-127
+				$nonword_chars = '\x00-\x2f\x3a-\x40\x5b-\x60\x7b-\x7f';
+
+				// words are delimited by ASCII characters outside of A-Z, a-z and 0-9
 				$text = preg_replace(
-					'#(?<=[\x00-\x40\x5b-\x60\x7b-\x7f]|^)' . $censorword . '(?=[\x00-\x40\x5b-\x60\x7b-\x7f]|$)#si',
+					'#(?<=[' . $nonword_chars . ']|^)' . $censorword . '(?=[' . $nonword_chars . ']|$)#si',
 					str_repeat($vbulletin->options['censorchar'], vbstrlen($censorword)),
 					$text
 				);
@@ -625,7 +684,7 @@ function fetch_trimmed_title($title, $chars = -1, $append = true)
 		$i = 0;
 		foreach ($titlearr AS $key)
 		{
-			$title .= "$key\n";
+			$title .= "$key \n";
 			$i++;
 			if ($i >= 10)
 			{
@@ -644,12 +703,28 @@ function fetch_trimmed_title($title, $chars = -1, $append = true)
 			}
 			if ($append)
 			{
-				return $title . '...';
+				$title .= '...';
 			}
 		}
+
+		//$title = fetch_soft_break_string($title);
 	}
 
 	return $title;
+}
+
+// #############################################################################
+/**
+* Breaks up strings (typically URLs) semi-invisibly to avoid word-wrapping issues
+*
+* @param	string	Text to be broken
+*
+* @return	string
+*/
+function fetch_soft_break_string($string)
+{
+	// replace forward slashes and question marks not followed by digits or slashes with soft hyphens (&shy;)
+	return preg_replace('#(/|\?)([^/\d])#s', '\1&shy;\2', $string);
 }
 
 // #############################################################################
@@ -713,7 +788,7 @@ function file_extension($filename)
 function is_valid_email($email)
 {
 	// checks for a valid email format
-	return preg_match('#^[a-z0-9.!\#$%&\'*+-/=?^_`{|}~]+@([0-9.]+|([^\s\'"<>]+\.+[a-z]{2,6}))$#si', $email);
+	return preg_match('#^[a-z0-9.!\#$%&\'*+-/=?^_`{|}~]+@([0-9.]+|([^\s\'"<>@,;]+\.+[a-z]{2,6}))$#si', $email);
 }
 
 // #############################################################################
@@ -769,7 +844,19 @@ function vbmail($toemail, $subject, $message, $notsubscription = false, $from = 
 	{
 		// define this in config.php -- good for test boards,
 		// that you don't want people to stumble upon
-		return true;
+		if (is_string(DISABLE_MAIL) AND strpos(DISABLE_MAIL, '@') !== false)
+		{
+			// DISABLE_MAIL contains part of an email address,
+			// so only let emails matching that through
+			if (strpos($toemail, DISABLE_MAIL) === false)
+			{
+				return true; // email not matched
+			}
+		}
+		else
+		{
+			return true; // all mail disabled
+		}
 	}
 
 	global $vbulletin;
@@ -822,7 +909,11 @@ function fetch_language_fields_sql($addtable = true)
 {
 	global $phrasegroups, $vbulletin;
 
-	$phrasegroups[] = 'global';
+	if (!is_array($phrasegroups))
+	{
+		$phrasegroups = array();
+	}
+	array_unshift($phrasegroups, 'global');
 
 	if ($addtable)
 	{
@@ -835,7 +926,7 @@ function fetch_language_fields_sql($addtable = true)
 
 	$sql = '';
 
-	foreach($phrasegroups AS $group)
+	foreach ($phrasegroups AS $group)
 	{
 		$group = preg_replace('#[^a-z0-9_]#i', '', $group); // just to be safe...
 		if ($group == 'reputationlevel' AND !$vbulletin->options['reputationenable'] AND VB_AREA == 'Forum')
@@ -947,12 +1038,12 @@ function fetch_musername(&$user, $displaygroupfield = 'displaygroupid', $usernam
 		$displaygroupfield = 'infractiongroupid';
 	}
 
-	if (isset($vbulletin->usergroupcache["$user[$displaygroupfield]"]))
+	if (isset($vbulletin->usergroupcache["$user[$displaygroupfield]"]) AND $user["$displaygroupfield"] > 0)
 	{
 		// use $displaygroupid
 		$displaygroupid = $user["$displaygroupfield"];
 	}
-	else if (isset($vbulletin->usergroupcache["$user[usergroupid]"]))
+	else if (isset($vbulletin->usergroupcache["$user[usergroupid]"]) AND $user['usergroupid'] > 0)
 	{
 		// use primary usergroupid
 		$displaygroupid = $user['usergroupid'];
@@ -1050,26 +1141,36 @@ function fetch_foruminfo(&$forumid, $usecache = true)
 */
 function fetch_threadinfo(&$threadid, $usecache = true)
 {
-	global $vbulletin, $threadcache;
+	global $vbulletin, $threadcache, $vbphrase;
 
 	if ($vbulletin->userinfo['userid'] AND in_coventry($vbulletin->userinfo['userid'], true))
 	{
-		$lastpost_info = ",IF(tachythreadpost.userid IS NULL, thread.lastpost, tachythreadpost.lastpost) AS lastpost, " .
-			"IF(tachythreadpost.userid IS NULL, thread.lastposter, tachythreadpost.lastposter) AS lastposter, " .
-			"IF(tachythreadpost.userid IS NULL, thread.lastpostid, tachythreadpost.lastpostid) AS lastpostid";
+		$tachyjoin = "
+			LEFT JOIN " . TABLE_PREFIX . "tachythreadcounter AS tachythreadcounter ON
+				(tachythreadcounter.threadid = thread.threadid AND tachythreadcounter.userid = " . $vbulletin->userinfo['userid'] . ")
+			LEFT JOIN " . TABLE_PREFIX . "tachythreadpost AS tachythreadpost ON
+				(tachythreadpost.threadid = thread.threadid AND tachythreadpost.userid = " . $vbulletin->userinfo['userid'] . ')
+		';
 
-		$tachyjoin = "LEFT JOIN " . TABLE_PREFIX . "tachythreadpost AS tachythreadpost ON " .
-			"(tachythreadpost.threadid = thread.threadid AND tachythreadpost.userid = " . $vbulletin->userinfo['userid'] . ')';
+		$tachyselect = "
+			,IF(tachythreadpost.userid IS NULL, thread.lastpost, tachythreadpost.lastpost) AS lastpost,
+			IF(tachythreadpost.userid IS NULL, thread.lastposter, tachythreadpost.lastposter) AS lastposter,
+			IF(tachythreadpost.userid IS NULL, thread.lastpostid, tachythreadpost.lastpostid) AS lastpostid,
+			IF(tachythreadcounter.userid IS NULL, thread.replycount, thread.replycount + tachythreadcounter.replycount) AS replycount
+		";
 	}
 	else
 	{
-		$lastpost_info = "";
-		$tachyjoin = "";
+		$tachyjoin = '';
+		$tachyselect = '';
 	}
 
 	$threadid = intval($threadid);
-	if (!isset($threadcache["$threadid"]))
+	if (!isset($threadcache["$threadid"]) OR !$usecache)
 	{
+		$hook_query_fields = $hook_query_joins = '';
+		($hook = vBulletinHook::fetch_hook('fetch_threadinfo_query')) ? eval($hook) : false;
+
 		$marking = ($vbulletin->options['threadmarking'] AND $vbulletin->userinfo['userid']);
 		$threadcache["$threadid"] = $vbulletin->db->query_first("
 			SELECT IF(visible = 2, 1, 0) AS isdeleted,
@@ -1080,7 +1181,8 @@ function fetch_threadinfo(&$threadid, $usecache = true)
 			  . iif($vbulletin->options['threadvoted'] AND $vbulletin->userinfo['userid'], 'threadrate.vote,')
 			  . iif($marking, 'threadread.readtime AS threadread, forumread.readtime AS forumread,') . "
 			thread.*
-			$lastpost_info
+			$tachyselect
+			$hook_query_fields
 			FROM " . TABLE_PREFIX . "thread AS thread
 			" . (THIS_SCRIPT == 'postings' ? "LEFT JOIN " . TABLE_PREFIX . "deletionlog AS deletionlog ON (deletionlog.primaryid = thread.threadid AND deletionlog.type = 'thread')" : "") . "
 			" . iif($vbulletin->userinfo['userid'] AND ($vbulletin->options['threadsubscribed'] AND THIS_SCRIPT == 'showthread') OR THIS_SCRIPT == 'editpost' OR THIS_SCRIPT == 'newreply' OR THIS_SCRIPT == 'postings', "LEFT JOIN " . TABLE_PREFIX . "subscribethread AS subscribethread ON (subscribethread.threadid = thread.threadid AND subscribethread.userid = " . $vbulletin->userinfo['userid'] . "  AND subscribethread.canview = 1)") . "
@@ -1090,8 +1192,16 @@ function fetch_threadinfo(&$threadid, $usecache = true)
 				LEFT JOIN " . TABLE_PREFIX . "forumread AS forumread ON (forumread.forumid = thread.forumid AND forumread.userid = " . $vbulletin->userinfo['userid'] . ")
 			") . "
 			$tachyjoin
+			$hook_query_joins
 			WHERE thread.threadid = $threadid
 		");
+
+		$thread =& $threadcache["$threadid"];
+		if ($thread['prefixid'])
+		{
+			$thread['prefix_plain_html'] = htmlspecialchars_uni($vbphrase["prefix_$thread[prefixid]_title_plain"]);
+			$thread['prefix_rich'] = $vbphrase["prefix_$thread[prefixid]_title_rich"];
+		}
 	}
 
 	($hook = vBulletinHook::fetch_hook('fetch_threadinfo')) ? eval($hook) : false;
@@ -1115,16 +1225,21 @@ function fetch_postinfo(&$postid)
 	$postid = intval($postid);
 	if (!isset($postcache["$postid"]))
 	{
+		$hook_query_fields = $hook_query_joins = '';
+		($hook = vBulletinHook::fetch_hook('fetch_postinfo_query')) ? eval($hook) : false;
+
 		$postcache["$postid"] = $vbulletin->db->query_first("
 			SELECT post.*,
-			IF(visible = 2, 1, 0) AS isdeleted,
+			IF(post.visible = 2, 1, 0) AS isdeleted,
 			" . (THIS_SCRIPT == 'postings' ? " deletionlog.userid AS del_userid,
 			deletionlog.username AS del_username, deletionlog.reason AS del_reason, deletionlog.dateline AS del_dateline," : "") . "
 
-			editlog.userid AS edit_userid, editlog.dateline AS edit_dateline, editlog.reason AS edit_reason
+			editlog.userid AS edit_userid, editlog.dateline AS edit_dateline, editlog.reason AS edit_reason, editlog.hashistory
+			$hook_query_fields
 			FROM " . TABLE_PREFIX . "post AS post
 			" . (THIS_SCRIPT == 'postings' ? "LEFT JOIN " . TABLE_PREFIX . "deletionlog AS deletionlog ON (deletionlog.primaryid = post.postid AND deletionlog.type = 'post')" : "") . "
 			LEFT JOIN " . TABLE_PREFIX . "editlog AS editlog ON (editlog.postid = post.postid)
+			$hook_query_joins
 			WHERE post.postid = $postid
 		");
 	}
@@ -1135,6 +1250,14 @@ function fetch_postinfo(&$postid)
 }
 
 // #############################################################################
+define('FETCH_USERINFO_AVATAR',     0x02);
+define('FETCH_USERINFO_LOCATION',   0x04);
+define('FETCH_USERINFO_PROFILEPIC', 0x08);
+define('FETCH_USERINFO_ADMIN',      0x10);
+define('FETCH_USERINFO_SIGPIC',     0x20);
+define('FETCH_USERINFO_USERCSS',    0x40);
+define('FETCH_USERINFO_ISFRIEND',   0x80);
+
 /**
 * Fetches an array containing info for the specified user, or false if user is not found
 *
@@ -1145,6 +1268,8 @@ function fetch_postinfo(&$postid)
 * 8 - Join the customprofilpic table to get the userid just to check if we have a picture
 * 16 - Join the administrator table to get various admin options
 * 32 - Join the sigpic table to get the userid just to check if we have a picture
+* 64 - Get user's custom CSS
+* 128 - Is the logged in User a friend of this person?
 * Therefore: Option = 6 means 'Get avatar' and 'Process online location'
 * See fetch_userinfo() in the do=getinfo section of member.php if you are still confused
 *
@@ -1177,29 +1302,37 @@ function fetch_userinfo(&$userid, $option = 0, $languageid = 0)
 	// no cache available - query the user
 	$user = $vbulletin->db->query_first_slave("
 		SELECT " .
-			iif(($option & 16), ' administrator.*, ') . "
+			iif(($option & FETCH_USERINFO_ADMIN), ' administrator.*, ') . "
 			userfield.*, usertextfield.*, user.*, UNIX_TIMESTAMP(passworddate) AS passworddate,
 			IF(displaygroupid=0, user.usergroupid, displaygroupid) AS displaygroupid" .
-			iif(($option & 2) AND $vbulletin->options['avatarenabled'], ', avatar.avatarpath, NOT ISNULL(customavatar.userid) AS hascustomavatar, customavatar.dateline AS avatardateline, customavatar.width AS avwidth, customavatar.height AS avheight').
-			iif(($option & 8), ', customprofilepic.userid AS profilepic, customprofilepic.dateline AS profilepicdateline, customprofilepic.width AS ppwidth, customprofilepic.height AS ppheight') .
-			iif(($option & 32), ', sigpic.userid AS sigpic, sigpic.dateline AS sigpicdateline, sigpic.width AS sigpicwidth, sigpic.height AS sigpicheight') .
-			iif(!isset($vbphrase), fetch_language_fields_sql(), '') . "
+			iif(($option & FETCH_USERINFO_AVATAR) AND $vbulletin->options['avatarenabled'], ', avatar.avatarpath, NOT ISNULL(customavatar.userid) AS hascustomavatar, customavatar.dateline AS avatardateline, customavatar.width AS avwidth, customavatar.height AS avheight, customavatar.height_thumb AS avheight_thumb, customavatar.width_thumb AS avwidth_thumb, customavatar.filedata_thumb').
+			iif(($option & FETCH_USERINFO_PROFILEPIC), ', customprofilepic.userid AS profilepic, customprofilepic.dateline AS profilepicdateline, customprofilepic.width AS ppwidth, customprofilepic.height AS ppheight') .
+			iif(($option & FETCH_USERINFO_SIGPIC), ', sigpic.userid AS sigpic, sigpic.dateline AS sigpicdateline, sigpic.width AS sigpicwidth, sigpic.height AS sigpicheight') .
+			(($option & FETCH_USERINFO_USERCSS) ? ', usercsscache.cachedcss, IF(usercsscache.cachedcss IS NULL, 0, 1) AS hascachedcss, usercsscache.buildpermissions AS cssbuildpermissions' : '') .
+			iif(!isset($vbphrase), fetch_language_fields_sql(), '') .
+			(($vbulletin->userinfo['userid'] AND ($option & FETCH_USERINFO_ISFRIEND)) ?
+				", IF(userlist1.friend = 'yes', 1, 0) AS isfriend, IF (userlist1.friend = 'pending' OR userlist1.friend = 'denied', 1, 0) AS ispendingfriend" .
+				", IF(userlist1.userid IS NOT NULL, 1, 0) AS u_iscontact_of_bbuser, IF (userlist2.friend = 'pending', 1, 0) AS requestedfriend" .
+				", IF(userlist2.userid IS NOT NULL, 1, 0) AS bbuser_iscontact_of_user" : "") . "
 			$hook_query_fields
 		FROM " . TABLE_PREFIX . "user AS user
 		LEFT JOIN " . TABLE_PREFIX . "userfield AS userfield ON (user.userid = userfield.userid)
 		LEFT JOIN " . TABLE_PREFIX . "usertextfield AS usertextfield ON (usertextfield.userid = user.userid) " .
-		iif(($option & 2) AND $vbulletin->options['avatarenabled'], "LEFT JOIN " . TABLE_PREFIX . "avatar AS avatar ON (avatar.avatarid = user.avatarid) LEFT JOIN " . TABLE_PREFIX . "customavatar AS customavatar ON (customavatar.userid = user.userid) ") .
-		iif(($option & 8), "LEFT JOIN " . TABLE_PREFIX . "customprofilepic AS customprofilepic ON (user.userid = customprofilepic.userid) ") .
-		iif(($option & 16), "LEFT JOIN " . TABLE_PREFIX . "administrator AS administrator ON (administrator.userid = user.userid) ") .
-		iif(($option & 32), "LEFT JOIN " . TABLE_PREFIX . "sigpic AS sigpic ON (user.userid = sigpic.userid) ") .
-		iif(!isset($vbphrase), "LEFT JOIN " . TABLE_PREFIX . "language AS language ON (language.languageid = " . (!empty($languageid) ? $languageid : "IF(user.languageid = 0, " . intval($vbulletin->options['languageid']) . ", user.languageid)") . ") ") . "
+		iif(($option & FETCH_USERINFO_AVATAR) AND $vbulletin->options['avatarenabled'], "LEFT JOIN " . TABLE_PREFIX . "avatar AS avatar ON (avatar.avatarid = user.avatarid) LEFT JOIN " . TABLE_PREFIX . "customavatar AS customavatar ON (customavatar.userid = user.userid) ") .
+		iif(($option & FETCH_USERINFO_PROFILEPIC), "LEFT JOIN " . TABLE_PREFIX . "customprofilepic AS customprofilepic ON (user.userid = customprofilepic.userid) ") .
+		iif(($option & FETCH_USERINFO_ADMIN), "LEFT JOIN " . TABLE_PREFIX . "administrator AS administrator ON (administrator.userid = user.userid) ") .
+		iif(($option & FETCH_USERINFO_SIGPIC), "LEFT JOIN " . TABLE_PREFIX . "sigpic AS sigpic ON (user.userid = sigpic.userid) ") .
+		(($option & FETCH_USERINFO_USERCSS) ? 'LEFT JOIN ' . TABLE_PREFIX . 'usercsscache AS usercsscache ON (user.userid = usercsscache.userid)' : '') .
+		iif(!isset($vbphrase), "LEFT JOIN " . TABLE_PREFIX . "language AS language ON (language.languageid = " . (!empty($languageid) ? $languageid : "IF(user.languageid = 0, " . intval($vbulletin->options['languageid']) . ", user.languageid)") . ") ") .
+		(($vbulletin->userinfo['userid'] AND ($option & FETCH_USERINFO_ISFRIEND)) ?
+			"LEFT JOIN " . TABLE_PREFIX . "userlist AS userlist1 ON (userlist1.relationid = user.userid AND userlist1.type = 'buddy' AND userlist1.userid = " . $vbulletin->userinfo['userid'] . ")" .
+			"LEFT JOIN " . TABLE_PREFIX . "userlist AS userlist2 ON (userlist2.userid = user.userid AND userlist2.type = 'buddy' AND userlist2.relationid = " . $vbulletin->userinfo['userid'] . ")" : "") . "
 		$hook_query_joins
 		WHERE user.userid = $userid
 	");
-
 	if (!$user)
 	{
-		return $user;
+		return false;
 	}
 
 	if (!isset($vbphrase) AND $user['lang_options'] === null)
@@ -1231,10 +1364,12 @@ function fetch_userinfo(&$userid, $option = 0, $languageid = 0)
 	// get the user's real styleid (not the cookie value)
 	$user['realstyleid'] = $user['styleid'];
 
-	// set the logout hash
-	$user['logouthash'] = md5($user['userid'] . $user['salt'] . COOKIE_SALT);
+	$user['securitytoken_raw'] = sha1($user['userid'] . sha1($user['salt']) . sha1(COOKIE_SALT));
+	$user['securitytoken'] = TIMENOW . '-' . sha1(TIMENOW . $user['securitytoken_raw']);
 
-	if ($option & 4)
+	$user['logouthash'] =& $user['securitytoken'];
+
+	if ($option & FETCH_USERINFO_LOCATION)
 	{ // Process Location info for this user
 		require_once(DIR . '/includes/functions_online.php');
 		$user = fetch_user_location_array($user);
@@ -1282,6 +1417,8 @@ function fetch_profilefield_display(&$profilefield, $profilefield_value)
 		$profilefield['value'] = $profilefield_value;
 	}
 
+	($hook = vBulletinHook::fetch_hook('member_customfields')) ? eval($hook) : false;
+
 	return $profilefield;
 }
 
@@ -1310,10 +1447,6 @@ function fetch_forum_parent_list($forumid)
 		if (isset($forumarraycache["$forumid"]))
 		{
 			return $forumarraycache["$forumid"];
-		}
-		else if (isset($vbulletin->forumcache["$forumid"]['parentlist']))
-		{
-			return $vbulletin->forumcache["$forumid"]['parentlist'];
 		}
 		else
 		{
@@ -1961,7 +2094,17 @@ function convert_bbarray_cookie($cookie, $dir = 'get')
 */
 function sign_client_string($string, $extra_entropy = '')
 {
-		 return md5($string . COOKIE_SALT . $extra_entropy) . $string;
+	if (preg_match('#[\x00-\x1F\x80-\xFF]#s', $string))
+	{
+		$string = base64_encode($string);
+		$prefix = 'B64:';
+	}
+	else
+	{
+		$prefix = '';
+	}
+
+	return $prefix . sha1($string . sha1(COOKIE_SALT) . $extra_entropy) . $string;
 }
 
 // #############################################################################
@@ -1974,13 +2117,58 @@ function sign_client_string($string, $extra_entropy = '')
 */
 function verify_client_string($string, $extra_entropy = '')
 {
-	$firstpart = substr($string, 0, 32);
-	$return = substr($string, 32);
-	if (md5($return . COOKIE_SALT . $extra_entropy) === $firstpart)
+	if (substr($string, 0, 4) == 'B64:')
 	{
-		return $return;
+		$firstpart = substr($string, 4, 40);
+		$return = substr($string, 44);
+		$decode = true;
 	}
+	else
+	{
+		$firstpart = substr($string, 0, 40);
+		$return = substr($string, 40);
+		$decode = false;
+	}
+
+	if (sha1($return . sha1(COOKIE_SALT) . $extra_entropy) === $firstpart)
+	{
+		return ($decode ? base64_decode($return) : $return);
+	}
+
 	return false;
+}
+
+// #############################################################################
+/**
+* Verifies a security token is valid
+*
+* @param	string	Security token from the REQUEST data
+* @param	string	Security token used in the hash
+*
+* @return	boolean	True if the hash matches and is within the correct TTL
+*/
+function verify_security_token($request_token, $user_token)
+{
+	// This is for backwards compatability before tokens had TIMENOW prefixed
+	if (strpos($request_token, '-') === false)
+	{
+		return ($request_token === $user_token);
+	}
+
+	list($time, $token) = explode('-', $request_token);
+
+	if ($token !== sha1($time . $user_token))
+	{
+		return false;
+	}
+
+	// A token is only valid for 3 hours
+	if ($time <= TIMENOW - 10800)
+	{
+		return false;
+	}
+
+	return true;
 }
 
 // #############################################################################
@@ -2123,7 +2311,7 @@ function sanitize_pageresults($numresults, &$page, &$perpage, $maxperpage = 20, 
 *
 * @return	string	Page navigation HTML
 */
-function construct_page_nav($pagenumber, $perpage, $results, $address, $address2 = '')
+function construct_page_nav($pagenumber, $perpage, $results, $address, $address2 = '', $anchor = '')
 {
 	global $vbulletin, $vbphrase, $stylevar, $show;
 
@@ -2270,8 +2458,8 @@ function construct_navbits($nav_array)
 		{
 			$pagetitle = $nav_title;
 
-			$elementtype = iif(++$counter == $lastelement, 'lastelement', 'breadcrumb');
-			$show['breadcrumb'] = iif($elementtype == 'breadcrumb', true, false);
+			$elementtype = (++$counter == $lastelement) ? 'lastelement' : 'breadcrumb';
+			$show['breadcrumb'] = ($elementtype == 'breadcrumb');
 
 			if (empty($nav_title))
 			{
@@ -2409,8 +2597,18 @@ function fetch_error()
 		require_once(DIR . '/includes/functions_misc.php');
 	}
 
-	$args[0] = fetch_phrase($args[0], 'error', '', false);
+	if ($vbulletin->GPC['ajax'])
+	{
+		switch ($args[0])
+		{
+			case 'invalidid':
+			case 'nopermission_loggedin':
+			case 'forumpasswordmissing':
+				$args[0] = $args[0] . '_ajax';
+		}
+	}
 
+	$args[0] = fetch_phrase($args[0], 'error', '', false);
 	if (sizeof($args) > 1)
 	{
 		return call_user_func_array('construct_phrase', $args);
@@ -2492,7 +2690,7 @@ function print_no_permission()
 			if ($vbulletin->db->num_rows($infractions))
 			{
 				$infractiongroups = array();
-				$groups = $vbulletin->db->query("
+				$groups = $vbulletin->db->query_read("
 					SELECT orusergroupid, pointlevel
 					FROM " . TABLE_PREFIX . "infractiongroup
 					WHERE usergroupid IN (-1, " . $vbulletin->userinfo['usergroupid'] . ")
@@ -2535,12 +2733,11 @@ function print_no_permission()
 
 	if ($vbulletin->userinfo['userid'])
 	{
-		//eval(print_standard_error('nopermission_loggedin', true));
 		eval(standard_error(fetch_error('nopermission_loggedin',
 			$vbulletin->userinfo['username'],
 			$stylevar['right'],
 			$vbulletin->session->vars['sessionurl'],
-			$vbulletin->userinfo['logouthash'],
+			$vbulletin->userinfo['securitytoken'],
 			$vbulletin->options['forumhome']
 		)));
 	}
@@ -2595,7 +2792,9 @@ function standard_error($error = '', $headinsert = '', $savebadlocation = true, 
 {
 	global $header, $footer, $headinclude, $forumjump, $timezone, $gobutton;
 	global $vbulletin, $vbphrase, $stylevar, $template_hook;
-	global $pmbox, $show;
+	global $pmbox, $show, $ad_location, $notifications_menubits, $notifications_total;
+
+	$show['notices'] = false;
 
 	construct_forum_jump();
 
@@ -2651,6 +2850,11 @@ function standard_error($error = '', $headinsert = '', $savebadlocation = true, 
 	}
 	else
 	{
+		if ($vbulletin->noheader)
+		{
+			@header('Content-Type: text/html' . ($vbulletin->userinfo['lang_charset'] != '' ? '; charset=' . $vbulletin->userinfo['lang_charset'] : ''));
+		}
+
 		eval('print_output("' . fetch_template($templatename) . '");');
 		exit;
 	}
@@ -2664,10 +2868,12 @@ function standard_error($error = '', $headinsert = '', $savebadlocation = true, 
 *
 * @param	string	Name of redirect phrase
 * @param	boolean	If false, use the name of redirect phrase as the phrase text itself
+* @param	boolean	Whether or not to force a redirect message to be shown
+* @param	integer	Language ID to fetch the phrase from (-1 uses the page-wide default)
 *
 * @return	string
 */
-function print_standard_redirect($redir_phrase, $doquery = true, $forceredirect = false)
+function print_standard_redirect($redir_phrase, $doquery = true, $forceredirect = false, $languageid = -1)
 {
 	if ($doquery)
 	{
@@ -2676,7 +2882,7 @@ function print_standard_redirect($redir_phrase, $doquery = true, $forceredirect 
 			require_once(DIR . '/includes/functions_misc.php');
 		}
 
-		$phrase = fetch_phrase($redir_phrase, 'frontredirect', 'redirect_', true, false, -1, false);
+		$phrase = fetch_phrase($redir_phrase, 'frontredirect', 'redirect_', true, false, $languageid, false);
 		// addslashes run in fetch_phrase
 	}
 	else
@@ -2782,7 +2988,13 @@ function exec_header_redirect($url)
 		trigger_error("Header may not contain more than a single header, new line detected.", E_USER_ERROR);
 	}
 
-	header("Location: $url", 0, 301);
+	header("Location: $url", 0, 302);
+
+	if ($vbulletin->options['addheaders'] AND (SAPI_NAME == 'cgi' OR SAPI_NAME == 'cgi-fcgi'))
+	{
+		// see #24779
+		header('Status: 302 Found');
+	}
 
 	define('NOPMPOPUP', 1);
 	if (defined('NOSHUTDOWNFUNC'))
@@ -2804,7 +3016,7 @@ function exec_header_redirect($url)
 function create_full_url($url)
 {
 	// enforces HTTP 1.1 compliance
-	if (!preg_match('#^[a-z]+://#i', $url))
+	if (!preg_match('#^[a-z]+(?<!about|javascript|vbscript|data)://#i', $url))
 	{
 		// make sure we get the correct value from a multitude of server setups
 		if ($_SERVER['HTTP_HOST'] OR $_ENV['HTTP_HOST'])
@@ -3011,8 +3223,12 @@ function cache_ordered_forums($getcounters = 0, $getinvisibles = 0, $userid = 0)
 	{
 		if ($vbulletin->userinfo['userid'] AND in_coventry($vbulletin->userinfo['userid'], true))
 		{
-			$tachyjoin = "LEFT JOIN " . TABLE_PREFIX . "tachyforumpost AS tachyforumpost ON " .
-				"(tachyforumpost.forumid = forum.forumid AND tachyforumpost.userid = " . $vbulletin->userinfo['userid'] . ')';
+			$tachyjoin = "
+				LEFT JOIN " . TABLE_PREFIX . "tachyforumpost AS tachyforumpost ON
+					(tachyforumpost.forumid = forum.forumid AND tachyforumpost.userid = " . $vbulletin->userinfo['userid'] . ")
+				LEFT JOIN " . TABLE_PREFIX . "tachyforumcounter AS tachyforumcounter ON
+					(tachyforumpost.forumid = forum.forumid AND tachyforumpost.userid = " . $vbulletin->userinfo['userid'] . ")
+			";
 
 			$counter_select = '
 				forum.forumid,
@@ -3022,13 +3238,15 @@ function cache_ordered_forums($getcounters = 0, $getinvisibles = 0, $userid = 0)
 				IF(tachyforumpost.userid IS NULL, forum.lastthreadid, tachyforumpost.lastthreadid) AS lastthreadid,
 				IF(tachyforumpost.userid IS NULL, forum.lasticonid, tachyforumpost.lasticonid) AS lasticonid,
 				IF(tachyforumpost.userid IS NULL, forum.lastpostid, tachyforumpost.lastpostid) AS lastpostid,
-				forum.threadcount,
-				forum.replycount';
+				IF(tachyforumpost.userid IS NULL, forum.lastprefixid, tachyforumpost.lastprefixid) AS lastprefixid,
+				IF(tachyforumcounter.userid IS NULL, forum.threadcount, forum.threadcount + tachyforumcounter.threadcount) AS threadcount,
+				IF(tachyforumcounter.userid IS NULL, forum.replycount, forum.replycount + tachyforumcounter.replycount) AS replycount
+			';
 		}
 		else
 		{
 			$tachyjoin = '';
-			$counter_select = 'forum.forumid, lastpost, lastposter, lastthread, lastthreadid, lasticonid, threadcount, replycount, lastpostid';
+			$counter_select = 'forum.forumid, lastpost, lastposter, lastthread, lastthreadid, lasticonid, threadcount, replycount, lastpostid, lastprefixid';
 		}
 
 		($hook = vBulletinHook::fetch_hook('cache_ordered_forums')) ? eval($hook) : false;
@@ -3037,23 +3255,23 @@ function cache_ordered_forums($getcounters = 0, $getinvisibles = 0, $userid = 0)
 		if ($userid)
 		{
 			$query = "
-			SELECT subscribeforumid, $counter_select
-				". iif($vbulletin->options['threadmarking'], ', forumread.readtime AS forumread') . "
-			FROM " . TABLE_PREFIX . "forum AS forum
-			LEFT JOIN " . TABLE_PREFIX . "subscribeforum AS subscribeforum ON (subscribeforum.forumid = forum.forumid AND subscribeforum.userid = $userid)
-			" . iif($vbulletin->options['threadmarking'], " LEFT JOIN " . TABLE_PREFIX . "forumread AS forumread ON (forumread.forumid = forum.forumid AND forumread.userid = $userid)") . "
-			$tachyjoin
+				SELECT subscribeforumid, $counter_select
+					". iif($vbulletin->options['threadmarking'], ', forumread.readtime AS forumread') . "
+				FROM " . TABLE_PREFIX . "forum AS forum
+				LEFT JOIN " . TABLE_PREFIX . "subscribeforum AS subscribeforum ON (subscribeforum.forumid = forum.forumid AND subscribeforum.userid = $userid)
+				" . iif($vbulletin->options['threadmarking'], " LEFT JOIN " . TABLE_PREFIX . "forumread AS forumread ON (forumread.forumid = forum.forumid AND forumread.userid = $userid)") . "
+				$tachyjoin
 			";
 		}
 		// just get counters
 		else
 		{
 			$query = "
-			SELECT $counter_select
-				". iif($vbulletin->options['threadmarking'] AND $vbulletin->userinfo['userid'], ', forumread.readtime AS forumread') . "
-			FROM " . TABLE_PREFIX . "forum AS forum
-			" . iif($vbulletin->options['threadmarking'] AND $vbulletin->userinfo['userid'], " LEFT JOIN " . TABLE_PREFIX . "forumread AS forumread ON (forumread.forumid = forum.forumid AND forumread.userid = " .  $vbulletin->userinfo['userid'] . ")") . "
-			$tachyjoin
+				SELECT $counter_select
+					". iif($vbulletin->options['threadmarking'] AND $vbulletin->userinfo['userid'], ', forumread.readtime AS forumread') . "
+				FROM " . TABLE_PREFIX . "forum AS forum
+				" . iif($vbulletin->options['threadmarking'] AND $vbulletin->userinfo['userid'], " LEFT JOIN " . TABLE_PREFIX . "forumread AS forumread ON (forumread.forumid = forum.forumid AND forumread.userid = " .  $vbulletin->userinfo['userid'] . ")") . "
+				$tachyjoin
 			";
 		}
 	}
@@ -3061,9 +3279,9 @@ function cache_ordered_forums($getcounters = 0, $getinvisibles = 0, $userid = 0)
 	else if ($userid)
 	{
 		$query = "
-		SELECT subscribeforumid, forumid
-		FROM " . TABLE_PREFIX . "subscribeforum
-		WHERE userid = $userid
+			SELECT subscribeforumid, forumid
+			FROM " . TABLE_PREFIX . "subscribeforum
+			WHERE userid = $userid
 		";
 	}
 	// don't bother to query forum table, just use the cache
@@ -3286,7 +3504,10 @@ function vbdate($format, $timestamp = TIMENOW, $doyestoday = false, $locale = tr
 			$uselocale = true;
 			$currentlocale = setlocale(LC_TIME, 0);
 			setlocale(LC_TIME, $userinfo['lang_locale']);
-			setlocale(LC_CTYPE, $userinfo['lang_locale']);
+			if (substr($userinfo['lang_locale'], 0, 5) != 'tr_TR')
+			{
+				setlocale(LC_CTYPE, $userinfo['lang_locale']);
+			}
 		}
 		if ($userinfo['dstonoff'])
 		{
@@ -3420,7 +3641,10 @@ function vbdate($format, $timestamp = TIMENOW, $doyestoday = false, $locale = tr
 	if (!empty($userinfo['lang_locale']))
 	{
 		setlocale(LC_TIME, $currentlocale);
-		setlocale(LC_CTYPE, $currentlocale);
+		if (substr($currentlocale, 0, 5) != 'tr_TR')
+		{
+			setlocale(LC_CTYPE, $currentlocale);
+		}
 	}
 	return $returndate;
 }
@@ -3496,20 +3720,28 @@ function convert_urlencoded_unicode($text)
 {
 	global $stylevar;
 
-	$is_utf8 = (strtolower($stylevar['charset']) == 'utf-8');
-
 	$return = preg_replace(
 		'#%u([0-9A-F]{1,4})#ie',
 		"convert_unicode_char_to_charset(hexdec('\\1'), \$stylevar['charset'])",
 		$text
 	);
 
-	if (!$is_utf8 AND function_exists('html_entity_decode'))
+	$lower_charset = strtolower($stylevar['charset']);
+
+	if ($lower_charset != 'utf-8' AND function_exists('html_entity_decode'))
 	{
 		// this converts certain &#123; entities to their actual character
 		// set values; don't do this if using UTF-8 as it's already done above.
 		// note: we don't want to convert &gt;, etc as that undoes the effects of STR_NOHTML
 		$return = preg_replace('#&([a-z]+);#i', '&amp;$1;', $return);
+
+		if ($lower_charset == 'windows-1251' AND phpversion() >= '5')
+		{
+			// there's a bug in PHP5 html_entity_decode that decodes some entities that
+			// it shouldn't. So double encode them to ensure they don't get decoded.
+			$return = preg_replace('/&#(128|129|1[3-9][0-9]|2[0-4][0-9]|25[0-5]);/', '&amp;#$1;', $return);
+		}
+
 		$return = @html_entity_decode($return, ENT_NOQUOTES, $stylevar['charset']);
 	}
 
@@ -3605,6 +3837,12 @@ function exec_headers($headers = true, $nocache = true)
 			@header('Content-Type: text/html' . iif($vbulletin->userinfo['lang_charset'] != '', '; charset=' . $vbulletin->userinfo['lang_charset']));
 		}
 	}
+
+	// IE8 emulate IE7 mode
+	if ($vbulletin->options['ie8render7'])
+	{
+		@header('X-UA-Compatible: IE=7');
+	}
 }
 
 // #############################################################################
@@ -3668,12 +3906,14 @@ function verify_forum_password($forumid, $password, $showerror = true)
 	{
 		require_once(DIR . '/includes/functions_misc.php');
 
+		$security_token_html = '<input type="hidden" name="securitytoken" value="' . $vbulletin->userinfo['securitytoken'] . '" />';
+
 		// forum password is bad - show error
 		eval(standard_error(fetch_error('forumpasswordmissing',
 			$vbulletin->session->vars['sessionhash'],
 			$vbulletin->scriptpath,
 			$forumid,
-			construct_post_vars_html(),
+			construct_post_vars_html() . $security_token_html,
 			$stylevar['cellpadding'],
 			$stylevar['cellspacing']
 		)));
@@ -3728,7 +3968,7 @@ function cache_permissions(&$user, $getforumpermissions = true, $resetaccess = f
 	global $vbulletin, $forumpermissioncache;
 
 	// these are the arrays created by this function
-	global $cpermscache, $calendarcache, $_PERMQUERY;
+	global $calendarcache;
 	static $accesscache = array(), $reset;
 
 	if ($resetaccess AND !$reset)
@@ -3738,7 +3978,6 @@ function cache_permissions(&$user, $getforumpermissions = true, $resetaccess = f
 	}
 
 	$intperms = array();
-	$_PERMQUERY = array();
 
 	// set the usergroupid of the user's primary usergroup
 	$USERGROUPID = $user['usergroupid'];
@@ -3832,6 +4071,8 @@ function cache_permissions(&$user, $getforumpermissions = true, $resetaccess = f
 		$user['permissions']['forumpermissions'] += $vbulletin->bf_ugp_forumpermissions['canview'];
 	}
 
+	($hook = vBulletinHook::fetch_hook('cache_permissions')) ? eval($hook) : false;
+
 	// if we do not need to grab the forum/calendar permissions
 	// then just return what we have so far
 	if ($getforumpermissions == false)
@@ -3867,15 +4108,15 @@ function cache_permissions(&$user, $getforumpermissions = true, $resetaccess = f
 		{
 			// query access masks
 			// the ordercontrol is required! (3.5 bug 1878)
-			$_PERMQUERY[3] = "
+			$accessmasks = $vbulletin->db->query_read_slave("
 				SELECT access.*, forum.forumid,
 					FIND_IN_SET(access.forumid, forum.parentlist) AS ordercontrol
 				FROM " . TABLE_PREFIX . "forum AS forum
 				INNER JOIN " . TABLE_PREFIX . "access AS access ON (access.userid = $user[userid] AND FIND_IN_SET(access.forumid, forum.parentlist))
 				ORDER BY ordercontrol DESC
-			";
+			");
+
 			$accesscache["$user[userid]"] = array();
-			$accessmasks = $vbulletin->db->query_read_slave($_PERMQUERY[3]);
 			while ($access = $vbulletin->db->fetch_array($accessmasks))
 			{
 				$accesscache["$user[userid]"]["$access[forumid]"] = $access['accessmask'];
@@ -3919,59 +4160,75 @@ function cache_permissions(&$user, $getforumpermissions = true, $resetaccess = f
 		'index'    => $vbulletin->options['showevents'] ? true : false,
 	);
 
+	if (THIS_SCRIPT == 'index' AND $vbulletin->options['showevents'])
+	{
+		if (!is_array($vbulletin->eventcache)
+			OR gmdate('n-j-Y' , TIMENOW + 86400 + 86400 * $vbulletin->options['showevents']) != $vbulletin->eventcache['date']
+		)
+		{
+			// need perms with rebuild
+			$calfiles['index'] = true;
+		}
+		else if (count($vbulletin->eventcache) == 1)
+		{
+			// no events, only the date - don't need to cache the perms
+			$calfiles['index'] = false;
+		}
+	}
+
 	// query calendar permissions
 	if (!empty($calfiles[THIS_SCRIPT]))
 	{ // Only query calendar permissions when accessing the calendar or subscriptions or index.php
-		$_PERMQUERY[4] = "
-			SELECT calendarpermission.usergroupid, calendarpermission.calendarpermissions,calendar.calendarid,calendar.title, displayorder
-			FROM " . TABLE_PREFIX . "calendar AS calendar
-			LEFT JOIN " . TABLE_PREFIX . "calendarpermission AS calendarpermission ON (calendarpermission.calendarid=calendar.calendarid AND usergroupid IN(" . implode(', ', $membergroupids) . "))
-			ORDER BY displayorder ASC
-		";
 		$cpermscache = array();
 		$calendarcache = array();
 		$displayorder = array();
-		$calendarpermissions = $vbulletin->db->query_read($_PERMQUERY[4]);
+
+		$calendarpermissions = $vbulletin->db->query_read_slave("
+			SELECT calendarpermission.usergroupid, calendarpermission.calendarpermissions,calendar.calendarid,calendar.title, displayorder
+			FROM " . TABLE_PREFIX . "calendar AS calendar
+			LEFT JOIN " . TABLE_PREFIX . "calendarpermission AS calendarpermission ON
+				(calendarpermission.calendarid = calendar.calendarid AND usergroupid IN (" . implode(', ', $membergroupids) . "))
+			ORDER BY displayorder ASC
+		");
 		while ($calendarpermission = $vbulletin->db->fetch_array($calendarpermissions))
 		{
 			$cpermscache["$calendarpermission[calendarid]"]["$calendarpermission[usergroupid]"] = intval($calendarpermission['calendarpermissions']);
 			$calendarcache["$calendarpermission[calendarid]"] = $calendarpermission['title'];
 			$displayorder["$calendarpermission[calendarid]"] = $calendarpermission['displayorder'];
 		}
-		unset($calendarpermission);
 		$vbulletin->db->free_result($calendarpermissions);
 
 		// Combine the calendar permissions for all member groups
-		foreach($cpermscache AS $calendarid => $cpermissions)
+		foreach ($cpermscache AS $calendarid => $cpermissions)
 		{
 			$user['calendarpermissions']["$calendarid"] = 0;
-			foreach($membergroupids AS $usergroupid)
+
+			if (empty($displayorder["$calendarid"]))
 			{
-				if (!empty($displayorder["$calendarid"]))
-				{ // leave permissions at 0 for calendars that aren't being displayed
-					if (isset($cpermissions["$usergroupid"]))
-					{
-						$user['calendarpermissions']["$calendarid"] |= $cpermissions["$usergroupid"];
-					}
-					else
-					{
-						$user['calendarpermissions']["$calendarid"] |= $vbulletin->usergroupcache["$usergroupid"]['calendarpermissions'];
-					}
+				// leave permissions at 0 for calendars that aren't being displayed
+				continue;
+			}
+
+			foreach ($membergroupids AS $usergroupid)
+			{
+				if (isset($cpermissions["$usergroupid"]))
+				{
+					$user['calendarpermissions']["$calendarid"] |= $cpermissions["$usergroupid"];
+				}
+				else
+				{
+					$user['calendarpermissions']["$calendarid"] |= $vbulletin->usergroupcache["$usergroupid"]['calendarpermissions'];
 				}
 			}
-			foreach($infractiongroupids AS $usergroupid)
+			foreach ($infractiongroupids AS $usergroupid)
 			{
-				if (!empty($displayorder["$calendarid"]))
-				{ // leave permissions at 0 for calendars that aren't being displayed
-					if (isset($cpermissions["$usergroupid"]))
-					{
-						$user['calendarpermissions']["$calendarid"] &= $cpermissions["$usergroupid"];
-					}
-					else
-
-					{
-						$user['calendarpermissions']["$calendarid"] &= $vbulletin->usergroupcache["$usergroupid"]['calendarpermissions'];
-					}
+				if (isset($cpermissions["$usergroupid"]))
+				{
+					$user['calendarpermissions']["$calendarid"] &= $cpermissions["$usergroupid"];
+				}
+				else
+				{
+					$user['calendarpermissions']["$calendarid"] &= $vbulletin->usergroupcache["$usergroupid"]['calendarpermissions'];
 				}
 			}
 		}
@@ -3989,6 +4246,7 @@ function cache_permissions(&$user, $getforumpermissions = true, $resetaccess = f
 		// Combine the attachment permissions for all member groups
 		foreach($vbulletin->attachmentcache AS $extension => $attachment)
 		{
+			$need_default = false;
 			foreach($membergroupids AS $usergroupid)
 			{
 				if (!empty($attachment['custom']["$usergroupid"]))
@@ -4020,6 +4278,10 @@ function cache_permissions(&$user, $getforumpermissions = true, $resetaccess = f
 						}
 					}
 				}
+				else
+				{
+						$need_default = true;
+				}
 			}
 
 			if (empty($user['attachmentpermissions']["$extension"]))
@@ -4030,6 +4292,34 @@ function cache_permissions(&$user, $getforumpermissions = true, $resetaccess = f
 					'height'      =>& $vbulletin->attachmentcache["$extension"]['height'],
 					'width'       =>& $vbulletin->attachmentcache["$extension"]['width'],
 				);
+			}
+			else if ($need_default)
+			{
+				$user['attachmentpermissions']["$extension"]['permissions'] = 1;
+				$perm = $vbulletin->attachmentcache["$extension"];
+				foreach ($fields AS $dbfield => $precedence)
+				{
+					// put in some logic to handle $precedence
+					if (!isset($user['attachmentpermissions']["$extension"]["$dbfield"]))
+					{
+						$user['attachmentpermissions']["$extension"]["$dbfield"] = $perm["$dbfield"];
+					}
+					else if (!$precedence)
+					{
+						if ($perm["$dbfield"] > $user['attachmentpermissions']["$extension"]["$dbfield"])
+						{
+							$user['attachmentpermissions']["$extension"]["$dbfield"] = $perm["$dbfield"];
+						}
+					}
+					else if ($perm["$dbfield"] == 0 OR (isset($user['attachmentpermissions']["$extension"]["$dbfield"]) AND $user['attachmentpermissions']["$extension"]["$dbfield"] == 0))
+					{
+ 						$user['attachmentpermissions']["$extension"]["$dbfield"] = 0;
+					}
+					else if ($perm["$dbfield"] > $user['attachmentpermissions']["$extension"]["$dbfield"])
+					{
+						$user['attachmentpermissions']["$extension"]["$dbfield"] = $perm["$dbfield"];
+					}
+				}
 			}
 
 			foreach($infractiongroupids AS $usergroupid)
@@ -4162,7 +4452,10 @@ function fetch_moderator_permissions($forumid, $userid = -1, $useglobalperms = f
 		return $modpermscache["$forumid"]["$userid"];
 	}
 
-	$globalperms = 0;
+	$globalperms = array(
+		'permissions'  => 0,
+		'permissions2' => 0,
+	);
 	$hasglobalperms = false;
 
 	if (isset($imodcache))
@@ -4185,7 +4478,8 @@ function fetch_moderator_permissions($forumid, $userid = -1, $useglobalperms = f
 				}
 			}
 		}
-		$globalperms = $imodcache['-1']["$userid"]['permissions'];
+		$globalperms['permissions'] = $imodcache['-1']["$userid"]['permissions'];
+		$globalperms['permissions2'] = $imodcache['-1']["$userid"]['permissions2'];
 		$hasglobalperms = isset($imodcache['-1']["$userid"]['permissions']);
 	}
 	else
@@ -4197,13 +4491,13 @@ function fetch_moderator_permissions($forumid, $userid = -1, $useglobalperms = f
 		}
 		DEVDEBUG("  QUERY: get mod permissions for user $userid");
 		$perms = $vbulletin->db->query_read_slave("
-			(SELECT permissions, FIND_IN_SET(forumid, '" . fetch_forum_parent_list($forumid) . "') AS pos, forumid
+			(SELECT permissions, permissions2, FIND_IN_SET(forumid, '" . fetch_forum_parent_list($forumid) . "') AS pos, forumid
 			FROM " . TABLE_PREFIX . "moderator
 			WHERE userid = $userid $forumlist
 			ORDER BY pos ASC
 			LIMIT 1)
 			UNION
-			(SELECT permissions, 0, forumid
+			(SELECT permissions, permissions2, 0, forumid
 			FROM " . TABLE_PREFIX . "moderator
 			WHERE userid = $userid AND forumid = -1
 			)
@@ -4212,12 +4506,14 @@ function fetch_moderator_permissions($forumid, $userid = -1, $useglobalperms = f
 		{
 			if ($perm['forumid'] == -1)
 			{
-				$globalperms = $perm['permissions'];
+				$globalperms['permissions'] = $perm['permissions'];
+				$globalperms['permission2'] = $perm['permissions2'];
 				$hasglobalperms = true;
 			}
 			else
 			{
 				$getperms['permissions'] = $perm['permissions'];
+				$getperms['permissions2'] = $perm['permissions2'];
 			}
 		}
 	}
@@ -4227,14 +4523,18 @@ function fetch_moderator_permissions($forumid, $userid = -1, $useglobalperms = f
 		if (!$hasglobalperms)
 		{
 			// super mod without a record, give them all permissions
-			$globalperms = array_sum($vbulletin->bf_misc_moderatorpermissions) - ($vbulletin->bf_misc_moderatorpermissions['newthreademail'] + $vbulletin->bf_misc_moderatorpermissions['newpostemail']);
+			$globalperms['permissions'] = array_sum($vbulletin->bf_misc_moderatorpermissions) - ($vbulletin->bf_misc_moderatorpermissions['newthreademail'] + $vbulletin->bf_misc_moderatorpermissions['newpostemail']);
+			$globalperms['permissions2'] = array_sum($vbulletin->bf_misc_moderatorpermissions2);
 		}
 		$getperms['permissions'] = intval($getperms['permissions']);
-		$getperms['permissions'] |= intval($globalperms);
+		$getperms['permissions'] |= intval($globalperms['permissions']);
+		$getperms['permissions2'] = intval($getperms['permissions2']);
+		$getperms['permissions2'] |= intval($globalperms['permissions2']);
 	}
 
+	$modpermscache["$forumid"]["$userid"]['permissions'] = intval($getperms['permissions']);
+	$modpermscache["$forumid"]["$userid"]['permissions2'] = intval($getperms['permissions2']);
 
-	$modpermscache["$forumid"]["$userid"] = intval($getperms['permissions']);
 	return $modpermscache["$forumid"]["$userid"];
 
 }
@@ -4254,9 +4554,24 @@ function can_moderate($forumid = 0, $do = '', $userid = -1, $usergroupids = '')
 {
 	global $vbulletin, $imodcache;
 	static $modcache;
+	static $permissioncache;
 
 	$userid = intval($userid);
 	$forumid = intval($forumid);
+
+	if ($do)
+	{
+			if (isset($vbulletin->bf_misc_moderatorpermissions["$do"]))
+			{
+					$permission =& $vbulletin->bf_misc_moderatorpermissions["$do"];
+					$set = 'permissions';
+			}
+			else if (isset($vbulletin->bf_misc_moderatorpermissions2["$do"]))
+			{
+					$permission =& $vbulletin->bf_misc_moderatorpermissions2["$do"];
+					$set = 'permissions2';
+			}
+	}
 
 	if ($userid == -1)
 	{
@@ -4316,7 +4631,7 @@ function can_moderate($forumid = 0, $do = '', $userid = -1, $usergroupids = '')
 					{
 						return true;
 					}
-					else if ($forummods["$userid"]['permissions'] & $vbulletin->bf_misc_moderatorpermissions["$do"])
+					else if ($forummods["$userid"]["$set"] & $permission)
 					{
 						return true;
 					}
@@ -4339,35 +4654,67 @@ function can_moderate($forumid = 0, $do = '', $userid = -1, $usergroupids = '')
 				return $modcache["$userid"]["$do"];
 			}
 
+			if ($issupermod AND ($permissioncache["$userid"]['hassuperrecord'] === false))
+			{
+				$modcache["$userid"]["$do"] = 1;
+				return $modcache["$userid"]["$do"];
+			}
+
+			if (isset($permissioncache["$userid"]["$set"]))
+			{
+				if ($set == 'permissions2')
+				{
+					$modcache["$userid"]["$do"] = $permissioncache["$userid"]["$set"] & $vbulletin->bf_misc_moderatorpermissions2["$do"];
+					return $modcache["$userid"]["$do"];
+				}
+				else
+				{
+					$modcache["$userid"]["$do"] = $permissioncache["$userid"]["$set"] & $vbulletin->bf_misc_moderatorpermissions["$do"];
+					return $modcache["$userid"]["$do"];
+				}
+			}
+
 			$modcache["$userid"]["$do"] = 0;
 
 			DEVDEBUG('QUERY: is the user a moderator (any forum)?');
-			$ismod_all = $vbulletin->db->query_read_slave("SELECT forumid, moderatorid, permissions FROM " . TABLE_PREFIX . "moderator WHERE userid = $userid" . (!$issupermod ? ' AND forumid != -1' : ''));
+			$ismod_all = $vbulletin->db->query_read_slave("
+				SELECT forumid, moderatorid, permissions, permissions2
+				FROM " . TABLE_PREFIX . "moderator
+				WHERE userid = $userid" . (!$issupermod ? ' AND forumid != -1' : '')
+			);
 
-			$hassuperrecord = false;
+			if (!isset($permissioncache["$userid"]))
+			{
+				$permissioncache["$userid"]['permissions'] = 0;
+				$permissioncache["$userid"]['permissions2'] = 0;
+			}
+
 			while ($ismod = $vbulletin->db->fetch_array($ismod_all))
 			{
+				$permissioncache["$userid"]['permissions'] = $permissioncache["$userid"]['permissions'] | $ismod['permissions'];
+				$permissioncache["$userid"]['permissions2'] = $permissioncache["$userid"]['permissions2'] | $ismod['permissions2'];
+
 				if ($ismod['forumid'] == '-1')
 				{
-					$hassuperrecord = true;
+					$permissioncache["$userid"]['hassuperrecord'] = true;
 				}
 				if ($do)
 				{
-					if ($ismod['permissions'] & $vbulletin->bf_misc_moderatorpermissions["$do"])
+					if ($ismod["$set"] & $permission)
 					{
 						$modcache["$userid"]["$do"] = 1;
-						break;
 					}
 				}
 				else
 				{
 					$modcache["$userid"]["$do"] = 1;
-					break;
 				}
 			}
+			$vbulletin->db->free_result($ismod_all);
 
-			if ($issupermod AND !$hassuperrecord)
+			if ($issupermod AND !isset($permissioncache["$userid"]['hassuperrecord']))
 			{
+				$permissioncache["$userid"]['hassuperrecord'] = false;
 				$modcache["$userid"]["$do"] = 1;
 			}
 
@@ -4376,20 +4723,22 @@ function can_moderate($forumid = 0, $do = '', $userid = -1, $usergroupids = '')
 	}
 	else
 	{ // check to see if user is a moderator of specific forum
-		if ($getmodperms = fetch_moderator_permissions($forumid, $userid, $issupermod) AND empty($do))
+		$getmodperms = fetch_moderator_permissions($forumid, $userid, $issupermod);
+
+		if (($getmodperms['permissions'] OR $getmodperms['permissions2']) AND empty($do))
 		{ // check if user is a mod - no specific permission required
 			return true;
 		}
 		else
 		{ // check if user is a mod and has permissions to '$do'
-			if ($getmodperms & $vbulletin->bf_misc_moderatorpermissions["$do"])
+			if ($getmodperms["$set"] & $permission)
 			{
 				return true;
 			}
 			else
 			{
 				$return = false;
-				if (!isset($vbulletin->bf_misc_moderatorpermissions["$do"]))
+				if (!isset($permission))
 				{
 					($hook = vBulletinHook::fetch_hook('can_moderate_forum')) ? eval($hook) : false;
 				}
@@ -4476,7 +4825,10 @@ function is_browser($browser, $version = 0)
 		// detect safari
 			# Mozilla/5.0 (Macintosh; U; PPC Mac OS X; en-us) AppleWebKit/74 (KHTML, like Gecko) Safari/74
 			# Mozilla/5.0 (Macintosh; U; PPC Mac OS X; en) AppleWebKit/51 (like Gecko) Safari/51
-		if (strpos($useragent, 'applewebkit') !== false AND $is['mac'])
+			# Mozilla/5.0 (Windows; U; Windows NT 6.0; en) AppleWebKit/522.11.3 (KHTML, like Gecko) Version/3.0 Safari/522.11.3
+			# Mozilla/5.0 (iPhone; U; CPU like Mac OS X; en) AppleWebKit/420+ (KHTML, like Gecko) Version/3.0 Mobile/1C28 Safari/419.3
+			# Mozilla/5.0 (iPod; U; CPU like Mac OS X; en) AppleWebKit/420.1 (KHTML, like Gecko) Version/3.0 Mobile/3A100a Safari/419.3
+		if (strpos($useragent, 'applewebkit') !== false)
 		{
 			preg_match('#applewebkit/(\d+)#', $useragent, $regs);
 			$is['webkit'] = $regs[1];
@@ -4662,6 +5014,16 @@ function fetch_stylevars(&$style, $userinfo)
 		$stylevar['divwidth'] = $stylevar['tablewidth'];
 	}
 
+	// create the path to YUI depending on the version
+	if ($vbulletin->options['remoteyui'])
+	{
+		$stylevar['yuipath'] = 'http://yui.yahooapis.com/' . YUI_VERSION . '/build';
+	}
+	else
+	{
+		$stylevar['yuipath'] = 'clientscript/yui';
+	}
+
 	return $stylevar;
 }
 
@@ -4705,7 +5067,10 @@ function fetch_options_overrides($userinfo)
 	if ($userinfo['lang_locale'] != '')
 	{
 		$locale1 = setlocale(LC_TIME, $userinfo['lang_locale']);
-		$locale2 = setlocale(LC_CTYPE, $userinfo['lang_locale']);
+		if (substr($userinfo['lang_locale'], 0, 5) != 'tr_TR')
+		{
+			$locale2 = setlocale(LC_CTYPE, $userinfo['lang_locale']);
+		}
 	}
 }
 
@@ -4918,6 +5283,7 @@ function construct_style_options($styleid = -1, $depthmark = '', $init = true, $
 *
 * @param	string	The name of the datastore item to save
 * @param	mixed	The data to be saved
+* @param        integer 1 or 0 as to whether this value is to be automatically unserialised on retrieval
 */
 function build_datastore($title = '', $data = '', $unserialize = 0)
 {
@@ -4942,6 +5308,39 @@ function build_datastore($title = '', $data = '', $unserialize = 0)
 
 // #############################################################################
 /**
+* Updates the LoadAverage DataStore
+*/
+
+function update_loadavg()
+{
+	global $vbulletin;
+
+	if (!isset($vbulletin->loadcache))
+	{
+		$vbulletin->loadcache = array();
+	}
+
+	if ($stats = @exec('uptime 2>&1') AND trim($stats) != '' AND preg_match('#: ([\d.,]+),?\s+([\d.,]+),?\s+([\d.,]+)$#', $stats, $regs))
+	{
+		$vbulletin->loadcache['loadavg'] = $regs[2];
+	}
+	else if (@file_exists('/proc/loadavg') AND $filestuff = @file_get_contents('/proc/loadavg'))
+	{
+		$loadavg = explode(' ', $filestuff);
+
+		$vbulletin->loadcache['loadavg'] = $loadavg[1];
+	}
+	else
+	{
+ 		$vbulletin->loadcache['loadavg'] = 0;
+	}
+
+	$vbulletin->loadcache['lastcheck'] = TIMENOW;
+	build_datastore('loadcache', serialize($vbulletin->loadcache), 1);
+}
+
+// #############################################################################
+/**
 * Escapes quotes in strings destined for Javascript
 *
 * @param	string	String to be prepared for Javascript
@@ -4954,13 +5353,18 @@ function addslashes_js($text, $quotetype = "'")
 	if ($quotetype == "'")
 	{
 		// single quotes
-		return str_replace(array('\\', '\'', "\n", "\r"), array('\\\\', "\\'","\\n", "\\r"), $text);
+		$replaced = str_replace(array('\\', '\'', "\n", "\r"), array('\\\\', "\\'","\\n", "\\r"), $text);
 	}
 	else
 	{
 		// double quotes
-		return str_replace(array('\\', '"', "\n", "\r"), array('\\\\', "\\\"","\\n", "\\r"), $text);
+		$replaced = str_replace(array('\\', '"', "\n", "\r"), array('\\\\', "\\\"","\\n", "\\r"), $text);
 	}
+
+	$replaced = preg_replace('#(-(?=-))#', "-$quotetype + $quotetype", $replaced);
+	$replaced = preg_replace('#</script#i', "<\\/scr$quotetype + {$quotetype}ipt", $replaced);
+
+	return $replaced;
 }
 
 // #############################################################################
@@ -4968,12 +5372,13 @@ function addslashes_js($text, $quotetype = "'")
 * Returns the provided string with occurences of replacement variables replaced with their appropriate replacement values
 *
 * @param	string	Text containing replacement variables
+* @param 	array	Override global $style if specified
 *
 * @return	string
 */
-function process_replacement_vars($newtext)
+function process_replacement_vars($newtext, $paramstyle = false)
 {
-	global $vbulletin, $style, $stylevar;
+	global $vbulletin, $stylevar;
 	static $replacementvars;
 
 	if (connection_status())
@@ -4981,17 +5386,29 @@ function process_replacement_vars($newtext)
 		exit;
 	}
 
+	if (is_array($paramstyle))
+	{
+		$style =& $paramstyle;
+	}
+	else
+	{
+		$style =& $GLOBALS['style'];
+	}
+
 	($hook = vBulletinHook::fetch_hook('replacement_vars')) ? eval($hook) : false;
 
 	// do vBulletin 3 replacement variables
 	if (!empty($style['replacements']))
 	{
-		if (!isset($replacementvars))
+		if (!isset($replacementvars["$style[styleid]"]))
 		{
-			$replacementvars = unserialize($style['replacements']);
+			$replacementvars["$style[styleid]"] = unserialize($style['replacements']);
 		}
 
-		$newtext = preg_replace(array_keys($replacementvars), $replacementvars, $newtext);
+		if (is_array($replacementvars["$style[styleid]"]) AND !empty($replacementvars["$style[styleid]"]))
+		{
+			$newtext = preg_replace(array_keys($replacementvars["$style[styleid]"]), $replacementvars["$style[styleid]"], $newtext);
+		}
 	}
 
 	return $newtext;
@@ -5006,7 +5423,7 @@ function process_replacement_vars($newtext)
 */
 function print_output($vartext, $sendheader = true)
 {
-	global $pagestarttime, $querytime, $vbulletin;
+	global $pagestarttime, $querytime, $vbulletin, $show;
 	global $vbphrase, $stylevar;
 
 	if ($vbulletin->options['addtemplatename'])
@@ -5031,6 +5448,16 @@ function print_output($vartext, $sendheader = true)
 		$vartext .= "<!-- Page generated in " . vb_number_format($totaltime, 5) . " seconds with " . $vbulletin->db->querycount . " queries -->";
 	}
 
+	// set cookies for displayed notices
+	if ($show['notices'] AND !defined('NOPMPOPUP') AND !empty($vbulletin->np_notices_displayed) AND is_array($vbulletin->np_notices_displayed))
+	{
+		$np_notices_cookie = $_COOKIE[COOKIE_PREFIX . 'np_notices_displayed'];
+		vbsetcookie('np_notices_displayed',
+			($np_notices_cookie ? "$np_notices_cookie," : '') . implode(',', $vbulletin->np_notices_displayed),
+			false
+		);
+	}
+
 	// --------------------------------------------------------------------
 	// debug code
 	global $_TEMPLATEQUERIES, $tempusagecache, $DEVDEBUG, $vbcollapse;
@@ -5049,12 +5476,12 @@ function print_output($vartext, $sendheader = true)
 
 		if (is_array($tempusagecache))
 		{
-			unset($tempusagecache['board_inactive_warning']);
+			unset($tempusagecache['board_inactive_warning'], $_TEMPLATEQUERIES['board_inactive_warning']);
 
 			ksort($tempusagecache);
 			foreach ($tempusagecache AS $template_name => $times)
 			{
-				$tempusagecache["$template_name"] = "<span class=\"shade\" style=\"float:$stylevar[right]\">$stylevar[dirmark]($times)</span>" . ($_TEMPLATEQUERIES["$template_name"] ? "<span style=\"color:red; font-weight:bold\">$template_name</span>" : $template_name);
+				$tempusagecache["$template_name"] = "<span class=\"shade\" style=\"float:right\">($times)</span>" . ($_TEMPLATEQUERIES["$template_name"] ? "<span style=\"color:red; font-weight:bold\">$template_name</span>" : $template_name);
 			}
 		}
 		else
@@ -5072,35 +5499,55 @@ function print_output($vartext, $sendheader = true)
 			$hook_usage = '<li class="smallfont">&nbsp;</li>';
 		}
 
+		$phrase_groups = '';
+		sort($GLOBALS['phrasegroups']);
+		foreach ($GLOBALS['phrasegroups'] AS $phrase_group)
+		{
+			$phrase_groups .= '<li class="smallfont">' . $phrase_group . '</li>';
+		}
+		if (!$phrase_groups)
+		{
+			$phrase_groups = '<li class="smallfont">&nbsp;</li>';
+		}
+
 		$debughtml = "
-			<table class=\"tborder\" cellpadding=\"$stylevar[cellpadding]\" cellspacing=\"$stylevar[cellspacing]\" border=\"0\" align=\"center\" style=\"margin-top:20px\" id=\"debuginfo\">
+			<table class=\"tborder\" cellpadding=\"$stylevar[cellpadding]\" cellspacing=\"$stylevar[cellspacing]\" border=\"0\" align=\"center\" style=\"margin-top:20px\" id=\"debuginfo\" dir=\"ltr\">
 			<thead>
 				<tr>
-					<th class=\"tcat\" colspan=\"2\" align=\"$stylevar[left]\">
-						<a style=\"float:$stylevar[right]\" href=\"#\" title=\"Close Debug Info\" onclick=\"document.getElementById('debuginfo').parentNode.removeChild(document.getElementById('debuginfo')); return false;\">X</a>
+					<th class=\"tcat\" colspan=\"2\" align=\"left\">
+						<a style=\"float:right\" href=\"#\" title=\"Close Debug Info\" onclick=\"document.getElementById('debuginfo').parentNode.removeChild(document.getElementById('debuginfo')); return false;\">X</a>
 						vBulletin {$vbulletin->options[templateversion]} Debug Information
 					</th>
 				</tr>
 				<tr>
 					<td class=\"alt1 smallfont\" colspan=\"2\">
 						<ul style=\"list-style:none; margin:0px; padding:0px\">
-							<li class=\"smallfont\" style=\"display:inline; margin-$stylevar[right]:8px\"><span class=\"shade\">Page Generation</span> " . vb_number_format($totaltime, 5) . " seconds</li>
-							" . (function_exists('memory_get_usage') ? "<li class=\"smallfont\" style=\"display:inline; margin-$stylevar[right]:8px\"><span class=\"shade\">Memory Usage</span> " . number_format(memory_get_usage() / 1024) . 'KB</li>' : '') . "
-							<li class=\"smallfont\" style=\"display:inline; margin-$stylevar[right]:8px\"><span class=\"shade\">Queries Executed</span> " . (empty($_TEMPLATEQUERIES) ? $vbulletin->db->querycount : "<span title=\"Uncached Templates!\" style=\"color:red; font-weight:bold\">{$vbulletin->db->querycount}</span>") . " <a href=\"" . ($vbulletin->scriptpath) . (strpos($vbulletin->scriptpath, '?') === false ? '?' : '&amp;') . "explain=1\" target=\"_blank\" title=\"Explain Queries\">(?)</a></li>
+							<li class=\"smallfont\" style=\"display:inline; margin-right:8px\"><span class=\"shade\">Page Generation</span> " . vb_number_format($totaltime, 5) . " seconds</li>
+							" . (function_exists('memory_get_usage') ? "<li class=\"smallfont\" style=\"display:inline; margin-right:8px\"><span class=\"shade\">Memory Usage</span> " . number_format(memory_get_usage() / 1024) . 'KB</li>' : '') . "
+							<li class=\"smallfont\" style=\"display:inline; margin-right:8px\"><span class=\"shade\">Queries Executed</span> " . (empty($_TEMPLATEQUERIES) ? $vbulletin->db->querycount : "<span title=\"Uncached Templates!\" style=\"color:red; font-weight:bold\">{$vbulletin->db->querycount}</span>") . " <a href=\"" . ($vbulletin->scriptpath) . (strpos($vbulletin->scriptpath, '?') === false ? '?' : '&amp;') . "explain=1\" target=\"_blank\" title=\"Explain Queries\">(?)</a></li>
 						</ul>
 					</td>
 				</tr>
-				<tr align=\"$stylevar[left]\">
-					<th class=\"thead\" colspan=\"2\"><a style=\"float:$stylevar[right]\" href=\"#\" onclick=\"return toggle_collapse('debuginfo')\"><img id=\"collapseimg_debuginfo\" src=\"$stylevar[imgdir_button]/collapse_thead$vbcollapse[collapseimg_debuginfo].gif\" alt=\"\" border=\"0\" /></a> More Information</th>
+				<tr align=\"left\">
+					<th class=\"thead\" colspan=\"2\"><a style=\"float:right\" href=\"#\" onclick=\"return toggle_collapse('debuginfo')\"><img id=\"collapseimg_debuginfo\" src=\"$stylevar[imgdir_button]/collapse_thead$vbcollapse[collapseimg_debuginfo].gif\" alt=\"\" border=\"0\" /></a> More Information</th>
 				</tr>
 			</thead>
 			<tbody id=\"collapseobj_debuginfo\" style=\"$vbcollapse[collapseobj_debuginfo]\">
 				<tr valign=\"top\">
-					<td class=\"alt1 smallfont\" rowspan=\"2\"><div style=\"margin-bottom:6px\"><strong>Template Usage:</strong></div><ul style=\"list-style:none; margin:0px; padding:0px\"><li class=\"smallfont\">" . implode('</li><li class="smallfont">', $tempusagecache) . "&nbsp;</li></ul></td>
-					<td class=\"alt1 smallfont\"><div style=\"margin-bottom:6px\"><strong>Included Files:</strong></div><ul style=\"list-style:none; margin:0px; padding:0px\"><li class=\"smallfont\">" . implode('</li><li class="smallfont">', str_replace(DIR . '/', '', preg_replace('#^(.*/)#si', '<span class="shade">\1</span>', get_included_files()))) . "&nbsp;</li></ul></td>
-				</tr>
-				<tr>
-					<td class=\"alt1 smallfont\"><div style=\"margin-bottom:6px\"><strong>Hooks Called:</strong></div><ul style=\"list-style:none; margin:0px; padding:0px\">$hook_usage</ul></td>
+					<td class=\"alt1 smallfont\">
+						<div style=\"margin-bottom:6px\"><strong>Template Usage:</strong></div>
+						<ul style=\"list-style:none; margin:0px; padding:0px\"><li class=\"smallfont\">" . implode('</li><li class="smallfont">', $tempusagecache) . "&nbsp;</li></ul>
+						<hr style=\"margin:10px 0px 10px 0px\" />
+						<div style=\"margin-bottom:6px\"><strong>Phrase Groups Available:</strong></div>
+						<ul style=\"list-style:none; margin:0px; padding:0px\">$phrase_groups</ul>
+					</td>
+					<td class=\"alt1 smallfont\">
+						<div style=\"margin-bottom:6px\"><strong>Included Files:</strong></div>
+						<ul style=\"list-style:none; margin:0px; padding:0px\"><li class=\"smallfont\">" . implode('</li><li class="smallfont">', str_replace(str_replace('\\', '/', DIR) . '/', '', preg_replace('#^(.*/)#si', '<span class="shade">./\1</span>', str_replace('\\', '/', get_included_files())))) . "&nbsp;</li></ul>
+						<hr style=\"margin:10px 0px 10px 0px\" />
+						<div style=\"margin-bottom:6px\"><strong>Hooks Called:</strong></div>
+						<ul style=\"list-style:none; margin:0px; padding:0px\">$hook_usage</ul>
+					</td>
 				</tr>
 				</tbody>
 				<tbody>
@@ -5215,7 +5662,7 @@ function exec_shut_down()
 			{
 				foreach ($vbulletin->profilefield['required'] AS $fieldname => $value)
 				{
-					if (empty($vbulletin->userinfo["$fieldname"]))
+					if (!isset($vbulletin->userinfo["$fieldname"]) OR $vbulletin->userinfo["$fieldname"] === '')
 					{
 						$vbulletin->session->set('profileupdate', 1);
 						break;
@@ -5253,8 +5700,8 @@ function exec_shut_down()
 
 /*======================================================================*\
 || ####################################################################
-|| # Downloaded: 18:52, Sat Jul 14th 2007
-|| # CVS: $RCSfile$ - $Revision: 16956 $
+|| # Downloaded: 16:21, Sat Apr 6th 2013
+|| # CVS: $RCSfile$ - $Revision: 26979 $
 || ####################################################################
 \*======================================================================*/
 ?>

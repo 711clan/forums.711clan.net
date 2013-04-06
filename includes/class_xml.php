@@ -1,9 +1,9 @@
 <?php
 /*======================================================================*\
 || #################################################################### ||
-|| # vBulletin 3.6.7 PL1 - Licence Number VBF2470E4F
+|| # vBulletin 3.7.2 Patch Level 2 - Licence Number VBF2470E4F
 || # ---------------------------------------------------------------- # ||
-|| # Copyright ©2000-2007 Jelsoft Enterprises Ltd. All Rights Reserved. ||
+|| # Copyright ©2000-2013 Jelsoft Enterprises Ltd. All Rights Reserved. ||
 || # This file may not be redistributed in whole or significant part. # ||
 || # ---------------- VBULLETIN IS NOT FREE SOFTWARE ---------------- # ||
 || # http://www.vbulletin.com | http://www.vbulletin.com/license.html # ||
@@ -32,7 +32,10 @@ if (!function_exists('xml_set_element_handler'))
 	}
 }
 
-@ini_set('memory_limit', -1);
+if (!function_exists('ini_size_to_bytes') OR (($current_memory_limit = ini_size_to_bytes(@ini_get('memory_limit'))) < 128 * 1024 * 1024 AND $current_memory_limit > 0))
+{
+	@ini_set('memory_limit', 128 * 1024 * 1024);
+}
 
 /**
 * vBulletin XML Parsing Object
@@ -41,8 +44,8 @@ if (!function_exists('xml_set_element_handler'))
 *
 * @package 		vBulletin
 * @author		Scott MacVicar
-* @version		$Revision: 16608 $
-* @date 		$Date: 2007-03-19 09:08:10 -0500 (Mon, 19 Mar 2007) $
+* @version		$Revision: 26624 $
+* @date 		$Date: 2008-05-13 08:43:17 -0500 (Tue, 13 May 2008) $
 * @copyright 	http://www.vbulletin.com/license.html
 *
 */
@@ -103,6 +106,20 @@ class vB_XML_Parser
 	* @var	boolean
 	*/
 	var $include_first_tag = false;
+
+	/**
+	* Error code from XML object prior to releases of resources. This needs to be done to avoid a segfault in PHP 4. See Bug#24425
+	*
+	* @var integer
+	*/
+	var $error_code = 0;
+
+	/**
+	* Error line number from XML object prior to releases of resources. This needs to be done to avoid a segfault in PHP 4. See Bug#24425
+	*
+	* @var integer
+	*/
+	var $error_line = 0;
 
 	/**
 	* Constructor
@@ -166,6 +183,9 @@ class vB_XML_Parser
 
 		if ($err)
 		{
+			$this->error_code = @xml_get_error_code($this->xml_parser);
+			$this->error_line = @xml_get_current_line_number($this->xml_parser);
+			xml_parser_free($this->xml_parser);
 			return false;
 		}
 
@@ -379,9 +399,9 @@ class vB_XML_Parser
 	*/
 	function error_line()
 	{
-		if ($errorline = @xml_get_current_line_number($this->xml_parser))
+		if ($this->error_line)
 		{
-				return $errorline;
+				return $this->error_line;
 		}
 		else
 		{
@@ -396,9 +416,9 @@ class vB_XML_Parser
 	*/
 	function error_code()
 	{
-		if ($errorcode = @xml_get_error_code($this->xml_parser))
+		if ($this->error_code)
 		{
-			return $errorcode;
+			return $this->error_code;
 		}
 		else
 		{
@@ -610,11 +630,23 @@ class vB_XML_Builder
 		return $this->doc;
 	}
 
-	function print_xml()
+	/**
+	* Prints out the queued XML and then exits.
+	*
+	* @param	boolean	If not using shut down functions, whether to do a full shutdown (session updates, etc) or to just close the DB
+	*/
+	function print_xml($full_shutdown = false)
 	{
 		if (defined('NOSHUTDOWNFUNC'))
 		{
-			$this->registry->db->close();
+			if ($full_shutdown)
+			{
+				exec_shut_down();
+			}
+			else
+			{
+				$this->registry->db->close();
+			}
 		}
 
 		$this->send_content_type_header();
@@ -647,8 +679,8 @@ class XMLexporter extends vB_XML_Builder
 
 /*======================================================================*\
 || ####################################################################
-|| # Downloaded: 18:52, Sat Jul 14th 2007
-|| # CVS: $RCSfile$ - $Revision: 16608 $
+|| # Downloaded: 16:21, Sat Apr 6th 2013
+|| # CVS: $RCSfile$ - $Revision: 26624 $
 || ####################################################################
 \*======================================================================*/
 

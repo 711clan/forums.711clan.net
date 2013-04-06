@@ -1,9 +1,9 @@
 <?php
 /*======================================================================*\
 || #################################################################### ||
-|| # vBulletin 3.6.7 PL1 - Licence Number VBF2470E4F
+|| # vBulletin 3.7.2 Patch Level 2 - Licence Number VBF2470E4F
 || # ---------------------------------------------------------------- # ||
-|| # Copyright ©2000-2007 Jelsoft Enterprises Ltd. All Rights Reserved. ||
+|| # Copyright ©2000-2013 Jelsoft Enterprises Ltd. All Rights Reserved. ||
 || # This file may not be redistributed in whole or significant part. # ||
 || # ---------------- VBULLETIN IS NOT FREE SOFTWARE ---------------- # ||
 || # http://www.vbulletin.com | http://www.vbulletin.com/license.html # ||
@@ -15,6 +15,7 @@ error_reporting(E_ALL & ~E_NOTICE);
 
 // #################### DEFINE IMPORTANT CONSTANTS #######################
 define('THIS_SCRIPT', 'online');
+define('CSRF_PROTECTION', true);
 
 // ################### PRE-CACHE TEMPLATES AND DATA ######################
 // get special phrase groups
@@ -211,12 +212,14 @@ else
 	$uaselected[0] = 'selected="selected"';
 }
 
-$reloadurl = ($perpage != 20 ? "pp=$perpage" : '') .
-	($pagenumber != 1 ? "&amp;page=$pagenumber" : '') .
-	($sortfield != 'username' ? "&amp;sort=$sortfield" : '') .
-	($sortorder == 'desc' ? '&amp;order=desc' : '') .
-	($vbulletin->GPC['who'] != '' ? '&amp;who=' . $vbulletin->GPC['who'] : '') .
-	($vbulletin->GPC['ua'] ? '&amp;ua=1' : '');
+$reloadurl = ($perpage != 20 ? "pp=$perpage&amp;" : '') .
+	($pagenumber != 1 ? "page=$pagenumber&amp;" : '') .
+	($sortfield != 'username' ? "sort=$sortfield&amp;" : '') .
+	($sortorder == 'desc' ? 'order=desc&amp;' : '') .
+	($vbulletin->GPC['who'] != '' ? 'who=' . $vbulletin->GPC['who'] . '&amp;' : '') .
+	($vbulletin->GPC['ua'] ? 'ua=1&amp;' : '');
+
+$reloadurl = preg_replace('#&amp;$#s', '', $reloadurl);
 
 if (!empty($reloadurl))
 {
@@ -228,7 +231,11 @@ else
 }
 
 $sorturl = 'online.php?' . $vbulletin->session->vars['sessionurl'] .
-	($vbulletin->GPC['who'] != '' ? '&amp;who=' . $vbulletin->GPC['who'] : '') . ($vbulletin->GPC['ua'] ? '&amp;ua=1' : '');
+	($vbulletin->GPC['who'] != '' ? 'who=' . $vbulletin->GPC['who'] . '&amp;' : '') . ($vbulletin->GPC['ua'] ? 'ua=1&amp;' : '');
+
+$sorturl = preg_replace('#&amp;$#s', '', $sorturl);
+
+$show['sorturlnoargs'] = ($sorturl == 'online.php?' . $vbulletin->session->vars['sessionurl']);
 
 eval("\$sortarrow[$sortfield] = \"" . fetch_template('forumdisplay_sortarrow') . '";');
 
@@ -248,7 +255,7 @@ $allusers = $db->query_read_slave("
 	ORDER BY $sqlsort $sortorder
 ");
 
-$moderators = $db->query_read_slave("SELECT DISTINCT userid FROM " . TABLE_PREFIX . "moderator");
+$moderators = $db->query_read_slave("SELECT DISTINCT userid FROM " . TABLE_PREFIX . "moderator WHERE forumid <> -1");
 while ($mods = $db->fetch_array($moderators))
 {
 	$mod["{$mods[userid]}"] = 1;
@@ -601,27 +608,13 @@ $recordtime = vbdate($vbulletin->options['timeformat'], $vbulletin->maxloggedin[
 $currenttime = vbdate($vbulletin->options['timeformat']);
 $metarefresh = '';
 
+$show['refresh'] = false;
 if ($vbulletin->options['WOLrefresh'])
 {
-	if (is_browser('mozilla'))
-	{
-		$metarefresh = "\n<script type=\"text/javascript\">\n";
-		$metarefresh .= "myvar = \"\";\ntimeout = " . ($vbulletin->options['WOLrefresh'] * 10) . ";
-function exec_refresh()
-{
-	timerID = setTimeout(\"exec_refresh();\", 100);
-	if (timeout > 0)
-	{ timeout -= 1; }
-	else { clearTimeout(timerID); window.location=\"online.php?" . $vbulletin->session->vars['sessionurl_js'] . "order=$sortorder&sort=$sortfield&pp=$perpage&page=$pagenumber" . iif($vbulletin->GPC['who'], '&who=' . $vbulletin->GPC['who']) . iif($vbulletin->GPC['ua'], '&ua=1') . "\"; }
-}
-exec_refresh();";
-
-		$metarefresh .= "\n</script>\n";
-	}
-	else
-	{
-		$metarefresh = "<meta http-equiv=\"refresh\" content=\"" . $vbulletin->options['WOLrefresh'] . "; url=online.php?" . $vbulletin->session->vars['sessionurl'] . "order=$sortorder&amp;sort=$sortfield&amp;pp=$perpage&amp;page=$pagenumber" . iif($vbulletin->GPC['who'], '&amp;who=' . $vbulletin->GPC['who']) . iif($vbulletin->GPC['ua'], '&amp;ua=1') . "\" /> ";
-	}
+	$show['refresh'] = true;
+	$refreshargs = ($vbulletin->GPC['who'] ? '&amp;who=' . $vbulletin->GPC['who'] : '') . ($vbulletin->GPC['ua'] ? '&amp;ua=1' : '');
+	$refreshargs_js = ($vbulletin->GPC['who'] ? '&who=' . $vbulletin->GPC['who'] : '') . ($vbulletin->GPC['ua'] ? '&ua=1' : '');
+	$refreshtime = $vbulletin->options['WOLrefresh'] * 10;
 }
 
 $frmjmpsel['wol'] = ' selected="selected" class="fjsel"';
@@ -642,8 +635,8 @@ eval('print_output("' . fetch_template('WHOSONLINE') . '");');
 
 /*======================================================================*\
 || ####################################################################
-|| # Downloaded: 18:52, Sat Jul 14th 2007
-|| # CVS: $RCSfile$ - $Revision: 16435 $
+|| # Downloaded: 16:21, Sat Apr 6th 2013
+|| # CVS: $RCSfile$ - $Revision: 26760 $
 || ####################################################################
 \*======================================================================*/
 ?>

@@ -1,9 +1,9 @@
 <?php
 /*======================================================================*\
 || #################################################################### ||
-|| # vBulletin 3.6.7 PL1 - Licence Number VBF2470E4F
+|| # vBulletin 3.7.2 Patch Level 2 - Licence Number VBF2470E4F
 || # ---------------------------------------------------------------- # ||
-|| # Copyright ©2000-2007 Jelsoft Enterprises Ltd. All Rights Reserved. ||
+|| # Copyright ©2000-2013 Jelsoft Enterprises Ltd. All Rights Reserved. ||
 || # This file may not be redistributed in whole or significant part. # ||
 || # ---------------- VBULLETIN IS NOT FREE SOFTWARE ---------------- # ||
 || # http://www.vbulletin.com | http://www.vbulletin.com/license.html # ||
@@ -27,8 +27,8 @@ if (!class_exists('vB_DataManager'))
 *	- forward (bool): whether this is a forward of the parent (true) or a reply (false)
 *
 * @package	vBulletin
-* @version	$Revision: 16038 $
-* @date		$Date: 2006-12-28 16:41:24 -0600 (Thu, 28 Dec 2006) $
+* @version	$Revision: 26257 $
+* @date		$Date: 2008-04-03 07:34:52 -0500 (Thu, 03 Apr 2008) $
 */
 class vB_DataManager_PM extends vB_DataManager
 {
@@ -144,7 +144,7 @@ class vB_DataManager_PM extends vB_DataManager
 		}
 
 		// check message length
-		if (empty($this->info['skip_charcount']) AND $this->registry->options['pmmaxchars'] > 0)
+		if (empty($this->info['is_automated']) AND $this->registry->options['pmmaxchars'] > 0)
 		{
 			$messagelength = vbstrlen($message);
 			if ($messagelength > $this->registry->options['pmmaxchars'])
@@ -282,6 +282,11 @@ class vB_DataManager_PM extends vB_DataManager
 
 		$this->info['permissions'] =& $permissions;
 
+		if (!empty($this->info['is_automated']))
+		{
+			$this->overridequota = true;
+		}
+
 		// pmboxfull needs $fromusername defined
 		if (($fromusername = $this->fetch_field('fromusername')) === null)
 		{
@@ -326,8 +331,8 @@ class vB_DataManager_PM extends vB_DataManager
 		}
 
 		// query recipients
-		$checkusers = $this->dbobject->query_read("
-			SELECT user.*, usertextfield.*
+		$checkusers = $this->dbobject->query_read_slave("
+			SELECT usertextfield.*, user.*
 			FROM " . TABLE_PREFIX . "user AS user
 			LEFT JOIN " . TABLE_PREFIX . "usertextfield AS usertextfield ON(usertextfield.userid = user.userid)
 			WHERE username IN('" . implode('\', \'', array_map(array($this->dbobject, 'escape_string'), $names)) . "')
@@ -387,7 +392,7 @@ class vB_DataManager_PM extends vB_DataManager
 				// don't allow a tachy user to sends pms to anyone other than himself
 				if (in_coventry($fromuser['userid'], true) AND $user['userid'] != $fromuser['userid'])
 				{
-					$this->info['tostring']["$type"] = $user['username'];
+					$this->info['tostring']["$type"]["$user[userid]"] = $user['username'];
 					continue;
 				}
 				else if (strpos(" $user[ignorelist] ", ' ' . $fromuser['userid'] . ' ') !== false AND !$this->overridequota)
@@ -396,12 +401,12 @@ class vB_DataManager_PM extends vB_DataManager
 					if ($permissions['adminpermissions'] & $this->registry->bf_ugp_adminpermissions['cancontrolpanel'])
 					{
 						$recipients["$lowname"] = true;
-						$this->info['tostring']["$type"] = $user['username'];
+						$this->info['tostring']["$type"]["$user[userid]"] = $user['username'];
 					}
 					else
 					{
 						// bbuser is being ignored by recipient - do not send, but do not error
-						$this->info['tostring']["$type"] = $user['username'];
+						$this->info['tostring']["$type"]["$user[userid]"] = $user['username'];
 						continue;
 					}
 				}
@@ -421,7 +426,7 @@ class vB_DataManager_PM extends vB_DataManager
 							if ($permissions['pmpermissions'] & $this->registry->bf_ugp_pmpermissions['canignorequota'])
 							{
 								$recipients["$lowname"] = true;
-								$this->info['tostring']["$type"] = $user['username'];
+								$this->info['tostring']["$type"]["$user[userid]"] = $user['username'];
 							}
 							else if ($user['usergroupid'] != 3 AND $user['usergroupid'] != 4)
 							{
@@ -559,13 +564,19 @@ class vB_DataManager_PM extends vB_DataManager
 						$popupusers[] = $user['userid'];
 					}
 
+					$email_phrases = array(
+						'pmreceived' => 'pmreceived',
+						'pmboxalmostfull' => 'pmboxalmostfull'
+					);
+					($hook = vBulletinHook::fetch_hook('pmdata_postsave_recipient')) ? eval($hook) : false;
+
 					if (($user['options'] & $this->registry->bf_misc_useroptions['emailonpm']) AND $user['usergroupid'] != 3 AND $user['usergroupid'] != 4)
 					{
 						$touserinfo =& $user;
 						$plaintext_parser->set_parsing_language($touserinfo['languageid']);
 						$plaintext_message = $plaintext_parser->parse($this->fetch_field('message'), 'privatemessage');
 
-						eval(fetch_email_phrases('pmreceived', $touserinfo['languageid'], '', 'email'));
+						eval(fetch_email_phrases($email_phrases['pmreceived'], $touserinfo['languageid'], '', 'email'));
 						vbmail($touserinfo['email'], $emailsubject, $emailmessage);
 					}
 
@@ -573,7 +584,7 @@ class vB_DataManager_PM extends vB_DataManager
 					{	// email user about pm box nearly being full
 						$warningusers[] = $user['userid'];
 						$touserinfo =& $user;
-						eval(fetch_email_phrases('pmboxalmostfull', $touserinfo['languageid'], '', 'email'));
+						eval(fetch_email_phrases($email_phrases['pmboxalmostfull'], $touserinfo['languageid'], '', 'email'));
 						vbmail($touserinfo['email'], $emailsubject, $emailmessage, true);
 					}
 				}
@@ -612,8 +623,8 @@ class vB_DataManager_PM extends vB_DataManager
 					";
 				}
 
-				$this->dbobject->shutdown_query(
-					"UPDATE " . TABLE_PREFIX . "user
+				$this->dbobject->query_read("
+					UPDATE " . TABLE_PREFIX . "user
 					SET " . implode(', ', $querysql) . "
 					WHERE userid IN(" . implode(', ', array_keys($this->info['recipients'])) . ")
 				");
@@ -623,7 +634,11 @@ class vB_DataManager_PM extends vB_DataManager
 			// update replied to / forwarded message 'messageread' status
 			if (!empty($this->info['parentpmid']))
 			{
-				$this->dbobject->shutdown_query("UPDATE " . TABLE_PREFIX . "pm SET messageread = " . ($this->info['forward'] ? 3 : 2) . " WHERE userid = $fromuserid AND pmid = " . $this->info['parentpmid']);
+				$this->dbobject->query_write("
+					UPDATE " . TABLE_PREFIX . "pm SET
+						messageread = " . ($this->info['forward'] ? 3 : 2) . "
+					WHERE userid = $fromuserid AND pmid = " . $this->info['parentpmid']
+				);
 			}
 		}
 
@@ -633,8 +648,8 @@ class vB_DataManager_PM extends vB_DataManager
 
 /*======================================================================*\
 || ####################################################################
-|| # Downloaded: 18:52, Sat Jul 14th 2007
-|| # CVS: $RCSfile$ - $Revision: 16038 $
+|| # Downloaded: 16:21, Sat Apr 6th 2013
+|| # CVS: $RCSfile$ - $Revision: 26257 $
 || ####################################################################
 \*======================================================================*/
 ?>

@@ -1,9 +1,9 @@
 <?php
 /*======================================================================*\
 || #################################################################### ||
-|| # vBulletin 3.6.7 PL1 - Licence Number VBF2470E4F
+|| # vBulletin 3.7.2 Patch Level 2 - Licence Number VBF2470E4F
 || # ---------------------------------------------------------------- # ||
-|| # Copyright ©2000-2007 Jelsoft Enterprises Ltd. All Rights Reserved. ||
+|| # Copyright ©2000-2013 Jelsoft Enterprises Ltd. All Rights Reserved. ||
 || # This file may not be redistributed in whole or significant part. # ||
 || # ---------------- VBULLETIN IS NOT FREE SOFTWARE ---------------- # ||
 || # http://www.vbulletin.com | http://www.vbulletin.com/license.html # ||
@@ -14,7 +14,7 @@
 error_reporting(E_ALL & ~E_NOTICE);
 
 // ##################### DEFINE IMPORTANT CONSTANTS #######################
-define('CVS_REVISION', '$RCSfile$ - $Revision: 15150 $');
+define('CVS_REVISION', '$RCSfile$ - $Revision: 26328 $');
 
 // #################### PRE-CACHE TEMPLATES AND DATA ######################
 $phrasegroups = array('thread',	'calendar', 'timezone', 'threadmanage');
@@ -37,39 +37,26 @@ log_admin_action(iif(!empty($vbulletin->GPC['calendarid']), "calendar id = " . $
 
 print_cp_header($vbphrase['moderation']);
 
-// ###################### Start event moderation #######################
-if ($_REQUEST['do'] == 'events')
+// ###################### Start message moderation #######################
+if ($_REQUEST['do'] == 'messages')
 {
-	if (can_moderate())
-	{
-		$sql = 'OR 1 = 1';
-	}
-	else
-	{
-		$calendars = $db->query_read("SELECT calendarid FROM " . TABLE_PREFIX . "calendar");
-		$sql = ' OR calendar.calendarid IN(0';
-		while ($calendar = $db->fetch_array($calendars))
-		{
-			if (can_moderate_calendar($calendar['calendarid'], 'canmoderateevents'))
-			{
-				$sql .= ", $calendar[calendarid]";
-			}
-		}
-		$sql .= ')';
-	}
-
-	print_form_header('moderate', 'doevents');
-	print_table_header($vbphrase['events_awaiting_moderation']);
-	$events = $db->query_read("
-		SELECT event.*, event.title AS subject, user.username, calendar.title, IF(dateline_to = 0, 1, 0) AS singleday
-		FROM " . TABLE_PREFIX . "event AS event
-		LEFT JOIN " . TABLE_PREFIX . "user AS user ON(event.userid = user.userid)
-		LEFT JOIN " . TABLE_PREFIX . "calendar AS calendar ON(calendar.calendarid = event.calendarid)
-		WHERE (1 = 0 $sql) AND visible = 0
+	print_form_header('moderate', 'domessages');
+	print_table_header($vbphrase['visitor_messages_awaiting_moderation']);
+	$messages = $db->query_read("
+		SELECT visitormessage.*, visitormessage.title AS subject, user.username, user2.username AS postusername, visitormessage.title
+		FROM " . TABLE_PREFIX . "visitormessage AS visitormessage
+		LEFT JOIN " . TABLE_PREFIX . "user AS user ON (visitormessage.userid = user.userid)
+		LEFT JOIN " . TABLE_PREFIX . "user AS user2 ON (visitormessage.postuserid = user2.userid)
+		WHERE state = 'moderation'
 	");
 	$done = false;
-	while ($eventinfo = $db->fetch_array($events))
+	while ($messageinfo = $db->fetch_array($messages))
 	{
+		if (!can_moderate(0, 'canmoderatevisitormessages'))
+		{
+			continue;
+		}
+
 		if ($done)
 		{
 			print_description_row('<span class="smallfont">&nbsp;</span>', 0, 2, 'thead');
@@ -79,60 +66,168 @@ if ($_REQUEST['do'] == 'events')
 			print_description_row('
 				<input type="button" value="' . $vbphrase['validate'] . '" onclick="js_check_all_option(this.form, 1);" class="button" title="' . $vbphrase['validate'] . '" />
 				&nbsp;
-				<input type="button" value="' . $vbphrase['delete'] . '" onclick="js_check_all_option(this.form, -1);" class="button" title="' . $vbphrase['delete'] . '" />
-				&nbsp;
+				' . (can_moderate(0, 'candeletevisitormessages') ? '<input type="button" value="' . $vbphrase['delete'] . '" onclick="js_check_all_option(this.form, -1);" class="button" title="' . $vbphrase['delete'] . '" />
+					&nbsp;' : '') . '
 				<input type="button" value="' . $vbphrase['ignore'] . '" onclick="js_check_all_option(this.form, 0);" class="button" title="' . $vbphrase['ignore'] . '" />
 			', 0, 2, 'thead', 'center');
 		}
 
 		if (!($vbulletin->userinfo['permissions']['adminpermissions'] & $vbulletin->bf_ugp_adminpermissions['cancontrolpanel']))
 		{
-			print_label_row('<b>' . $vbphrase['posted_by'] . '</b>', '<a href="user.php?' . $vbulletin->session->vars['sessionurl'] . "do=viewuser&u=$eventinfo[userid]\">$eventinfo[username]</a>");
+			print_label_row('<b>' . $vbphrase['posted_by'] . '</b>', '<a href="user.php?' . $vbulletin->session->vars['sessionurl'] . "do=viewuser&u=$messageinfo[postuserid]\">$messageinfo[postusername]</a>");
+			print_label_row('<b>' . $vbphrase['user_profile'] . '</b>', '<a href="user.php?' . $vbulletin->session->vars['sessionurl'] . "do=viewuser&u=$messageinfo[userid]\">$messageinfo[username]</a>");
 		}
 		else
 		{
-			print_label_row('<b>' . $vbphrase['posted_by'] . '</b>', '<a href="../' . $vbulletin->config['Misc']['admincpdir']  . '/user.php?' . $vbulletin->session->vars['sessionurl'] . "do=edit&u=$eventinfo[userid]\">$eventinfo[username]</a>");
+			print_label_row('<b>' . $vbphrase['posted_by'] . '</b>', '<a href="../' . $vbulletin->config['Misc']['admincpdir']  . '/user.php?' . $vbulletin->session->vars['sessionurl'] . "do=edit&u=$messageinfo[postuserid]\">$messageinfo[postusername]</a>");
+			print_label_row('<b>' . $vbphrase['user_profile'] . '</b>', '<a href="../' . $vbulletin->config['Misc']['admincpdir']  . '/user.php?' . $vbulletin->session->vars['sessionurl'] . "do=edit&u=$messageinfo[userid]\">$messageinfo[username]</a>");
 		}
-		print_label_row('<b>' . $vbphrase['calendar'] . '</b>', '<a href="../calendar.php?' . $vbulletin->session->vars['sessionurl'] . "c=$eventinfo[calendarid]\">$eventinfo[title]</a>");
-		print_input_row('<b>' . $vbphrase['subject'] . '</b>', "eventsubject[$eventinfo[eventid]]", $eventinfo['subject']);
+		#print_input_row('<b>' . $vbphrase['subject'] . '</b>', "messagesubject[$messageinfo[vmid]]", $messageinfo['title']);
 
-		$time1 =  vbdate($vbulletin->options['timeformat'], $eventinfo['dateline_from']);
-		$time2 =  vbdate($vbulletin->options['timeformat'], $eventinfo['dateline_to']);
-
-		if ($eventinfo['singleday'])
+		if (can_moderate(0, 'caneditvisitormessages'))
 		{
-			print_label_row('<b>' . $vbphrase['date'] . '</b>', vbdate($vbulletin->options['dateformat'], $eventinfo['dateline_from']));
-		}
-		else if ($eventinfo['dateline_from'] != $eventinfo['dateline_to'])
-		{
-			$recurcriteria = fetch_event_criteria($eventinfo);
-			$date1 = vbdate($vbulletin->options['dateformat'], $eventinfo['dateline_from']);
-			$date2 = vbdate($vbulletin->options['dateformat'], $eventinfo['dateline_to']);
-			if (!$recurcriteria)
-			{
-				$recurcriteria = $vbcalendar['word6']; // What is word6?
-			}
-			print_label_row('<b>' . $vbphrase['time'] . '</b>', construct_phrase($vbphrase['x_to_y'], $time1, $time2));
-			print_label_row('<b>' . $vbphrase['timezone'] . '</b>', "<select name=\"eventtimezone[$eventinfo[eventid]]\" tabindex=\"1\" class=\"bginput\">" . construct_select_options(fetch_timezones_array(), $eventinfo['utc']) . '</select>');
-			print_label_row('<b>' . $vbphrase['date_range'] . '</b>', $recurcriteria . ' | ' . construct_phrase($vbphrase['x_to_y'], $date1, $date2));
+			print_textarea_row('<b>' . $vbphrase['message'] . '</b>', "messagetext[$messageinfo[vmid]]", $messageinfo['pagetext'], 15, 70);
 		}
 		else
 		{
-			$date = vbdate($vbulletin->options['dateformat'], $eventinfo['from_date']);
-			print_label_row('<b>' . $vbphrase['time'] . '</b>', construct_phrase($vbphrase['x_to_y'], $time1, $time2));
-			print_label_row('<b>' . $vbphrase['timezone'] . '</b>', "<select name=\"eventtimezone[$eventinfo[eventid]]\" tabindex=\"1\" class=\"bginput\">" . construct_select_options(fetch_timezones_array(), $eventinfo['utc']) . '</select>');
-			print_label_row('<b>' . $vbphrase['date_range'] . '</b>', $date);
+			print_label_row('<b>' . $vbphrase['message'] . '</b>', nl2br(htmlspecialchars_uni($messageinfo['pagetext'])));
+			construct_hidden_code("messagetext[$messageinfo[vmid]]", $messageinfo['pagetext']);
 		}
 
-		print_textarea_row('<b>' . $vbphrase['event'] . '</b>', "eventtext[$eventinfo[eventid]]", $eventinfo['event'], 15, 70);
 		print_label_row($vbphrase['action'], "
-			<label for=\"val_$eventinfo[eventid]\"><input type=\"radio\" name=\"eventaction[$eventinfo[eventid]]\" value=\"1\" id=\"val_$eventinfo[eventid]\" tabindex=\"1\" />" . $vbphrase['validate'] . "</label>
-			<label for=\"del_$eventinfo[eventid]\"><input type=\"radio\" name=\"eventaction[$eventinfo[eventid]]\" value=\"-1\" id=\"del_$eventinfo[eventid]\" tabindex=\"1\" />" . $vbphrase['delete'] . "</label>
-			<label for=\"ign_$eventinfo[eventid]\"><input type=\"radio\" name=\"eventaction[$eventinfo[eventid]]\" value=\"0\" id=\"ign_$eventinfo[eventid]\" tabindex=\"1\" checked=\"checked\" /> " . $vbphrase['ignore'] . "</label>
-		", '', 'top', 'eventaction');
+			<label for=\"val_$messageinfo[vmid]\"><input type=\"radio\" name=\"messageaction[$messageinfo[vmid]]\" value=\"1\" id=\"val_$messageinfo[vmid]\" tabindex=\"1\" />" . $vbphrase['validate'] . "</label>
+			" . (can_moderate(0, 'candeletevisitormessages') ? "<label for=\"del_$messageinfo[vmid]\"><input type=\"radio\" name=\"messageaction[$messageinfo[vmid]]\" value=\"-1\" id=\"del_$messageinfo[vmid]\" tabindex=\"1\" />" . $vbphrase['delete'] . "</label>" : '') . "
+			<label for=\"ign_$messageinfo[vmid]\"><input type=\"radio\" name=\"messageaction[$messageinfo[vmid]]\" value=\"0\" id=\"ign_$messageinfo[vmid]\" tabindex=\"1\" checked=\"checked\" /> " . $vbphrase['ignore'] . "</label>
+		", '', 'top', 'messageaction');
 		$done = true;
 	}
 
+	if (!$done)
+	{
+		print_description_row($vbphrase['no_messages_awaiting_moderation']);
+		print_table_footer();
+	}
+	else
+	{
+		print_submit_row();
+	}
+}
+
+// ###################### Start message moderation #######################
+if ($_REQUEST['do'] == 'events')
+{
+
+	$sql = '';
+	$calendars = $db->query_read("SELECT calendarid FROM " . TABLE_PREFIX . "calendar");
+	$calendarids = array();
+	while ($calendar = $db->fetch_array($calendars))
+	{
+		if (can_moderate_calendar($calendar['calendarid'], 'canmoderateevents'))
+		{
+			$calendarids[] = $calendar['calendarid'];
+		}
+	}
+	if (!empty($calendarids))
+	{
+		$sql = "calendar.calendarid IN(" . implode(", ", $calendarids) . ")";
+	}
+
+	print_form_header('moderate', 'doevents');
+	print_table_header($vbphrase['events_awaiting_moderation']);
+
+	if ($sql)
+	{
+		$events = $db->query_read("
+			SELECT event.*, event.title AS subject, user.username, calendar.title, IF(dateline_to = 0, 1, 0) AS singleday
+			FROM " . TABLE_PREFIX . "event AS event
+			LEFT JOIN " . TABLE_PREFIX . "user AS user ON(event.userid = user.userid)
+			LEFT JOIN " . TABLE_PREFIX . "calendar AS calendar ON(calendar.calendarid = event.calendarid)
+			WHERE $sql AND visible = 0
+		");
+		$done = false;
+		while ($eventinfo = $db->fetch_array($events))
+		{
+			if ($done)
+			{
+				print_description_row('<span class="smallfont">&nbsp;</span>', 0, 2, 'thead');
+			}
+			else
+			{
+				print_description_row('
+					<input type="button" value="' . $vbphrase['validate'] . '" onclick="js_check_all_option(this.form, 1);" class="button" title="' . $vbphrase['validate'] . '" />
+					&nbsp;
+					' . (can_moderate_calendar(0, 'candeleteevents') ? '<input type="button" value="' . $vbphrase['delete'] . '" onclick="js_check_all_option(this.form, -1);" class="button" title="' . $vbphrase['delete'] . '" />
+						&nbsp;' : '') . '
+					<input type="button" value="' . $vbphrase['ignore'] . '" onclick="js_check_all_option(this.form, 0);" class="button" title="' . $vbphrase['ignore'] . '" />
+				', 0, 2, 'thead', 'center');
+			}
+
+			if (!($vbulletin->userinfo['permissions']['adminpermissions'] & $vbulletin->bf_ugp_adminpermissions['cancontrolpanel']))
+			{
+				print_label_row('<b>' . $vbphrase['posted_by'] . '</b>', '<a href="user.php?' . $vbulletin->session->vars['sessionurl'] . "do=viewuser&u=$eventinfo[userid]\">$eventinfo[username]</a>");
+			}
+			else
+			{
+				print_label_row('<b>' . $vbphrase['posted_by'] . '</b>', '<a href="../' . $vbulletin->config['Misc']['admincpdir']  . '/user.php?' . $vbulletin->session->vars['sessionurl'] . "do=edit&u=$eventinfo[userid]\">$eventinfo[username]</a>");
+			}
+			print_label_row('<b>' . $vbphrase['calendar'] . '</b>', '<a href="../calendar.php?' . $vbulletin->session->vars['sessionurl'] . "c=$eventinfo[calendarid]\">$eventinfo[title]</a>");
+
+			if (can_moderate_calendar($eventinfo['calendarid'], 'caneditevents'))
+			{
+				print_input_row('<b>' . $vbphrase['subject'] . '</b>', "eventsubject[$eventinfo[eventid]]", $eventinfo['subject']);
+			}
+			else
+			{
+				print_label_row('<b>' . $vbphrase['subject'] . '</b>', htmlspecialchars_uni($eventinfo['subject']));
+				construct_hidden_code("eventsubject[$eventinfo[eventid]]", $eventinfo['subject']);
+			}
+
+			$time1 =  vbdate($vbulletin->options['timeformat'], $eventinfo['dateline_from']);
+			$time2 =  vbdate($vbulletin->options['timeformat'], $eventinfo['dateline_to']);
+
+			if ($eventinfo['singleday'])
+			{
+				print_label_row('<b>' . $vbphrase['date'] . '</b>', vbdate($vbulletin->options['dateformat'], $eventinfo['dateline_from']));
+			}
+			else if ($eventinfo['dateline_from'] != $eventinfo['dateline_to'])
+			{
+				$recurcriteria = fetch_event_criteria($eventinfo);
+				$date1 = vbdate($vbulletin->options['dateformat'], $eventinfo['dateline_from']);
+				$date2 = vbdate($vbulletin->options['dateformat'], $eventinfo['dateline_to']);
+				if (!$recurcriteria)
+				{
+					$recurcriteria = $vbcalendar['word6']; // What is word6?
+				}
+				print_label_row('<b>' . $vbphrase['time'] . '</b>', construct_phrase($vbphrase['x_to_y'], $time1, $time2));
+				print_label_row('<b>' . $vbphrase['timezone'] . '</b>', "<select name=\"eventtimezone[$eventinfo[eventid]]\" tabindex=\"1\" class=\"bginput\">" . construct_select_options(fetch_timezones_array(), $eventinfo['utc']) . '</select>');
+				print_label_row('<b>' . $vbphrase['date_range'] . '</b>', $recurcriteria . ' | ' . construct_phrase($vbphrase['x_to_y'], $date1, $date2));
+			}
+			else
+			{
+				$date = vbdate($vbulletin->options['dateformat'], $eventinfo['from_date']);
+				print_label_row('<b>' . $vbphrase['time'] . '</b>', construct_phrase($vbphrase['x_to_y'], $time1, $time2));
+				print_label_row('<b>' . $vbphrase['timezone'] . '</b>', "<select name=\"eventtimezone[$eventinfo[eventid]]\" tabindex=\"1\" class=\"bginput\">" . construct_select_options(fetch_timezones_array(), $eventinfo['utc']) . '</select>');
+				print_label_row('<b>' . $vbphrase['date_range'] . '</b>', $date);
+			}
+
+			if (can_moderate_calendar($eventinfo['calendarid'], 'caneditevents'))
+			{
+				print_textarea_row('<b>' . $vbphrase['event'] . '</b>', "eventtext[$eventinfo[eventid]]", $eventinfo['event'], 15, 70);
+			}
+			else
+			{
+				print_label_row('<b>' . $vbphrase['event'] . '</b>', nl2br(htmlspecialchars_uni($eventinfo['event'])));
+				construct_hidden_code("eventtext[$eventinfo[eventid]]", $eventinfo['event']);
+			}
+
+			print_label_row($vbphrase['action'], "
+				<label for=\"val_$eventinfo[eventid]\"><input type=\"radio\" name=\"eventaction[$eventinfo[eventid]]\" value=\"1\" id=\"val_$eventinfo[eventid]\" tabindex=\"1\" />" . $vbphrase['validate'] . "</label>
+				" . (can_moderate_calendar($eventinfo['calendarid'], 'candeleteevents') ? "<label for=\"del_$eventinfo[eventid]\"><input type=\"radio\" name=\"eventaction[$eventinfo[eventid]]\" value=\"-1\" id=\"del_$eventinfo[eventid]\" tabindex=\"1\" />" . $vbphrase['delete'] . "</label>" : '') . "
+				<label for=\"ign_$eventinfo[eventid]\"><input type=\"radio\" name=\"eventaction[$eventinfo[eventid]]\" value=\"0\" id=\"ign_$eventinfo[eventid]\" tabindex=\"1\" checked=\"checked\" /> " . $vbphrase['ignore'] . "</label>
+			", '', 'top', 'eventaction');
+			$done = true;
+		}
+	}
 	if (!$done)
 	{
 		print_description_row($vbphrase['no_events_awaiting_moderation']);
@@ -142,6 +237,54 @@ if ($_REQUEST['do'] == 'events')
 	{
 		print_submit_row();
 	}
+}
+
+// ###################### Start do message moderation #######################
+if ($_POST['do'] == 'domessages')
+{
+	$vbulletin->input->clean_array_gpc('p', array(
+		'messageaction'  => TYPE_ARRAY_INT,
+		'messagesubject' => TYPE_ARRAY_STR,
+		'messagetext'    => TYPE_ARRAY_STR,
+	));
+
+	require_once(DIR . '/includes/functions_visitormessage.php');
+
+	foreach ($vbulletin->GPC['messageaction'] AS $vmid => $action)
+	{
+		$vmid = intval($vmid);
+		if (!can_moderate(0, 'canmoderatevisitormessages'))
+		{
+			continue;
+		}
+
+		$messageinfo = fetch_visitormessageinfo($vmid);
+		if (!$messageinfo OR $messageinfo['state'] != 'moderation')
+		{
+			continue;
+		}
+
+		$dataman =& datamanager_init('VisitorMessage', $vbulletin, ERRTYPE_SILENT);
+		$dataman->set_existing($messageinfo);
+
+		if ($action == 1)
+		{ // validate
+			#$dataman->set('title', $vbulletin->GPC['messagesubject']["$vmid"]);
+			if (can_moderate(0, 'caneditvisitormessages'))
+			{
+				$dataman->set('pagetext', $vbulletin->GPC['messagetext']["$vmid"]);
+			}
+			$dataman->set('state', 'visible');
+			$dataman->save();
+		}
+		else if ($action == -1 AND can_moderate(0, 'candeletevisitormessages'))
+		{ // delete
+			$dataman->delete();
+		}
+	}
+
+	define('CP_REDIRECT', 'moderate.php?do=messages');
+	print_stop_message('moderated_visitor_messages_successfully');
 }
 
 // ###################### Start do event moderation #######################
@@ -177,12 +320,16 @@ if ($_POST['do'] == 'doevents')
 
 			$eventdata->verify_datetime = false;
 			$eventdata->set('utc', $vbulletin->GPC['eventtimezone']["$eventid"]);
-			$eventdata->set('title', $vbulletin->GPC['eventsubject']["$eventid"]);
-			$eventdata->set('event', $vbulletin->GPC['eventtext']["$eventid"]);
+
+			if (can_moderate_calendar($getcalendarid['calendarid'], 'caneditevents'))
+			{
+				$eventdata->set('title', $vbulletin->GPC['eventsubject']["$eventid"]);
+				$eventdata->set('event', $vbulletin->GPC['eventtext']["$eventid"]);
+			}
 			$eventdata->set('visible', 1);
 			$eventdata->save();
 		}
-		else if ($action == -1)
+		else if ($action == -1 AND can_moderate_calendar($getcalendarid['calendarid'], 'candeleteevents'))
 		{ // delete
 
 			$eventdata->delete();
@@ -203,16 +350,20 @@ if ($_REQUEST['do'] == 'posts')
 
 	$hasdelperm = array();
 
-	$moderated = $db->query_read("SELECT * FROM " . TABLE_PREFIX . "moderation");
+	$moderated = $db->query_read("
+		SELECT *
+		FROM " . TABLE_PREFIX . "moderation
+		WHERE type IN ('thread', 'reply')
+	");
 	while ($moderate = $db->fetch_array($moderated))
 	{
 		if ($moderate['type'] == 'thread')
 		{
-			$threadids[] = $moderate['threadid'];
+			$threadids[] = $moderate['primaryid'];
 		}
 		else
 		{
-			$postids[] = $moderate['postid'];
+			$postids[] = $moderate['primaryid'];
 		}
 	}
 	$db->free_result($moderated);
@@ -222,7 +373,7 @@ if ($_REQUEST['do'] == 'posts')
 	print_form_header('moderate', 'doposts', 0, 1, 'threads');
 	print_table_header($vbphrase['threads_awaiting_moderation']);
 
-	if (!empty($threadids))
+	if (!empty($threadids) AND $sql)
 	{
 		$threadids = implode(',', $threadids);
 		$threads = $db->query_read("
@@ -231,7 +382,7 @@ if ($_REQUEST['do'] == 'posts')
 				thread.postusername AS username, thread.dateline, thread.firstpostid, pagetext
 			FROM " . TABLE_PREFIX . "thread AS thread
 			LEFT JOIN " . TABLE_PREFIX . "post AS post ON(thread.firstpostid = post.postid)
-			WHERE (1 = 0 $sql) AND thread.threadid IN($threadids)
+			WHERE $sql AND thread.threadid IN ($threadids)
 			ORDER BY thread.lastpost
 		");
 
@@ -252,7 +403,7 @@ if ($_REQUEST['do'] == 'posts')
 			{
 				print_description_row('
 					<input type="button" value="' . $vbphrase['validate'] . '" onclick="js_check_all_option(this.form, 1);" class="button" title="' . $vbphrase['validate'] . '" />
-					' . ((can_moderate('candeleteposts') OR can_moderate('canremoveposts')) ? '&nbsp;
+					' . ((can_moderate(0, 'candeleteposts') OR can_moderate(0, 'canremoveposts')) ? '&nbsp;
 					<input type="button" value="' . $vbphrase['delete'] . '" onclick="js_check_all_option(this.form, -1);" class="button" title="' . $vbphrase['delete'] . '" />' : '') . '
 					&nbsp;
 					<input type="button" value="' . $vbphrase['ignore'] . '" onclick="js_check_all_option(this.form, 0);" class="button" title="' . $vbphrase['ignore'] . '" />
@@ -267,8 +418,27 @@ if ($_REQUEST['do'] == 'posts')
 				print_label_row('<b>' . $vbphrase['posted_by'] . '</b>', iif($thread['userid'], '<a href="../' . $vbulletin->config['Misc']['admincpdir'] . '/user.php?' . $vbulletin->session->vars['sessionurl'] . "do=edit&u=$thread[userid]\" target=\"_blank\">$thread[username]</a>", $vbphrase['guest']));
 			}
 			print_label_row('<b>' . $vbphrase['forum'] . '</b>', '<a href="../forumdisplay.php?' . $vbulletin->session->vars['sessionurl'] . "f=$thread[forumid]\" target=\"_blank\">" . $vbulletin->forumcache["$thread[forumid]"]['title'] . "</a>");
-			print_input_row($vbphrase['title'], "threadtitle[$thread[threadid]]", $thread['title'], 0, 70);
-			print_textarea_row($vbphrase['message'], "threadpagetext[$thread[threadid]]", $thread['pagetext'], 15, 70);
+
+			if (can_moderate(0, 'caneditthreads'))
+			{
+				print_input_row($vbphrase['title'], "threadtitle[$thread[threadid]]", $thread['title'], 0, 70);
+			}
+			else
+			{
+				print_label_row($vbphrase['title'], $thread['title']);
+				construct_hidden_code("threadtitle[$thread[threadid]]", $thread['title'], false);
+			}
+
+			if (can_moderate(0, 'caneditposts'))
+			{
+				print_textarea_row($vbphrase['message'], "threadpagetext[$thread[threadid]]", $thread['pagetext'], 15, 70);
+			}
+			else
+			{
+				print_label_row($vbphrase['message'], nl2br(htmlspecialchars_uni($thread['pagetext'])));
+				construct_hidden_code("threadpagetext[$thread[threadid]]", $thread['pagetext']);
+			}
+
 			print_input_row($vbphrase['notes'], "threadnotes[$thread[threadid]]", $thread['notes'], 1, 70);
 
 			if (!isset($hasdelperm["$thread[forumid]"]))
@@ -299,7 +469,7 @@ if ($_REQUEST['do'] == 'posts')
 	print_table_header($vbphrase['posts_awaiting_moderation'], 2, 0, 'postlist');
 
 
-	if (!empty($postids))
+	if (!empty($postids) AND $sql)
 	{
 		$postids = implode(',', $postids);
 		$posts = $db->query_read("
@@ -307,7 +477,7 @@ if ($_REQUEST['do'] == 'posts')
 			thread.title AS thread_title, thread.forumid AS forumid, username, thread.threadid
 			FROM " . TABLE_PREFIX . "post AS post
 			LEFT JOIN " . TABLE_PREFIX . "thread AS thread ON(thread.threadid = post.threadid)
-			WHERE (1 = 0 $sql) AND postid IN($postids)
+			WHERE $sql AND postid IN($postids)
 			ORDER BY dateline
 		");
 		$haveposts = false;
@@ -321,7 +491,7 @@ if ($_REQUEST['do'] == 'posts')
 			{
 				print_description_row('
 					<input type="button" value="' . $vbphrase['validate'] . '" onclick="js_check_all_option(this.form, 1);" class="button" title="' . $vbphrase['validate'] . '" />
-					' . ((can_moderate('candeleteposts') OR can_moderate('canremoveposts')) ? '&nbsp;
+					' . ((can_moderate(0, 'candeleteposts') OR can_moderate(0, 'canremoveposts')) ? '&nbsp;
 					<input type="button" value="' . $vbphrase['delete'] . '" onclick="js_check_all_option(this.form, -1);" class="button" title="' . $vbphrase['delete'] . '" />' : '') . '
 					&nbsp;
 					<input type="button" value="' . $vbphrase['ignore'] . '" onclick="js_check_all_option(this.form, 0);" class="button" title="' . $vbphrase['ignore'] . '" />
@@ -337,8 +507,19 @@ if ($_REQUEST['do'] == 'posts')
 			}
 			print_label_row('<b>' . $vbphrase['thread'] . '</b>', '<a href="../showthread.php?' . $vbulletin->session->vars['sessionurl'] . "t=$post[threadid]\" target=\"_blank\">$post[thread_title]</a>");
 			print_label_row('<b>' . $vbphrase['forum'] . '</b> ', '<a href="../forumdisplay.php?' . $vbulletin->session->vars['sessionurl'] . "f=$post[forumid]\" target=\"_blank\">" . $vbulletin->forumcache["$post[forumid]"]['title'] . "</a>");
-			print_input_row($vbphrase['title'], "posttitle[$post[postid]]", $post['post_title'], 0, 70);
-			print_textarea_row($vbphrase['message'], "postpagetext[$post[postid]]", $post['pagetext'], 15, 70);
+
+			if (can_moderate(0, 'caneditposts'))
+			{
+				print_input_row($vbphrase['title'], "posttitle[$post[postid]]", $post['post_title'], 0, 70);
+				print_textarea_row($vbphrase['message'], "postpagetext[$post[postid]]", $post['pagetext'], 15, 70);
+			}
+			else
+			{
+				print_label_row($vbphrase['title'], $post['post_title']);
+				print_label_row($vbphrase['message'], nl2br(htmlspecialchars_uni($post['pagetext'])));
+				construct_hidden_code("posttitle[$post[postid]]", $post['post_title'], false);
+				construct_hidden_code("postpagetext[$post[postid]]", $post['pagetext']);
+			}
 
 			if (!isset($hasdelperm["$post[forumid]"]))
 			{
@@ -407,7 +588,8 @@ if ($_POST['do'] == 'doposts')
 			$threadid = intval($threadid);
 			// check whether moderator of this forum
 			$threadinfo = fetch_threadinfo($threadid);
-			if (!can_moderate($threadinfo['forumid'], 'canmoderateposts'))
+			$forumperms = $vbulletin->userinfo['forumpermissions']["$threadinfo[forumid]"];
+			if (!can_moderate($threadinfo['forumid'], 'canmoderateposts') OR !($forumperms & $vbulletin->bf_ugp_forumpermissions['canview']))
 			{
 				continue;
 			}
@@ -420,7 +602,10 @@ if ($_POST['do'] == 'doposts')
 				$threadman->set_existing($threadinfo);
 				$threadman->set_info('skip_first_post_update', true);
 				$threadman->set('visible', 1);
-				$threadman->set('title', $vbulletin->GPC['threadtitle']["$threadid"]);
+				if (can_moderate(0, 'caneditthreads'))
+				{
+					$threadman->set('title', $vbulletin->GPC['threadtitle']["$threadid"]);
+				}
 				$threadman->set('notes', $vbulletin->GPC['threadnotes']["$threadid"]);
 				if ($vbulletin->options['similarthreadsearch'])
 				{
@@ -439,8 +624,13 @@ if ($_POST['do'] == 'doposts')
 				$postman =& datamanager_init('Post', $vbulletin, ERRTYPE_SILENT, 'threadpost');
 				$postman->set_existing($post);
 				$postman->set('visible', 1); // This should already be visible
-				$postman->set('title', $vbulletin->GPC['threadtitle']["$threadid"]);
-				$postman->set('pagetext', $vbulletin->GPC['threadpagetext']["$threadid"], true, false); // bypass the verify_pagetext call
+
+				if (can_moderate(0, 'caneditposts'))
+				{
+					$postman->set('title', $vbulletin->GPC['threadtitle']["$threadid"]);
+					$postman->set('pagetext', $vbulletin->GPC['threadpagetext']["$threadid"], true, false); // bypass the verify_pagetext call
+				}
+
 				$postman->save();
 				unset($postman);
 
@@ -505,7 +695,7 @@ if ($_POST['do'] == 'doposts')
 			$threadids = implode(',', $threadids);
 			$db->query_write("
 				DELETE FROM " . TABLE_PREFIX . "moderation
-				WHERE threadid IN($threadids) AND type = 'thread'
+				WHERE primaryid IN($threadids) AND type = 'thread'
 			");
 		}
 
@@ -534,6 +724,11 @@ if ($_POST['do'] == 'doposts')
 				continue;
 			}
 
+			$forumperms = $vbulletin->userinfo['forumpermissions']["$postinfo[forumid]"];
+			if (!can_moderate($threadinfo['forumid'], 'canmoderateposts') OR !($forumperms & $vbulletin->bf_ugp_forumpermissions['canview']))
+			{
+				continue;
+			}
 			if (!can_moderate($postinfo['forumid'], 'canmoderateposts'))
 			{
 				continue;
@@ -554,8 +749,11 @@ if ($_POST['do'] == 'doposts')
 				$postman =& datamanager_init('Post', $vbulletin, ERRTYPE_SILENT, 'threadpost');
 				$postman->set_existing($postinfo);
 				$postman->set('visible', 1);
-				$postman->set('pagetext', $vbulletin->GPC['postpagetext']["$postid"], true, false); // bypass the verify_pagetext call
-				$postman->set('title', $vbulletin->GPC['posttitle']["$postid"]);
+				if (can_moderate(0, 'caneditposts'))
+				{
+					$postman->set('pagetext', $vbulletin->GPC['postpagetext']["$postid"], true, false); // bypass the verify_pagetext call
+					$postman->set('title', $vbulletin->GPC['posttitle']["$postid"]);
+				}
 				$postman->save();
 
 				if ($countposts)
@@ -620,7 +818,7 @@ if ($_POST['do'] == 'doposts')
 			$postids = implode(',', $postids);
 			$db->query_write("
 				DELETE FROM " . TABLE_PREFIX . "moderation
-				WHERE postid IN($postids) AND type = 'reply'
+				WHERE primaryid IN($postids) AND type = 'reply'
 			");
 		}
 
@@ -689,52 +887,54 @@ if ($_REQUEST['do'] == 'attachments')
 	print_form_header('moderate', 'doattachments');
 	print_table_header($vbphrase['attachments_awaiting_moderation']);
 
-	$attachments = $db->query_read("
-		SELECT user.username, post.username AS postusername, attachment.filename, attachment.postid, thread.forumid, thread.threadid, attachment.thumbnail_dateline,
-			attachment.attachmentid, IF(thumbnail_filesize > 0, 1, 0) AS hasthumbnail, thumbnail_filesize, attachment.filesize, attachment.dateline
-		FROM " . TABLE_PREFIX . "attachment AS attachment
-		LEFT JOIN " . TABLE_PREFIX . "post AS post ON (attachment.postid = post.postid)
-		LEFT JOIN " . TABLE_PREFIX . "thread AS thread ON (post.threadid = thread.threadid)
-		LEFT JOIN " . TABLE_PREFIX . "user AS user ON (attachment.userid = user.userid)
-		WHERE attachment.visible = 0 AND attachment.postid <> 0
-			AND (1 = 0 $sql)
-	");
 	$done = false;
-	while ($attachment = $db->fetch_array($attachments))
+	if ($sql)
 	{
-		if ($done)
+		$attachments = $db->query_read("
+			SELECT user.username, post.username AS postusername, attachment.filename, attachment.postid, thread.forumid, thread.threadid, attachment.thumbnail_dateline,
+				attachment.attachmentid, IF(thumbnail_filesize > 0, 1, 0) AS hasthumbnail, thumbnail_filesize, attachment.filesize, attachment.dateline
+			FROM " . TABLE_PREFIX . "attachment AS attachment
+			LEFT JOIN " . TABLE_PREFIX . "post AS post ON (attachment.postid = post.postid)
+			LEFT JOIN " . TABLE_PREFIX . "thread AS thread ON (post.threadid = thread.threadid)
+			LEFT JOIN " . TABLE_PREFIX . "user AS user ON (attachment.userid = user.userid)
+			WHERE $sql AND attachment.visible = 0 AND attachment.postid <> 0
+		");
+		while ($attachment = $db->fetch_array($attachments))
 		{
-			print_description_row('<span class="smallfont">&nbsp;</span>', 0, 2, 'thead');
-		}
-		else
-		{
-			print_description_row('
-				<input type="button" value="' . $vbphrase['validate'] . '" onclick="js_check_all_option(this.form, 1);" class="button" title="' . $vbphrase['validate'] . '"
-				/>&nbsp;<input type="button" value="' . $vbphrase['delete'] . '" onclick="js_check_all_option(this.form, -1);" class="button" title="' . $vbphrase['delete'] . '"
-				/>&nbsp;<input type="button" value="' . $vbphrase['ignore'] . '" onclick="js_check_all_option(this.form, 0);" class="button" title="' . $vbphrase['ignore'] . '" />
-			', 0, 2, 'thead', 'center');
-		}
-		print_label_row($vbphrase['attachment'], '<b> ' . '<a href="../attachment.php?' . $vbulletin->session->vars['sessionurl'] . "attachmentid=$attachment[attachmentid]&amp;d=$attachment[dateline]\" target=\"_blank\">" . htmlspecialchars_uni($attachment['filename']) . '</a></b>' . ' (' . vb_number_format($attachment['filesize'], 1, true) . ')');
-
-		$extension = strtolower(file_extension($attachment['filename']));
-		if ($extension == 'gif' OR $extension == 'jpg' OR $extension == 'jpe' OR $extension == 'jpeg' OR $extension == 'png' OR $extension == 'bmp')
-		{
-			if ($attachment['hasthumbnail'])
+			if ($done)
 			{
-				print_label_row($vbphrase['thumbnail'], '<a href="../attachment.php?' . $vbulletin->session->vars['sessionurl'] . "attachmentid=$attachment[attachmentid]&amp;stc=1&amp;d=$attachment[thumbnail_dateline]\" target=\"_blank\"><img src=\"../attachment.php?" . $vbulletin->session->vars['sessionurl'] . "attachmentid=$attachment[attachmentid]&amp;thumb=1&amp;d=$attachment[dateline]\" border=\"0\" style=\"border: outset 1px #AAAAAA\" alt=\"\" /></a>");
+				print_description_row('<span class="smallfont">&nbsp;</span>', 0, 2, 'thead');
 			}
 			else
 			{
-				print_label_row($vbphrase['image'], '<img src="../attachment.php?' . $vbulletin->session->vars['sessionurl'] . "attachmentid=$attachment[attachmentid]&amp;d=$attachment[dateline]\" border=\"0\" />");
+				print_description_row('
+					<input type="button" value="' . $vbphrase['validate'] . '" onclick="js_check_all_option(this.form, 1);" class="button" title="' . $vbphrase['validate'] . '"
+					/>&nbsp;<input type="button" value="' . $vbphrase['delete'] . '" onclick="js_check_all_option(this.form, -1);" class="button" title="' . $vbphrase['delete'] . '"
+					/>&nbsp;<input type="button" value="' . $vbphrase['ignore'] . '" onclick="js_check_all_option(this.form, 0);" class="button" title="' . $vbphrase['ignore'] . '" />
+				', 0, 2, 'thead', 'center');
 			}
+			print_label_row($vbphrase['attachment'], '<b> ' . '<a href="../attachment.php?' . $vbulletin->session->vars['sessionurl'] . "attachmentid=$attachment[attachmentid]&amp;d=$attachment[dateline]\" target=\"_blank\">" . htmlspecialchars_uni($attachment['filename']) . '</a></b>' . ' (' . vb_number_format($attachment['filesize'], 1, true) . ')');
+
+			$extension = strtolower(file_extension($attachment['filename']));
+			if ($extension == 'gif' OR $extension == 'jpg' OR $extension == 'jpe' OR $extension == 'jpeg' OR $extension == 'png' OR $extension == 'bmp')
+			{
+				if ($attachment['hasthumbnail'])
+				{
+					print_label_row($vbphrase['thumbnail'], '<a href="../attachment.php?' . $vbulletin->session->vars['sessionurl'] . "attachmentid=$attachment[attachmentid]&amp;stc=1&amp;d=$attachment[thumbnail_dateline]\" target=\"_blank\"><img src=\"../attachment.php?" . $vbulletin->session->vars['sessionurl'] . "attachmentid=$attachment[attachmentid]&amp;thumb=1&amp;d=$attachment[dateline]\" border=\"0\" style=\"border: outset 1px #AAAAAA\" alt=\"\" /></a>");
+				}
+				else
+				{
+					print_label_row($vbphrase['image'], '<img src="../attachment.php?' . $vbulletin->session->vars['sessionurl'] . "attachmentid=$attachment[attachmentid]&amp;d=$attachment[dateline]\" border=\"0\" />");
+				}
+			}
+			print_label_row($vbphrase['posted_by'], iif($attachment['username'], $attachment['username'], $attachment['postusername']). ' ' . construct_link_code($vbphrase['view_post'], '../showthread.php?' . $vbulletin->session->vars['sessionurl'] . "p=$attachment[postid]", 1));
+			print_label_row($vbphrase['action'], "
+				<label for=\"val_$attachment[attachmentid]\"><input type=\"radio\" name=\"attachaction[$attachment[attachmentid]]\" value=\"1\" id=\"val_$attachment[attachmentid]\" tabindex=\"1\" />" . $vbphrase['validate'] . "</label>
+				<label for=\"del_$attachment[attachmentid]\"><input type=\"radio\" name=\"attachaction[$attachment[attachmentid]]\" value=\"-1\" id=\"del_$attachment[attachmentid]\" tabindex=\"1\" />" . $vbphrase['delete'] . "</label>
+				<label for=\"ign_$attachment[attachmentid]\"><input type=\"radio\" name=\"attachaction[$attachment[attachmentid]]\" value=\"0\" id=\"ign_$attachment[attachmentid]\" tabindex=\"1\" checked=\"checked\" />" . $vbphrase['ignore'] . "</label>
+			", '', 'top', 'attachaction');
+			$done = true;
 		}
-		print_label_row($vbphrase['posted_by'], iif($attachment['username'], $attachment['username'], $attachment['postusername']). ' ' . construct_link_code($vbphrase['view_post'], '../showthread.php?' . $vbulletin->session->vars['sessionurl'] . "p=$attachment[postid]", 1));
-		print_label_row($vbphrase['action'], "
-			<label for=\"val_$attachment[attachmentid]\"><input type=\"radio\" name=\"attachaction[$attachment[attachmentid]]\" value=\"1\" id=\"val_$attachment[attachmentid]\" tabindex=\"1\" />" . $vbphrase['validate'] . "</label>
-			<label for=\"del_$attachment[attachmentid]\"><input type=\"radio\" name=\"attachaction[$attachment[attachmentid]]\" value=\"-1\" id=\"del_$attachment[attachmentid]\" tabindex=\"1\" />" . $vbphrase['delete'] . "</label>
-			<label for=\"ign_$attachment[attachmentid]\"><input type=\"radio\" name=\"attachaction[$attachment[attachmentid]]\" value=\"0\" id=\"ign_$attachment[attachmentid]\" tabindex=\"1\" checked=\"checked\" />" . $vbphrase['ignore'] . "</label>
-		", '', 'top', 'attachaction');
-		$done = true;
 	}
 
 	if (!$done)
@@ -759,6 +959,7 @@ if ($_POST['do'] == 'doattachments')
 	$deleteids = '';
 	$approvedids = '';
 	$finalapproveids = '';
+	$finaldeleteids = '';
 	foreach ($vbulletin->GPC['attachaction'] AS $attachmentid => $action)
 	{
 		if ($action == 0)
@@ -786,6 +987,8 @@ if ($_POST['do'] == 'doattachments')
 			LEFT JOIN " . TABLE_PREFIX . "post AS post ON (attachment.postid = post.postid)
 			LEFT JOIN " . TABLE_PREFIX . "thread AS thread ON (post.threadid = thread.threadid)
 			WHERE attachmentid IN (-1$approveids)
+				AND attachment.visible = 0
+				AND attachment.postid <> 0
 		");
 		while ($id = $db->fetch_array($ids))
 		{
@@ -806,10 +1009,29 @@ if ($_POST['do'] == 'doattachments')
 
 	if (!empty($deleteids))
 	{
-		$attachdata =& datamanager_init('Attachment', $vbulletin, ERRTYPE_CP);
-		$attachdata->condition = "attachmentid IN (0$deleteids)";
-		$attachdata->delete();
-		unset($attachdata);
+		$ids = $db->query_read("
+			SELECT attachmentid, forumid
+			FROM " . TABLE_PREFIX . "attachment AS attachment
+			LEFT JOIN " . TABLE_PREFIX . "post AS post ON (attachment.postid = post.postid)
+			LEFT JOIN " . TABLE_PREFIX . "thread AS thread ON (post.threadid = thread.threadid)
+			WHERE attachmentid IN (-1$deleteids)
+				AND attachment.visible = 0
+				AND attachment.postid <> 0
+		");
+		while ($id = $db->fetch_array($ids))
+		{
+			if (can_moderate($id['forumid'], 'canmoderateattachments'))
+			{
+				$finaldeleteids .= ",$id[attachmentid]";
+			}
+		}
+		if (!empty($finaldeleteids))
+		{
+			$attachdata =& datamanager_init('Attachment', $vbulletin, ERRTYPE_CP);
+			$attachdata->condition = "attachmentid IN (0$finaldeleteids)";
+			$attachdata->delete();
+			unset($attachdata);
+		}
 	}
 
 	define('CP_REDIRECT', 'moderate.php?do=attachments');
@@ -820,8 +1042,8 @@ print_cp_footer();
 
 /*======================================================================*\
 || ####################################################################
-|| # Downloaded: 18:52, Sat Jul 14th 2007
-|| # CVS: $RCSfile$ - $Revision: 15150 $
+|| # Downloaded: 16:21, Sat Apr 6th 2013
+|| # CVS: $RCSfile$ - $Revision: 26328 $
 || ####################################################################
 \*======================================================================*/
 ?>

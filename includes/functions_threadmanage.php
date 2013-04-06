@@ -1,17 +1,29 @@
 <?php
 /*======================================================================*\
 || #################################################################### ||
-|| # vBulletin 3.6.7 PL1 - Licence Number VBF2470E4F
+|| # vBulletin 3.7.2 Patch Level 2 - Licence Number VBF2470E4F
 || # ---------------------------------------------------------------- # ||
-|| # Copyright ©2000-2007 Jelsoft Enterprises Ltd. All Rights Reserved. ||
+|| # Copyright ©2000-2013 Jelsoft Enterprises Ltd. All Rights Reserved. ||
 || # This file may not be redistributed in whole or significant part. # ||
 || # ---------------- VBULLETIN IS NOT FREE SOFTWARE ---------------- # ||
 || # http://www.vbulletin.com | http://www.vbulletin.com/license.html # ||
 || #################################################################### ||
 \*======================================================================*/
 
-// ###################### Start displayposttree #######################
+
 $parentassoc = array();
+
+/**
+ * Contructs a Post Tree
+ *
+ * @param	string	The template Name to use
+ * @param	integer	The Thread ID
+ * @param	integer	The "Root" post for which to work from
+ * @param	integer	The current "Depth" within the tree
+ *
+ * @return	string	The Generated Tree
+ *
+ */
 function &construct_post_tree($templatename, $threadid, $parentid = 0, $depth = 1)
 {
 	global $vbulletin, $stylevar, $parentassoc, $show, $vbphrase, $threadedmode;
@@ -87,7 +99,14 @@ function &construct_post_tree($templatename, $threadid, $parentid = 0, $depth = 
 	return $postbits;
 }
 
-// ###################### Start genjsparentpostassoc #######################
+/**
+ * Generated the Javascript for Parent Assosciations
+ *
+ * @param	array	Associative Array of Postids and ParentIDs
+ *
+ * @return	string	The Javascript
+ *
+ */
 function &construct_js_post_parent_assoc(&$array)
 {
 	$parentassocjs = array();
@@ -101,8 +120,19 @@ function &construct_js_post_parent_assoc(&$array)
 	return "var parentassoc = {\r\n\t" . implode(",\r\n\t", $parentassocjs) . "\r\n };";
 }
 
-// ###################### Start getmoveforums #######################
-function construct_move_forums_options($parentid = -1, $excludeforumid = NULL, $addbox = 1, $prependchars = '', $permission = '')
+
+/**
+ * Constructs a Forum Jump Menu for use when moving an item to a new forum
+ *
+ * @param	integer	The "Root" ID from which to generate this Menu
+ * @param	integer	A Forum ID to "exclude" from the menu
+ * @param	integer	If 1, removes all previous information from the Forum Jump Menu
+ * @param	string	Characters to prepend to the items in the Jump Box
+ *
+ * @return	string	The generated forum jump menu
+ *
+ */
+function construct_move_forums_options($parentid = -1, $excludeforumid = NULL, $addbox = 1, $prependchars = '')
 {
 	global $vbulletin, $optionselected, $jumpforumid, $jumpforumtitle, $jumpforumbits, $vbphrase, $curforumid;
 	static $prependlength;
@@ -172,7 +202,7 @@ function construct_move_forums_options($parentid = -1, $excludeforumid = NULL, $
 				eval('$jumpforumbits .= "' . fetch_template('option') . '";');
 			}
 
-			construct_move_forums_options($optionvalue, $excludeforumid, 0, $prependchars . FORUM_PREPEND, $forumperms);
+			construct_move_forums_options($optionvalue, $excludeforumid, 0, $prependchars . FORUM_PREPEND);
 
 		} // if can view
 	} // end foreach ($vbulletin->iforumcache[$parentid] AS $forumid)
@@ -180,7 +210,15 @@ function construct_move_forums_options($parentid = -1, $excludeforumid = NULL, $
 	return $jumpforumbits;
 }
 
-// ###################### Start isfirstposter #######################
+/**
+ * Is this user the first poster in a threadid ?
+ *
+ * @param	integer	Thread ID to check
+ * @param	integer	The User ID, or -1 for currently logged in user
+ *
+ * @return	boolean	Whether the user is the first poster.
+ *
+ */
 function is_first_poster($threadid, $userid = -1)
 {
 	global $vbulletin;
@@ -200,8 +238,8 @@ function is_first_poster($threadid, $userid = -1)
 
 /*======================================================================*\
 || ####################################################################
-|| # Downloaded: 18:52, Sat Jul 14th 2007
-|| # CVS: $RCSfile$ - $Revision: 15405 $
+|| # Downloaded: 16:21, Sat Apr 6th 2013
+|| # CVS: $RCSfile$ - $Revision: 26061 $
 || ####################################################################
 \*======================================================================*/
 ?>

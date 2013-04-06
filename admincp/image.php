@@ -1,9 +1,9 @@
 <?php
 /*======================================================================*\
 || #################################################################### ||
-|| # vBulletin 3.6.7 PL1 - Licence Number VBF2470E4F
+|| # vBulletin 3.7.2 Patch Level 2 - Licence Number VBF2470E4F
 || # ---------------------------------------------------------------- # ||
-|| # Copyright ©2000-2007 Jelsoft Enterprises Ltd. All Rights Reserved. ||
+|| # Copyright ©2000-2013 Jelsoft Enterprises Ltd. All Rights Reserved. ||
 || # This file may not be redistributed in whole or significant part. # ||
 || # ---------------- VBULLETIN IS NOT FREE SOFTWARE ---------------- # ||
 || # http://www.vbulletin.com | http://www.vbulletin.com/license.html # ||
@@ -14,7 +14,7 @@
 error_reporting(E_ALL & ~E_NOTICE);
 
 // ##################### DEFINE IMPORTANT CONSTANTS #######################
-define('CVS_REVISION', '$RCSfile$ - $Revision: 16516 $');
+define('CVS_REVISION', '$RCSfile$ - $Revision: 26379 $');
 
 // #################### PRE-CACHE TEMPLATES AND DATA ######################
 $phrasegroups = array('attachment_image', 'cppermission');
@@ -393,6 +393,11 @@ if ($_POST['do'] == 'insertcategory')
 		'displayorder' => TYPE_INT
 	));
 
+	if (empty($vbulletin->GPC['title']))
+	{
+		print_stop_message('please_complete_required_fields');
+	}
+
 	/*insert query*/
 	$db->query_write("INSERT INTO " . TABLE_PREFIX . "imagecategory (
 		title,imagetype,displayorder
@@ -426,6 +431,11 @@ if ($_POST['do'] == 'updatecategory')
 		'title'				=> TYPE_NOHTML,
 		'displayorder'		=> TYPE_INT
 	));
+
+	if (empty($vbulletin->GPC['title']))
+	{
+		print_stop_message('please_complete_required_fields');
+	}
 
 	$db->query_write("
 		UPDATE " . TABLE_PREFIX . "imagecategory SET
@@ -587,6 +597,11 @@ if ($_POST['do'] == 'kill')
 
 	$db->query_write("DELETE FROM " . TABLE_PREFIX . $vbulletin->GPC['table'] ." WHERE $itemid = $id");
 
+	if ($vbulletin->GPC['avatarid'])
+	{
+		@unlink(DIR . "/images/avatars/thumbs/{$vbulletin->GPC['avatarid']}.gif");
+	}
+
 	build_image_cache($vbulletin->GPC['table']);
 	build_image_permissions($vbulletin->GPC['table']);
 
@@ -731,10 +746,10 @@ if ($_POST['do'] == 'doinsertmultiple')
 if ($_REQUEST['do'] == 'insertmultiple')
 {
 	$vbulletin->input->clean_array_gpc('r', array(
-		'imagespath'		=> TYPE_STR,
-		'perpage'			=> TYPE_INT,
-		'page'				=> TYPE_STR, // this must be str for the trim()!
-		'imagecategoryid'	=> TYPE_INT
+		'imagespath'      => TYPE_STR,
+		'perpage'         => TYPE_INT,
+		'page'            => TYPE_STR, // this must be str for the trim()!
+		'imagecategoryid' => TYPE_INT
 	));
 
 	$vbulletin->GPC['imagespath'] = preg_replace('/\/$/s', '', $vbulletin->GPC['imagespath']);
@@ -816,8 +831,15 @@ if ($_REQUEST['do'] == 'insertmultiple')
 			// check to see if we are coming from an insert operation...
 			if ($doneinsert == 1)
 			{
-				define('CP_REDIRECT', "image.php?table=" . $vbulletin->GPC['table']);
-				print_stop_message("all_{$itemtypeplural}_added");
+				if ($itemtype == 'avatar')
+				{
+					print_stop_message('need_to_rebuild_avatars');
+				}
+				else
+				{
+					define('CP_REDIRECT', "image.php?table=" . $vbulletin->GPC['table']);
+					print_stop_message("all_{$itemtypeplural}_added");
+				}
 			}
 			else
 			{
@@ -909,7 +931,7 @@ if ($_POST['do'] == 'insert')
 		'displayorder'    => TYPE_INT
 	));
 
-	if (!$vbulletin->GPC['imagespath'] OR ($vbulletin->GPC['table'] == 'smilie' AND !$vbulletin->GPC['smilietext']))
+	if (!$vbulletin->GPC['imagespath'] OR ($vbulletin->GPC['table'] == 'smilie' AND !$vbulletin->GPC['smilietext']) OR !$vbulletin->GPC['title'])
 	{
 		print_stop_message('please_complete_required_fields');
 	}
@@ -957,11 +979,18 @@ if ($_POST['do'] == 'insert')
 	build_image_cache($vbulletin->GPC['table']);
 	build_image_permissions($vbulletin->GPC['table']);
 
-	define('CP_REDIRECT', "image.php?do=viewimages" .
-		"&table=" . $vbulletin->GPC['table'] .
-		"&amp;imagecategoryid=" . $vbulletin->GPC['imagecategoryid']
-	);
-	print_stop_message("saved_{$itemtype}_successfully");
+	if ($itemtype == 'avatar')
+	{
+		print_stop_message('need_to_rebuild_avatars');
+	}
+	else
+	{
+		define('CP_REDIRECT', "image.php?do=viewimages" .
+			"&table=" . $vbulletin->GPC['table'] .
+			"&amp;imagecategoryid=" . $vbulletin->GPC['imagecategoryid']
+		);
+		print_stop_message("saved_{$itemtype}_successfully");
+	}
 }
 
 // ###################### Start Add #######################
@@ -1012,7 +1041,7 @@ if ($_POST['do'] == 'update')
 		'returnimagecategoryid' => TYPE_UINT,
 	));
 
-	if (!$vbulletin->GPC['imagespath'] OR ($vbulletin->GPC['table'] == 'smilie' AND !$vbulletin->GPC['smilietext']))
+	if (!$vbulletin->GPC['imagespath'] OR ($vbulletin->GPC['table'] == 'smilie' AND !$vbulletin->GPC['smilietext']) OR !$vbulletin->GPC['title'])
 	{
 		print_stop_message('please_complete_required_fields');
 	}
@@ -1043,14 +1072,28 @@ if ($_POST['do'] == 'update')
 	build_image_cache($vbulletin->GPC['table']);
 	build_image_permissions($vbulletin->GPC['table']);
 
-	define('CP_REDIRECT', "image.php?do=viewimages" .
-		"&amp;table=" . $vbulletin->GPC['table'] .
-		"&amp;pp=" . $vbulletin->GPC['perpage'] .
-		"&amp;page=" . $vbulletin->GPC['page'] .
-		"&amp;massmove=" . $vbulletin->GPC['massmove'] .
-		"&amp;imagecategoryid=" . $vbulletin->GPC['returnimagecategoryid']
-	);
-	print_stop_message("saved_{$itemtype}_successfully");
+	if ($itemtype == 'avatar')
+	{
+			define('CP_BACKURL', "image.php?do=viewimages" .
+				"&amp;table=" . $vbulletin->GPC['table'] .
+				"&amp;pp=" . $vbulletin->GPC['perpage'] .
+				"&amp;page=" . $vbulletin->GPC['page'] .
+				"&amp;massmove=" . $vbulletin->GPC['massmove'] .
+				"&amp;imagecategoryid=" . $vbulletin->GPC['returnimagecategoryid']
+			);
+			print_stop_message('need_to_rebuild_avatars');
+	}
+	else
+	{
+		define('CP_REDIRECT', "image.php?do=viewimages" .
+			"&amp;table=" . $vbulletin->GPC['table'] .
+			"&amp;pp=" . $vbulletin->GPC['perpage'] .
+			"&amp;page=" . $vbulletin->GPC['page'] .
+			"&amp;massmove=" . $vbulletin->GPC['massmove'] .
+			"&amp;imagecategoryid=" . $vbulletin->GPC['returnimagecategoryid']
+		);
+		print_stop_message("saved_{$itemtype}_successfully");
+	}
 }
 
 // ###################### Start Edit #######################
@@ -1194,7 +1237,7 @@ if ($_REQUEST['do'] == 'viewimages')
 								. iif($vbulletin->GPC['imagecategoryid'], " WHERE imagecategoryid=" . $vbulletin->GPC['imagecategoryid'], ''));
 
 	$totalitems = $count['total'];
-	$totalpages = ceil($totalitems / $vbulletin->GPC['perpage']);
+	$totalpages = max(1, ceil($totalitems / $vbulletin->GPC['perpage']));
 
 	if ($startat > $totalitems)
 	{
@@ -1488,8 +1531,8 @@ print_cp_footer();
 
 /*======================================================================*\
 || ####################################################################
-|| # Downloaded: 18:52, Sat Jul 14th 2007
-|| # CVS: $RCSfile$ - $Revision: 16516 $
+|| # Downloaded: 16:21, Sat Apr 6th 2013
+|| # CVS: $RCSfile$ - $Revision: 26379 $
 || ####################################################################
 \*======================================================================*/
 ?>

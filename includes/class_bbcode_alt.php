@@ -1,9 +1,9 @@
 <?php
 /*======================================================================*\
 || #################################################################### ||
-|| # vBulletin 3.6.7 PL1 - Licence Number VBF2470E4F
+|| # vBulletin 3.7.2 Patch Level 2 - Licence Number VBF2470E4F
 || # ---------------------------------------------------------------- # ||
-|| # Copyright ©2000-2007 Jelsoft Enterprises Ltd. All Rights Reserved. ||
+|| # Copyright ©2000-2013 Jelsoft Enterprises Ltd. All Rights Reserved. ||
 || # This file may not be redistributed in whole or significant part. # ||
 || # ---------------- VBULLETIN IS NOT FREE SOFTWARE ---------------- # ||
 || # http://www.vbulletin.com | http://www.vbulletin.com/license.html # ||
@@ -21,8 +21,8 @@ require_once(DIR . '/includes/class_bbcode.php');
 * BB code parser for the WYSIWYG editor
 *
 * @package 		vBulletin
-* @version		$Revision: 16050 $
-* @date 		$Date: 2007-01-08 05:10:30 -0600 (Mon, 08 Jan 2007) $
+* @version		$Revision: 26966 $
+* @date 		$Date: 2008-06-18 04:38:54 -0500 (Wed, 18 Jun 2008) $
 *
 */
 class vB_BbCodeParser_Wysiwyg extends vB_BbCodeParser
@@ -114,7 +114,10 @@ class vB_BbCodeParser_Wysiwyg extends vB_BbCodeParser
 				// str_replace is stop gap until custom tags are updated to the new format
 				$this->tag_list["$has_option"]["$customtag[bbcodetag]"] = array(
 					'callback' => 'handle_wysiwyg_unparsable',
-					'strip_empty' => true
+					'strip_empty' 		=> $customtag['strip_empty'],
+					'stop_parse'		=> $customtag['stop_parse'],
+					'disable_smilies'	=> $custontag['disable_smilies'],
+					'disable_wordwrap'	=> $custontag['disable_wordwrap'],
 				);
 			}
 		}
@@ -131,7 +134,10 @@ class vB_BbCodeParser_Wysiwyg extends vB_BbCodeParser
 				// str_replace is stop gap until custom tags are updated to the new format
 				$this->tag_list["$has_option"]["$customtag[bbcodetag]"] = array(
 					'callback' => 'handle_wysiwyg_unparsable',
-					'strip_empty' => true
+					'strip_empty'		=> intval($customtag['options']) & $this->registry->bf_misc['bbcodeoptions']['strip_empty'],
+					'stop_parse' 		=> intval($customtag['options']) & $this->registry->bf_misc['bbcodeoptions']['stop_parse'],
+					'disable_smilies'	=> intval($customtag['options']) & $this->registry->bf_misc['bbcodeoptions']['disable_smilies'],
+					'disable_wordwrap'	=> intval($customtag['options']) & $this->registry->bf_misc['bbcodeoptions']['disable_wordwrap']
 				);
 			}
 		}
@@ -152,11 +158,8 @@ class vB_BbCodeParser_Wysiwyg extends vB_BbCodeParser
 			if ($do_imgcode AND ($this->registry->userinfo['userid'] == 0 OR $this->registry->userinfo['showimages']))
 			{
 				// do [img]xxx[/img]
-				$bbcode = preg_replace('#\[img\]\s*(https?://([^<>*"' . iif(!$this->registry->options['allowdynimg'], '?&') . ']+|[a-z0-9/\\._\- !]+))\[/img\]#iUe', "\$this->handle_bbcode_img_match('\\1')", $bbcode);
+				$bbcode = preg_replace('#\[img\]\s*(https?://([^*\r\n]+|[a-z0-9/\\._\- !]+))\[/img\]#iUe', "\$this->handle_bbcode_img_match('\\1')", $bbcode);
 			}
-
-			// This line causes undisplayable [img] tags to become links, which changes them into [url] tags on save - bad!
-			//$bbcode = preg_replace('#\[img\]\s*(https?://([^<>*"]+|[a-z0-9/\\._\- !]+))\[/img\]#iUe', "\$this->handle_bbcode_url(str_replace('\\\"', '\"', '\\1'), '')", $bbcode);
 		}
 
 		return $bbcode;
@@ -238,19 +241,21 @@ class vB_BbCodeParser_Wysiwyg extends vB_BbCodeParser
 			$text = preg_replace($rematch_find, "\$this->bbcode_rematch_tags_wysiwyg('\\3', '\\2', '\\1')", $text);
 
 			$rematch_find = array(
-				'#\[(b)\](((?R)|.)*)\[/\\1\]#siUe',
-				'#\[(i)\](((?R)|.)*)\[/\\1\]#siUe',
-				'#\[(u)\](((?R)|.)*)\[/\\1\]#siUe',
-				'#\[(indent)\](((?R)|.)*)\[/\\1\]#siUe',
-				'#\[(left)\](((?R)|.)*)\[/\\1\]#siUe',
-				'#\[(center)\](((?R)|.)*)\[/\\1\]#siUe',
-				'#\[(right)\](((?R)|.)*)\[/\\1\]#siUe',
+				'#\[(b)\](((?>[^[]+?)|(?R)|\[)*)\[/\\1\]#siUe',
+				'#\[(i)\](((?>[^[]+?)|(?R)|\[)*)\[/\\1\]#siUe',
+				'#\[(u)\](((?>[^[]+?)|(?R)|\[)*)\[/\\1\]#siUe',
+				'#\[(left)\](((?>[^[]+?)|(?R)|\[)*)\[/\\1\]#siUe',
+				'#\[(center)\](((?>[^[]+?)|(?R)|\[)*)\[/\\1\]#siUe',
+				'#\[(right)\](((?>[^[]+?)|(?R)|\[)*)\[/\\1\]#siUe',
 			);
 			$text = preg_replace($rematch_find, "\$this->bbcode_rematch_tags_wysiwyg('\\2', '\\1')", $text);
 
 			$text = '<p>' . preg_replace('#(\r\n|\n|\r)#', "</p>\n<p>", ltrim($text)) . '</p>';
 
-			$text = preg_replace('#(\[list(=(&quot;|"|\'|)(.*)\\3)?\])(((?>[^\[]*?|(?R))|(?>.))*)(\[/list(=\\3\\4\\3)?\])#siUe', "\$this->remove_wysiwyg_breaks('\\0')", $text);
+			if (strpos('[/list', strtolower($text))) // workaround bug #22749
+			{
+				$text = preg_replace('#(\[list(=(&quot;|"|\'|)(.*)\\3)?\])(((?>[^\[]*?|(?R))|(?>.))*)(\[/list(=\\3\\4\\3)?\])#siUe', "\$this->remove_wysiwyg_breaks('\\0')", $text);
+			}
 			$text = preg_replace('#<p>\s*</p>(?!\s*\[list|$)#i', '<p>&nbsp;</p>', $text);
 
 			$text = str_replace('<p></p>', '', $text);
@@ -286,6 +291,17 @@ class vB_BbCodeParser_Wysiwyg extends vB_BbCodeParser
 			// by now, any empty p tags are things that used to be in the form of <p>[tag][/tag]</p>,
 			// so we need to leave them to be equivalent to the nl2br version
 			$text = preg_replace('#<p></p>#siU', '<p>&nbsp;</p>', $text);
+
+			// rematch <p> tags around blockquotes (from the indent tag)
+			do
+			{
+				$orig_text = $text;
+				$text = preg_replace('#<blockquote>(?!<p>)(.*)</blockquote>(?!<p>)#siU', '</p><blockquote><p>\\1</p></blockquote><p>', $text);
+			}
+			while ($orig_text != $text);
+
+			// it's possible the blockquote rematch caused some blank p tags, so remove them
+			$text = preg_replace('#<p></p>#siU', '', $text);
 		}
 
 		// need to display smilies in code/php/html tags as literals
@@ -426,8 +442,8 @@ class vB_BbCodeParser_Wysiwyg extends vB_BbCodeParser
 * parsed with this parser to prevent user-added <img> tags from counting.
 *
 * @package 		vBulletin
-* @version		$Revision: 16050 $
-* @date 		$Date: 2007-01-08 05:10:30 -0600 (Mon, 08 Jan 2007) $
+* @version		$Revision: 26966 $
+* @date 		$Date: 2008-06-18 04:38:54 -0500 (Wed, 18 Jun 2008) $
 *
 */
 class vB_BbCodeParser_ImgCheck extends vB_BbCodeParser
@@ -486,8 +502,11 @@ class vB_BbCodeParser_ImgCheck extends vB_BbCodeParser
 
 				// str_replace is stop gap until custom tags are updated to the new format
 				$this->tag_list["$has_option"]["$customtag[bbcodetag]"] = array(
-					'callback' => 'handle_unparsable',
-					'strip_empty' => true
+					'callback' 		=> 'handle_unparsable',
+					'strip_empty' 		=> $customtag['strip_empty'],
+					'stop_parse'		=> $customtag['stop_parse'],
+					'disable_smilies'	=> $custontag['disable_smilies'],
+					'disable_wordwrap'	=> $custontag['disable_wordwrap'],
 				);
 			}
 		}
@@ -503,8 +522,11 @@ class vB_BbCodeParser_ImgCheck extends vB_BbCodeParser
 
 				// str_replace is stop gap until custom tags are updated to the new format
 				$this->tag_list["$has_option"]["$customtag[bbcodetag]"] = array(
-					'callback' => 'handle_unparsable',
-					'strip_empty' => true
+					'callback' 		=> 'handle_unparsable',
+					'strip_empty'		=> intval($customtag['options']) & $this->registry->bf_misc['bbcodeoptions']['strip_empty'],
+					'stop_parse' 		=> intval($customtag['options']) & $this->registry->bf_misc['bbcodeoptions']['stop_parse'],
+					'disable_smilies'	=> intval($customtag['options']) & $this->registry->bf_misc['bbcodeoptions']['disable_smilies'],
+					'disable_wordwrap'	=> intval($customtag['options']) & $this->registry->bf_misc['bbcodeoptions']['disable_wordwrap']
 				);
 			}
 		}
@@ -548,12 +570,48 @@ class vB_BbCodeParser_ImgCheck extends vB_BbCodeParser
 	}
 }
 
+class vB_BbCodeParser_PrintableThread extends vB_BbCodeParser
+{
+
+	var $printable = true;
+
+	/**
+	* Constructor. Sets up the tag list.
+	*
+	* @param	vB_Registry	Reference to registry object
+	* @param	array		List of tags to parse
+	* @param	boolean		Whether to append custom tags (they will not be parsed anyway)
+	*/
+	function vB_BbCodeParser_PrintableThread(&$registry, $tag_list = array(), $append_custom_tags = true)
+	{
+		parent::vB_BbCodeParser($registry, $tag_list, $append_custom_tags);
+	}
+
+	/**
+	* Parse the string with the selected options
+	*
+	* @param	string	Unparsed text
+	* @param	bool	Whether to allow HTML -- ignored, always true
+	* @param	bool	Whether to parse smilies -- ignored, always false
+	* @param	bool	Whether to parse BB code
+	* @param	bool	Whether to parse the [img] BB code (independent of $do_bbcode)
+	* @param	bool	Whether to run nl2br -- ignored, always false
+	* @param	bool	Whether the post text is cachable -- ignored, always false
+	*
+	* @return	string	Parsed text
+	*/
+	function do_parse($text, $do_html = false, $do_smilies = true, $do_bbcode = true , $do_imgcode = true, $do_nl2br = true, $cachable = false)
+	{
+		return parent::do_parse($text, $do_html, $do_smilies, $do_bbcode, false, $do_nl2br, $cachable);
+	}
+}
+
 /**
 * BB code parser that generates plain text. This is basically useful for emails.
 *
 * @package 		vBulletin
-* @version		$Revision: 16050 $
-* @date 		$Date: 2007-01-08 05:10:30 -0600 (Mon, 08 Jan 2007) $
+* @version		$Revision: 26966 $
+* @date 		$Date: 2008-06-18 04:38:54 -0500 (Wed, 18 Jun 2008) $
 *
 */
 class vB_BbCodeParser_PlainText extends vB_BbCodeParser
@@ -734,7 +792,7 @@ class vB_BbCodeParser_PlainText extends vB_BbCodeParser
 				SELECT varname, text, languageid
 				FROM " . TABLE_PREFIX . "phrase AS phrase
 				WHERE fieldname = 'bbcode'
-					AND varname LIKE 'bbcode\_plaintext\_%'
+					AND varname LIKE 'bbcode\\_plaintext\\_%'
 			");
 			while ($getphrase = $this->registry->db->fetch_array($getphrases))
 			{
@@ -803,8 +861,11 @@ class vB_BbCodeParser_PlainText extends vB_BbCodeParser
 
 				// str_replace is stop gap until custom tags are updated to the new format
 				$this->tag_list["$has_option"]["$customtag[bbcodetag]"] = array(
-					'html' => '%1$s',
-					'strip_empty' => true
+					'html' 			=> '%1$s',
+					'strip_empty' 		=> $customtag['strip_empty'],
+					'stop_parse'		=> $customtag['stop_parse'],
+					'disable_smilies'	=> $custontag['disable_smilies'],
+					'disable_wordwrap'	=> $custontag['disable_wordwrap'],
 				);
 			}
 		}
@@ -821,7 +882,10 @@ class vB_BbCodeParser_PlainText extends vB_BbCodeParser
 				// str_replace is stop gap until custom tags are updated to the new format
 				$this->tag_list["$has_option"]["$customtag[bbcodetag]"] = array(
 					'html' => '%1$s',
-					'strip_empty' => true
+					'strip_empty'		=> intval($customtag['options']) & $this->registry->bf_misc['bbcodeoptions']['strip_empty'],
+					'stop_parse' 		=> intval($customtag['options']) & $this->registry->bf_misc['bbcodeoptions']['stop_parse'],
+					'disable_smilies'	=> intval($customtag['options']) & $this->registry->bf_misc['bbcodeoptions']['disable_smilies'],
+					'disable_wordwrap'	=> intval($customtag['options']) & $this->registry->bf_misc['bbcodeoptions']['disable_wordwrap']
 				);
 			}
 		}
@@ -1163,6 +1227,16 @@ class vB_BbCodeParser_PlainText extends vB_BbCodeParser
 		return "\n$output\n";
 	}
 
+	/**
+	* Called when doing an A, B, C...AA, BB... list. Based on the counter, figures
+	* out the appropriate letter to print. Wraps after 26 characters.
+	*
+	* @param	integer	Count of position in list (1 is first)
+	* @param	integer	ASCII character code of starting character (65 for A, 97 for a)
+	* @param	integer	Amount of characters to pad output to
+	*
+	* @return	string	Padded letter counter
+	*/
 	function fetch_list_letter($counter, $start_char_code, $pad_length = 0)
 	{
 		$letter_counter = '';
@@ -1206,7 +1280,7 @@ class vB_BbCodeParser_PlainText extends vB_BbCodeParser
 			foreach($matches[2] AS $key => $attachmentid)
 			{
 				$align = $matches[1]["$key"];
-				$search[] = "#\[attach" . (!empty($align) ? '=' . $align : '') . "\]($attachmentid)\[/attach\]#i";
+				$search[] = '#\[attach' . (!empty($align) ? '=' . $align : '') . '\](' . $attachmentid . ')\[/attach\]#i';
 				$replace[] = construct_phrase($this->fetch_parser_phrase('bbcode_plaintext_attachment_x'), $attachmentid) .
 					" ({$this->registry->options['bburl']}/attachment.php?attachmentid=$attachmentid)";
 			}
@@ -1242,8 +1316,8 @@ class vB_BbCodeParser_PlainText extends vB_BbCodeParser
 
 /*======================================================================*\
 || ####################################################################
-|| # Downloaded: 18:52, Sat Jul 14th 2007
-|| # CVS: $RCSfile$ - $Revision: 16050 $
+|| # Downloaded: 16:21, Sat Apr 6th 2013
+|| # CVS: $RCSfile$ - $Revision: 26966 $
 || ####################################################################
 \*======================================================================*/
 ?>

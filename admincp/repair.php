@@ -1,9 +1,9 @@
 <?php
 /*======================================================================*\
 || #################################################################### ||
-|| # vBulletin 3.6.7 PL1 - Licence Number VBF2470E4F
+|| # vBulletin 3.7.2 Patch Level 2 - Licence Number VBF2470E4F
 || # ---------------------------------------------------------------- # ||
-|| # Copyright ©2000-2007 Jelsoft Enterprises Ltd. All Rights Reserved. ||
+|| # Copyright ©2000-2013 Jelsoft Enterprises Ltd. All Rights Reserved. ||
 || # This file may not be redistributed in whole or significant part. # ||
 || # ---------------- VBULLETIN IS NOT FREE SOFTWARE ---------------- # ||
 || # http://www.vbulletin.com | http://www.vbulletin.com/license.html # ||
@@ -14,7 +14,7 @@
 error_reporting(E_ALL & ~E_NOTICE);
 
 // ##################### DEFINE IMPORTANT CONSTANTS #######################
-define('CVS_REVISION', '$RCSfile$ - $Revision: 16597 $');
+define('CVS_REVISION', '$RCSfile$ - $Revision: 26416 $');
 
 // #################### PRE-CACHE TEMPLATES AND DATA ######################
 $phrasegroups = array('sql');
@@ -140,7 +140,7 @@ if ($_POST['do'] == 'dorepair')
 
 	if (!empty($vbulletin->GPC['tableserial']))
 	{
-		$vbulletin->GPC['tablelist'] = unserialize($vbulletin->GPC['tableserial']);
+		$vbulletin->GPC['tablelist'] = @unserialize(verify_client_string($vbulletin->GPC['tableserial']));
 	}
 
 	print_form_header('repair', 'dorepair');
@@ -186,7 +186,7 @@ if ($_POST['do'] == 'dorepair')
 
 	construct_hidden_code('optimizetables', $vbulletin->GPC['optimizetables']);
 	construct_hidden_code('repairtables', $vbulletin->GPC['repairtables']);
-	construct_hidden_code('tableserial', serialize($vbulletin->GPC['tablelist']));
+	construct_hidden_code('tableserial', sign_client_string(serialize($vbulletin->GPC['tablelist'])));
 
 	print_submit_row($vbphrase['repeat_process'], '', 3);
 }
@@ -293,25 +293,27 @@ if ($_REQUEST['do'] == 'fixunique')
 			return -1;
 		}
 
+		$unique_keys = array();
 		$keys = array();
 		$checkindexes = $db->query_write("SHOW KEYS FROM " . TABLE_PREFIX . "$table[name]");
 		while ($checkindex = $db->fetch_array($checkindexes))
 		{
 			if ($checkindex['Non_unique'] == 0)
 			{
-				$keys["$checkindex[Key_name]"][] = $checkindex['Column_name'];
+				$unique_keys["$checkindex[Key_name]"][] = $checkindex['Column_name'];
 			}
+			$keys["$checkindex[Key_name]"][] = $checkindex['Column_name'];
 		}
 		$db->free_result($checkindexes);
 
-		foreach ($keys AS $keyname => $keyfields)
+		foreach ($unique_keys AS $keyname => $keyfields)
 		{
-			$keys["$keyname"] = implode(', ', $keyfields);
+			$unique_keys["$keyname"] = implode(', ', $keyfields);
 		}
 
 		$fields = implode(', ', $table['fields']);
 
-		$gotunique = in_array($fields, $keys);
+		$gotunique = in_array($fields, $unique_keys);
 
 		if ($gotunique)
 		{
@@ -443,8 +445,8 @@ print_cp_footer();
 
 /*======================================================================*\
 || ####################################################################
-|| # Downloaded: 18:52, Sat Jul 14th 2007
-|| # CVS: $RCSfile$ - $Revision: 16597 $
+|| # Downloaded: 16:21, Sat Apr 6th 2013
+|| # CVS: $RCSfile$ - $Revision: 26416 $
 || ####################################################################
 \*======================================================================*/
 ?>

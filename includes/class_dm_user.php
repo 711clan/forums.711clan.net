@@ -1,9 +1,9 @@
 <?php
 /*======================================================================*\
 || #################################################################### ||
-|| # vBulletin 3.6.7 PL1 - Licence Number VBF2470E4F
+|| # vBulletin 3.7.2 Patch Level 2 - Licence Number VBF2470E4F
 || # ---------------------------------------------------------------- # ||
-|| # Copyright ©2000-2007 Jelsoft Enterprises Ltd. All Rights Reserved. ||
+|| # Copyright ©2000-2013 Jelsoft Enterprises Ltd. All Rights Reserved. ||
 || # This file may not be redistributed in whole or significant part. # ||
 || # ---------------- VBULLETIN IS NOT FREE SOFTWARE ---------------- # ||
 || # http://www.vbulletin.com | http://www.vbulletin.com/license.html # ||
@@ -25,8 +25,8 @@ define('SALT_LENGTH', 3);
 * $this->info['override_usergroupid'] - Prevent overwriting of usergroupid (for email validation)
 *
 * @package	vBulletin
-* @version	$Revision: 17008 $
-* @date		$Date: 2007-05-15 07:27:50 -0500 (Tue, 15 May 2007) $
+* @version	$Revision: 26665 $
+* @date		$Date: 2008-05-21 06:36:38 -0500 (Wed, 21 May 2008) $
 */
 class vB_DataManager_User extends vB_DataManager
 {
@@ -105,6 +105,15 @@ class vB_DataManager_User extends vB_DataManager
 		'pmtotal'            => array(TYPE_UINT,       REQ_NO),
 		'pmunread'           => array(TYPE_UINT,       REQ_NO),
 
+		// socnet counter fields
+		'profilevisits'      => array(TYPE_UINT,       REQ_NO),
+		'friendcount'        => array(TYPE_UINT,       REQ_NO),
+		'friendreqcount'     => array(TYPE_UINT,       REQ_NO),
+		'vmunreadcount'      => array(TYPE_UINT,       REQ_NO),
+		'vmmoderatedcount'   => array(TYPE_UINT,       REQ_NO),
+		'pcunreadcount'      => array(TYPE_UINT,       REQ_NO),
+		'pcmoderatedcount'   => array(TYPE_UINT,       REQ_NO),
+
 		// usertextfield fields
 		'subfolders'         => array(TYPE_NOCLEAN,    REQ_NO,   VF_METHOD, 'verify_serialized'),
 		'pmfolders'          => array(TYPE_NOCLEAN,    REQ_NO,   VF_METHOD, 'verify_serialized'),
@@ -169,6 +178,27 @@ class vB_DataManager_User extends vB_DataManager
 	* @var	array
 	*/
 	var $list_types = array('buddy', 'ignore');
+
+	/**
+	* Arrays to store stuff to save to userchangelog table
+	*
+	* @var	array
+	*/
+	var $userchangelog = array();
+
+	/**
+	* We want to log or not the user changes
+	*
+	* @var	boolean
+	*/
+	var $user_changelog_state = true;
+
+	/**
+	* Which fieldchanges will be logged
+	*
+	* @var	array
+	*/
+	var $user_changelog_fields = array('username', 'usergroupid', 'membergroupids', 'email');
 
 	/**
 	* Constructor - checks that the registry object has been passed correctly.
@@ -336,8 +366,7 @@ class vB_DataManager_User extends vB_DataManager
 	function verify_username(&$username)
 	{
 		// fix extra whitespace and invisible ascii stuff
-		$username = trim(preg_replace('#\s+#si', ' ', strip_blank_ascii($username, ' ')));
-
+		$username = trim(preg_replace('#[ \r\n\t]+#si', ' ', strip_blank_ascii($username, ' ')));
 		$username_raw = $username;
 
 		global $stylevar;
@@ -346,6 +375,15 @@ class vB_DataManager_User extends vB_DataManager
 			"convert_unicode_char_to_charset('\\1', \$stylevar['charset'])",
 			$username
 		);
+
+		$username = preg_replace(
+			'/&#0*([0-9]{1,2}|1[01][0-9]|12[0-7]);/ie',
+			"convert_int_to_utf8('\\1')",
+			$username
+		);
+
+		$username = str_replace(chr(0), '', $username);
+		$username = trim($username);
 
 		$length = vbstrlen($username);
 		if ($length == 0)
@@ -391,11 +429,11 @@ class vB_DataManager_User extends vB_DataManager
 			// name is already in use
 			if ($this->error_handler == ERRTYPE_CP)
 			{
-				$this->error('usernametaken_edit_here', $username, $this->registry->session->vars['sessionurl'], $user['userid']);
+				$this->error('usernametaken_edit_here', htmlspecialchars_uni($username), $this->registry->session->vars['sessionurl'], $user['userid']);
 			}
 			else
 			{
-				$this->error('usernametaken', $username, $this->registry->session->vars['sessionurl']);
+				$this->error('usernametaken', htmlspecialchars_uni($username), $this->registry->session->vars['sessionurl']);
 			}
 			return false;
 		}
@@ -405,7 +443,23 @@ class vB_DataManager_User extends vB_DataManager
 			// check for regex compliance
 			if (!preg_match('#' . str_replace('#', '\#', $this->registry->options['usernameregex']) . '#siU', $username))
 			{
-				$this->error('usernametaken', $username, $this->registry->session->vars['sessionurl']);
+				$this->error('usernametaken', htmlspecialchars_uni($username), $this->registry->session->vars['sessionurl']);
+				return false;
+			}
+		}
+
+		if (htmlspecialchars_uni($username_raw) != $this->existing['username']
+			AND !$this->adminoverride
+			AND $this->registry->options['usernamereusedelay'] > 0
+		)
+		{
+			require_once(DIR . '/includes/class_userchangelog.php');
+			$userchangelog = new vB_UserChangeLog($this->registry);
+			$userchangelog->set_execute(true);
+			$userchangelog->set_just_count(true);
+			if ($userchangelog->sql_select_by_username(htmlspecialchars_uni($username), TIMENOW - ($this->registry->options['usernamereusedelay'] * 86400)))
+			{
+				$this->error('usernametaken', htmlspecialchars_uni($username), $this->registry->session->vars['sessionurl']);
 				return false;
 			}
 		}
@@ -413,20 +467,45 @@ class vB_DataManager_User extends vB_DataManager
 		if (htmlspecialchars_uni($username_raw) != $this->existing['username'] AND !empty($this->registry->options['illegalusernames']) AND !$this->adminoverride)
 		{
 			// check for illegal username
-			$usernames = preg_split('/\s+/', $this->registry->options['illegalusernames'], -1, PREG_SPLIT_NO_EMPTY);
+			$usernames = preg_split('/[ \r\n\t]+/', $this->registry->options['illegalusernames'], -1, PREG_SPLIT_NO_EMPTY);
 			foreach ($usernames AS $val)
 			{
 				if (strpos(strtolower($username), strtolower($val)) !== false)
 				{
 					// wierd error to show, but hey...
-					$this->error('usernametaken', $username, $this->registry->session->vars['sessionurl']);
+					$this->error('usernametaken', htmlspecialchars_uni($username), $this->registry->session->vars['sessionurl']);
 					return false;
 				}
 			}
 		}
 
+		$unregisteredphrases = $this->registry->db->query_read("
+			SELECT text
+			FROM " . TABLE_PREFIX . "phrase
+			WHERE varname = 'unregistered'
+				AND fieldname = 'global'
+		");
+
+		while ($unregisteredphrase = $this->registry->db->fetch_array($unregisteredphrases))
+		{
+			if (strtolower($unregisteredphrase['text']) == strtolower($username) OR strtolower($unregisteredphrase['text']) == strtolower($username_raw))
+			{
+				$this->error('usernametaken', htmlspecialchars_uni($username), $this->registry->session->vars['sessionurl']);
+				return false;
+			}
+		}
+
 		// if we got here, everything is okay
 		$username = htmlspecialchars_uni($username);
+
+		// remove any trailing HTML entities that will be cut off when we stick them in the DB.
+		// if we don't do this, the affected person won't be able to login, be banned, etc...
+		$column_info = $this->dbobject->query_first("SHOW COLUMNS FROM " . TABLE_PREFIX . "user LIKE 'username'");
+		if (preg_match('#char\((\d+)\)#i', $column_info['Type'], $match) AND $match[1] > 0)
+		{
+			$username = preg_replace('/&([a-z0-9#]*)$/i', '', substr($username, 0, $match[1]));
+		}
+
 		return true;
 	}
 
@@ -574,7 +653,7 @@ class vB_DataManager_User extends vB_DataManager
 			{
 				if ($this->error_handler == ERRTYPE_CP)
 				{
-					$this->error('emailtaken_edit_here', $this->registry->session->vars['sessionurl'], $user['userid']);
+					$this->error('emailtaken_search_here', $this->registry->session->vars['sessionurl'], $email);
 				}
 				else
 				{
@@ -925,6 +1004,86 @@ class vB_DataManager_User extends vB_DataManager
 	}
 
 	/**
+	* Sets the ladder-based or group based user title for a particular amount of posts.
+	*
+	* @param	integer			Number of posts to consider this user as having
+	*
+	* @return	false|string	False if they use a custom title or can't process, the new title otherwise
+	*/
+	function set_ladder_usertitle($posts)
+	{
+		if ($this->fetch_field('userid')
+			AND (!isset($this->user['customtitle']) OR !isset($this->existing['customtitle']))
+		)
+		{
+			// we don't have enough information, try to fetch it
+			$user = fetch_userinfo($this->fetch_field('userid'));
+			if ($user)
+			{
+				$this->set_existing($user);
+			}
+			else
+			{
+				return false;
+			}
+		}
+
+		if ($this->fetch_field('customtitle'))
+		{
+			return false;
+		}
+
+		$getusergroupid = ($this->fetch_field('displaygroupid') ? $this->fetch_field('displaygroupid') : $this->fetch_field('usergroupid'));
+		$usergroup = $this->registry->usergroupcache["$getusergroupid"];
+
+		if (!$usergroup['usertitle'])
+		{
+			$gettitle = $this->dbobject->query_first_slave("
+				SELECT title
+				FROM " . TABLE_PREFIX . "usertitle
+				WHERE minposts <= " . intval($posts) . "
+				ORDER BY minposts DESC
+			");
+
+			$usertitle = $gettitle['title'];
+		}
+		else
+		{
+			$usertitle = $usergroup['usertitle'];
+		}
+
+		$this->set('usertitle', $usertitle);
+
+		return $usertitle;
+	}
+
+	/**
+	* Sets the ladder usertitle relative to the current number of posts.
+	*
+	* @param	integer			Offset to current number of posts
+	*
+	* @return	false|string	Same return values as set_ladder_usertitle
+	*/
+	function set_ladder_usertitle_relative($relative_post_offset)
+	{
+		if ($this->fetch_field('userid') AND !isset($this->existing['posts']))
+		{
+			// we don't have enough information, try to fetch it
+			$user = fetch_userinfo($this->fetch_field('userid'));
+			if ($user)
+			{
+				$this->set_existing($user);
+			}
+			else
+			{
+				return false;
+			}
+		}
+
+		return $this->set_ladder_usertitle($this->existing['posts'] + $relative_post_offset);
+	}
+
+	/**
 	* Checks a string for words banned in custom user titles and replaces them with the censor character
 	*
 	* @param	string	Custom user title
@@ -937,7 +1096,7 @@ class vB_DataManager_User extends vB_DataManager
 
 		if (empty($ctcensorwords))
 		{
-			$ctcensorwords = preg_split('#\s+#', preg_quote($this->registry->options['ctCensorWords'], '#'), -1, PREG_SPLIT_NO_EMPTY);
+			$ctcensorwords = preg_split('#[ \r\n\t]+#', preg_quote($this->registry->options['ctCensorWords'], '#'), -1, PREG_SPLIT_NO_EMPTY);
 		}
 
 		foreach ($ctcensorwords AS $censorword)
@@ -1003,6 +1162,18 @@ class vB_DataManager_User extends vB_DataManager
 				# must read all fields in order to set defaults for fields that don't display
 				#$all_fields_sql = "WHERE editable IN (1,2)";
 				$all_fields_sql = '';
+
+				// we need to ensure that each field the user could edit is sent through and processed,
+				// so ensure that we process everyone one of these fields
+				$profilefields = $this->dbobject->query_read_slave("
+					SELECT profilefieldid
+					FROM " . TABLE_PREFIX . "profilefield
+					WHERE editable > 0 AND required <> 0
+				");
+				while ($profilefield = $this->dbobject->fetch_array($profilefields))
+				{
+					$field_ids["$profilefield[profilefieldid]"] = $profilefield['profilefieldid'];
+				}
 				break;
 
 			case 'normal':
@@ -1012,7 +1183,7 @@ class vB_DataManager_User extends vB_DataManager
 		}
 
 		// check extra profile fields
-		$profilefields = $this->dbobject->query_read("
+		$profilefields = $this->dbobject->query_read_slave("
 			SELECT profilefieldid, required, size, maxlength, type, data, optional, regex, def, editable
 			FROM " . TABLE_PREFIX . "profilefield
 			$all_fields_sql
@@ -1022,6 +1193,7 @@ class vB_DataManager_User extends vB_DataManager
 		{
 			$varname = 'field' . $profilefield['profilefieldid'];
 			$value =& $values["$varname"];
+			$regex_check = false;
 
 			if ($all_fields != 'admin' AND $profilefield['editable'] == 2 AND !empty($this->existing["$varname"]))
 			{
@@ -1050,6 +1222,7 @@ class vB_DataManager_User extends vB_DataManager
 					continue;
 				}
 				$customfields .= "$profilefield[title] : $value\n";
+				$regex_check = true;
 			}
 			// radio / select
 			else if ($profilefield['type'] == 'radio' OR $profilefield['type'] == 'select')
@@ -1058,6 +1231,7 @@ class vB_DataManager_User extends vB_DataManager
 				{
 					$value = trim(substr(fetch_censored_text($value_opt), 0, $profilefield['maxlength']));
 					$value = (empty($value) AND $value != '0') ? false : $value;
+					$regex_check = true;
 				}
 				else
 				{
@@ -1122,7 +1296,7 @@ class vB_DataManager_User extends vB_DataManager
 			}
 
 			// check for regex compliance
-			if ($profilefield['regex'] AND $verify)
+			if ($verify AND $profilefield['regex'] AND $regex_check)
 			{
 				if (!preg_match('#' . str_replace('#', '\#', $profilefield['regex']) . '#siU', $value))
 				{
@@ -1192,7 +1366,9 @@ class vB_DataManager_User extends vB_DataManager
 			'showvcard'      => 'vcard',
 			'showsignatures' => 'signature',
 			'showavatars'    => 'avatar',
-			'showimages'     => 'image'
+			'showimages'     => 'image',
+			'vm_enable'      => 'vm_enable',
+			'vm_contactonly' => 'vm_contactonly',
 		) AS $optionname => $bitfield)
 		{
 			if (!isset($this->user['options']["$optionname"]))
@@ -1327,6 +1503,18 @@ class vB_DataManager_User extends vB_DataManager
 		{
 			$this->set('startofweek', -1);
 		}
+
+		// show user css
+		if (!isset($this->user['options']['showusercss']))
+		{
+			$this->set_bitfield('options', 'showusercss', 1);
+		}
+
+		// receive friend request pm
+		if (!isset($this->user['options']['receivefriendemailrequest']))
+		{
+			$this->set_bitfield('options', 'receivefriendemailrequest', 1);
+		}
 	}
 
 	// #############################################################################
@@ -1408,6 +1596,52 @@ class vB_DataManager_User extends vB_DataManager
 			{
 				$this->db_update(TABLE_PREFIX, 'userfield',     $this->condition, $doquery, $delayed);
 				$this->db_update(TABLE_PREFIX, 'usertextfield', $this->condition, $doquery, $delayed);
+
+				// check if we want userchange log and we have the all requirements
+				if ($this->user_changelog_state AND is_array($this->user_changelog_fields) AND sizeof($this->user_changelog_fields) AND is_array($this->existing) AND sizeof($this->existing) AND is_array($this->user) AND sizeof($this->user))
+				{
+					$uniqueid = md5(TIMENOW . $this->existing['userid'] . $this->registry->userinfo['userid']. rand(1111,9999));
+
+					// fill the storage array
+					foreach($this->user_changelog_fields AS $fieldname)
+					{
+						// if no old and new value, or no change: we dont log this field
+						if (
+							!isset($this->user["$fieldname"])
+							OR
+							(!$this->existing["$fieldname"] AND !$this->user["$fieldname"])
+							OR
+							$this->existing["$fieldname"] == $this->user["$fieldname"]
+						)
+						{
+							continue;
+						}
+
+						// init storage array
+						$this->userchangelog = array(
+							'userid'      => $this->existing['userid'],
+							'adminid'     => $this->registry->userinfo['userid'],
+							'fieldname'   => $fieldname,
+							'oldvalue'    => $this->existing["$fieldname"],
+							'newvalue'    => $this->user["$fieldname"],
+							'change_time' => TIMENOW,
+							'change_uniq' => $uniqueid
+						);
+
+						// build the sql query string
+						$sql = $this->fetch_insert_sql(TABLE_PREFIX, 'userchangelog');
+
+						// do the query ?
+						if ($doquery)
+						{
+							$this->dbobject->query_write($sql);
+						}
+						else
+						{
+							echo "<pre>$sql<hr /></pre>";
+						}
+					}
+				}
 			}
 		}
 		// INSERT NEW USER
@@ -1503,9 +1737,15 @@ class vB_DataManager_User extends vB_DataManager
 
 			if ($updateinfractions)
 			{
+ 				// If user groups aren't changed, then $usergroupid is not set....
+ 				if (empty($usergroupid))
+ 				{
+ 					$usergroupid = $this->fetch_field('usergroupid');
+ 				}
+
 				$infractiongroups = array();
 				$infractiongroupid = 0;
-				$groups = $this->registry->db->query_read("
+				$groups = $this->registry->db->query_read_slave("
 					SELECT orusergroupid, override
 					FROM " . TABLE_PREFIX . "infractiongroup AS infractiongroup
 					WHERE infractiongroup.usergroupid IN (-1, $usergroupid)
@@ -1531,7 +1771,7 @@ class vB_DataManager_User extends vB_DataManager
 		{	// posts = posts + 1 / posts - 1 was specified so we need existing posts to determine how many posts we will have
 			if ($this->existing['posts'] != null)
 			{
-				$posts = $this->existing['posts'] + preg_replace('#posts\s*([+-])\s*(\d+)#s', '\1\2', $this->fetch_field('posts'));
+				$posts = $this->existing['posts'] + preg_replace('#^.*posts\s*([+-])\s*(\d+?).*$#sU', '\1\2', $this->fetch_field('posts'));
 			}
 		}
 		else if ($this->fetch_field('posts') !== null)
@@ -1617,6 +1857,17 @@ class vB_DataManager_User extends vB_DataManager
 				}
 			}
 
+			// if the primary user group has been changed, we need to update any user activation records
+			if (!empty($this->user['usergroupid']) AND $this->user['usergroupid'] != $this->existing['usergroupid'])
+			{
+				$this->dbobject->query_write("
+					UPDATE " . TABLE_PREFIX . "useractivation
+					SET usergroupid = " . $this->user['usergroupid'] . "
+					WHERE userid = $userid
+						AND type = 0
+				");
+			}
+
 			if (isset($this->usertextfield['signature']))
 			{
 				// edited the signature, need to kill any parsed versions
@@ -1647,9 +1898,6 @@ class vB_DataManager_User extends vB_DataManager
 
 		// reset languageid cookie
 		$this->update_language_cookie($userid);
-
-		// handle userlist
-		$this->update_userlists($userid);
 
 		// Send parent email
 		if ($this->info['coppauser'] AND $username = $this->fetch_field('username') AND $parentemail = $this->fetch_field('parentemail'))
@@ -1718,6 +1966,22 @@ class vB_DataManager_User extends vB_DataManager
 			WHERE userid = " . $this->existing['userid'] . "
 		");
 		$this->dbobject->query_write("
+			UPDATE " . TABLE_PREFIX . "groupmessage SET
+				postusername = '" . $this->dbobject->escape_string($this->existing['username']) . "',
+				postuserid = 0
+			WHERE postuserid = " . $this->existing['userid'] . "
+		");
+		$this->dbobject->query_write("
+			UPDATE " . TABLE_PREFIX . "visitormessage SET
+				postusername = '" . $this->dbobject->escape_string($this->existing['username']) . "',
+				postuserid = 0
+			WHERE postuserid = " . $this->existing['userid'] . "
+		");
+		$this->dbobject->query_write("
+			DELETE FROM " . TABLE_PREFIX . "visitormessage
+			WHERE userid = " . $this->existing['userid'] . "
+		");
+		$this->dbobject->query_write("
 			UPDATE " . TABLE_PREFIX . "usernote SET
 				username = '" . $this->dbobject->escape_string($this->existing['username']) . "',
 				posterid = 0
@@ -1755,6 +2019,10 @@ class vB_DataManager_User extends vB_DataManager
 
 		$this->dbobject->query_write("
 			DELETE FROM " . TABLE_PREFIX . "moderator
+			WHERE userid = " . $this->existing['userid'] . "
+		");
+		$this->dbobject->query_write("
+			DELETE FROM " . TABLE_PREFIX . "reputation
 			WHERE userid = " . $this->existing['userid'] . "
 		");
 		$this->dbobject->query_write("
@@ -1797,18 +2065,185 @@ class vB_DataManager_User extends vB_DataManager
 			WHERE userid = " . $this->existing['userid'] . "
 		");
 
+		$pendingfriends = array();
+		$currentfriends = array();
+
+		$friendlist = $this->dbobject->query_read("
+			SELECT relationid, friend
+			FROM " . TABLE_PREFIX . "userlist
+			WHERE userid = " . $this->existing['userid'] . "
+				AND type = 'buddy'
+				AND friend IN('pending','yes')
+		");
+
+		while ($friend = $this->dbobject->fetch_array($friendlist))
+		{
+			if ($friend['friend'] == 'yes')
+			{
+				$currentfriends[] = $friend['relationid'];
+			}
+			else
+			{
+				$pendingfriends[] = $friend['relationid'];
+			}
+		}
+
+		if (!empty($pendingfriends))
+		{
+			$this->dbobject->query_write("
+				UPDATE " . TABLE_PREFIX . "user
+				SET friendreqcount = IF(friendreqcount > 0, friendreqcount - 1, 0)
+				WHERE userid IN (" . implode(", ", $pendingfriends) . ")
+			");
+		}
+
+		if (!empty($currentfriends))
+		{
+			$this->dbobject->query_write("
+				UPDATE " . TABLE_PREFIX . "user
+				SET friendcount = IF(friendcount > 0, friendcount - 1, 0)
+				WHERE userid IN (" . implode(", ", $currentfriends) . ")
+			");
+		}
+
+		$this->dbobject->query_write("
+			DELETE FROM " . TABLE_PREFIX . "userlist
+			WHERE userid = " . $this->existing['userid'] . " OR relationid = " . $this->existing['userid']
+		);
+
 		$admindm =& datamanager_init('Admin', $this->registry, ERRTYPE_SILENT);
 		$admindm->set_existing($this->existing);
 		$admindm->delete();
 		unset($admindm);
 
+		$groups = $this->registry->db->query_read("
+			SELECT *
+			FROM " . TABLE_PREFIX . "socialgroup
+			WHERE creatoruserid = " . $this->existing['userid']
+		);
+
+		$groupsowned = array();
+
+		while ($group = $this->registry->db->fetch_array($groups))
+		{
+			$groupsowned[] = $group['groupid'];
+		}
+		$this->registry->db->free_result($groups);
+
+		if (!empty($groupsowned))
+		{
+			$this->registry->db->query_write("DELETE FROM " . TABLE_PREFIX . "socialgroup WHERE creatoruserid = " . $this->existing['userid']);
+			$this->registry->db->query_write("DELETE FROM " . TABLE_PREFIX . "socialgroupmember WHERE groupid IN (" . implode(',', $groupsowned) . ")");
+			$this->registry->db->query_write("DELETE FROM " . TABLE_PREFIX . "socialgrouppicture WHERE groupid IN (" . implode(',', $groupsowned) . ")");
+		}
+
+		$groupmemberships = $this->registry->db->query_read("
+			SELECT socialgroup.*
+			FROM " . TABLE_PREFIX . "socialgroupmember AS socialgroupmember
+			INNER JOIN " . TABLE_PREFIX . "socialgroup AS socialgroup ON
+				(socialgroup.groupid = socialgroupmember.groupid)
+			WHERE socialgroupmember.userid = " . $this->existing['userid']
+		);
+
+		$socialgroups = array();
+		while ($groupmembership = $this->registry->db->fetch_array($groupmemberships))
+		{
+			$socialgroups["$groupmembership[groupid]"] = $groupmembership;
+		}
+
+		$grouppicture_sql = $this->registry->db->query_read("
+			SELECT socialgrouppicture.groupid, socialgrouppicture.pictureid
+			FROM " . TABLE_PREFIX . "picture AS picture
+			INNER JOIN " . TABLE_PREFIX . "socialgrouppicture AS socialgrouppicture ON
+				(socialgrouppicture.pictureid = picture.pictureid)
+			WHERE picture.userid = " . $this->existing['userid'] . "
+		");
+		$grouppictures = array();
+
+		while ($grouppicture = $this->registry->db->fetch_array($grouppicture_sql))
+		{
+			$grouppictures[] = $grouppicture['pictureid'];
+		}
+
+		if (!empty($grouppictures))
+		{
+			$this->registry->db->query_write("
+				DELETE FROM " . TABLE_PREFIX . "socialgrouppicture
+				WHERE pictureid IN (" . implode(',', $grouppictures) . ")
+			");
+		}
+
+		if (!empty($socialgroups))
+		{
+			$this->registry->db->query_write("DELETE FROM " . TABLE_PREFIX . "socialgroupmember WHERE userid = "  . $this->existing['userid']);
+
+			foreach ($socialgroups AS $group)
+			{
+				$groupdm =& datamanager_init('SocialGroup', $this->registry, ERRTYPE_STANDARD);
+				$groupdm->set_existing($group);
+				$groupdm->rebuild_membercounts();
+				$groupdm->rebuild_picturecount();
+				$groupdm->save();
+
+				list($pendingcountforowner) = $this->registry->db->query_first("
+					SELECT SUM(moderatedmembers) FROM " . TABLE_PREFIX . "socialgroup
+					WHERE creatoruserid = " . $group['creatoruserid']
+				, DBARRAY_NUM);
+
+				$this->registry->db->query_write("
+					UPDATE " . TABLE_PREFIX . "user
+					SET socgroupreqcount = " . intval($pendingcountforowner) . "
+					WHERE userid = " . $group['creatoruserid']
+				);
+			}
+
+			unset($groupdm);
+		}
+
+		$pictures = array();
+		$picture_sql = $this->registry->db->query_read("
+			SELECT album.albumid, albumpicture.pictureid
+			FROM " . TABLE_PREFIX . "album AS album
+			INNER JOIN " . TABLE_PREFIX . "albumpicture AS albumpicture ON (albumpicture.albumid = album.albumid)
+			WHERE album.userid = " . $this->existing['userid']
+		);
+		while ($picture = $this->registry->db->fetch_array($picture_sql))
+		{
+			$pictures[] = $picture['pictureid'];
+		}
+
+		if ($pictures)
+		{
+			$this->registry->db->query_write("
+				DELETE FROM " . TABLE_PREFIX . "albumpicture
+				WHERE pictureid IN (" . implode(',', $pictures) . ")
+			");
+
+			$this->registry->db->query_write("
+				DELETE FROM " . TABLE_PREFIX . "picturecomment
+				WHERE pictureid IN (" . implode(',', $pictures) . ")
+			");
+		}
+
+		$this->registry->db->query_write("DELETE FROM " . TABLE_PREFIX . "album WHERE userid = " . $this->existing['userid']);
+		$this->registry->db->query_write("DELETE FROM " . TABLE_PREFIX . "picture WHERE userid = " . $this->existing['userid']);
+
+		$this->registry->db->query_write("
+			UPDATE " . TABLE_PREFIX . "picturecomment SET
+				postusername = '" . $this->dbobject->escape_string($this->existing['username']) . "',
+				postuserid = 0
+			WHERE postuserid = " . $this->existing['userid'] . "
+		");
+
 		require_once(DIR . '/includes/adminfunctions.php');
 		delete_user_pms($this->existing['userid'], false);
 
 		require_once(DIR . '/includes/functions_databuild.php');
-		build_user_statistics();
 
 		($hook = vBulletinHook::fetch_hook('userdata_delete')) ? eval($hook) : false;
+
+		build_user_statistics();
+		build_birthdays();
 	}
 
 	// #############################################################################
@@ -1918,9 +2353,10 @@ class vB_DataManager_User extends vB_DataManager
 
 			//  Rebuild newest user information
 			require_once(DIR . '/includes/functions_databuild.php');
-			build_user_statistics();
 
 			($hook = vBulletinHook::fetch_hook('userdata_update_username')) ? eval($hook) : false;
+
+			build_user_statistics();
 		}
 	}
 
@@ -1996,7 +2432,7 @@ class vB_DataManager_User extends vB_DataManager
 		if (!empty($remove_subs) OR !empty($add_subs))
 		{
 			$forum_list = implode(',', array_unique(array_merge($remove_subs, $add_subs)));
-			$threads = $this->dbobject->query_read("
+			$threads = $this->dbobject->query_read_slave("
 				SELECT subscribethread.canview, subscribethreadid, thread.forumid
 				FROM " . TABLE_PREFIX . "subscribethread AS subscribethread
 				INNER JOIN " . TABLE_PREFIX . "thread AS thread ON (thread.threadid = subscribethread.threadid)
@@ -2042,56 +2478,15 @@ class vB_DataManager_User extends vB_DataManager
 	*/
 	function update_birthday_datastore($userid)
 	{
-		if ($this->registry->options['showbirthdays'] AND isset($this->user['birthday']) AND ($this->user['birthday'] != $this->existing['birthday'] OR $this->user['showbirthday'] != $this->existing['showbirthday']))
-		{
-			require_once(DIR . '/includes/functions_databuild.php');
-			build_birthdays($this->user['birthday']);
-		}
-	}
-
-	/**
-	* Rebuilds the userlist table for the current user, $userid must be that of the currently loaded existing user
-	*
-	* @param	integer	User ID
-	*/
-	function update_userlists($userid)
-	{
-		foreach ($this->list_types AS $listtype)
-		{
-			$key = $listtype . 'list';
-			if (isset($this->usertextfield["$key"]) AND $this->usertextfield["$key"] != $this->existing["$key"])
+		if ($this->registry->options['showbirthdays'])
+ 		{
+			if ($this->fetch_field('birthday') != $this->existing['birthday']
+				OR $this->fetch_field('showbirthday') != $this->existing['showbirthday']
+				OR $this->usergroups_changed()
+			)
 			{
-				if (!preg_match('/^((\d+)(\s*)){0,}$/', $this->usertextfield["$key"]))
-				{ // need to regrab this as its not what we expected
-					$usertextfield = $this->dbobject->query_first("SELECT * FROM " . TABLE_PREFIX . "usertextfield WHERE userid = $userid");
-					$this->usertextfield["$key"] = $usertextfield["$key"];
-				}
-
-				$newlist = (!empty($this->usertextfield["$key"]) ? explode(' ', $this->usertextfield["$key"]) : array());
-				$oldlist = (!empty($this->existing["$key"]) ? explode(' ', $this->existing["$key"]) : array());
-
-				$addlist = array_diff($newlist, $oldlist);
-				$removelist = array_diff($oldlist, $newlist);
-
-				if (is_array($addlist) AND !empty($addlist))
-				{
-					$rows = array();
-					foreach ($addlist AS $id)
-					{
-						$rows[] = "($userid, $id, '$listtype')";
-					}
-					$this->dbobject->query_write("
-						INSERT IGNORE INTO " . TABLE_PREFIX . "userlist (userid, relationid, type) VALUES"
-						. implode(",\n", $rows)
-					);
-				}
-
-				if (is_array($removelist) AND !empty($removelist))
-				{
-					$this->dbobject->query_write("
-						DELETE FROM " . TABLE_PREFIX . "userlist WHERE userid = $userid AND relationid IN (" . implode(', ', $removelist) . ") AND type = '$listtype'
-					");
-				}
+				require_once(DIR . '/includes/functions_databuild.php');
+				build_birthdays();
 			}
 		}
 	}
@@ -2372,7 +2767,15 @@ class vB_DataManager_User extends vB_DataManager
 		$userid = intval($userid);
 		$usergroupid = $this->fetch_field('usergroupid');
 
-		if (!($this->registry->usergroupcache["$usergroupid"]['genericoptions'] & $this->registry->bf_ugp_genericoptions['isnotbannedgroup']))
+		if ($this->registry->usergroupcache["$usergroupid"]['genericoptions'] & $this->registry->bf_ugp_genericoptions['isnotbannedgroup'])
+		{
+			// user is going to a non-banned group, so there's no reason to keep this record (it won't be used)
+			$this->dbobject->query_write("
+				DELETE FROM " . TABLE_PREFIX . "userban
+				WHERE userid = $userid
+			");
+		}
+		else
 		{
 			// check to see if there is already a ban record for this user...
 			if (!($check = $this->dbobject->query_first("SELECT userid FROM " . TABLE_PREFIX . "userban WHERE userid = $userid")))
@@ -2400,7 +2803,7 @@ class vB_DataManager_User extends vB_DataManager
 						($userid,
 						" . $ousergroupid . ",
 						" . $odisplaygroupid . ",
-						" . $this->fetch_field('customtitle') . ",
+						" . intval($this->fetch_field('customtitle')) . ",
 						'" . $this->dbobject->escape_string($this->fetch_field('usertitle')) . "',
 						" . $this->registry->userinfo['userid'] . ",
 						" . TIMENOW . ",
@@ -2430,7 +2833,7 @@ class vB_DataManager_User extends vB_DataManager
 
 				// create the DM to do error checking and insert the new PM
 				$pmdm =& datamanager_init('PM', $this->registry, ERRTYPE_SILENT);
-				$pmdm->overridequota = true;
+				$pmdm->set_info('is_automated', true);
 				$pmdm->set('fromuserid', $fromuser['userid']);
 				$pmdm->set('fromusername', $fromuser['username']);
 				$pmdm->set_info('receipt', false);
@@ -2459,8 +2862,8 @@ class vB_DataManager_User extends vB_DataManager
 * Class to do data update operations for multiple USERS simultaneously
 *
 * @package	vBulletin
-* @version	$Revision: 17008 $
-* @date		$Date: 2007-05-15 07:27:50 -0500 (Tue, 15 May 2007) $
+* @version	$Revision: 26665 $
+* @date		$Date: 2008-05-21 06:36:38 -0500 (Wed, 21 May 2008) $
 */
 class vB_DataManager_User_Multiple extends vB_DataManager_Multiple
 {
@@ -2608,8 +3011,8 @@ class vB_DataManager_User_Multiple extends vB_DataManager_Multiple
 
 /*======================================================================*\
 || ####################################################################
-|| # Downloaded: 18:52, Sat Jul 14th 2007
-|| # CVS: $RCSfile$ - $Revision: 17008 $
+|| # Downloaded: 16:21, Sat Apr 6th 2013
+|| # CVS: $RCSfile$ - $Revision: 26665 $
 || ####################################################################
 \*======================================================================*/
 ?>

@@ -1,9 +1,9 @@
 <?php
 /*======================================================================*\
 || #################################################################### ||
-|| # vBulletin 3.6.7 PL1 - Licence Number VBF2470E4F
+|| # vBulletin 3.7.2 Patch Level 2 - Licence Number VBF2470E4F
 || # ---------------------------------------------------------------- # ||
-|| # Copyright ©2000-2007 Jelsoft Enterprises Ltd. All Rights Reserved. ||
+|| # Copyright ©2000-2013 Jelsoft Enterprises Ltd. All Rights Reserved. ||
 || # This file may not be redistributed in whole or significant part. # ||
 || # ---------------- VBULLETIN IS NOT FREE SOFTWARE ---------------- # ||
 || # http://www.vbulletin.com | http://www.vbulletin.com/license.html # ||
@@ -15,6 +15,7 @@ error_reporting(E_ALL & ~E_NOTICE);
 
 // #################### DEFINE IMPORTANT CONSTANTS #######################
 define('THIS_SCRIPT', 'poll');
+define('CSRF_PROTECTION', true);
 
 // ################### PRE-CACHE TEMPLATES AND DATA ######################
 // get special phrase groups
@@ -31,7 +32,6 @@ $globaltemplates = array(
 	'editpoll',
 	'forumrules',
 	'newpoll',
-	'newpost_disablesmiliesoption',
 	'newpost_usernamecode',
 	'polleditbit',
 	'pollnewbit',
@@ -70,7 +70,7 @@ function construct_poll_nav($foruminfo, $threadinfo)
 		$forumTitle = $vbulletin->forumcache["$forumID"]['title'];
 		$navbits['forumdisplay.php?' . $vbulletin->session->vars['sessionurl'] . "f=$forumID"] = $forumTitle;
 	}
-	$navbits['showthread.php?' . $vbulletin->session->vars['sessionurl'] . "t=$threadinfo[threadid]"] = $threadinfo['title'];
+	$navbits['showthread.php?' . $vbulletin->session->vars['sessionurl'] . "t=$threadinfo[threadid]"] = $threadinfo['prefix_plain_html'] . ' ' . $threadinfo['title'];
 
 	switch ($_REQUEST['do'])
 	{
@@ -95,9 +95,17 @@ if (!$foruminfo['forumid'])
 
 // check permissions
 $forumperms = fetch_permissions($foruminfo['forumid']);
-if (!($forumperms & $vbulletin->bf_ugp_forumpermissions['canview']) OR !($forumperms & $vbulletin->bf_ugp_forumpermissions['canviewthreads']))
+if (!($forumperms & $vbulletin->bf_ugp_forumpermissions['canview']))
 {
 	print_no_permission();
+}
+
+if (!($forumperms & $vbulletin->bf_ugp_forumpermissions['canviewthreads']))
+{
+	if (($_POST['do'] != 'postpoll' AND $_REQUEST['do'] != 'newpoll') OR $threadinfo['postuserid'] != $vbulletin->userinfo['userid'] OR !$vbulletin->userinfo['userid'])
+	{
+		print_no_permission();
+	}
 }
 
 // check if there is a forum password and if so, ensure the user has it set
@@ -118,7 +126,6 @@ if ($_POST['do'] == 'postpoll')
 		'updatenumber'   => TYPE_STR,
 		'public'         => TYPE_BOOL,
 		'parseurl'       => TYPE_BOOL,
-		'disablesmilies' => TYPE_BOOL,
 		'multiple'       => TYPE_BOOL,
 		'options'        => TYPE_ARRAY_STR
 	));
@@ -144,6 +151,11 @@ if ($_POST['do'] == 'postpoll')
 	if (!can_moderate($threadinfo['forumid'], 'caneditpoll') AND $vbulletin->options['addpolltimeout'] AND TIMENOW - ($vbulletin->options['addpolltimeout'] * 60) > $threadinfo['dateline'])
 	{
 		eval(standard_error(fetch_error('polltimeout', $vbulletin->options['addpolltimeout'])));
+	}
+
+	if (!$threadinfo['open'])
+	{
+		eval(standard_error(fetch_error('threadclosed')));
 	}
 
 	if ($vbulletin->options['maxpolloptions'] > 0 AND $polloptions > $vbulletin->options['maxpolloptions'])
@@ -193,10 +205,10 @@ if ($_POST['do'] == 'postpoll')
 
 			$counter = 0;
 			$pollpreview = '';
-			$previewquestion = $bbcode_parser->parse(unhtmlspecialchars($question), $foruminfo['forumid'], !$vbulletin->GPC['disablesmilies']);
+			$previewquestion = $bbcode_parser->parse(unhtmlspecialchars($question), $foruminfo['forumid'], $foruminfo['allowsmilies']);
 			while ($counter++ < $polloptions)
 			{
-				$pollpreviewbits .= "&nbsp;&nbsp; $counter. &nbsp; " . $bbcode_parser->parse($vbulletin->GPC['options']["$counter"], $foruminfo['forumid'], !$vbulletin->GPC['disablesmilies']) . '<br />';
+				$pollpreviewbits .= "&nbsp;&nbsp; $counter. &nbsp; " . $bbcode_parser->parse($vbulletin->GPC['options']["$counter"], $foruminfo['forumid'], $foruminfo['allowsmilies']) . '<br />';
 			}
 
 			eval('$pollpreview = "' . fetch_template('pollpreview') . '";');
@@ -206,7 +218,6 @@ if ($_POST['do'] == 'postpoll')
 			'multiple'       => ($vbulletin->GPC['multiple'] ? 'checked="checked"' : ''),
 			'public'         => ($vbulletin->GPC['public'] ? 'checked="checked"' : ''),
 			'parseurl'       => ($vbulletin->GPC['parseurl'] ? 'checked="checked"' : ''),
-			'disablesmilies' => ($vbulletin->GPC['disablesmilies'] ? 'checked="checked"' : ''),
 		);
 
 		$_REQUEST['do'] = 'newpoll';
@@ -233,7 +244,7 @@ if ($_POST['do'] == 'postpoll')
 			}
 
 			$img_parser =& new vB_BbCodeParser_ImgCheck($vbulletin, fetch_tag_list());
-			$parsedmessage = $img_parser->parse($maximgtest . $question, $foruminfo['forumid'], !$vbulletin->GPC['disablesmilies'], true);
+			$parsedmessage = $img_parser->parse($maximgtest . $question, $foruminfo['forumid'], $foruminfo['allowsmilies'], true);
 
 			require_once(DIR . '/includes/functions_misc.php');
 			$imagecount = fetch_character_count($parsedmessage, '<img');
@@ -293,7 +304,7 @@ if ($_POST['do'] == 'postpoll')
 		}
 
 		// redirect
-		if ($threadinfo['visible'])
+		if ($threadinfo['visible'] AND $forumperms & $vbulletin->bf_ugp_forumpermissions['canviewthreads'])
 		{
 			$vbulletin->url = 'showthread.php?' . $vbulletin->session->vars['sessionurl'] . "t=$threadinfo[threadid]";
 		}
@@ -304,7 +315,14 @@ if ($_POST['do'] == 'postpoll')
 
 		($hook = vBulletinHook::fetch_hook('poll_post_complete')) ? eval($hook) : false;
 
-		eval(print_standard_redirect('redirect_postthanks'));
+		if (!($forumperms & $vbulletin->bf_ugp_forumpermissions['canviewthreads']))
+		{
+			eval(print_standard_redirect('redirect_postthanks_nopermission'));
+		}
+		else
+		{
+			eval(print_standard_redirect('redirect_postthanks'));
+		}
 
 	}
 }
@@ -338,6 +356,11 @@ if ($_REQUEST['do'] == 'newpoll')
 		eval(standard_error(fetch_error('polltimeout', $vbulletin->options['addpolltimeout'])));
 	}
 
+	if (!$threadinfo['open'])
+	{
+		eval(standard_error(fetch_error('threadclosed')));
+	}
+
 	// stop there being too many
 	if ($vbulletin->options['maxpolloptions'] > 0 AND $polloptions > $vbulletin->options['maxpolloptions'])
 	{
@@ -362,11 +385,6 @@ if ($_REQUEST['do'] == 'newpoll')
 	{
 		$checked['parseurl'] = 'checked="checked"';
 		$parseurlchecked = 'checked="checked"';
-	}
-
-	if ($foruminfo['allowsmilies'])
-	{
-		eval('$disablesmiliesoption = "' . fetch_template('newpost_disablesmiliesoption') . '";');
 	}
 
 	require_once(DIR . '/includes/functions_bigthree.php');
@@ -446,7 +464,7 @@ if ($_REQUEST['do'] == 'polledit')
 	$counter = 0;
 	$pollbits = '';
 
-	$pollinfo['question'] = htmlspecialchars_uni($pollinfo['question']);
+	$pollinfo['question'] = $pollinfo['question'];
 
 	while ($counter++ < $pollinfo['numberoptions'])
 	{
@@ -492,12 +510,12 @@ if ($_POST['do'] == 'updatepoll')
 	}
 
 	$vbulletin->input->clean_array_gpc('p', array(
-		'closepoll'		=> TYPE_BOOL,
-		'pollquestion'	=> TYPE_STR,
-		'options'		=> TYPE_ARRAY_STR,
-		'pollvotes'		=> TYPE_ARRAY_UINT,
-		'timeout'		=> TYPE_UINT,
-		'public'		=> TYPE_BOOL,
+		'closepoll'    => TYPE_BOOL,
+		'pollquestion' => TYPE_NOHTML,
+		'options'      => TYPE_ARRAY_STR,
+		'pollvotes'    => TYPE_ARRAY_UINT,
+		'timeout'      => TYPE_UINT,
+		'public'       => TYPE_BOOL,
 	));
 
 	$poll =& datamanager_init('Poll', $vbulletin, ERRTYPE_STANDARD);
@@ -576,23 +594,21 @@ if ($_REQUEST['do'] == 'showresults')
 
 	$pollinfo['numbervotes'] = array_sum($splitvotes);
 
-	if ($pollinfo['numbervotes'] > 0)
+	if ($vbulletin->userinfo['userid'] > 0)
 	{
-		if ($vbulletin->userinfo['userid'] > 0)
+		$pollvotes = $db->query_read_slave("
+			SELECT voteoption
+			FROM " . TABLE_PREFIX . "pollvote
+			WHERE userid = " . $vbulletin->userinfo['userid'] . " AND
+				pollid = $pollid
+		");
+		$uservote = array();
+		while ($pollvote = $db->fetch_array($pollvotes))
 		{
-			$pollvotes = $db->query_read_slave("
-				SELECT voteoption
-				FROM " . TABLE_PREFIX . "pollvote
-				WHERE userid = " . $vbulletin->userinfo['userid'] . " AND
-					pollid = $pollid
-			");
-			$uservote = array();
-			while ($pollvote = $db->fetch_array($pollvotes))
-			{
-				$uservote["$pollvote[voteoption]"] = 1;
-			}
+			$uservote["$pollvote[voteoption]"] = 1;
 		}
 	}
+
 	if ($pollinfo['public'])
 	{
 		$public = $db->query_read_slave("
@@ -631,6 +647,8 @@ if ($_REQUEST['do'] == 'showresults')
 
 		$option['graphicnumber'] = $counter % 6 + 1;
 		$option['barnumber'] = round($option['percent']) * 2;
+		$option['remainder'] = 201 - $option['barnumber'];
+		$option['votes'] = vb_number_format($option['votes']);
 
 		$option['open'] = $stylevar['left'][0];
 		$option['close'] = $stylevar['right'][0];
@@ -754,7 +772,8 @@ if ($_POST['do'] == 'pollvote')
 				set_bbarray_cookie('poll_voted', $pollid, 1, 1);
 			}
 		}
-		else if ($vbulletin->userinfo['userid'] AND $uservoteinfo = $db->query_first_slave("
+		// Query master to reduce the chance of multiple poll votes
+		else if ($uservoteinfo = $db->query_first("
 			SELECT userid
 			FROM " . TABLE_PREFIX . "pollvote
 			WHERE userid = " . $vbulletin->userinfo['userid'] . "
@@ -779,33 +798,54 @@ if ($_POST['do'] == 'pollvote')
 				{
 					$pollvote =& datamanager_init('PollVote', $vbulletin, ERRTYPE_STANDARD);
 					$pollvote->set_info('skip_voters', $skip_voters);
-					$pollvote->set('pollid', 		$pollid);
-					$pollvote->set('votedate', 		TIMENOW);
-					$pollvote->set('voteoption', 	$val);
-					$pollvote->set('userid', 		$vbulletin->userinfo['userid']);
-					$pollvote->save();
+					$pollvote->set('pollid',     $pollid);
+					$pollvote->set('votedate',   TIMENOW);
+					$pollvote->set('voteoption', $val);
+					if (!$vbulletin->userinfo['userid'])
+					{
+						$pollvote->set('userid', NULL, false);
+					}
+					else
+					{
+						$pollvote->set('userid', $vbulletin->userinfo['userid']);
+					}
+					$pollvote->set('votetype', $val);
+					if (!$pollvote->save(true, false, false, false, true))
+					{
+						$vbulletin->url = 'showthread.php?' . $vbulletin->session->vars['sessionurl'] . "t=$threadinfo[threadid]";
+						eval(print_standard_redirect('redirect_pollvoteduplicate'));
+					}
 
 					$skip_voters = true;
 				}
 			}
 		}
-		else
+		else if ($vbulletin->GPC['optionnumber'] > 0 AND $vbulletin->GPC['optionnumber'] <= $totaloptions)
 		{
-			if ($vbulletin->GPC['optionnumber'] > 0 AND $vbulletin->GPC['optionnumber'] <= $totaloptions)
-			{
 				$pollvote =& datamanager_init('PollVote', $vbulletin, ERRTYPE_STANDARD);
-				$pollvote->set('pollid', 		$pollid);
-				$pollvote->set('votedate', 		TIMENOW);
-				$pollvote->set('voteoption', 	$vbulletin->GPC['optionnumber']);
-				$pollvote->set('userid', 		$vbulletin->userinfo['userid']);
-				$pollvote->save();
-			}
+				$pollvote->set('pollid',     $pollid);
+				$pollvote->set('votedate',   TIMENOW);
+				$pollvote->set('voteoption', $vbulletin->GPC['optionnumber']);
+				if (!$vbulletin->userinfo['userid'])
+				{
+					$pollvote->set('userid', NULL, false);
+				}
+				else
+				{
+					$pollvote->set('userid', $vbulletin->userinfo['userid']);
+				}
+				$pollvote->set('votetype',   0);
+				if (!$pollvote->save(true, false, false, false, true))
+				{
+					$vbulletin->url = 'showthread.php?' . $vbulletin->session->vars['sessionurl'] . "t=$threadinfo[threadid]";
+					eval(print_standard_redirect('redirect_pollvoteduplicate'));
+				}
 		}
 
-		//make last reply date == last vote date
+		// make last reply date == last vote date
 		if ($vbulletin->options['updatelastpost'])
 		{
-			//option selected in CP
+			// option selected in CP
 			$threadman =& datamanager_init('Thread', $vbulletin, ERRTYPE_SILENT, 'threadpost');
 			$threadman->set_existing($threadinfo);
 			$threadman->set('lastpost', TIMENOW);
@@ -828,8 +868,8 @@ if ($_POST['do'] == 'pollvote')
 
 /*======================================================================*\
 || ####################################################################
-|| # Downloaded: 18:52, Sat Jul 14th 2007
-|| # CVS: $RCSfile$ - $Revision: 16143 $
+|| # Downloaded: 16:21, Sat Apr 6th 2013
+|| # CVS: $RCSfile$ - $Revision: 26399 $
 || ####################################################################
 \*======================================================================*/
 ?>

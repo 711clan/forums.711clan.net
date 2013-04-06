@@ -1,9 +1,9 @@
 <?php
 /*======================================================================*\
 || #################################################################### ||
-|| # vBulletin 3.6.7 PL1 - Licence Number VBF2470E4F
+|| # vBulletin 3.7.2 Patch Level 2 - Licence Number VBF2470E4F
 || # ---------------------------------------------------------------- # ||
-|| # Copyright ©2000-2007 Jelsoft Enterprises Ltd. All Rights Reserved. ||
+|| # Copyright ©2000-2013 Jelsoft Enterprises Ltd. All Rights Reserved. ||
 || # This file may not be redistributed in whole or significant part. # ||
 || # ---------------- VBULLETIN IS NOT FREE SOFTWARE ---------------- # ||
 || # http://www.vbulletin.com | http://www.vbulletin.com/license.html # ||
@@ -15,6 +15,7 @@ error_reporting(E_ALL & ~E_NOTICE);
 
 // #################### DEFINE IMPORTANT CONSTANTS #######################
 define('GET_EDIT_TEMPLATES', true);
+define('CSRF_PROTECTION', true);
 define('THIS_SCRIPT', 'editpost');
 
 // ################### PRE-CACHE TEMPLATES AND DATA ######################
@@ -23,6 +24,7 @@ $phrasegroups = array(
 	'threadmanage',
 	'posting',
 	'postbit',
+	'prefix',
 	'reputationlevel',
 );
 
@@ -37,6 +39,7 @@ $globaltemplates = array(
 	'editpost',
 	'newpost_attachment',
 	'newpost_attachmentbit',
+	'optgroup',
 	'postbit',
 	'postbit_wrapper',
 );
@@ -99,6 +102,14 @@ verify_forum_password($foruminfo['forumid'], $foruminfo['password']);
 
 // need to get last post-type information
 cache_ordered_forums(1);
+
+// determine if we are allowed to be updating the thread's info
+$can_update_thread = (
+	$threadinfo['firstpostid'] == $postinfo['postid']
+	AND (can_moderate($threadinfo['forumid'], 'caneditthreads')
+		OR ($postinfo['dateline'] + $vbulletin->options['editthreadtitlelimit'] * 60) > TIMENOW
+	)
+);
 
 // ############################### start permissions checking ###############################
 if ($_REQUEST['do'] == 'deletepost')
@@ -173,6 +184,7 @@ if ($_POST['do'] == 'updatepost')
 		'wysiwyg'         => TYPE_BOOL,
 		'message'         => TYPE_STR,
 		'title'           => TYPE_STR,
+		'prefixid'        => TYPE_NOHTML,
 		'iconid'          => TYPE_UINT,
 		'parseurl'        => TYPE_BOOL,
 		'signature'	      => TYPE_BOOL,
@@ -190,6 +202,8 @@ if ($_POST['do'] == 'updatepost')
 		'podcastkeywords' => TYPE_STR,
 		'podcastsubtitle' => TYPE_STR,
 		'podcastauthor'   => TYPE_STR,
+
+		'quickeditnoajax' => TYPE_BOOL // true when going from an AJAX edit but not using AJAX
 	));
 	// Make sure the posthash is valid
 
@@ -245,22 +259,30 @@ if ($_POST['do'] == 'updatepost')
 		}
 	}
 
-	if ($vbulletin->GPC['ajax'])
+	if ($vbulletin->GPC['ajax'] OR $vbulletin->GPC['quickeditnoajax'])
 	{
-		$tmpmessage = convert_urlencoded_unicode($edit['message']);
-		$edit =& $postinfo;
+		// quick edit
+		$tmpmessage = ($vbulletin->GPC['ajax'] ? convert_urlencoded_unicode($edit['message']) : $edit['message']);
+
+		$edit = $postinfo;
 		$edit['message'] =& $tmpmessage;
 		$edit['title'] = unhtmlspecialchars($edit['title']);
 		$edit['signature'] =& $edit['showsignature'];
 		$edit['enablesmilies'] =& $edit['allowsmilie'];
 		$edit['disablesmilies'] = $edit['enablesmilies'] ? 0 : 1;
 		$edit['parseurl'] = true;
-		$edit['reason'] = fetch_censored_text(convert_urlencoded_unicode($vbulletin->GPC['reason']));
+		$edit['prefixid'] = $threadinfo['prefixid'];
+
+		$edit['reason'] = fetch_censored_text(
+			$vbulletin->GPC['ajax'] ? convert_urlencoded_unicode($vbulletin->GPC['reason']) : $vbulletin->GPC['reason']
+		);
 	}
 	else
 	{
 		$edit['iconid'] =& $vbulletin->GPC['iconid'];
 		$edit['title'] =& $vbulletin->GPC['title'];
+		$edit['prefixid'] = ($vbulletin->GPC_exists['prefixid'] ? $vbulletin->GPC['prefixid'] : $threadinfo['prefixid']);
+
 		$edit['podcasturl'] =& $vbulletin->GPC['podcasturl'];
 		$edit['podcastsize'] =& $vbulletin->GPC['podcastsize'];
 		$edit['podcastexplicit'] =& $vbulletin->GPC['podcastexplicit'];
@@ -434,21 +456,68 @@ if ($_POST['do'] == 'updatepost')
 
 		$dataman->save();
 
-		// Delete user's previous edit if we don't save edits for this group and they didn't give a reason
-		if (empty($edit['reason']) AND (($postinfo['edit_userid'] == $vbulletin->userinfo['userid'] AND !($permissions['genericoptions'] & $vbulletin->bf_ugp_genericoptions['showeditedby'])) OR (!empty($postinfo['edit_userid']) AND $postinfo['dateline'] >= (TIMENOW - ($vbulletin->options['noeditedbytime'] * 60)))))
+		$update_edit_log = true;
+
+		// don't show edited by AND reason unchanged - don't update edit log
+		if (!($permissions['genericoptions'] & $vbulletin->bf_ugp_genericoptions['showeditedby']) AND $edit['reason'] == $postinfo['edit_reason'])
 		{
-			$db->query_write("
-				DELETE FROM " . TABLE_PREFIX . "editlog
-				WHERE postid = $postinfo[postid]
-			");
+			$update_edit_log = false;
 		}
-		else if ((($permissions['genericoptions'] & $vbulletin->bf_ugp_genericoptions['showeditedby']) AND $postinfo['dateline'] < (TIMENOW - ($vbulletin->options['noeditedbytime'] * 60))) OR !empty($edit['reason']))
+
+		if ($update_edit_log)
 		{
-			/*insert query*/
-			$db->query_write("
-				REPLACE INTO " . TABLE_PREFIX . "editlog (postid, userid, username, dateline, reason)
-				VALUES ($postinfo[postid], " . $vbulletin->userinfo['userid'] . ", '" . $db->escape_string($vbulletin->userinfo['username']) . "', " . TIMENOW . ", '" . $db->escape_string($edit['reason']) . "')
-			");
+			// ug perm: show edited by
+			if ($postinfo['dateline'] < (TIMENOW - ($vbulletin->options['noeditedbytime'] * 60)) OR !empty($edit['reason']))
+			{
+				// save the postedithistory
+				if ($vbulletin->options['postedithistory'])
+				{
+					// insert original post on first edit
+					if (!$db->query_first("SELECT postedithistoryid FROM " . TABLE_PREFIX . "postedithistory WHERE original = 1 AND postid = " . $postinfo['postid']))
+					{
+						$db->query_write("
+							INSERT INTO " . TABLE_PREFIX . "postedithistory
+								(postid, userid, username, title, iconid, dateline, reason, original, pagetext)
+							VALUES
+								($postinfo[postid],
+								" . $postinfo['userid'] . ",
+								'" . $db->escape_string($postinfo['username']) . "',
+								'" . $db->escape_string($postinfo['title']) . "',
+								$postinfo[iconid],
+								" . $postinfo['dateline'] . ",
+								'',
+								1,
+								'" . $db->escape_string($postinfo['pagetext']) . "')
+						");
+					}
+					// insert the new version
+					$db->query_write("
+						INSERT INTO " . TABLE_PREFIX . "postedithistory
+							(postid, userid, username, title, iconid, dateline, reason, pagetext)
+						VALUES
+							($postinfo[postid],
+							" . $vbulletin->userinfo['userid'] . ",
+							'" . $db->escape_string($vbulletin->userinfo['username']) . "',
+							'" . $db->escape_string($edit['title']) . "',
+							$edit[iconid],
+							" . TIMENOW . ",
+							'" . $db->escape_string($edit['reason']) . "',
+							'" . $db->escape_string($edit['message']) . "')
+					");
+				}
+				/*insert query*/
+				$db->query_write("
+					REPLACE INTO " . TABLE_PREFIX . "editlog
+						(postid, userid, username, dateline, reason, hashistory)
+					VALUES
+						($postinfo[postid],
+						" . $vbulletin->userinfo['userid'] . ",
+						'" . $db->escape_string($vbulletin->userinfo['username']) . "',
+						" . TIMENOW . ",
+						'" . $db->escape_string($edit['reason']) . "',
+						" . ($vbulletin->options['postedithistory'] ? 1 : 0) . ")
+				");
+			}
 		}
 
 		$date = vbdate($vbulletin->options['dateformat'], TIMENOW);
@@ -460,16 +529,35 @@ if ($_POST['do'] == 'updatepost')
 		$threadman =& datamanager_init('Thread', $vbulletin, ERRTYPE_SILENT, 'threadpost');
 		$threadman->set_existing($threadinfo);
 
-		if ($threadinfo['firstpostid'] == $postinfo['postid'] AND $edit['title'] != '' AND ($postinfo['dateline'] + $vbulletin->options['editthreadtitlelimit'] * 60) > TIMENOW)
+		if ($can_update_thread AND $edit['title'] != '')
 		{
 			// need to update thread title and iconid
 			if (!can_moderate($threadinfo['forumid']))
 			{
 				$threadman->set_info('skip_moderator_log', true);
 			}
+
 			$threadman->set_info('skip_first_post_update', true);
-			$threadman->set('title', unhtmlspecialchars($edit['title']));
-			$threadman->set('iconid', $edit['iconid']);
+
+			if ($edit['title'] != $postinfo['title'])
+			{
+				$threadman->set('title', unhtmlspecialchars($edit['title']));
+			}
+
+			if ($edit['iconid'] != $postinfo['iconid'])
+			{
+				$threadman->set('iconid', $edit['iconid']);
+			}
+
+			if ($vbulletin->GPC_exists['prefixid'])
+			{
+				$threadman->set('prefixid', $vbulletin->GPC['prefixid']);
+				if ($threadman->thread['prefixid'] === '' AND ($foruminfo['options'] & $vbulletin->bf_misc_forumoptions['prefixrequired']))
+				{
+					// the prefix wasn't valid or was set to an empty one, but that's not allowed
+					$threadman->do_unset('prefixid');
+				}
+			}
 
 			// do we need to update the forum counters?
 			$forumupdate = ($foruminfo['lastthreadid'] == $threadinfo['threadid']) ? true : false;
@@ -492,7 +580,12 @@ if ($_POST['do'] == 'updatepost')
 		// if this is a mod edit, then log it
 		if ($vbulletin->userinfo['userid'] != $postinfo['userid'] AND can_moderate($threadinfo['forumid'], 'caneditposts'))
 		{
-			log_moderator_action($threadinfo, 'post_x_edited', $postinfo['title']);
+			$modlog = array(
+				'threadid' => $threadinfo['threadid'],
+				'forumid'  => $threadinfo['forumid'],
+				'postid'   => $postinfo['postid']
+			);
+			log_moderator_action($modlog, 'post_x_edited', $postinfo['title']);
 		}
 
 		require_once(DIR . '/includes/functions_databuild.php');
@@ -503,8 +596,8 @@ if ($_POST['do'] == 'updatepost')
 			build_forum_counters($threadinfo['forumid']);
 		}
 
-		// don't do thread subscriptions if we are using AJAX
-		if (!$vbulletin->GPC['ajax'])
+		// don't do thread subscriptions if we are doing quick edit
+		if (!$vbulletin->GPC['ajax'] AND !$vbulletin->GPC['quickeditnoajax'])
 		{
 			// ### DO THREAD SUBSCRIPTION ###
 			// We use $postinfo[userid] so that we update the user who posted this, not the user who is editing this
@@ -566,7 +659,7 @@ if ($_POST['do'] == 'updatepost')
 					" . iif($forum['allowicons'], 'icon.title as icontitle, icon.iconpath,') . "
 					" . iif($vbulletin->options['avatarenabled'], 'avatar.avatarpath, NOT ISNULL(customavatar.userid) AS hascustomavatar, customavatar.dateline AS avatardateline,customavatar.width AS avwidth,customavatar.height AS avheight,') . "
 					editlog.userid AS edit_userid, editlog.username AS edit_username, editlog.dateline AS edit_dateline,
-					editlog.reason AS edit_reason,
+					editlog.reason AS edit_reason, editlog.hashistory,
 					postparsed.pagetext_html, postparsed.hasimages,
 					sigparsed.signatureparsed, sigparsed.hasimages AS sighasimages,
 					sigpic.userid AS sigpic, sigpic.dateline AS sigpicdateline, sigpic.width AS sigpicwidth, sigpic.height AS sigpicheight,
@@ -694,7 +787,7 @@ if ($_POST['do'] == 'updatepost')
 
 			$xml = new vB_AJAX_XML_Builder($vbulletin, 'text/xml');
 			$xml->add_tag('postbit', process_replacement_vars($postbit_obj->construct_postbit($post)));
-			$xml->print_xml();
+			$xml->print_xml(true);
 
 			// #############################################################################
 			// #############################################################################
@@ -854,6 +947,18 @@ if ($_REQUEST['do'] == 'editpost')
 	else
 	{
 		$title = $postinfo['title'];
+	}
+
+	// load prefix stuff if necessary
+	if ($can_update_thread)
+	{
+		require_once(DIR . '/includes/functions_prefix.php');
+		$prefix_options = fetch_prefix_html($foruminfo['forumid'], (isset($edit['prefixid']) ? $edit['prefixid'] : $threadinfo['prefixid']));
+		$show['empty_prefix_option'] = ($threadinfo['prefixid'] == '' OR !($foruminfo['options'] & $vbulletin->bf_misc_forumoptions['prefixrequired']));
+	}
+	else
+	{
+		$prefix_options = '';
 	}
 
 	if ($postinfo['userid'])
@@ -1051,7 +1156,7 @@ if ($_REQUEST['do'] == 'editpost')
 		$forumTitle =& $vbulletin->forumcache["$forumID"]['title'];
 		$navbits['forumdisplay.php?' . $vbulletin->session->vars['sessionurl'] . "f=$forumID"] = $forumTitle;
 	}
-	$navbits['showthread.php?' . $vbulletin->session->vars['sessionurl'] . "p=$postinfo[postid]#post$postinfo[postid]"] = $threadinfo['title'];
+	$navbits['showthread.php?' . $vbulletin->session->vars['sessionurl'] . "p=$postinfo[postid]#post$postinfo[postid]"] = $threadinfo['prefix_plain_html'] . ' ' . $threadinfo['title'];
 	$navbits[''] = $vbphrase['edit_post'];
 	$navbits = construct_navbits($navbits);
 	eval('$navbar = "' . fetch_template('navbar') . '";');
@@ -1086,7 +1191,7 @@ if ($_POST['do'] == 'deletepost')
 	if ($vbulletin->GPC['deletepost'] != '')
 	{
 		//get first post in thread
-		$getfirst = $db->query_first("
+		$getfirst = $db->query_first_slave("
 			SELECT postid, dateline
 			FROM " . TABLE_PREFIX . "post
 			WHERE threadid = $postinfo[threadid]
@@ -1213,8 +1318,8 @@ if ($_POST['do'] == 'deletepost')
 
 /*======================================================================*\
 || ####################################################################
-|| # Downloaded: 18:52, Sat Jul 14th 2007
-|| # CVS: $RCSfile$ - $Revision: 17005 $
+|| # Downloaded: 16:21, Sat Apr 6th 2013
+|| # CVS: $RCSfile$ - $Revision: 26636 $
 || ####################################################################
 \*======================================================================*/
 ?>

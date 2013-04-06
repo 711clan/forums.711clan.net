@@ -1,9 +1,9 @@
 <?php
 /*======================================================================*\
 || #################################################################### ||
-|| # vBulletin 3.6.7 PL1 - Licence Number VBF2470E4F
+|| # vBulletin 3.7.2 Patch Level 2 - Licence Number VBF2470E4F
 || # ---------------------------------------------------------------- # ||
-|| # Copyright ©2000-2007 Jelsoft Enterprises Ltd. All Rights Reserved. ||
+|| # Copyright ©2000-2013 Jelsoft Enterprises Ltd. All Rights Reserved. ||
 || # This file may not be redistributed in whole or significant part. # ||
 || # ---------------- VBULLETIN IS NOT FREE SOFTWARE ---------------- # ||
 || # http://www.vbulletin.com | http://www.vbulletin.com/license.html # ||
@@ -14,7 +14,7 @@
 error_reporting(E_ALL & ~E_NOTICE);
 
 // ##################### DEFINE IMPORTANT CONSTANTS #######################
-define('CVS_REVISION', '$RCSfile$ - $Revision: 13929 $');
+define('CVS_REVISION', '$RCSfile$ - $Revision: 26182 $');
 
 // #################### PRE-CACHE TEMPLATES AND DATA ######################
 $phrasegroups = array('style');
@@ -25,8 +25,8 @@ require_once('./global.php');
 require_once(DIR . '/includes/adminfunctions_template.php');
 
 $vbulletin->input->clean_array_gpc('r', array(
-	'group'		=> TYPE_INT,
-	'dostyleid'	=> TYPE_INT,
+	'group'     => TYPE_INT,
+	'dostyleid' => TYPE_INT,
 	'dowhat'    => TYPE_NOCLEAN // Sometimes this is an array and other times it is a string .. bad, bad.
 ));
 
@@ -76,19 +76,24 @@ if ($dostyleid < 1)
 if ($_POST['do'] == 'update')
 {
 	$vbulletin->input->clean_array_gpc('p', array(
-		'dostyleid' 		=> TYPE_INT,
-		'group' 			=> TYPE_STR,
-		'css' 				=> TYPE_ARRAY,
-		'stylevar' 			=> TYPE_ARRAY,
-		'replacement' 		=> TYPE_ARRAY,
-		'commontemplate' 	=> TYPE_ARRAY,
-		'delete' 			=> TYPE_ARRAY,
-		'dowhat'			=> TYPE_ARRAY,
-		'colorPickerType' 	=> TYPE_INT,
-		'passthru_dowhat'	=> TYPE_STR
+		'dostyleid'       => TYPE_INT,
+		'group'           => TYPE_STR,
+		'css'             => TYPE_ARRAY,
+		'stylevar'        => TYPE_ARRAY,
+		'replacement'     => TYPE_ARRAY,
+		'commontemplate'  => TYPE_ARRAY,
+		'delete'          => TYPE_ARRAY,
+		'dowhat'          => TYPE_ARRAY,
+		'colorPickerType' => TYPE_INT,
+		'passthru_dowhat' => TYPE_STR
 	));
 
-	if ($vbulletin->GPC['dostyleid'] == -1)
+	if (empty($vbulletin->GPC['dostyleid']))
+	{
+		// probably lost due to Suhosin wiping out the variable
+		print_stop_message('variables_missing_suhosin');
+	}
+	else if ($vbulletin->GPC['dostyleid'] == -1)
 	{
 		$templates = $db->query_read("
 			SELECT templateid, title, template, template_un, styleid, templatetype
@@ -99,7 +104,13 @@ if ($_POST['do'] == 'update')
 	}
 	else
 	{
-		$style = $db->query_first("SELECT * FROM " . TABLE_PREFIX . "style WHERE styleid =" . $vbulletin->GPC['dostyleid']);
+		$style = $db->query_first("SELECT * FROM " . TABLE_PREFIX . "style WHERE styleid = " . $vbulletin->GPC['dostyleid']);
+
+		if (empty($style['templatelist']))
+		{
+			print_stop_message('invalid_style_specified');
+		}
+
 		$templateids = implode(',', unserialize($style['templatelist']));
 		if (!$templateids)
 		{
@@ -118,9 +129,9 @@ if ($_POST['do'] == 'update')
 		");
 	}
 	$template_cache = array(
-		'template' => array(),
-		'css' => array(),
-		'stylevar' => array(),
+		'template'    => array(),
+		'css'         => array(),
+		'stylevar'    => array(),
 		'replacement' => array()
 	);
 	while ($template = $db->fetch_array($templates))
@@ -200,9 +211,9 @@ if ($_POST['do'] == 'update')
 if ($_REQUEST['do'] == 'edit')
 {
 	$vbulletin->input->clean_array_gpc('r', array(
-		'dostyleid'	=> TYPE_INT,
-		'group'		=> TYPE_STR,
-		'dowhat'	=> TYPE_STR
+		'dostyleid' => TYPE_INT,
+		'group'     => TYPE_STR,
+		'dowhat'    => TYPE_STR
 	));
 
 	if ($vbulletin->GPC['dostyleid'] == 0 OR $vbulletin->GPC['dostyleid'] < -1)
@@ -248,10 +259,10 @@ if ($_REQUEST['do'] == 'edit')
 if ($_REQUEST['do'] == 'doedit')
 {
 	$vbulletin->input->clean_array_gpc('r', array(
-		'dostyleid'			=> TYPE_INT,
-		'group'				=> TYPE_STR,
-		'dowhat'			=> TYPE_STR,
-		'colorPickerType' 	=> TYPE_INT
+		'dostyleid'       => TYPE_INT,
+		'group'           => TYPE_STR,
+		'dowhat'          => TYPE_STR,
+		'colorPickerType' => TYPE_INT
 	));
 
 
@@ -304,12 +315,12 @@ if ($_REQUEST['do'] == 'doedit')
 			<br />
 			<select name="dowhat" class="bginput" style="width:275px" onchange="this.form.submit()">
 				<optgroup label="<?php echo $vbphrase['edit_fonts_colors_etc']; ?>">
-					<option value="all"<?php echo $optionselected['all'] . '>' . $vbphrase['all_style_options']; ?></option>
-					<option value="templates"<?php echo $optionselected['templates'] . '>' . $vbphrase['common_templates']; ?></option>
-					<option value="stylevars"<?php echo $optionselected['stylevars'] . '>' . $vbphrase['stylevars']; ?></option>
-					<option value="maincss"<?php echo $optionselected['maincss'] . '>' . $vbphrase['main_css']; ?></option>
-					<option value="replacements"<?php echo $optionselected['replacements'] . '>' . $vbphrase['replacement_variables']; ?></option>
-					<option value="posteditor"<?php echo $optionselected['posteditor'] . '>' . $vbphrase['toolbar_menu_options']; ?></option>
+					<option value="all"<?php echo $optionselected['all']; ?>><?php echo $vbphrase['all_style_options']; ?></option>
+					<option value="templates"<?php echo $optionselected['templates']; ?>><?php echo $vbphrase['common_templates']; ?></option>
+					<option value="stylevars"<?php echo $optionselected['stylevars']; ?>><?php echo $vbphrase['stylevars']; ?></option>
+					<option value="maincss"<?php echo $optionselected['maincss']; ?>><?php echo $vbphrase['main_css']; ?></option>
+					<option value="replacements"<?php echo $optionselected['replacements']; ?>><?php echo $vbphrase['replacement_variables']; ?></option>
+					<option value="posteditor"<?php echo $optionselected['posteditor']; ?>><?php echo $vbphrase['toolbar_menu_options']; ?></option>
 				</optgroup>
 				<optgroup label="<?php echo $vbphrase['template_options']; ?>">
 					<option value="templateeditor"><?php echo $vbphrase['edit_templates']; ?></option>
@@ -485,11 +496,10 @@ if ($_REQUEST['do'] == 'doedit')
 
 		print_table_header($vbphrase['sizes_and_dimensions'], 3);
 			print_stylevar_row($vbphrase['main_table_width'],            'outertablewidth');
-			print_stylevar_row($vbphrase['spacer_size'],                 'spacersize');
-			//print_stylevar_row($vbphrase['inner_table_width'],           'tablewidth');
-			print_stylevar_row($vbphrase['outer_border_width'],          'outerborderwidth');
-			print_stylevar_row($vbphrase['inner_border_width'],          'cellspacing');
-			print_stylevar_row($vbphrase['table_cell_padding'],          'cellpadding');
+			print_stylevar_row($vbphrase['spacer_size'],                 'spacersize',       30, '#^\d+$#siU', 0);
+			print_stylevar_row($vbphrase['outer_border_width'],          'outerborderwidth', 30, '#^\d+$#siU', 0);
+			print_stylevar_row($vbphrase['inner_border_width'],          'cellspacing',      30, '#^\d+$#siU', 0);
+			print_stylevar_row($vbphrase['table_cell_padding'],          'cellpadding',      30, '#^\d+$#siU', 0);
 
 			print_stylevar_row($vbphrase['form_spacer_size'],            'formspacer');
 			print_stylevar_row($vbphrase['form_width'],                  'formwidth');
@@ -497,6 +507,8 @@ if ($_REQUEST['do'] == 'doedit')
 			print_stylevar_row($vbphrase['message_width'],               'messagewidth');
 			print_stylevar_row($vbphrase['message_width_usercp'],        'messagewidth_usercp');
 			print_stylevar_row($vbphrase['code_block_width'],            'codeblockwidth');
+
+			($hook = vBulletinHook::fetch_hook('stylevar_edit_sizes')) ? eval($hook) : false;
 
 		print_table_header($vbphrase['image_paths'], 3);
 			print_stylevar_row($vbphrase['title_image'],                 'titleimage');
@@ -508,6 +520,8 @@ if ($_REQUEST['do'] == 'doedit')
 			print_stylevar_row($vbphrase['poll_images_folder'],          'imgdir_poll');
 			print_stylevar_row($vbphrase['rating_images_folder'],        'imgdir_rating');
 			print_stylevar_row($vbphrase['reputation_images_folder'],    'imgdir_reputation');
+
+			($hook = vBulletinHook::fetch_hook('stylevar_edit_imagepaths')) ? eval($hook) : false;
 
 		/* // these are no longer pertinant
 			print_stylevar_row($vbphrase['images_folder'],               'imagesfolder');
@@ -529,6 +543,8 @@ if ($_REQUEST['do'] == 'doedit')
 		/*	// this is now held with the language settings
 			print_stylevar_row($vbphrase['html_content_type'],           'contenttype');
 		*/
+
+			($hook = vBulletinHook::fetch_hook('stylevar_edit_misc')) ? eval($hook) : false;
 
 		print_table_break(' ');
 	}
@@ -585,7 +601,7 @@ if ($_REQUEST['do'] == 'doedit')
 		print_css_row($vbphrase['time_color'], $vbphrase['time_color_desc'], '.time', 0);
 		print_css_row($vbphrase['navbar_text'], $vbphrase['navbar_text_desc'], '.navbar', 1);
 		print_css_row($vbphrase['highlighted_font'], $vbphrase['highlighted_font_desc'], '.highlight', 0);
-		print_css_row($vbphrase['inline_mod_highlight'], $vbphrase['inline_mod_highlight_desc'], 'td.inlinemod', 1);
+		print_css_row($vbphrase['inline_mod_highlight'], $vbphrase['inline_mod_highlight_desc'], '.inlinemod', 1);
 
 		// new ones
 		print_css_row($vbphrase['panel_surround'], $vbphrase['panel_surround_desc'], '.panelsurround', 0);
@@ -597,6 +613,7 @@ if ($_REQUEST['do'] == 'doedit')
 		print_css_row($vbphrase['popup_menu_option'], $vbphrase['popup_menu_option_desc'], '.vbmenu_option', 1);
 		print_css_row($vbphrase['popup_menu_hilite'], $vbphrase['popup_menu_hilite_desc'], '.vbmenu_hilite', 1);
 
+		($hook = vBulletinHook::fetch_hook('css_edit')) ? eval($hook) : false;
 
 		// forum jump css
 		print_column_style_code(array('width: 50%', 'width: 50%'));
@@ -617,13 +634,13 @@ if ($_REQUEST['do'] == 'doedit')
 
 		// additional css
 		print_table_header($vbphrase['additional_css']);
-		print_textarea_row($vbphrase['additional_css_description'], 'css[EXTRA][all]', $css['EXTRA']['all'], 10, 80, 0, 0, 'ltr', fetch_inherited_color($css_info['EXTRA'], $vbulletin->GPC['dostyleid']) . '" style="font:9pt \'courier new\', monospace');
+		print_textarea_row($vbphrase['additional_css_description'], 'css[EXTRA][all]', $css['EXTRA']['all'], 10, 80, true, false, 'ltr', fetch_inherited_color($css_info['EXTRA'], $vbulletin->GPC['dostyleid']) . '" style="font:9pt \'courier new\', monospace');
 		$revertcode = construct_revert_code($css_info['EXTRA'], 'css', 'EXTRA');
 		if ($revertcode['info'])
 		{
 			print_description_row("<span style=\"float:$stylevar[right]\">$revertcode[revertcode]</span>$revertcode[info]", 0, 2, 'tfoot" align="center');
 		}
-		print_textarea_row('', 'css[EXTRA2][all]', $css['EXTRA2']['all'], 10, 80, 0, 0, 'ltr', fetch_inherited_color($css_info['EXTRA2'], $vbulletin->GPC['dostyleid']) . '" style="font:9pt \'courier new\', monospace');
+		print_textarea_row('', 'css[EXTRA2][all]', $css['EXTRA2']['all'], 10, 80, true, false, 'ltr', fetch_inherited_color($css_info['EXTRA2'], $vbulletin->GPC['dostyleid']) . '" style="font:9pt \'courier new\', monospace');
 		$revertcode = construct_revert_code($css_info['EXTRA2'], 'css', 'EXTRA2');
 		if ($revertcode['info'])
 		{
@@ -812,8 +829,8 @@ print_cp_footer();
 
 /*======================================================================*\
 || ####################################################################
-|| # Downloaded: 18:52, Sat Jul 14th 2007
-|| # CVS: $RCSfile$ - $Revision: 13929 $
+|| # Downloaded: 16:21, Sat Apr 6th 2013
+|| # CVS: $RCSfile$ - $Revision: 26182 $
 || ####################################################################
 \*======================================================================*/
 ?>

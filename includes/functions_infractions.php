@@ -1,15 +1,27 @@
 <?php
 /*======================================================================*\
 || #################################################################### ||
-|| # vBulletin 3.6.7 PL1 - Licence Number VBF2470E4F
+|| # vBulletin 3.7.2 Patch Level 2 - Licence Number VBF2470E4F
 || # ---------------------------------------------------------------- # ||
-|| # Copyright ©2000-2007 Jelsoft Enterprises Ltd. All Rights Reserved. ||
+|| # Copyright ©2000-2013 Jelsoft Enterprises Ltd. All Rights Reserved. ||
 || # This file may not be redistributed in whole or significant part. # ||
 || # ---------------- VBULLETIN IS NOT FREE SOFTWARE ---------------- # ||
 || # http://www.vbulletin.com | http://www.vbulletin.com/license.html # ||
 || #################################################################### ||
 \*======================================================================*/
 
+
+/**
+ * "Magic" Function that builds all the information regarding infractions
+ * (only used in Cron)
+ *
+ * @param	array	Infraction Points Array
+ * @param	array	Infractions Array
+ * @param	array	Warnings Array
+ *
+ * @return	boolean	Whether infractions info was updated.
+ *
+ */
 function build_user_infractions($points, $infractions, $warnings)
 {
 	global $vbulletin;
@@ -108,6 +120,13 @@ function build_user_infractions($points, $infractions, $warnings)
 	}
 }
 
+
+/**
+ * Builds infraction groups for users
+ *
+ * @param	array	User IDs to build
+ *
+ */
 function build_infractiongroupids($userids)
 {
 	global $vbulletin;
@@ -130,26 +149,22 @@ function build_infractiongroupids($userids)
 		}
 	}
 
-	if (!empty($infractiongroups))
+	$users = $vbulletin->db->query_read("
+		SELECT user.*
+		FROM " . TABLE_PREFIX . "user AS user
+		WHERE userid IN (" . implode(', ', $userids) . ")
+	");
+	while ($user = $vbulletin->db->fetch_array($users))
 	{
-		$users = $vbulletin->db->query_read("
-			SELECT user.*
-			FROM " . TABLE_PREFIX . "user AS user
-			WHERE userid IN (" . implode(', ', $userids) . ")
-				AND infractiongroupids <> ''
-		");
-		while ($user = $vbulletin->db->fetch_array($users))
-		{
-			$infractioninfo = fetch_infraction_groups($infractiongroups, $user['userid'], $user['ipoints'], $user['usergroupid']);
+		$infractioninfo = fetch_infraction_groups($infractiongroups, $user['userid'], $user['ipoints'], $user['usergroupid']);
 
-			if (($groupids = implode(',', $infractioninfo['infractiongroupids'])) != $user['infractiongroupids'] OR $infractioninfo['infractiongroupid'] != $user['infractiongroupid'])
-			{
-				$userdata =& datamanager_init('User', $vbulletin, ERRTYPE_STANDARD);
-				$userdata->set_existing($user);
-				$userdata->set('infractiongroupids', $groupids);
-				$userdata->set('infractiongroupid', $infractioninfo['infractiongroupid']);
-				$userdata->save();
-			}
+		if (($groupids = implode(',', $infractioninfo['infractiongroupids'])) != $user['infractiongroupids'] OR $infractioninfo['infractiongroupid'] != $user['infractiongroupid'])
+		{
+			$userdata =& datamanager_init('User', $vbulletin, ERRTYPE_STANDARD);
+			$userdata->set_existing($user);
+			$userdata->set('infractiongroupids', $groupids);
+			$userdata->set('infractiongroupid', $infractioninfo['infractiongroupid']);
+			$userdata->save();
 		}
 	}
 }
@@ -218,10 +233,54 @@ function fetch_infraction_groups(&$infractiongroups, $userid, $ipoints, $usergro
 	return $data;
 }
 
+/**
+* Recalculates the members of an infraction group based on changes to it.
+* Specifying the (required) override group ID allows removal of users from the group.
+* Specifying the point level and applicable group allows addition of users to the group.
+*
+* @param	integer	Usergroup ID users are placed in
+* @param	integer	Point level when this infraction group kicks in
+* @param	integer	User group that this infraction group applies to
+*/
+function check_infraction_group_change($override_groupid, $point_level = null, $applies_groupid = -1)
+{
+	global $vbulletin;
+
+	$users = array();
+	if ($point_level === null)
+	{
+		$user_sql = $vbulletin->db->query_read("
+			SELECT userid
+			FROM " . TABLE_PREFIX . "user
+			WHERE FIND_IN_SET('" . intval($override_groupid) . "', infractiongroupids)
+		");
+	}
+	else
+	{
+		$user_sql = $vbulletin->db->query_read("
+			SELECT userid
+			FROM " . TABLE_PREFIX . "user
+			WHERE FIND_IN_SET('" . intval($override_groupid) . "', infractiongroupids)
+				OR (ipoints >= " . intval($point_level) . "
+					" . ($applies_groupid != -1 ? "AND usergroupid = " . intval($applies_groupid) : '') . "
+				)
+		");
+	}
+	while ($user = $vbulletin->db->fetch_array($user_sql))
+	{
+		$users[] = $user['userid'];
+	}
+
+	if ($users)
+	{
+		build_infractiongroupids($users);
+	}
+}
+
 /*======================================================================*\
 || ####################################################################
-|| # Downloaded: 18:52, Sat Jul 14th 2007
-|| # CVS: $RCSfile$ - $Revision: 16940 $
+|| # Downloaded: 16:21, Sat Apr 6th 2013
+|| # CVS: $RCSfile$ - $Revision: 26863 $
 || ####################################################################
 \*======================================================================*/
 ?>

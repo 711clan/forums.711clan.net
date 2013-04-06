@@ -1,9 +1,9 @@
 <?php
 /*======================================================================*\
 || #################################################################### ||
-|| # vBulletin 3.6.7 PL1 - Licence Number VBF2470E4F
+|| # vBulletin 3.7.2 Patch Level 2 - Licence Number VBF2470E4F
 || # ---------------------------------------------------------------- # ||
-|| # Copyright ©2000-2007 Jelsoft Enterprises Ltd. All Rights Reserved. ||
+|| # Copyright ©2000-2013 Jelsoft Enterprises Ltd. All Rights Reserved. ||
 || # This file may not be redistributed in whole or significant part. # ||
 || # ---------------- VBULLETIN IS NOT FREE SOFTWARE ---------------- # ||
 || # http://www.vbulletin.com | http://www.vbulletin.com/license.html # ||
@@ -14,7 +14,7 @@
 error_reporting(E_ALL & ~E_NOTICE);
 
 // ##################### DEFINE IMPORTANT CONSTANTS #######################
-define('CVS_REVISION', '$RCSfile$ - $Revision: 16437 $');
+define('CVS_REVISION', '$RCSfile$ - $Revision: 26706 $');
 define('NOZIP', 1);
 
 // #################### PRE-CACHE TEMPLATES AND DATA ######################
@@ -27,7 +27,10 @@ require_once(DIR . '/includes/functions_banning.php');
 
 // ############################# LOG ACTION ###############################
 $vbulletin->input->clean_array_gpc('r', array('username' => TYPE_STR));
-log_admin_action(!empty($vbulletin->GPC['username']) ? 'username = ' . $vbulletin->GPC['username'] : '');
+if ($_POST['do'] != 'doliftban')
+{
+	log_admin_action(!empty($vbulletin->GPC['username']) ? 'username = ' . $vbulletin->GPC['username'] : '');
+}
 
 // ########################################################################
 // ######################### START MAIN SCRIPT ############################
@@ -80,6 +83,11 @@ if ($_REQUEST['do'] == 'liftban')
 		print_stop_message('invalid_user_specified');
 	}
 
+	if (is_unalterable_user($user['userid']))
+	{
+		print_stop_message('user_is_protected_from_alteration_by_undeletableusers_var');
+	}
+
 	// show confirmation message
 	print_form_header('banning', 'doliftban');
 	construct_hidden_code('userid', $vbulletin->GPC['userid']);
@@ -116,6 +124,12 @@ if ($_POST['do'] == 'doliftban')
 	{
 		print_stop_message('invalid_user_specified');
 	}
+
+	if (is_unalterable_user($user['userid']))
+	{
+		print_stop_message('user_is_protected_from_alteration_by_undeletableusers_var');
+	}
+
 	// get usergroup info
 	$getusergroupid = iif($user['bandisplaygroupid'], $user['bandisplaygroupid'], $user['banusergroupid']);
 	if (!$getusergroupid)
@@ -171,6 +185,8 @@ if ($_POST['do'] == 'doliftban')
 	$userdm->save();
 	unset($userdm);
 
+	log_admin_action(!empty($user['username']) ? 'username = ' . $user['username'] : 'userid = ' . $vbulletin->GPC['userid']);
+
 	define('CP_REDIRECT', 'banning.php');
 	print_stop_message('lifted_ban_on_user_x_successfully', "<b>$user[userame]</b>");
 }
@@ -183,7 +199,7 @@ if ($_POST['do'] == 'dobanuser')
 	$vbulletin->input->clean_array_gpc('p', array(
 		'usergroupid' => TYPE_INT,
 		'period'      => TYPE_STR,
-		'reason'      => TYPE_STR
+		'reason'      => TYPE_NOHTML
 	));
 
 	$vbulletin->GPC['username'] = htmlspecialchars_uni($vbulletin->GPC['username']);
@@ -214,21 +230,32 @@ if ($_POST['do'] == 'dobanuser')
 		SELECT user.*,
 			IF(moderator.moderatorid IS NULL, 0, 1) AS ismoderator
 		FROM " . TABLE_PREFIX . "user AS user
-		LEFT JOIN " . TABLE_PREFIX . "moderator AS moderator USING(userid)
+		LEFT JOIN " . TABLE_PREFIX . "moderator AS moderator ON(moderator.userid = user.userid AND moderator.forumid <> -1)
 		WHERE user.username = '" . $db->escape_string($vbulletin->GPC['username']) . "'
 	");
-	if (!$user OR $user['userid'] == $vbulletin->userinfo['userid'] OR is_member_of($user, 6))
+	if (!$user OR $user['userid'] == $vbulletin->userinfo['userid'])
 	{
 		print_stop_message('invalid_user_specified');
 	}
 
-	// check that user has permission to ban the person they want to ban
+	if (is_unalterable_user($user['userid']))
+	{
+		print_stop_message('user_is_protected_from_alteration_by_undeletableusers_var');
+	}
+
+	cache_permissions($user);
+
+	// Non-admins can't ban administrators, supermods or moderators
 	if (!($vbulletin->userinfo['permissions']['adminpermissions'] & $vbulletin->bf_ugp_adminpermissions['cancontrolpanel']))
 	{
-		if ($user['usergroupid'] == 5 OR $user['ismoderator'])
+		if ($user['permissions']['adminpermissions'] & $vbulletin->bf_ugp_adminpermissions['cancontrolpanel'] OR $user['permissions']['adminpermissions'] & $vbulletin->bf_ugp_adminpermissions['ismoderator'] OR $user['ismoderator'])
 		{
 			print_stop_message('no_permission_ban_non_registered_users');
 		}
+	}
+	else if ($user['permissions']['adminpermissions'] & $vbulletin->bf_ugp_adminpermissions['cancontrolpanel'])
+	{
+		print_stop_message('no_permission_ban_non_registered_users');
 	}
 
 	// check that the number of days is valid
@@ -253,7 +280,7 @@ if ($_POST['do'] == 'dobanuser')
 	// check to see if there is already a ban record for this user in the userban table
 	if ($check = $db->query_first("SELECT userid, liftdate FROM " . TABLE_PREFIX . "userban WHERE userid = $user[userid]"))
 	{
-		if ($liftdate < $check['liftdate'])
+		if ($liftdate AND $liftdate < $check['liftdate'])
 		{
 			if (!($vbulletin->userinfo['permissions']['adminpermissions'] & $vbulletin->bf_ugp_adminpermissions['cancontrolpanel']) AND !can_moderate(0, 'canunbanusers'))
 			{
@@ -357,6 +384,10 @@ if ($_REQUEST['do'] == 'banuser')
 			}
 		}
 	}
+	if (empty($usergroups))
+	{
+		print_stop_message('no_groups_defined_as_banned');
+	}
 
 	$temporary_phrase = $vbphrase['temporary_ban_options'];
 	$permanent_phrase = $vbphrase['permanent_ban_options'];
@@ -402,6 +433,66 @@ if ($_REQUEST['do'] == 'banuser')
 	print_select_row($vbphrase['move_user_to_usergroup'], 'usergroupid', $usergroups, $selectedid);
 	print_select_row($vbphrase['lift_ban_after'], 'period', $periodoptions, $vbulletin->GPC['period']);
 	print_input_row($vbphrase['user_ban_reason'], 'reason', '', true, 50, 250);
+	print_submit_row($vbphrase['ban_user']);
+}
+
+if ($_POST['do'] == 'updatereason')
+{
+	$vbulletin->input->clean_array_gpc('r', array(
+		'userid' => TYPE_INT,
+		'reason' => TYPE_NOHTML
+	));
+
+	if (!$canbanuser)
+	{
+		print_stop_message('no_permission_ban_users');
+	}
+
+	// check to see if there is already a ban record for this user in the userban table
+	if ($check = $db->query_first("SELECT userid FROM " . TABLE_PREFIX . "userban WHERE userid = " . $vbulletin->GPC['userid']))
+	{
+		// Update the reason
+		$db->query_write("
+			UPDATE " . TABLE_PREFIX . "userban SET
+			reason = '" . $db->escape_string($vbulletin->GPC['reason']) . "'
+			WHERE userid = $check[userid]
+		");
+
+		define('CP_REDIRECT', 'banning.php');
+		print_stop_message('ban_reason_updated');
+	}
+	else
+	{
+		print_stop_message('invalid_user_specified');
+	}
+}
+
+if ($_REQUEST['do'] == 'editreason')
+{
+	$vbulletin->input->clean_array_gpc('r', array(
+		'userid'     => TYPE_INT,
+		'editreason' => TYPE_BOOL
+	));
+
+	if (!$canbanuser)
+	{
+		print_stop_message('no_permission_ban_users');
+	}
+
+	if (!($oldban = $db->query_first("SELECT user.userid, user.username, userban.reason FROM " . TABLE_PREFIX . "userban AS userban INNER JOIN " . TABLE_PREFIX . "user AS user ON(user.userid=userban.userid) WHERE user.userid = " . $vbulletin->GPC['userid'])))
+	{
+		print_stop_message('invalid_user_specified');
+	}
+
+	$vbulletin->GPC['username'] = $oldban['username'];
+
+	print_form_header('banning', 'updatereason');
+	print_table_header($vbphrase['ban_user']);
+
+	construct_hidden_code('userid', $oldban['userid']);
+	print_label_row($vbphrase['username'], $vbulletin->GPC['username']);
+
+	print_input_row($vbphrase['user_ban_reason'], 'reason', $oldban['reason'], false, 50, 250);
 	print_submit_row($vbphrase['ban_user']);
 }
 
@@ -497,7 +588,7 @@ if ($_REQUEST['do'] == 'modify')
 			$cell[] = construct_link_code($vbphrase['lift_ban'], 'banning.php?' . $vbulletin->session->vars['sessionurl'] . "do=liftban&amp;u=$user[userid]");
 		}
 
-		$cell[] = $user['reason'];
+		$cell[] = construct_link_code(!empty($user['reason']) ? $user['reason'] : $vbphrase['n_a'], 'banning.php?' . $vbulletin->session->vars['sessionurl'] . "do=editreason&amp;userid=" . $user['userid']);
 
 		return $cell;
 	}
@@ -651,8 +742,8 @@ print_cp_footer();
 
 /*======================================================================*\
 || ####################################################################
-|| # Downloaded: 18:52, Sat Jul 14th 2007
-|| # CVS: $RCSfile$ - $Revision: 16437 $
+|| # Downloaded: 16:21, Sat Apr 6th 2013
+|| # CVS: $RCSfile$ - $Revision: 26706 $
 || ####################################################################
 \*======================================================================*/
 ?>

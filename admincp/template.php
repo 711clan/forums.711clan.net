@@ -1,9 +1,9 @@
 <?php
 /*======================================================================*\
 || #################################################################### ||
-|| # vBulletin 3.6.7 PL1 - Licence Number VBF2470E4F
+|| # vBulletin 3.7.2 Patch Level 2 - Licence Number VBF2470E4F
 || # ---------------------------------------------------------------- # ||
-|| # Copyright ©2000-2007 Jelsoft Enterprises Ltd. All Rights Reserved. ||
+|| # Copyright ©2000-2013 Jelsoft Enterprises Ltd. All Rights Reserved. ||
 || # This file may not be redistributed in whole or significant part. # ||
 || # ---------------- VBULLETIN IS NOT FREE SOFTWARE ---------------- # ||
 || # http://www.vbulletin.com | http://www.vbulletin.com/license.html # ||
@@ -16,7 +16,7 @@ error_reporting(E_ALL & ~E_NOTICE);
 ignore_user_abort(true);
 
 // ##################### DEFINE IMPORTANT CONSTANTS #######################
-define('CVS_REVISION', '$RCSfile$ - $Revision: 16813 $');
+define('CVS_REVISION', '$RCSfile$ - $Revision: 26617 $');
 if ($_POST['do'] == 'updatetemplate' OR $_POST['do'] == 'inserttemplate' OR $_REQUEST['do'] == 'createfiles')
 {
 	// double output buffering does some weird things, so turn it off in these three cases
@@ -116,7 +116,6 @@ if ($_REQUEST['do'] == 'findupdates')
 
 	if (empty($customcache))
 	{
-		define('CP_REDIRECT', 'javascript:history.back(1)');
 		print_stop_message('all_templates_are_up_to_date');
 	}
 
@@ -155,9 +154,9 @@ if ($_REQUEST['do'] == 'findupdates')
 							$template['customuser'])
 					. '</span>',
 				'<span class="smallfont">' .
-					construct_link_code($vbphrase['edit_template'], "template.php?" . $vbulletin->session->vars['sessionurl'] . "do=edit&amp;templateid=$templateid", 1) . '<br />' .
-					construct_link_code($vbphrase['view_history'], 'template.php?do=history&amp;dostyleid=' . $styleid . '&amp;title=' . urlencode($template['title']), 1) . '<br />' .
-					construct_link_code($vbphrase['revert'], "template.php?" . $vbulletin->session->vars['sessionurl'] . "do=delete&amp;templateid=$templateid&amp;dostyleid=$styleid", 1) .
+					construct_link_code($vbphrase['edit_template'], "template.php?" . $vbulletin->session->vars['sessionurl'] . "do=edit&amp;templateid=$templateid", 'templatewin') . '<br />' .
+					construct_link_code($vbphrase['view_history'], 'template.php?do=history&amp;dostyleid=' . $styleid . '&amp;title=' . urlencode($template['title']), 'templatewin') . '<br />' .
+					construct_link_code($vbphrase['revert'], "template.php?" . $vbulletin->session->vars['sessionurl'] . "do=delete&amp;templateid=$templateid&amp;dostyleid=$styleid", 'templatewin') .
 				'</span>'
 				);
 			}
@@ -1212,7 +1211,7 @@ if ($_REQUEST['do'] == 'history')
 	construct_hidden_code('title', $vbulletin->GPC['title']);
 
 	print_description_row(
-		'<span style="float:right"><input type="submit" class="button" tabindex="1" name="docompare" value="' . $vbphrase['compare_versions'] . '" /></span>' .
+		'<span style="float:' . $stylevar['right'] . '"><input type="submit" class="button" tabindex="1" name="docompare" value="' . $vbphrase['compare_versions'] . '" /></span>' .
 		($history_count ? '<input type="submit" class="button" tabindex="1" name="dodelete" value="' . $vbphrase['delete'] . '" />' : '&nbsp;'), false, 7, 'tfoot');
 	print_table_footer();
 
@@ -1595,21 +1594,43 @@ if ($_REQUEST['do'] == 'add')
 		construct_hidden_code('product', 'vbulletin');
 	}
 
+	if ($vbulletin->GPC['dostyleid'] > 0)
+	{
+		$history = $db->query_first("
+			SELECT title
+			FROM " . TABLE_PREFIX . "templatehistory
+			WHERE title = '" . $db->escape_string($vbulletin->GPC['title']) . "'
+				AND styleid = " . $vbulletin->GPC['dostyleid']
+		);
+	}
+	else
+	{
+		$history = null;
+	}
+
 	construct_hidden_code('expandset', $vbulletin->GPC['expandset']);
 	construct_hidden_code('searchset', $vbulletin->GPC['expandset']);
 	construct_hidden_code('searchstring', $vbulletin->GPC['searchstring']);
 	print_style_chooser_row('dostyleid', $vbulletin->GPC['dostyleid'], $vbphrase['master_style'], $vbphrase['style'], iif($vbulletin->debug == 1, 1, 0));
-	print_input_row($vbphrase['title'], 'title', $vbulletin->GPC['title']);
+	print_input_row(
+		$vbphrase['title'] .
+			($history ?
+				'<dfn>' .
+				construct_link_code($vbphrase['view_history'], 'template.php?do=history&amp;dostyleid=' . $vbulletin->GPC['dostyleid'] . '&amp;title=' . urlencode($vbulletin->GPC['title']), 1) .
+				'</dfn>'
+			: ''),
+		'title',
+		$vbulletin->GPC['title']);
 	print_textarea_row($vbphrase['template'] . '
 			<br /><br />
 			<span class="smallfont">' .
 			iif($vbulletin->GPC['title'], construct_link_code($vbphrase['show_default'], "template.php?" . $vbulletin->session->vars['sessionurl'] . "do=view&amp;title=" . $vbulletin->GPC['title'], 1) . '<br /><br />', '') .
 			'<!--' . $vbphrase['wrap_text'] . '<input type="checkbox" unselectable="on" onclick="set_wordwrap(\'ta_template\', this.checked);" accesskey="w" checked="checked" />-->
 			</span>',
-		'template', $templateinfo['template_un'], 22, 75, true, true, 'ltr', 'code');
+		'template', $templateinfo['template_un'], 22, '75" style="width:100%', true, true, 'ltr', 'code');
 	print_template_javascript();
 	print_label_row($vbphrase['save_in_template_history'], '<label for="savehistory"><input type="checkbox" name="savehistory" id="savehistory" value="1" tabindex="1" />' . $vbphrase['yes'] . '</label><br /><span class="smallfont">' . $vbphrase['comment'] . '</span> <input type="text" name="histcomment" value="" tabindex="1" class="bginput" size="50" />');
-	print_submit_row($vbphrase['save'], '_default_', 2, '', "<input type=\"submit\" class=\"button\" tabindex=\"1\" name=\"return\" value=\"$vbphrase[save] &amp; $vbphrase[reload]\" accesskey=\"e\" />");
+	print_submit_row($vbphrase['save'], '_default_', 2, '', "<input type=\"submit\" class=\"button\" tabindex=\"1\" name=\"return\" value=\"$vbphrase[save_and_reload]\" accesskey=\"e\" />");
 
 }
 
@@ -1751,7 +1772,7 @@ if ($_POST['do'] == 'updatetemplate')
 	}
 	else
 	{
-		$goto = "template.php?do=modify&amp;expandset=" . $vbulletin->GPC['dostyleid'] . "&amp;group=" . $vbulletin->GPC['group'] . "&amp;expandset=" . $vbulletin->GPC['expandset'] . "&amp;searchset=" . $vbulletin->GPC['searchset'] . "&amp;searchstring=" . urlencode($vbulletin->GPC['searchstring']) . "&amp;templateid=" . $vbulletin->GPC['templateid'];
+		$goto = "template.php?do=modify&amp;expandset=" . $vbulletin->GPC['expandset'] . "&amp;group=" . $vbulletin->GPC['group'] . "&amp;expandset=" . $vbulletin->GPC['expandset'] . "&amp;searchset=" . $vbulletin->GPC['searchset'] . "&amp;searchstring=" . urlencode($vbulletin->GPC['searchstring']) . "&amp;templateid=" . $vbulletin->GPC['templateid'];
 	}
 
 	if ($vbulletin->GPC['title'] == $vbulletin->GPC['oldtitle'])
@@ -1784,8 +1805,9 @@ if ($_POST['do'] == 'updatetemplate')
 if ($_REQUEST['do'] == 'edit')
 {
 	$vbulletin->input->clean_array_gpc('r', array(
-		'group'        => TYPE_STR,
-		'searchstring' => TYPE_STR
+		'group' => TYPE_STR,
+		'searchstring' => TYPE_STR,
+		'expandset' => TYPE_STR
 	));
 
 	$template = $db->query_first("
@@ -1805,6 +1827,7 @@ if ($_REQUEST['do'] == 'edit')
 	construct_hidden_code('group', $vbulletin->GPC['group']);
 	construct_hidden_code('searchstring', $vbulletin->GPC['searchstring']);
 	construct_hidden_code('dostyleid', $template['styleid']);
+	construct_hidden_code('expandset', $vbulletin->GPC['expandset']);
 	construct_hidden_code('oldtitle', $template['title']);
 	construct_hidden_code('lastedit', $template['dateline']);
 
@@ -1836,10 +1859,10 @@ if ($_REQUEST['do'] == 'edit')
 			iif($template['styleid'] != -1, construct_link_code($vbphrase['show_default'], "template.php?" . $vbulletin->session->vars['sessionurl'] . "do=view&amp;title=$template[title]", 1) . '<br /><br />', '') .
 			'<!--' . $vbphrase['wrap_text'] . '<input type="checkbox" unselectable="on" onclick="set_wordwrap(\'ta_template\', this.checked);" accesskey="w" checked="checked" />-->
 			</span>',
-		'template', $template['template_un'], 22, 75, true, true, 'ltr', 'code');
+		'template', $template['template_un'], 22, '75" style="width:100%', true, true, 'ltr', 'code');
 	print_template_javascript();
 	print_label_row($vbphrase['save_in_template_history'], '<label for="savehistory"><input type="checkbox" name="savehistory" id="savehistory" value="1" tabindex="1" />' . $vbphrase['yes'] . '</label><br /><span class="smallfont">' . $vbphrase['comment'] . '</span> <input type="text" name="histcomment" value="" tabindex="1" class="bginput" size="50" />');
-	print_submit_row($vbphrase['save'], '_default_', 2, '', "<input type=\"submit\" class=\"button\" tabindex=\"1\" name=\"return\" value=\"$vbphrase[save] &amp; $vbphrase[reload]\" accesskey=\"e\" />");
+	print_submit_row($vbphrase['save'], '_default_', 2, '', "<input type=\"submit\" class=\"button\" tabindex=\"1\" name=\"return\" value=\"$vbphrase[save_and_reload]\" accesskey=\"e\" />");
 
 }
 
@@ -1853,14 +1876,31 @@ if ($_POST['do'] == 'kill')
 
 	$template = $db->query_first("SELECT styleid, title FROM " . TABLE_PREFIX . "template WHERE templateid = " . $vbulletin->GPC['templateid']);
 
-	$db->query_write("DELETE FROM " . TABLE_PREFIX . "template WHERE templateid=" . $vbulletin->GPC['templateid']);
-	print_rebuild_style($template['styleid'], '', 0, 0, 0, 0);
+	if ($template['styleid'])
+	{
+		$db->query_write("DELETE FROM " . TABLE_PREFIX . "template WHERE templateid=" . $vbulletin->GPC['templateid']);
+		print_rebuild_style($template['styleid'], '', 0, 0, 0, 0);
+	}
 
 	if (strpos($template['title'], 'bbcode_') === 0)
 	{
 		// begins with bbcode_ - empty the post parsed cache
 		$vbulletin->db->query_write("TRUNCATE TABLE " . TABLE_PREFIX . "postparsed");
 	}
+
+	?>
+	<script type="text/javascript">
+	<!--
+
+	// refresh the opening window (used for the revert updated default templates action)
+	if (window.opener && String(window.opener.location).indexOf("template.php?do=findupdates") != -1)
+	{
+		window.opener.window.location = window.opener.window.location;
+	}
+
+	//-->
+	</script>
+	<?php
 
 	print_cp_redirect("template.php?" . $vbulletin->session->vars['sessionurl'] . "do=modify&amp;expandset=$template[styleid]&amp;group=" . $vbulletin->GPC['group'], 1);
 
@@ -1976,8 +2016,8 @@ if ($_REQUEST['do'] == 'modify')
 		$parentlist = $style['parentlist'];
 	}
 
-	// display the nice interface to people with a decent browser (MSIE >=4)
-	if (!empty($enhanced_template_editor) OR (empty($standard_template_editor) AND (is_browser('ie', '4.0') OR is_browser('mozilla'))))
+	// all browsers now support the enhanced template editor
+	if (true)
 	{
 		define('FORMTYPE', 1);
 		$SHOWTEMPLATE = 'construct_template_option';
@@ -2141,8 +2181,7 @@ else
 		construct_link_code($vbphrase['add_new_style'], "template.php?" . $vbulletin->session->vars['sessionurl'] . "do=addstyle");
 	if ($vbulletin->debug)
 	{
-		echo construct_link_code($vbphrase['rebuild_all_styles'], "template.php?" . $vbulletin->session->vars['sessionurl'] . "do=rebuild&amp;goto=template.php?" . $vbulletin->session->vars['sessionurl']) .
-		construct_link_code('Compare Remote/Local Global Templates', '../docs/templatedev.php" target="templatedev', 0);
+		echo construct_link_code($vbphrase['rebuild_all_styles'], "template.php?" . $vbulletin->session->vars['sessionurl'] . "do=rebuild&amp;goto=template.php?" . $vbulletin->session->vars['sessionurl']);
 	}
 	echo "</p>\n";
 
@@ -2263,8 +2302,8 @@ print_cp_footer();
 
 /*======================================================================*\
 || ####################################################################
-|| # Downloaded: 18:52, Sat Jul 14th 2007
-|| # CVS: $RCSfile$ - $Revision: 16813 $
+|| # Downloaded: 16:21, Sat Apr 6th 2013
+|| # CVS: $RCSfile$ - $Revision: 26617 $
 || ####################################################################
 \*======================================================================*/
 ?>

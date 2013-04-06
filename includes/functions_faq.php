@@ -1,9 +1,9 @@
 <?php
 /*======================================================================*\
 || #################################################################### ||
-|| # vBulletin 3.6.7 PL1 - Licence Number VBF2470E4F
+|| # vBulletin 3.7.2 Patch Level 2 - Licence Number VBF2470E4F
 || # ---------------------------------------------------------------- # ||
-|| # Copyright ©2000-2007 Jelsoft Enterprises Ltd. All Rights Reserved. ||
+|| # Copyright ©2000-2013 Jelsoft Enterprises Ltd. All Rights Reserved. ||
 || # This file may not be redistributed in whole or significant part. # ||
 || # ---------------- VBULLETIN IS NOT FREE SOFTWARE ---------------- # ||
 || # http://www.vbulletin.com | http://www.vbulletin.com/license.html # ||
@@ -59,7 +59,7 @@ function construct_faq_item($faq, $find = '')
 	global $vbulletin, $stylevar, $ifaqcache, $faqbits, $faqlinks, $show, $vbphrase;
 
 	$faq['text'] = trim($faq['text']);
-	if (is_array($find))
+	if (is_array($find) AND !empty($find))
 	{
 		$faq['title'] = preg_replace('#(^|>)([^<]+)(?=<|$)#sUe', "process_highlight_faq('\\2', \$find, '\\1', '<u>\\\\1</u>')", $faq['title']);
 		$faq['text'] = preg_replace('#(^|>)([^<]+)(?=<|$)#sUe', "process_highlight_faq('\\2', \$find, '\\1', '<span class=\"highlight\">\\\\1</span>')", $faq['text']);
@@ -193,7 +193,7 @@ function cache_ordered_faq($gettext = false)
 	($hook = vBulletinHook::fetch_hook('faq_cache_query')) ? eval($hook) : false;
 
 	$faqs = $vbulletin->db->query_read_slave("
-		SELECT faqname, faqparent, displayorder
+		SELECT faqname, faqparent, displayorder, volatile
 			$hook_query_fields
 		FROM " . TABLE_PREFIX . "faq AS faq
 		$hook_query_joins
@@ -215,6 +215,8 @@ function cache_ordered_faq($gettext = false)
 
 	unset($phrasecache);
 	ksort($displayorder);
+
+	$ifaqcache = array('faqroot' => array());
 
 	foreach($displayorder AS $faqs)
 	{
@@ -280,10 +282,10 @@ function fetch_faq_delete_list($parentname)
 function process_highlight_faq($text, $words, $prepend, $replace)
 {
 	$text = str_replace('\"', '"', $text);
-	foreach ($words AS $replaceword)
+
+	if ($words)
 	{
-		//$text = preg_replace('#(?<=[\s"\]>()]|^)(' . $replaceword . ')(([.,:;-?!()\s"<\[]|$))#siU', '<span class="highlight">\\1</span>\\2', $text);
-		$text = preg_replace('#(?<=[^\w=]|^)(\w*' . $replaceword . '\w*)(?=[^\w=]|$)#siU', $replace, $text);
+		$text = preg_replace('#(?<=[^\w=]|^)(\w*(' . implode('|', $words) . ')\w*)(?=[^\w=]|$)#siU', $replace, $text);
 	}
 
 	return "$prepend$text";
@@ -291,8 +293,8 @@ function process_highlight_faq($text, $words, $prepend, $replace)
 
 /*======================================================================*\
 || ####################################################################
-|| # Downloaded: 18:52, Sat Jul 14th 2007
-|| # CVS: $RCSfile$ - $Revision: 16775 $
+|| # Downloaded: 16:21, Sat Apr 6th 2013
+|| # CVS: $RCSfile$ - $Revision: 26180 $
 || ####################################################################
 \*======================================================================*/
 ?>

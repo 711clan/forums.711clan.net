@@ -1,29 +1,107 @@
 <?php
 /*======================================================================*\
 || #################################################################### ||
-|| # vBulletin 3.6.7 PL1 - Licence Number VBF2470E4F
+|| # vBulletin 3.7.2 Patch Level 2 - Licence Number VBF2470E4F
 || # ---------------------------------------------------------------- # ||
-|| # Copyright ©2000-2007 Jelsoft Enterprises Ltd. All Rights Reserved. ||
+|| # Copyright ©2000-2013 Jelsoft Enterprises Ltd. All Rights Reserved. ||
 || # This file may not be redistributed in whole or significant part. # ||
 || # ---------------- VBULLETIN IS NOT FREE SOFTWARE ---------------- # ||
 || # http://www.vbulletin.com | http://www.vbulletin.com/license.html # ||
 || #################################################################### ||
 \*======================================================================*/
 
+
+/**
+* Class that provides payment verification and form generation functions
+*
+* @package	vBulletin
+* @version	$Revision: 26966 $
+* @date		$Date: 2008-06-18 04:38:54 -0500 (Wed, 18 Jun 2008) $
+*
+* @abstract
+*
+*/
 class vB_PaidSubscriptionMethod
 {
+
+	/**
+	 * The vBulletin Registry
+	 *
+	 * @var vB_Registry
+	 *
+	 */
 	var $registry = null;
+
+	/**
+	 * Settings for this Subscription Method
+	 *
+	 * @var array
+	 *
+	 */
 	var $settings = array();
 
-	var $supported_currency = array();
+	/**
+	 * Does this Subscription Method support recurring Payments?
+	 *
+	 * @var boolean
+	 *
+	 */
 	var $supports_recurring = false;
+
+	/**
+	 * Should we display the feedback from this Subscription Gateway?
+	 *
+	 * @var	boolean
+	 *
+	 */
 	var $display_feedback = false;
 
+	/**
+	 * An array of information regarding the payment
+	 *
+	 * @var array
+	 *
+	 */
 	var $paymentinfo = array();
+
+	/**
+	 * The transaction ID
+	 *
+	 * @var	mixed
+	 *
+	 */
 	var $transaction_id = '';
+
+	/**
+	 * The payment Type
+	 *
+	 * @var integer
+	 *
+	 */
 	var $type = 0;
+
+	/**
+	 * The error String (if any)
+	 *
+	 * @var	string
+	 *
+	 */
 	var $error = '';
 
+	/**
+	 * The error code (if any)
+	 *
+	 * @var string
+	 *
+	 */
+	var $error_code = 'none';
+
+	/**
+	 * Constructor
+	 *
+	 * @param	vB_Registry	The vBulletin Registry
+	 *
+	 */
 	function vB_PaidSubscriptionMethod(&$registry)
 	{
 		if (!is_subclass_of($this, 'vB_PaidSubscriptionMethod'))
@@ -44,7 +122,12 @@ class vB_PaidSubscriptionMethod
 			trigger_error('Registry object is not an object', E_USER_ERROR);
 		}
 	}
-
+	/**
+	 * Perform verification of the payment, this is called from the payment gateway
+	 *
+	 * @return	bool	Whether the payment is valid
+	 *
+	 */
 	function verify_payment()
 	{
 		if (!is_subclass_of($this, 'vB_PaidSubscriptionMethod'))
@@ -53,6 +136,19 @@ class vB_PaidSubscriptionMethod
 		}
 	}
 
+	/**
+	* Generates HTML for the subscription form page
+	*
+	* @param	string		Hash used to indicate the transaction within vBulletin
+	* @param	string		The cost of this payment
+	* @param	string		The currency of this payment
+	* @param	array		Information regarding the subscription that is being purchased
+	* @param	array		Information about the user who is purchasing this subscription
+	* @param	array		Array containing specific data about the cost and time for the specific subscription period
+	*
+	* @return	array		Compiled form information
+	*
+	*/
 	function generate_form_html($hash, $cost, $currency, $subinfo, $userinfo, $timeinfo)
 	{
 		$form = array();
@@ -61,6 +157,14 @@ class vB_PaidSubscriptionMethod
 	}
 }
 
+
+/**
+ * Class to handle Paid Subscriptions
+ *
+ * @package	vBulletin
+ * @license http://www.vbulletin.com/licence.html
+ *
+ */
 class vB_PaidSubscription
 {
 	/**
@@ -146,6 +250,17 @@ class vB_PaidSubscription
 		// lets get a formatted string that strtotime will understand
 		$formatted = date('d F Y H:i', $regdate);
 
+		// if we extend for years, we need to make sure we're not going into 2038 - #23115
+		if ($units == 'Y')
+		{
+			$start_year = date('Y', $regdate);
+			if ($start_year + $length >= 2038)
+			{
+				// too long, return a time for the beginning of 2038
+				return mktime(0, 0, 0, 1, 2, 2038);
+			}
+		}
+
 		// now lets add the appropriate terms
 		$time = strtotime("$formatted + $length " . $units_full["$units"]);
 
@@ -166,9 +281,10 @@ class vB_PaidSubscription
 	* @param	int		The userid the subscription is to be applied to
 	* @param	int		The start timestamp of the subscription
 	* @param	int		The expiry timestamp of the subscription
+	* @param	boolean	Whether to perform permission checks to determin if this user can have this subscription
 	*
 	*/
-	function build_user_subscription($subscriptionid, $subid, $userid, $regdate = 0, $expirydate = 0)
+	function build_user_subscription($subscriptionid, $subid, $userid, $regdate = 0, $expirydate = 0, $checkperms = true)
 	{
 
 		//first three variables are pretty self explanitory
@@ -190,6 +306,11 @@ class vB_PaidSubscription
 
 		$user = $this->registry->db->query_first("SELECT * FROM " . TABLE_PREFIX . "user WHERE userid = $userid");
 		$currentsubscription = $this->registry->db->query_first("SELECT * FROM " . TABLE_PREFIX . "subscriptionlog WHERE userid = $userid AND subscriptionid = $subscriptionid");
+
+		if ($checkperms AND !empty($sub['deniedgroups']) AND !count(array_diff(fetch_membergroupids_array($user), $sub['deniedgroups'])))
+		{
+				return false;
+		}
 
 		// no value passed in for regdate and we have a currently active subscription
 		if ($regdate <= 0 AND $currentsubscription['regdate'] AND $currentsubscription['status'])
@@ -360,13 +481,13 @@ class vB_PaidSubscription
 			IF (user.displaygroupid=0, user.usergroupid, user.displaygroupid) AS displaygroupid,
 			IF (usergroup.genericoptions & " . $this->registry->bf_ugp_genericoptions['isnotbannedgroup'] . ", 0, 1) AS isbanned,
 			userban.usergroupid AS busergroupid, userban.displaygroupid AS bandisplaygroupid
-			" . (($vbulletin->options['avatarenabled'] AND $adminoption) ? ",IF(avatar.avatarid = 0 AND NOT ISNULL(customavatar.userid), 1, 0) AS hascustomavatar" : "") . "
+			" . (($this->registry->options['avatarenabled'] AND $adminoption) ? ",IF(avatar.avatarid = 0 AND NOT ISNULL(customavatar.userid), 1, 0) AS hascustomavatar" : "") . "
 			" . (($adminoption) ? ",NOT ISNULL(customprofilepic.userid) AS hasprofilepic" : "") . "
 			FROM " . TABLE_PREFIX . "subscriptionlog AS subscriptionlog
 			INNER JOIN " . TABLE_PREFIX . "user AS user USING (userid)
 			INNER JOIN " . TABLE_PREFIX . "usergroup AS usergroup USING (usergroupid)
 			LEFT JOIN " . TABLE_PREFIX . "userban AS userban ON (userban.userid = user.userid)
-			" . (($vbulletin->options['avatarenabled'] AND $adminoption) ? "LEFT JOIN " . TABLE_PREFIX . "avatar AS avatar ON(avatar.avatarid = user.avatarid) LEFT JOIN " . TABLE_PREFIX . "customavatar AS customavatar ON(customavatar.userid = user.userid)" : "") . "
+			" . (($this->registry->options['avatarenabled'] AND $adminoption) ? "LEFT JOIN " . TABLE_PREFIX . "avatar AS avatar ON(avatar.avatarid = user.avatarid) LEFT JOIN " . TABLE_PREFIX . "customavatar AS customavatar ON(customavatar.userid = user.userid)" : "") . "
 			" . (($adminoption) ? "LEFT JOIN " . TABLE_PREFIX . "customprofilepic AS customprofilepic ON (user.userid = customprofilepic.userid)" : "") . "
 			WHERE subscriptionlog.userid = $userid AND
 				subscriptionlog.subscriptionid = $subscriptionid
@@ -386,13 +507,22 @@ class vB_PaidSubscription
 					'M' => 'month',
 					'Y' => 'year'
 				);
-				// lets get a formatted string that strtotime will understand
-				$expires_formatted = date('d F Y H:i', $user['expirydate']);
 
-				// now lets decrement the appropriate terms
-				$new_expires = strtotime("$expires_formatted - $sub[length] " . $units_full["$sub[units]"]);
-				#echo "Expires: $expires_formatted<br>";
-				#echo "New Expires: " . date('d F Y H:i', $new_expires);
+				switch ($sub['units'])
+				{
+					case 'D':
+						$new_expires = mktime(date('H', $user['expirydate']), date('i', $user['expirydate']), date('s', $user['expirydate']), date('n', $user['expirydate']), date('j', $user['expirydate']) - $sub['length'], date('Y', $user['expirydate']));
+						break;
+					case 'W':
+						$new_expires = mktime(date('H', $user['expirydate']), date('i', $user['expirydate']), date('s', $user['expirydate']), date('n', $user['expirydate']), date('j', $user['expirydate']) - ($sub['length'] * 7), date('Y', $user['expirydate']));
+						break;
+					case 'M':
+						$new_expires = mktime(date('H', $user['expirydate']), date('i', $user['expirydate']), date('s', $user['expirydate']), date('n', $user['expirydate']) - $sub['length'], date('j', $user['expirydate']), date('Y', $user['expirydate']));
+						break;
+					case 'Y':
+						$new_expires = mktime(date('H', $user['expirydate']), date('i', $user['expirydate']), date('s', $user['expirydate']), date('n', $user['expirydate']), date('j', $user['expirydate']), date('Y', $user['expirydate']) - $sub['length']);
+						break;
+				}
 
 				if ($new_expires > TIMENOW)
 				{	// new expiration is still after today so just decremement and return
@@ -493,9 +623,9 @@ class vB_PaidSubscription
 
 			// do their old groups still allow custom titles?
 			$reset_title = false;
-			if ($user['customtitle'] == 1)
+			if ($user['customtitle'] == 2)
 			{
-				$groups = iif(!empty($user['membergroupids']), $user['membergroupids'] . ',') . $user['pusergroupid'];
+				$groups = (empty($membergroupids) ? '' : implode($membergroupids, ',') . ',') . $user['pusergroupid'];
 				$usergroup = $this->registry->db->query_first_slave("
 					SELECT usergroupid
 					FROM " . TABLE_PREFIX . "usergroup
@@ -583,7 +713,7 @@ class vB_PaidSubscription
 			$permcache = array();
 			while ($perm = $this->registry->db->fetch_array($permissions))
 			{
-				$permcache["$perm[subscriptionid]"]["$perm[usergroupid]"] = $perm[usergroupid];
+				$permcache["$perm[subscriptionid]"]["$perm[usergroupid]"] = $perm['usergroupid'];
 			}
 
 			$subscriptions = $this->registry->db->query_read_slave("SELECT * FROM " . TABLE_PREFIX . "subscription ORDER BY displayorder");
@@ -657,8 +787,8 @@ class vB_PaidSubscription
 
 /*======================================================================*\
 || ####################################################################
-|| # Downloaded: 18:52, Sat Jul 14th 2007
-|| # CVS: $RCSfile$ - $Revision: 16234 $
+|| # Downloaded: 16:21, Sat Apr 6th 2013
+|| # CVS: $RCSfile$ - $Revision: 26966 $
 || ####################################################################
 \*======================================================================*/
 ?>

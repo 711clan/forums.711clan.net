@@ -1,9 +1,9 @@
 <?php
 /*======================================================================*\
 || #################################################################### ||
-|| # vBulletin 3.6.7 PL1 - Licence Number VBF2470E4F
+|| # vBulletin 3.7.2 Patch Level 2 - Licence Number VBF2470E4F
 || # ---------------------------------------------------------------- # ||
-|| # Copyright ©2000-2007 Jelsoft Enterprises Ltd. All Rights Reserved. ||
+|| # Copyright ©2000-2013 Jelsoft Enterprises Ltd. All Rights Reserved. ||
 || # This file may not be redistributed in whole or significant part. # ||
 || # ---------------- VBULLETIN IS NOT FREE SOFTWARE ---------------- # ||
 || # http://www.vbulletin.com | http://www.vbulletin.com/license.html # ||
@@ -14,7 +14,7 @@
 error_reporting(E_ALL & ~E_NOTICE);
 
 // ##################### DEFINE IMPORTANT CONSTANTS #######################
-define('CVS_REVISION', '$RCSfile$ - $Revision: 11552 $');
+define('CVS_REVISION', '$RCSfile$ - $Revision: 25644 $');
 
 // #################### PRE-CACHE TEMPLATES AND DATA ######################
 $phrasegroups = array('user', 'cpuser');
@@ -175,7 +175,10 @@ if ($_REQUEST['do'] == 'modify')
 	</script>
 	<?php
 
-	$options = array('edit' => $vbphrase['edit'], 'kill' => $vbphrase['delete'], 'no_value' => '_________________');
+	$options = array(
+		'edit' => $vbphrase['edit'],
+		'kill' => $vbphrase['delete'],
+	);
 
 	print_form_header('usertitle', 'add');
 	print_table_header($vbphrase['user_title_manager'], 3);
@@ -200,8 +203,8 @@ print_cp_footer();
 
 /*======================================================================*\
 || ####################################################################
-|| # Downloaded: 18:52, Sat Jul 14th 2007
-|| # CVS: $RCSfile$ - $Revision: 11552 $
+|| # Downloaded: 16:21, Sat Apr 6th 2013
+|| # CVS: $RCSfile$ - $Revision: 25644 $
 || ####################################################################
 \*======================================================================*/
 ?>

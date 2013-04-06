@@ -1,9 +1,9 @@
 <?php
 /*======================================================================*\
 || #################################################################### ||
-|| # vBulletin 3.6.7 PL1 - Licence Number VBF2470E4F
+|| # vBulletin 3.7.2 Patch Level 2 - Licence Number VBF2470E4F
 || # ---------------------------------------------------------------- # ||
-|| # Copyright ©2000-2007 Jelsoft Enterprises Ltd. All Rights Reserved. ||
+|| # Copyright ©2000-2013 Jelsoft Enterprises Ltd. All Rights Reserved. ||
 || # This file may not be redistributed in whole or significant part. # ||
 || # ---------------- VBULLETIN IS NOT FREE SOFTWARE ---------------- # ||
 || # http://www.vbulletin.com | http://www.vbulletin.com/license.html # ||
@@ -19,8 +19,8 @@ if (!isset($GLOBALS['vbulletin']->db))
 * Postbit optimized for announcements
 *
 * @package 		vBulletin
-* @version		$Revision: 15842 $
-* @date 		$Date: 2006-11-06 05:10:50 -0600 (Mon, 06 Nov 2006) $
+* @version		$Revision: 26661 $
+* @date 		$Date: 2008-05-21 04:46:39 -0500 (Wed, 21 May 2008) $
 *
 */
 class vB_Postbit_Announcement extends vB_Postbit
@@ -121,7 +121,7 @@ class vB_Postbit_Announcement extends vB_Postbit
 					true
 				);
 				$this->bbcode_parser->set_parse_userinfo(array());
-				if ($this->post['signatureparsed'] == '')
+				if ($this->post['signatureparsed'] === null)
 				{
 					$this->sig_cache = $this->bbcode_parser->cached;
 				}
@@ -140,8 +140,8 @@ class vB_Postbit_Announcement extends vB_Postbit
 * Postbit optimized for private messages
 *
 * @package 		vBulletin
-* @version		$Revision: 15842 $
-* @date 		$Date: 2006-11-06 05:10:50 -0600 (Mon, 06 Nov 2006) $
+* @version		$Revision: 26661 $
+* @date 		$Date: 2008-05-21 04:46:39 -0500 (Wed, 21 May 2008) $
 *
 */
 class vB_Postbit_Pm extends vB_Postbit
@@ -166,6 +166,12 @@ class vB_Postbit_Pm extends vB_Postbit
 		{
 			$this->post = array_merge($this->post, $userinfo);
 		}
+		else
+		{
+			// Deleted user?
+			$this->post['userid'] = 0;
+			$this->post['postusername'] = $this->post['fromusername'];
+		}
 
 		parent::prep_post_start();
 	}
@@ -181,7 +187,10 @@ class vB_Postbit_Pm extends vB_Postbit
 
 		if ($show['pmsendlink'])
 		{
-			$this->post['replylink'] = 'private.php?' . $this->registry->session->vars['sessionurl'] . 'do=newpm&amp;pmid=' . $this->post['pmid'];
+			if ($this->post['userid'])
+			{
+				$this->post['replylink'] = 'private.php?' . $this->registry->session->vars['sessionurl'] . 'do=newpm&amp;pmid=' . $this->post['pmid'];
+			}
 			$this->post['forwardlink'] = 'private.php?' . $this->registry->session->vars['sessionurl'] . 'do=newpm&amp;forward=1&amp;pmid=' . $this->post['pmid'];
 		}
 		else
@@ -230,8 +239,8 @@ class vB_Postbit_Pm extends vB_Postbit
 * Postbit optimized for soft deleted posts
 *
 * @package 		vBulletin
-* @version		$Revision: 15842 $
-* @date 		$Date: 2006-11-06 05:10:50 -0600 (Mon, 06 Nov 2006) $
+* @version		$Revision: 26661 $
+* @date 		$Date: 2008-05-21 04:46:39 -0500 (Wed, 21 May 2008) $
 *
 */
 class vB_Postbit_Post_Deleted extends vB_Postbit_Post
@@ -269,8 +278,8 @@ class vB_Postbit_Post_Deleted extends vB_Postbit_Post
 * Postbit optimized for global ignored (tachy'd) posts
 *
 * @package 		vBulletin
-* @version		$Revision: 15842 $
-* @date 		$Date: 2006-11-06 05:10:50 -0600 (Mon, 06 Nov 2006) $
+* @version		$Revision: 26661 $
+* @date 		$Date: 2008-05-21 04:46:39 -0500 (Wed, 21 May 2008) $
 *
 */
 class vB_Postbit_Post_Global_Ignore extends vB_Postbit_Post
@@ -308,8 +317,8 @@ class vB_Postbit_Post_Global_Ignore extends vB_Postbit_Post
 * Postbit optimized for regular (ignore list) ignored posts
 *
 * @package 		vBulletin
-* @version		$Revision: 15842 $
-* @date 		$Date: 2006-11-06 05:10:50 -0600 (Mon, 06 Nov 2006) $
+* @version		$Revision: 26661 $
+* @date 		$Date: 2008-05-21 04:46:39 -0500 (Wed, 21 May 2008) $
 *
 */
 class vB_Postbit_Post_Ignore extends vB_Postbit_Post
@@ -348,8 +357,8 @@ class vB_Postbit_Post_Ignore extends vB_Postbit_Post
 * Postbit optimized for user notes
 *
 * @package 		vBulletin
-* @version		$Revision: 15842 $
-* @date 		$Date: 2006-11-06 05:10:50 -0600 (Mon, 06 Nov 2006) $
+* @version		$Revision: 26661 $
+* @date 		$Date: 2008-05-21 04:46:39 -0500 (Wed, 21 May 2008) $
 *
 */
 class vB_Postbit_Usernote extends vB_Postbit
@@ -384,8 +393,8 @@ class vB_Postbit_Usernote extends vB_Postbit
 * Postbit optimized for RSS
 *
 * @package 		vBulletin
-* @version		$Revision: 15842 $
-* @date 		$Date: 2006-11-06 05:10:50 -0600 (Mon, 06 Nov 2006) $
+* @version		$Revision: 26661 $
+* @date 		$Date: 2008-05-21 04:46:39 -0500 (Wed, 21 May 2008) $
 *
 */
 class vB_Postbit_External extends vB_Postbit
@@ -413,7 +422,7 @@ class vB_Postbit_External extends vB_Postbit
 
 		global $show, $vbphrase, $stylevar;
 
-		($hook =& vBulletinHook::fetch_hook('postbit_display_start')) ? eval($hook) : false;
+		($hook = vBulletinHook::fetch_hook('postbit_display_start')) ? eval($hook) : false;
 
 		$imgdir_attach = $stylevar['imgdir_attach'];
 		if (!preg_match('#^[a-z]+:#siU', $stylevar['imgdir_attach']))
@@ -456,7 +465,7 @@ class vB_Postbit_External extends vB_Postbit
 			$post['otherattachments'] =& $newitems['o'];
 		}
 		// execute hook
-		($hook =& vBulletinHook::fetch_hook('postbit_display_complete')) ? eval($hook) : false;
+		($hook = vBulletinHook::fetch_hook('postbit_display_complete')) ? eval($hook) : false;
 
 		// evaluate template
 		$postid =& $post['postid'];
@@ -477,10 +486,51 @@ class vB_Postbit_External extends vB_Postbit
 	}
 }
 
+/**
+* Postbit optimized for Auto-Moderated posts
+*
+* @package 		vBulletin
+* @version		$Revision: 26661 $
+* @date 		$Date: 2008-05-21 04:46:39 -0500 (Wed, 21 May 2008) $
+*
+*/
+class vB_Postbit_Post_AutoModerated extends vB_Postbit_Post
+{
+	/**
+	* The name of the template that will be used to display this post.
+	*
+	* @var	string
+	*/
+	var $templatename = 'postbit_automoderated';
+
+	/**
+	* Will not be displayed. No longer does anything.
+	*/
+	function process_attachments()
+	{
+	}
+
+	/**
+	* Will not be displayed. No longer does anything.
+	*/
+	function process_im_icons()
+	{
+	}
+
+	/**
+	* Will not be displayed. No longer does anything.
+	*/
+	function parse_bbcode()
+	{
+	}
+}
+
+
+
 /*======================================================================*\
 || ####################################################################
-|| # Downloaded: 18:52, Sat Jul 14th 2007
-|| # CVS: $RCSfile$ - $Revision: 15842 $
+|| # Downloaded: 16:21, Sat Apr 6th 2013
+|| # CVS: $RCSfile$ - $Revision: 26661 $
 || ####################################################################
 \*======================================================================*/
 ?>

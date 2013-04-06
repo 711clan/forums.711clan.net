@@ -1,9 +1,9 @@
 <?php
 /*======================================================================*\
 || #################################################################### ||
-|| # vBulletin 3.6.7 PL1 - Licence Number VBF2470E4F
+|| # vBulletin 3.7.2 Patch Level 2 - Licence Number VBF2470E4F
 || # ---------------------------------------------------------------- # ||
-|| # Copyright ©2000-2007 Jelsoft Enterprises Ltd. All Rights Reserved. ||
+|| # Copyright ©2000-2013 Jelsoft Enterprises Ltd. All Rights Reserved. ||
 || # This file may not be redistributed in whole or significant part. # ||
 || # ---------------- VBULLETIN IS NOT FREE SOFTWARE ---------------- # ||
 || # http://www.vbulletin.com | http://www.vbulletin.com/license.html # ||
@@ -20,13 +20,11 @@ if (!class_exists('vB_DataManager'))
 *  vB_DataManager_ProfilePic
 * Abstract class to do data save/delete operations for Userpics.
 * You should call the fetch_library() function to instantiate the correct
-* object based on how userpics are being stored unless calling the multiple
-* datamanager. There is no support for manipulating the FS via the multiple
-* datamanager at the present.
+* object based on how userpics are being stored.
 *
 * @package	vBulletin
-* @version	$Revision: 15414 $
-* @date		$Date: 2006-08-01 07:39:18 -0500 (Tue, 01 Aug 2006) $
+* @version	$Revision: 26966 $
+* @date		$Date: 2008-06-18 04:38:54 -0500 (Wed, 18 Jun 2008) $
 */
 class vB_DataManager_Userpic extends vB_DataManager
 {
@@ -102,6 +100,15 @@ class vB_DataManager_Userpic extends vB_DataManager
 				$newclass->table = 'customavatar';
 				$newclass->revision = 'avatarrevision';
 				$newclass->filepath =& $registry->options['avatarpath'];
+
+				$validfields = array(
+					'filedata_thumb' => array(TYPE_BINARY, REQ_NO,),
+					'width_thumb'    => array(TYPE_UINT, REQ_NO),
+					'height_thumb'   => array(TYPE_UINT, REQ_NO),
+				);
+
+				$newclass->validfields = array_merge($newclass->validfields, $validfields);
+
 				break;
 			case 'userpic_profilepic':
 				$newclass->table = 'customprofilepic';
@@ -116,6 +123,19 @@ class vB_DataManager_Userpic extends vB_DataManager
 		}
 
 		return $newclass;
+	}
+
+	/**
+	* Constructor - checks that the registry object has been passed correctly.
+	*
+	* @param	vB_Registry	Instance of the vBulletin data registry object - expected to have the database object as one of its $this->db member.
+	* @param	integer		One of the ERRTYPE_x constants
+	*/
+	function vB_DataManager_Userpic(&$registry, $errtype = ERRTYPE_STANDARD)
+	{
+		parent::vB_DataManager($registry, $errtype);
+
+		($hook = vBulletinHook::fetch_hook('userpicdata_start')) ? eval($hook) : false;
 	}
 
 	/**
@@ -172,16 +192,54 @@ class vB_DataManager_Userpic extends vB_DataManager
 			}
 		}
 
+		if ($this->table == 'customavatar' AND $this->fetch_field('filedata') AND !$this->fetch_field('filedata_thumb') AND !$this->registry->options['usefileavatar'])
+		{
+			require_once(DIR . '/includes/class_image.php');
+			if ($this->registry->options['safeupload'])
+			{
+				$filename = $this->registry->options['tmppath'] . '/' . md5(uniqid(microtime()) . $this->fetch_field('userid'));
+			}
+			else
+			{
+				$filename = tempnam(ini_get('upload_tmp_dir'), 'vbthumb');
+			}
+			$filenum = @fopen($filename, 'wb');
+			@fwrite($filenum, $this->fetch_field('filedata'));
+			@fclose($filenum);
+
+			if (!$this->fetch_field('width') OR !$this->fetch_field('height'))
+			{
+				$imageinfo = @getimagesize($filename);
+				if ($imageinfo)
+				{
+					$this->set('width', $imageinfo[0]);
+					$this->set('height', $imageinfo[1]);
+				}
+			}
+
+			$thumbnail = $this->fetch_thumbnail($filename);
+
+			@unlink($filename);
+			if ($thumbnail['filedata'])
+			{
+				$this->set('width_thumb', $thumbnail['width']);
+				$this->set('height_thumb', $thumbnail['height']);
+				$this->set('filedata_thumb', $thumbnail['filedata']);
+				unset($thumbnail);
+			}
+			else
+			{
+				$this->set('width_thumb', 0);
+				$this->set('height_thumb', 0);
+				$this->set('filedata_thumb', '');
+			}
+		}
+
 		$return_value = true;
 		($hook = vBulletinHook::fetch_hook('userpicdata_presave')) ? eval($hook) : false;
 
 		$this->presave_called = $return_value;
 		return $return_value;
-	}
-
-	function fetch_path($userid, $revision)
-	{
-		return $this->filepath . "/" . preg_replace("#^custom#si", '', $this->table) . $userid . "_" . $revision . ".gif";
 	}
 
 	function post_save_each($doquery = true)
@@ -194,6 +252,28 @@ class vB_DataManager_Userpic extends vB_DataManager
 	{
 		($hook = vBulletinHook::fetch_hook('userpicdata_delete')) ? eval($hook) : false;
 		return parent::post_delete($doquery);
+	}
+
+	function fetch_thumbnail($file, $forceimage = false)
+	{
+		require_once(DIR . '/includes/class_image.php');
+		$image =& vB_Image::fetch_library($this->registry);
+		$imageinfo = $image->fetch_image_info($file);
+		if ($imageinfo[0] > FIXED_SIZE_AVATAR_WIDTH OR $imageinfo[1] > FIXED_SIZE_AVATAR_HEIGHT)
+		{
+			$filename = 'file.' . ($imageinfo[2] == 'JPEG' ? 'jpg' : strtolower($imageinfo[2]));
+			$thumbnail = $image->fetch_thumbnail($filename, $file, FIXED_SIZE_AVATAR_WIDTH, FIXED_SIZE_AVATAR_HEIGHT);
+			if ($thumbnail['filedata'])
+			{
+				return $thumbnail;
+			}
+		}
+
+		return array(
+			'filedata' => @file_get_contents($file),
+			'width'    => $imageinfo[0],
+			'height'   => $imageinfo[1],
+		);
 	}
 }
 
@@ -235,6 +315,11 @@ class vB_DataManager_Userpic_Sigpic extends vB_DataManager_Userpic
 
 class vB_DataManager_Userpic_Filesystem extends vB_DataManager_Userpic
 {
+	function fetch_path($userid, $revision, $thumb = false)
+	{
+		return $this->filepath . "/" . ($thumb ? 'thumbs/' : '') . preg_replace("#^custom#si", '', $this->table) . $userid . "_" . $revision . ".gif";
+	}
+
 	function pre_save($doquery = true)
 	{
 		if ($this->presave_called !== null)
@@ -252,6 +337,15 @@ class vB_DataManager_Userpic_Filesystem extends vB_DataManager_Userpic
 				$this->error('upload_invalid_imagepath');
 				return false;
 			}
+
+			if ($thumb =& $this->fetch_field('filedata_thumb'))
+			{
+				$this->setr_info('filedata_thumb', $thumb);
+				$this->do_unset('filedata_thumb');
+			}
+
+			require_once(DIR . '/includes/class_image.php');
+			$image =& vB_Image::fetch_library($this->registry);
 		}
 
 		return parent::pre_save($doquery);
@@ -272,9 +366,17 @@ class vB_DataManager_Userpic_Filesystem extends vB_DataManager_Userpic
 		// We were given an image and a revision number so write out a new image.
 		if (!empty($this->info['filedata']) AND isset($revision))
 		{
-			if ($filenum = fopen($this->fetch_path($this->fetch_field('userid'), $revision + 1), 'wb'))
+			$oldfilename = $this->fetch_path($this->fetch_field('userid'), $revision);
+			$oldthumbfilename = $this->fetch_path($this->fetch_field('userid'), $revision, true);
+			$newfilename = $this->fetch_path($this->fetch_field('userid'), $revision + 1);
+			$thumbfilename = $this->fetch_path($this->fetch_field('userid'), $revision + 1, true);
+			if ($filenum = fopen($newfilename, 'wb'))
 			{
-				@unlink($this->fetch_path($this->fetch_field('userid'), $revision));
+				@unlink($oldfilename);
+				if ($this->table == 'customavatar')
+				{
+					@unlink($oldthumbfilename);
+				}
 				@fwrite($filenum, $this->info['filedata']);
 				@fclose($filenum);
 
@@ -286,6 +388,36 @@ class vB_DataManager_Userpic_Filesystem extends vB_DataManager_Userpic
 
 				$userdata->save();
 				unset($userdata);
+
+				if ($this->table == 'customavatar')
+				{
+					if ($this->info['filedata_thumb'])
+					{
+						$thumbnail['filedata'] =& $this->info['filedata_thumb'];
+					}
+					else
+					{
+						$thumbnail = $this->fetch_thumbnail($newfilename, true);
+					}
+
+					if ($thumbnail['filedata'] AND $filenum = @fopen($thumbfilename, 'wb'))
+					{
+						@fwrite($filenum, $thumbnail['filedata']);
+						@fclose($filenum);
+
+						if ($thumbnail['height'] AND $thumbnail['width'])
+						{
+							$this->registry->db->query_write("
+								UPDATE " . TABLE_PREFIX . "customavatar
+								SET width_thumb = $thumbnail[width],
+									height_thumb = $thumbnail[height]
+								WHERE userid = " . $this->fetch_field('userid')
+							);
+						}
+
+						unset($thumbnail);
+					}
+				}
 
 				($hook = vBulletinHook::fetch_hook('userpicdata_postsave')) ? eval($hook) : false;
 
@@ -315,7 +447,7 @@ class vB_DataManager_Userpic_Filesystem extends vB_DataManager_Userpic
 	function post_delete($doquery = true)
 	{
 
-		$users = $this->registry->db->query_read("
+		$users = $this->registry->db->query_read_slave("
 			SELECT
 				userid, {$this->revision} AS revision
 			FROM " . TABLE_PREFIX . "user
@@ -324,6 +456,7 @@ class vB_DataManager_Userpic_Filesystem extends vB_DataManager_Userpic
 		while ($user = $this->registry->db->fetch_array($users))
 		{
 			@unlink($this->fetch_path($user['userid'], $user['revision']));
+			@unlink($this->fetch_path($user['userid'], $user['revision'], true));
 		}
 
 		($hook = vBulletinHook::fetch_hook('userpicdata_delete')) ? eval($hook) : false;
@@ -331,109 +464,10 @@ class vB_DataManager_Userpic_Filesystem extends vB_DataManager_Userpic
 	}
 
 }
-
-/**
-* Class to do data update operations for multiple userpics simultaneously
-*
-* @package	vBulletin
-* @version	$Revision: 15414 $
-* @date		$Date: 2006-08-01 07:39:18 -0500 (Tue, 01 Aug 2006) $
-*/
-class vB_DataManager_Userpic_Avatar_Multiple extends vB_DataManager_Multiple
-{
-	/**
-	* The name of the class to instantiate for each matching. It is assumed to exist!
-	* It should be a subclass of vB_DataManager.
-	*
-	* @var	string
-	*/
-	var $class_name = 'vB_DataManager_Userpic_Avatar';
-
-	/**
-	* The name of the primary ID column that is used to uniquely identify records retrieved.
-	* This will be used to build the condition in all update queries!
-	*
-	* @var string
-	*/
-	var $primary_id = 'userid';
-
-	/**
-	* Builds the SQL to run to fetch records. This must be overridden by a child class!
-	*
-	* @param	string	Condition to use in the fetch query; the entire WHERE clause
-	* @param	integer	The number of records to limit the results to; 0 is unlimited
-	* @param	integer	The number of records to skip before retrieving matches.
-	*
-	* @return	string	The query to execute
-	*/
-	function fetch_query($condition, $limit = 0, $offset = 0)
-	{
-		$query = "SELECT userid, dateline, filename, visible, filesize, width, height FROM " . TABLE_PREFIX . "customavatar AS customavatar";
-		if ($condition)
-		{
-			$query .= " WHERE $condition";
-		}
-
-		$limit = intval($limit);
-		$offset = intval($offset);
-		if ($limit)
-		{
-			$query .= " LIMIT $offset, $limit";
-		}
-
-		return $query;
-	}
-}
-
-class vB_DataManager_Userpic_Profilepic_Multiple extends vB_DataManager_Multiple
-{
-	/**
-	* The name of the class to instantiate for each matching. It is assumed to exist!
-	* It should be a subclass of vB_DataManager.
-	*
-	* @var	string
-	*/
-	var $class_name = 'vB_DataManager_Userpic_Profilepic';
-
-	/**
-	* The name of the primary ID column that is used to uniquely identify records retrieved.
-	* This will be used to build the condition in all update queries!
-	*
-	* @var string
-	*/
-	var $primary_id = 'userid';
-
-	/**
-	* Builds the SQL to run to fetch records. This must be overridden by a child class!
-	*
-	* @param	string	Condition to use in the fetch query; the entire WHERE clause
-	* @param	integer	The number of records to limit the results to; 0 is unlimited
-	* @param	integer	The number of records to skip before retrieving matches.
-	*
-	* @return	string	The query to execute
-	*/
-	function fetch_query($condition, $limit = 0, $offset = 0)
-	{
-		$query = "SELECT userid, dateline, filename, visible, filesize, width, height FROM " . TABLE_PREFIX . "customprofilepic AS customprofilepic";
-		if ($condition)
-		{
-			$query .= " WHERE $condition";
-		}
-
-		$limit = intval($limit);
-		$offset = intval($offset);
-		if ($limit)
-		{
-			$query .= " LIMIT $offset, $limit";
-		}
-
-		return $query;
-	}
-}
 /*======================================================================*\
 || ####################################################################
-|| # Downloaded: 18:52, Sat Jul 14th 2007
-|| # CVS: $RCSfile$ - $Revision: 15414 $
+|| # Downloaded: 16:21, Sat Apr 6th 2013
+|| # CVS: $RCSfile$ - $Revision: 26966 $
 || ####################################################################
 \*======================================================================*/
 ?>

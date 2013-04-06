@@ -1,9 +1,9 @@
 <?php
 /*======================================================================*\
 || #################################################################### ||
-|| # vBulletin 3.6.7 PL1 - Licence Number VBF2470E4F
+|| # vBulletin 3.7.2 Patch Level 2 - Licence Number VBF2470E4F
 || # ---------------------------------------------------------------- # ||
-|| # Copyright ©2000-2007 Jelsoft Enterprises Ltd. All Rights Reserved. ||
+|| # Copyright ©2000-2013 Jelsoft Enterprises Ltd. All Rights Reserved. ||
 || # This file may not be redistributed in whole or significant part. # ||
 || # ---------------- VBULLETIN IS NOT FREE SOFTWARE ---------------- # ||
 || # http://www.vbulletin.com | http://www.vbulletin.com/license.html # ||
@@ -14,7 +14,7 @@
 error_reporting(E_ALL & ~E_NOTICE);
 
 // ##################### DEFINE IMPORTANT CONSTANTS #######################
-define('CVS_REVISION', '$RCSfile$ - $Revision: 14920 $');
+define('CVS_REVISION', '$RCSfile$ - $Revision: 26591 $');
 
 // #################### PRE-CACHE TEMPLATES AND DATA ######################
 $phrasegroups = array('reputation', 'user', 'reputationlevel');
@@ -578,11 +578,14 @@ if ($_POST['do'] == 'doeditreputation')
 		$diff = $vbulletin->GPC['oldreputation'] - $vbulletin->GPC['reputation']['reputation'];
 
 		$user = fetch_userinfo($vbulletin->GPC['userid']);
-		$userdm =& datamanager_init('User', $vbulletin, ERRTYPE_SILENT);
-		$userdm->set_existing($user);
-		$userdm->set('reputation', "reputation - $diff", false);
-		$userdm->save();
-		unset($userdm);
+		if ($user)
+		{
+			$userdm =& datamanager_init('User', $vbulletin, ERRTYPE_SILENT);
+			$userdm->set_existing($user);
+			$userdm->set('reputation', "reputation - $diff", false);
+			$userdm->save();
+			unset($userdm);
+		}
 	}
 
 	define('CP_REDIRECT', "adminreputation.php?do=list&amp;u=" . $vbulletin->GPC['userid']);
@@ -601,11 +604,14 @@ if ($_POST['do'] == 'killreputation')
 	$repinfo = verify_id('reputation', $vbulletin->GPC['reputationid'], 0, 1);
 
 	$user = fetch_userinfo($repinfo['userid']);
-	$userdm =& datamanager_init('User', $vbulletin, ERRTYPE_CP);
-	$userdm->set_existing($user);
-	$userdm->set('reputation', "reputation - $repinfo[reputation]", false);
-	$userdm->save();
-	unset($userdm);
+	if ($user)
+	{
+		$userdm =& datamanager_init('User', $vbulletin, ERRTYPE_CP);
+		$userdm->set_existing($user);
+		$userdm->set('reputation', "reputation - $repinfo[reputation]", false);
+		$userdm->save();
+		unset($userdm);
+	}
 
 	$db->query_write("
 		DELETE FROM " . TABLE_PREFIX . "reputation
@@ -657,8 +663,8 @@ print_cp_footer();
 
 /*======================================================================*\
 || ####################################################################
-|| # Downloaded: 18:52, Sat Jul 14th 2007
-|| # CVS: $RCSfile$ - $Revision: 14920 $
+|| # Downloaded: 16:21, Sat Apr 6th 2013
+|| # CVS: $RCSfile$ - $Revision: 26591 $
 || ####################################################################
 \*======================================================================*/
 ?>

@@ -1,9 +1,9 @@
 <?php
 /*======================================================================*\
 || #################################################################### ||
-|| # vBulletin 3.6.7 PL1 - Licence Number VBF2470E4F
+|| # vBulletin 3.7.2 Patch Level 2 - Licence Number VBF2470E4F
 || # ---------------------------------------------------------------- # ||
-|| # Copyright ©2000-2007 Jelsoft Enterprises Ltd. All Rights Reserved. ||
+|| # Copyright ©2000-2013 Jelsoft Enterprises Ltd. All Rights Reserved. ||
 || # This file may not be redistributed in whole or significant part. # ||
 || # ---------------- VBULLETIN IS NOT FREE SOFTWARE ---------------- # ||
 || # http://www.vbulletin.com | http://www.vbulletin.com/license.html # ||
@@ -14,7 +14,7 @@
 error_reporting(E_ALL & ~E_NOTICE);
 
 // ##################### DEFINE IMPORTANT CONSTANTS #######################
-define('CVS_REVISION', '$RCSfile$ - $Revision: 16956 $');
+define('CVS_REVISION', '$RCSfile$ - $Revision: 25957 $');
 
 // #################### PRE-CACHE TEMPLATES AND DATA ######################
 $phrasegroups = array('sql', 'user', 'cpuser');
@@ -26,7 +26,7 @@ require_once('./global.php');
 $vbulletin->input->clean_array_gpc('r', array('query' => TYPE_STR));
 
 // ############################# LOG ACTION ###############################
-log_admin_action(!empty($query) ? "query = '" . htmlspecialchars_uni($vbulletin->GPC['query']) : '');
+log_admin_action(!empty($vbulletin->GPC['query']) ? "query = '" . htmlspecialchars_uni($vbulletin->GPC['query']) . "'" : '');
 
 // ########################################################################
 // ######################### START MAIN SCRIPT ############################
@@ -316,7 +316,10 @@ if ($_POST['do'] == 'doquery')
 	print_description_row(construct_button_code($vbphrase['restart'], 'queries.php?' . $vbulletin->session->vars['sessionurl']), 0, 2, 'tfoot', 'center');
 	print_table_footer();
 
-	preg_match("#^([A-Z]+) #si", $query, $regs);
+	$query_stripped = preg_replace('@/\*.*?\*/@s', '', $query);
+	$query_stripped = preg_replace('@(#|--).*?$@m', '', $query_stripped);
+
+	preg_match("#^([A-Z]+) #si", trim($query_stripped), $regs);
 	$querytype = strtoupper($regs[1]);
 
 	switch ($querytype)
@@ -342,7 +345,6 @@ if ($_POST['do'] == 'doquery')
 			else
 			{
 				$numrows = $db->num_rows($counter);
-				$numpages = ceil($numrows / $vbulletin->GPC['perpage']);
 				if ($vbulletin->GPC['pagenumber'] == -1)
 				{
 					$vbulletin->GPC['pagenumber'] = $numpages;
@@ -351,10 +353,12 @@ if ($_POST['do'] == 'doquery')
 				if ($querytype == 'SELECT')
 				{
 					$query_mod = "$query_mod LIMIT $startat, " . $vbulletin->GPC['perpage'];
+					$numpages = ceil($numrows / $vbulletin->GPC['perpage']);
 				}
 				else
 				{
 					$query_mod = $query;
+					$numpages = 1;
 				}
 
 				$time_before = microtime();
@@ -464,8 +468,8 @@ print_cp_footer();
 
 /*======================================================================*\
 || ####################################################################
-|| # Downloaded: 18:52, Sat Jul 14th 2007
-|| # CVS: $RCSfile$ - $Revision: 16956 $
+|| # Downloaded: 16:21, Sat Apr 6th 2013
+|| # CVS: $RCSfile$ - $Revision: 25957 $
 || ####################################################################
 \*======================================================================*/
 ?>

@@ -1,9 +1,9 @@
 <?php
 /*======================================================================*\
 || #################################################################### ||
-|| # vBulletin 3.6.7 PL1 - Licence Number VBF2470E4F
+|| # vBulletin 3.7.2 Patch Level 2 - Licence Number VBF2470E4F
 || # ---------------------------------------------------------------- # ||
-|| # Copyright ©2000-2007 Jelsoft Enterprises Ltd. All Rights Reserved. ||
+|| # Copyright ©2000-2013 Jelsoft Enterprises Ltd. All Rights Reserved. ||
 || # This file may not be redistributed in whole or significant part. # ||
 || # ---------------- VBULLETIN IS NOT FREE SOFTWARE ---------------- # ||
 || # http://www.vbulletin.com | http://www.vbulletin.com/license.html # ||
@@ -14,7 +14,7 @@
 error_reporting(E_ALL & ~E_NOTICE);
 
 // ##################### DEFINE IMPORTANT CONSTANTS #######################
-define('CVS_REVISION', '$RCSfile$ - $Revision: 14398 $');
+define('CVS_REVISION', '$RCSfile$ - $Revision: 24790 $');
 
 // #################### PRE-CACHE TEMPLATES AND DATA ######################
 $phrasegroups = array('cppermission');
@@ -46,26 +46,29 @@ log_admin_action(iif($vbulletin->GPC['userid'], "user id = " . $vbulletin->GPC['
 print_cp_header($vbphrase['view_permissions']);
 
 $perm_phrase = array(
-	'canview'		=> $vbphrase['can_view_forum'],
-	'canviewthreads'		=> $vbphrase['can_view_threads'],
-	'canviewothers'		=> $vbphrase['can_view_others_threads'],
-	'cansearch'		=> $vbphrase['can_search_forum'],
-	'canemail'		=> $vbphrase['can_use_email_to_friend'],
-	'canpostnew'		=> $vbphrase['can_post_threads'],
-	'canreplyown'		=> $vbphrase['can_reply_to_own_threads'],
-	'canreplyothers'	=> $vbphrase['can_reply_to_others_threads'],
-	'caneditpost'		=> $vbphrase['can_edit_own_posts'],
-	'candeletepost'		=> $vbphrase['can_delete_own_posts'],
-	'candeletethread'	=> $vbphrase['can_delete_own_threads'],
-	'canopenclose'		=> $vbphrase['can_open_close_own_threads'],
-	'canmove'		=> $vbphrase['can_move_own_threads'],
-	'cangetattachment'	=> $vbphrase['can_view_attachments'],
-	'canpostattachment'	=> $vbphrase['can_post_attachments'],
-	'canpostpoll'		=> $vbphrase['can_post_polls'],
-	'canvote'		=> $vbphrase['can_vote_on_polls'],
-	'canthreadrate'		=> $vbphrase['can_rate_threads'],
-	'canseedelnotice' 	=> $vbphrase['can_see_deletion_notices'],
-	'followforummoderation'	=> $vbphrase['follow_forum_moderation_rules']
+	'canview'               => $vbphrase['can_view_forum'],
+	'canviewthreads'        => $vbphrase['can_view_threads'],
+	'canviewothers'         => $vbphrase['can_view_others_threads'],
+	'cansearch'             => $vbphrase['can_search_forum'],
+	'canemail'              => $vbphrase['can_use_email_to_friend'],
+	'canpostnew'            => $vbphrase['can_post_threads'],
+	'canreplyown'           => $vbphrase['can_reply_to_own_threads'],
+	'canreplyothers'        => $vbphrase['can_reply_to_others_threads'],
+	'caneditpost'           => $vbphrase['can_edit_own_posts'],
+	'candeletepost'         => $vbphrase['can_delete_own_posts'],
+	'candeletethread'       => $vbphrase['can_delete_own_threads'],
+	'canopenclose'          => $vbphrase['can_open_close_own_threads'],
+	'canmove'               => $vbphrase['can_move_own_threads'],
+	'cangetattachment'      => $vbphrase['can_view_attachments'],
+	'canpostattachment'     => $vbphrase['can_post_attachments'],
+	'canpostpoll'           => $vbphrase['can_post_polls'],
+	'canvote'               => $vbphrase['can_vote_on_polls'],
+	'canthreadrate'	        => $vbphrase['can_rate_threads'],
+	'canseedelnotice'       => $vbphrase['can_see_deletion_notices'],
+	'followforummoderation'	=> $vbphrase['follow_forum_moderation_rules'],
+	'cantagown'             => $vbphrase['can_tag_own_threads'],
+	'cantagothers'          => $vbphrase['can_tag_others_threads'],
+	'candeletetagown'       => $vbphrase['can_delete_tags_own_threads'],
 );
 
 //build a nice array with permission names
@@ -234,6 +237,10 @@ if ($_REQUEST['do'] == 'view')
 if ($_REQUEST['do'] == 'viewuser')
 {
 	$userinfo = fetch_userinfo($vbulletin->GPC['userid']);
+	if (!$userinfo)
+	{
+		print_stop_message('invalid_user_specified');
+	}
 	$perms = cache_permissions($userinfo);
 
 	print_form_header('', '');
@@ -261,8 +268,8 @@ print_cp_footer();
 
 /*======================================================================*\
 || ####################################################################
-|| # Downloaded: 18:52, Sat Jul 14th 2007
-|| # CVS: $RCSfile$ - $Revision: 14398 $
+|| # Downloaded: 16:21, Sat Apr 6th 2013
+|| # CVS: $RCSfile$ - $Revision: 24790 $
 || ####################################################################
 \*======================================================================*/
 ?>

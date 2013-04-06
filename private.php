@@ -1,9 +1,9 @@
 <?php
 /*======================================================================*\
 || #################################################################### ||
-|| # vBulletin 3.6.7 PL1 - Licence Number VBF2470E4F
+|| # vBulletin 3.7.2 Patch Level 2 - Licence Number VBF2470E4F
 || # ---------------------------------------------------------------- # ||
-|| # Copyright ©2000-2007 Jelsoft Enterprises Ltd. All Rights Reserved. ||
+|| # Copyright ©2000-2013 Jelsoft Enterprises Ltd. All Rights Reserved. ||
 || # This file may not be redistributed in whole or significant part. # ||
 || # ---------------- VBULLETIN IS NOT FREE SOFTWARE ---------------- # ||
 || # http://www.vbulletin.com | http://www.vbulletin.com/license.html # ||
@@ -16,6 +16,7 @@ error_reporting(E_ALL & ~E_NOTICE);
 // #################### DEFINE IMPORTANT CONSTANTS #######################
 define('GET_EDIT_TEMPLATES', 'newpm,insertpm');
 define('THIS_SCRIPT', 'private');
+define('CSRF_PROTECTION', true);
 
 // ################### PRE-CACHE TEMPLATES AND DATA ######################
 // get special phrase groups
@@ -176,8 +177,8 @@ if (!$vbulletin->userinfo['receivepm'] AND in_array($_REQUEST['do'], array('inse
 
 // start navbar
 $navbits = array(
-	'usercp.php?' . $vbulletin->session->vars['sessionurl'] => $vbphrase['user_control_panel'],
-	'private.php?' . $vbulletin->session->vars['sessionurl'] => $vbphrase['private_messages']
+	'usercp.php' . $vbulletin->session->vars['sessionurl_q'] => $vbphrase['user_control_panel'],
+	'private.php' . $vbulletin->session->vars['sessionurl_q'] => $vbphrase['private_messages']
 );
 
 // select correct part of forumjump
@@ -433,7 +434,7 @@ if ($_REQUEST['do'] == 'dopmreceipt')
 	else
 	{
 	?>
-<html><head><title><?php echo $vbulletin->options['bbtitle']; ?></title><style type="text/css"><?php echo $style['css']; ?></style></head><body>
+<html xmlns="http://www.w3.org/1999/xhtml"><head><title><?php echo $vbulletin->options['bbtitle']; ?></title><style type="text/css"><?php echo $style['css']; ?></style></head><body>
 <script type="text/javascript">
 self.close();
 </script>
@@ -453,73 +454,118 @@ if ($_REQUEST['do'] == 'trackpm')
 		print_no_permission();
 	}
 
+	$vbulletin->input->clean_array_gpc('r', array(
+		'pagenumber' => TYPE_UINT,
+		'type'       => TYPE_NOHTML
+	));
+
+	switch ($vbulletin->GPC['type'])
+	{
+		case 'confirmed':
+		case 'unconfirmed':
+			break;
+
+		default:
+			$vbulletin->GPC['type'] = '';
+			$vbulletin->GPC['pagenumber'] = 1;
+	}
+
+	$perpage = $vbulletin->options['pmperpage'];
+	if (!$vbulletin->GPC['pagenumber'])
+	{
+		$vbulletin->GPC['pagenumber'] = 1;
+	}
+
+	$startat = ($vbulletin->GPC['pagenumber'] - 1) * $perpage;
+
 	($hook = vBulletinHook::fetch_hook('private_trackpm_start')) ? eval($hook) : false;
 
-	$receipts = array();
+	$confirmedreceipts = '';
 
-	$pmreceipts = $db->query_read_slave("
-		SELECT
-			pmreceipt.*, pmreceipt.pmid AS receiptid
-		FROM " . TABLE_PREFIX . "pmreceipt AS pmreceipt
-		WHERE pmreceipt.userid = " . $vbulletin->userinfo['userid'] . "
-		ORDER BY pmreceipt.sendtime DESC
-	");
-	while ($pmreceipt = $db->fetch_array($pmreceipts))
+	if (!$vbulletin->GPC['type'] OR $vbulletin->GPC['type'] == 'confirmed')
 	{
-		$pmreceipt['send_date'] = vbdate($vbulletin->options['dateformat'], $pmreceipt['sendtime'], true);
-		$pmreceipt['send_time'] = vbdate($vbulletin->options['timeformat'], $pmreceipt['sendtime']);
-		$pmreceipt['read_date'] = vbdate($vbulletin->options['dateformat'], $pmreceipt['readtime'], true);
-		$pmreceipt['read_time'] = vbdate($vbulletin->options['timeformat'], $pmreceipt['readtime']);
-		if ($pmreceipt['readtime'] == 0)
-		{
-			$receipts['unread'][] = $pmreceipt;
-		}
-		else
-		{
-			$receipts['read'][] = $pmreceipt;
-		}
-	}
+		$pmreceipts = $db->query_read_slave("
+			SELECT SQL_CALC_FOUND_ROWS
+				pmreceipt.*, pmreceipt.pmid AS receiptid
+			FROM " . TABLE_PREFIX . "pmreceipt AS pmreceipt
+			WHERE pmreceipt.userid = " . $vbulletin->userinfo['userid'] . "
+				AND pmreceipt.readtime <> 0
+			ORDER BY pmreceipt.sendtime DESC
+			LIMIT $startat, $perpage
+		");
+		list($readtotal) = $db->query_first_slave("SELECT FOUND_ROWS()", DBARRAY_NUM);
 
-	if (!empty($receipts['read']))
-	{
-		$show['readpm'] = true;
-		$numreceipts = sizeof($receipts['read']);
-		$tabletitle = $vbphrase['confirmed_private_message_receipts'];
-		$tableid = 'pmreceipts_read';
-		$collapseobj_tableid =& $vbcollapse["collapseobj_$tableid"];
-		$collapseimg_tableid =& $vbcollapse["collapseimg_$tableid"];
-		$receiptbits = '';
-		foreach ($receipts['read'] AS $receipt)
+		if ($readtotal)
 		{
-			($hook = vBulletinHook::fetch_hook('private_trackpm_receiptbit')) ? eval($hook) : false;
-			eval('$receiptbits .= "' . fetch_template('pm_receiptsbit') . '";');
+			$show['readpm'] = true;
+			$numreceipts = vb_number_format($readtotal);
+			$tabletitle = $vbphrase['confirmed_private_message_receipts'];
+			$tableid = 'pmreceipts_read';
+			$collapseobj_tableid =& $vbcollapse["collapseobj_$tableid"];
+			$collapseimg_tableid =& $vbcollapse["collapseimg_$tableid"];
+			$receiptbits = '';
+
+			while ($receipt = $db->fetch_array($pmreceipts))
+			{
+				$receipt['send_date'] = vbdate($vbulletin->options['dateformat'], $receipt['sendtime'], true);
+				$receipt['send_time'] = vbdate($vbulletin->options['timeformat'], $receipt['sendtime']);
+				$receipt['read_date'] = vbdate($vbulletin->options['dateformat'], $receipt['readtime'], true);
+				$receipt['read_time'] = vbdate($vbulletin->options['timeformat'], $receipt['readtime']);
+
+				($hook = vBulletinHook::fetch_hook('private_trackpm_receiptbit')) ? eval($hook) : false;
+				eval('$receiptbits .= "' . fetch_template('pm_receiptsbit') . '";');
+			}
+
+			$pagenav = construct_page_nav($vbulletin->GPC['pagenumber'], $perpage, $readtotal,
+				"private.php?" . $vbulletin->session->vars['sessionurl'] . "do=trackpm&amp;type=confirmed"
+			);
+
+			eval('$confirmedreceipts = "' . fetch_template('pm_receipts') . '";');
 		}
-		eval('$confirmedreceipts = "' . fetch_template('pm_receipts') . '";');
-	}
-	else
-	{
-		$confirmedreceipts = '';
 	}
 
-	if (!empty($receipts['unread']))
+	$unconfirmedreceipts = '';
+
+	if (!$vbulletin->GPC['type'] OR $vbulletin->GPC['type'] == 'unconfirmed')
 	{
-		$show['readpm'] = false;
-		$numreceipts = sizeof($receipts['unread']);
-		$tabletitle = $vbphrase['unconfirmed_private_message_receipts'];
-		$tableid = 'pmreceipts_unread';
-		$collapseobj_tableid =& $vbcollapse["collapseobj_$tableid"];
-		$collapseimg_tableid =& $vbcollapse["collapseimg_$tableid"];
-		$receiptbits = '';
-		foreach ($receipts['unread'] AS $receipt)
+		$pmreceipts = $db->query_read_slave("
+			SELECT SQL_CALC_FOUND_ROWS
+				pmreceipt.*, pmreceipt.pmid AS receiptid
+			FROM " . TABLE_PREFIX . "pmreceipt AS pmreceipt
+			WHERE pmreceipt.userid = " . $vbulletin->userinfo['userid'] . "
+				AND pmreceipt.readtime = 0
+			ORDER BY pmreceipt.sendtime DESC
+			LIMIT $startat, $perpage
+		");
+		list($unreadtotal) = $db->query_first_slave("SELECT FOUND_ROWS()", DBARRAY_NUM);
+
+		if ($unreadtotal)
 		{
-			($hook = vBulletinHook::fetch_hook('private_trackpm_receiptbit')) ? eval($hook) : false;
-			eval('$receiptbits .= "' . fetch_template('pm_receiptsbit') . '";');
+			$show['readpm'] = false;
+			$numreceipts = vb_number_format($unreadtotal);
+			$tabletitle = $vbphrase['unconfirmed_private_message_receipts'];
+			$tableid = 'pmreceipts_unread';
+			$collapseobj_tableid =& $vbcollapse["collapseobj_$tableid"];
+			$collapseimg_tableid =& $vbcollapse["collapseimg_$tableid"];
+			$receiptbits = '';
+
+			while ($receipt = $db->fetch_array($pmreceipts))
+			{
+				$receipt['send_date'] = vbdate($vbulletin->options['dateformat'], $receipt['sendtime'], true);
+				$receipt['send_time'] = vbdate($vbulletin->options['timeformat'], $receipt['sendtime']);
+				$receipt['read_date'] = vbdate($vbulletin->options['dateformat'], $receipt['readtime'], true);
+				$receipt['read_time'] = vbdate($vbulletin->options['timeformat'], $receipt['readtime']);
+
+				($hook = vBulletinHook::fetch_hook('private_trackpm_receiptbit')) ? eval($hook) : false;
+				eval('$receiptbits .= "' . fetch_template('pm_receiptsbit') . '";');
+			}
+
+			$pagenav = construct_page_nav($vbulletin->GPC['pagenumber'], $perpage, $unreadtotal,
+				"private.php?" . $vbulletin->session->vars['sessionurl'] . "do=trackpm&amp;type=unconfirmed"
+			);
+
+			eval('$unconfirmedreceipts = "' . fetch_template('pm_receipts') . '";');
 		}
-		eval('$unconfirmedreceipts = "' . fetch_template('pm_receipts') . '";');
-	}
-	else
-	{
-		$unconfirmedreceipts = '';
 	}
 
 	$folderjump = construct_folder_jump();
@@ -527,10 +573,7 @@ if ($_REQUEST['do'] == 'trackpm')
 	// generate navbar
 	$navbits[''] = $vbphrase['message_tracking'];
 
-	if ($confirmedreceipts != '' OR $unconfirmedreceipts != '')
-	{
-		$show['receipts'] = true;
-	}
+	$show['receipts'] = ($confirmedreceipts != '' OR $unconfirmedreceipts != '');
 
 	$templatename = 'pm_trackpm';
 }
@@ -543,7 +586,7 @@ if ($_POST['do'] == 'movepm')
 		'messageids' => TYPE_STR,
 	));
 
-	$vbulletin->GPC['messageids'] = unserialize($vbulletin->GPC['messageids']);
+	$vbulletin->GPC['messageids'] = @unserialize(verify_client_string($vbulletin->GPC['messageids']));
 
 	if (!is_array($vbulletin->GPC['messageids']) OR empty($vbulletin->GPC['messageids']))
 	{
@@ -599,7 +642,7 @@ if ($_POST['do'] == 'managepm')
 		// move messages to a new folder
 		case 'move':
 			$totalmessages = sizeof($messageids);
-			$messageids = serialize($messageids);
+			$messageids = sign_client_string(serialize($messageids));
 			$folderoptions = construct_folder_jump(0, 0, array($vbulletin->GPC['folderid'], -1));
 
 			switch ($vbulletin->GPC['folderid'])
@@ -846,9 +889,8 @@ if ($_REQUEST['do'] == 'downloadpm')
 					$pm['datestamp'] = vbdate('Y-m-d H:i', $pm['datestamp'], false, false);
 					$pm['touser'] = fetch_touser_string($pm);
 					$pm['folder'] = $foldernames["$pm[folder]"];
-					$pm['message'] = str_replace("\n", "\r\n", str_replace("\r\n", "\n", $pm['message']));
+					$pm['message'] = preg_replace("/(\r\n|\r|\n)/s", "\r\n", $pm['message']);
 					$pm['message'] = fetch_censored_text($pm['message']);
-					$pm['message'] = $pm['message'];
 					unset($pm['folder']);
 
 					($hook = vBulletinHook::fetch_hook('private_downloadpm_bit')) ? eval($hook) : false;
@@ -867,7 +909,8 @@ if ($_REQUEST['do'] == 'downloadpm')
 
 			$doc = "<?xml version=\"1.0\" encoding=\"$stylevar[charset]\"?>\r\n\r\n";
 			$doc .= "<!-- " . $vbulletin->options['bbtitle'] . ';' . $vbulletin->options['bburl'] . " -->\r\n";
-			$doc .= '<!-- ' . construct_phrase($vbphrase['private_message_dump_for_user_x_y'], $vbulletin->userinfo['username'], vbdate($vbulletin->options['dateformat'] . ' ' . $vbulletin->options['timeformat'], TIMENOW)) . " -->\r\n\r\n";
+			// replace --/---/... with underscores for valid XML comments
+			$doc .= '<!-- ' . construct_phrase($vbphrase['private_message_dump_for_user_x_y'], preg_replace('#(-(?=-)|(?<=-)-)#', '_', $vbulletin->userinfo['username']), vbdate($vbulletin->options['dateformat'] . ' ' . $vbulletin->options['timeformat'], TIMENOW)) . " -->\r\n\r\n";
 
 			$doc .= $xml->output();
 			$xml = null;
@@ -884,27 +927,26 @@ if ($_REQUEST['do'] == 'downloadpm')
 
 			while ($pm = $db->fetch_array($pms))
 			{
-				$pm['datestamp'] = vbdate('Y-m-d H:i', $pm['datestamp'], false, false);
-				$pm['touser'] = fetch_touser_string($pm);
-				$pm['folder'] = $foldernames["$pm[folder]"];
-				$pm['title'] = unhtmlspecialchars($pm['title']);
-				$pm['message'] = str_replace("\n", "\r\n", str_replace("\r\n", "\n", $pm['message']));
-				$pm['message'] = fetch_censored_text($pm['message']);
+				$csvpm = array();
+				$csvpm['datestamp'] = vbdate('Y-m-d H:i', $pm['datestamp'], false, false);
+				$csvpm['folder'] = $foldernames["$pm[folder]"];
+				$csvpm['title'] = unhtmlspecialchars($pm['title']);
+				$csvpm['fromuser'] = $pm['fromuser'];
+				$csvpm['touser'] = fetch_touser_string($pm);
+				$csvpm['message'] = preg_replace("/(\r\n|\r|\n)/s", "\r\n", $pm['message']);
+				$csvpm['message'] = fetch_censored_text($pm['message']);
 
 				($hook = vBulletinHook::fetch_hook('private_downloadpm_bit')) ? eval($hook) : false;
 
-				// make values save
-				foreach ($pm AS $key => $val)
+				// make values safe
+				foreach ($csvpm AS $key => $val)
 				{
-					if (preg_match('/\,|"/siU', $val))
-					{
-						$pm["$key"] = '"' . str_replace('"', '""', $val) . '"';
-					}
+					$csvpm["$key"] = '"' . str_replace('"', '""', $val) . '"';
 				}
 				// output the message row
-				$csv .= implode(',', $pm) . "\r\n";
+				$csv .= implode(',', $csvpm) . "\r\n";
 			}
-			unset($pm);
+			unset($pm, $csvpm);
 			$db->free_result($pms);
 
 			// download the file
@@ -936,7 +978,7 @@ if ($_REQUEST['do'] == 'downloadpm')
 				foreach ($messages AS $pm)
 				{
 					// turn all single \n into \r\n
-					$pm['message'] = str_replace("\n", "\r\n", str_replace("\r\n", "\n", $pm['message']));
+					$pm['message'] = preg_replace("/(\r\n|\r|\n)/s", "\r\n", $pm['message']);
 					$pm['message'] = fetch_censored_text($pm['message']);
 
 					($hook = vBulletinHook::fetch_hook('private_downloadpm_bit')) ? eval($hook) : false;
@@ -1035,25 +1077,6 @@ if ($_POST['do'] == 'insertpm')
 		$errors[] = fetch_error('yourpmquotaexceeded');
 	}
 
-	// check for message flooding
-	if ($vbulletin->options['pmfloodtime'] > 0 AND !$vbulletin->GPC['preview'])
-	{
-		if (!($permissions['adminpermissions'] & $vbulletin->bf_ugp_adminpermissions['cancontrolpanel']) AND !can_moderate())
-		{
-			$floodcheck = $db->query_first("
-				SELECT pmtextid, title, dateline
-				FROM " . TABLE_PREFIX . "pmtext AS pmtext
-				WHERE fromuserid = " . $vbulletin->userinfo['userid'] . "
-				ORDER BY dateline DESC
-			");
-
-			if (($timepassed = TIMENOW - $floodcheck['dateline']) < $vbulletin->options['pmfloodtime'])
-			{
-				$errors[] = fetch_error('pmfloodcheck', $vbulletin->options['pmfloodtime'], ($vbulletin->options['pmfloodtime'] - $timepassed));
-			}
-		}
-	}
-
 	// create the DM to do error checking and insert the new PM
 	$pmdm =& datamanager_init('PM', $vbulletin, ERRTYPE_ARRAY);
 
@@ -1086,7 +1109,6 @@ if ($_POST['do'] == 'insertpm')
 	// deal with user using receivepmbuddies sending to non-buddies
 	if ($vbulletin->userinfo['receivepmbuddies'] AND is_array($pmdm->info['recipients']))
 	{
-		$buddy_id_array = preg_split('#\s+#', $vbulletin->userinfo['buddylist'], -1, PREG_SPLIT_NO_EMPTY);
 		$users_not_on_list = array();
 
 		// get a list of super mod groups
@@ -1103,12 +1125,12 @@ if ($_POST['do'] == 'insertpm')
 		// now filter out all moderators (and super mods) from the list of recipients
 		// to check against the buddy list
 		$check_recipients = $pmdm->info['recipients'];
-		$mods = $db->query_read("
+		$mods = $db->query_read_slave("
 			SELECT user.userid
 			FROM " . TABLE_PREFIX . "user AS user
 			LEFT JOIN " . TABLE_PREFIX . "moderator AS moderator ON (moderator.userid = user.userid)
 			WHERE user.userid IN (" . implode(',', array_keys($check_recipients)) . ")
-				AND (moderator.userid IS NOT NULL
+				AND ((moderator.userid IS NOT NULL AND moderator.forumid <> -1)
 				" . (!empty($smod_groups) ? "OR user.usergroupid IN (" . implode(',', $smod_groups) . ")" : '') . "
 				)
 		");
@@ -1117,12 +1139,26 @@ if ($_POST['do'] == 'insertpm')
 			unset($check_recipients["$mod[userid]"]);
 		}
 
+		if (!empty($check_recipients))
+		{
+			// filter those on our buddy list out
+			$users = $db->query_read_slave("
+				SELECT userlist.relationid
+				FROM " . TABLE_PREFIX . "userlist AS userlist
+				WHERE userid = " . $vbulletin->userinfo['userid'] . "
+					AND userlist.relationid IN(" . implode(array_keys($check_recipients), ',') . ")
+					AND type = 'buddy'
+			");
+			while ($user = $db->fetch_array($users))
+			{
+				unset($check_recipients["$user[relationid]"]);
+			}
+		}
+
+		// what's left must be those who are neither mods or on our buddy list
 		foreach ($check_recipients AS $userid => $user)
 		{
-			if (!in_array($userid, $buddy_id_array))
-			{
 				$users_not_on_list["$userid"] = $user['username'];
-			}
 		}
 
 		if (!empty($users_not_on_list) AND (!$vbulletin->GPC['sendanyway'] OR !empty($errors)))
@@ -1132,7 +1168,26 @@ if ($_POST['do'] == 'insertpm')
 			{
 				$users .= "<li><a href=\"member.php?$session[sessionurl]u=$userid\" target=\"profile\">$username</a></li>";
 			}
-			$pmdm->error('pm_non_buddies_cant_reply', $users);
+			$pmdm->error('pm_non_contacts_cant_reply', $users);
+		}
+	}
+
+	// check for message flooding
+	if ($vbulletin->options['pmfloodtime'] > 0 AND !$vbulletin->GPC['preview'])
+	{
+		if (!($permissions['adminpermissions'] & $vbulletin->bf_ugp_adminpermissions['cancontrolpanel']) AND !can_moderate())
+		{
+			$floodcheck = $db->query_first("
+				SELECT pmtextid, title, dateline
+				FROM " . TABLE_PREFIX . "pmtext AS pmtext
+				WHERE fromuserid = " . $vbulletin->userinfo['userid'] . "
+				ORDER BY dateline DESC
+			");
+
+			if (($timepassed = TIMENOW - $floodcheck['dateline']) < $vbulletin->options['pmfloodtime'])
+			{
+				$errors[] = fetch_error('pmfloodcheck', $vbulletin->options['pmfloodtime'], ($vbulletin->options['pmfloodtime'] - $timepassed));
+			}
 		}
 	}
 
@@ -1159,6 +1214,10 @@ if ($_POST['do'] == 'insertpm')
 	{
 		// everything's good!
 		$pmdm->save();
+
+		// force pm counters to be rebuilt
+		$vbulletin->userinfo['pmunread'] = -1;
+		build_pm_counters();
 
 		($hook = vBulletinHook::fetch_hook('private_insertpm_complete')) ? eval($hook) : false;
 
@@ -1297,9 +1356,10 @@ if ($_REQUEST['do'] == 'newpm')
 					$recipients[] = intval($vbulletin->GPC['userid']);
 				}
 				$users = $db->query_read_slave("
-					SELECT usertextfield.*, user.*
+					SELECT usertextfield.*, user.*, userlist.type
 					FROM " . TABLE_PREFIX . "user AS user
 					LEFT JOIN " . TABLE_PREFIX . "usertextfield AS usertextfield ON(usertextfield.userid=user.userid)
+					LEFT JOIN " . TABLE_PREFIX . "userlist AS userlist ON(user.userid = userlist.userid AND userlist.relationid = " . $vbulletin->userinfo['userid'] . " AND userlist.type = 'buddy')
 					WHERE user.userid IN(" . implode(', ', $recipients) . ")
 				");
 				$recipients = array();
@@ -1308,7 +1368,7 @@ if ($_REQUEST['do'] == 'newpm')
 					$user = array_merge($user , convert_bits_to_array($user['options'] , $vbulletin->bf_misc_useroptions));
 					cache_permissions($user, false);
 					if (!($vbulletin->userinfo['permissions']['adminpermissions'] & $vbulletin->bf_ugp_adminpermissions['cancontrolpanel']) AND (!$user['receivepm'] OR !$user['permissions']['pmquota']
-	 							OR ($user['receivepmbuddies'] AND !can_moderate() AND strpos(" $user[buddylist] ", ' ' . $vbulletin->userinfo['userid'] . ' ') === false)
+	 							OR ($user['receivepmbuddies'] AND !can_moderate() AND $user['type'] != 'buddy')
 	 				))
 	 				{
 						eval(standard_error(fetch_error('pmrecipturnedoff', $user['username'])));
@@ -1361,6 +1421,7 @@ if ($_REQUEST['do'] == 'newpm')
 	}
 
 	$show['sendmax'] = iif($permissions['pmsendmax'], true, false);
+	$show['sendmultiple'] = ($permissions['pmsendmax'] != 1);
 	$show['parseurl'] = $vbulletin->options['privallowbbcode'];
 
 	// build forum rules
@@ -1705,8 +1766,11 @@ if ($_REQUEST['do'] == 'messagelist')
 		$show['movetofolder'] = true;
 	}
 
-	$templatename = 'pm_messagelist';
+	$totalmessages = vb_number_format($totalmessages);
+	$pmtotal = vb_number_format($vbulletin->userinfo['pmtotal']);
+	$pmquota = vb_number_format($vbulletin->userinfo['permissions']['pmquota']);
 
+	$templatename = 'pm_messagelist';
 }
 
 // #############################################################################
@@ -1729,8 +1793,8 @@ if ($templatename != '')
 
 /*======================================================================*\
 || ####################################################################
-|| # Downloaded: 18:52, Sat Jul 14th 2007
-|| # CVS: $RCSfile$ - $Revision: 16208 $
+|| # Downloaded: 16:21, Sat Apr 6th 2013
+|| # CVS: $RCSfile$ - $Revision: 26957 $
 || ####################################################################
 \*======================================================================*/
 ?>

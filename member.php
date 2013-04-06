@@ -1,9 +1,9 @@
 <?php
 /*======================================================================*\
 || #################################################################### ||
-|| # vBulletin 3.6.7 PL1 - Licence Number VBF2470E4F
+|| # vBulletin 3.7.2 Patch Level 2 - Licence Number VBF2470E4F
 || # ---------------------------------------------------------------- # ||
-|| # Copyright ©2000-2007 Jelsoft Enterprises Ltd. All Rights Reserved. ||
+|| # Copyright ©2000-2013 Jelsoft Enterprises Ltd. All Rights Reserved. ||
 || # This file may not be redistributed in whole or significant part. # ||
 || # ---------------- VBULLETIN IS NOT FREE SOFTWARE ---------------- # ||
 || # http://www.vbulletin.com | http://www.vbulletin.com/license.html # ||
@@ -15,6 +15,7 @@ error_reporting(E_ALL & ~E_NOTICE);
 
 // #################### DEFINE IMPORTANT CONSTANTS #######################
 define('THIS_SCRIPT', 'member');
+define('CSRF_PROTECTION', true);
 define('BYPASS_STYLE_OVERRIDE', 1);
 
 // ################### PRE-CACHE TEMPLATES AND DATA ######################
@@ -26,6 +27,7 @@ $phrasegroups = array(
 	'cprofilefield',
 	'reputationlevel',
 	'infractionlevel',
+	'posting',
 );
 
 // get special data templates from the datastore
@@ -37,8 +39,6 @@ $specialtemplates = array(
 // pre-cache templates used by all actions
 $globaltemplates = array(
 	'MEMBERINFO',
-	'memberinfo_customfields',
-	'memberinfo_customfields_category',
 	'memberinfo_membergroupbit',
 	'im_aim',
 	'im_icq',
@@ -49,12 +49,46 @@ $globaltemplates = array(
 	'bbcode_html',
 	'bbcode_php',
 	'bbcode_quote',
+	'editor_css',
+	'editor_clientscript',
+	'editor_jsoptions_font',
+	'editor_jsoptions_size',
 	'postbit_reputation',
 	'postbit_onlinestatus',
 	'userfield_checkbox_option',
 	'userfield_select_option',
-	'userinfraction_infobit'
+	'memberinfo_block',
+	'memberinfo_block_aboutme',
+	'memberinfo_block_albums',
+	'memberinfo_block_contactinfo',
+	'memberinfo_block_friends',
+	'memberinfo_block_friends_mini',
+	'memberinfo_block_groups',
+	'memberinfo_block_infractions',
+	'memberinfo_block_ministats',
+	'memberinfo_block_profilefield',
+	'memberinfo_block_visitormessaging',
+	'memberinfo_block_recentvisitors',
+	'memberinfo_block_statistics',
+	'memberinfo_css',
+	'memberinfo_infractionbit',
+	'memberinfo_profilefield',
+	'memberinfo_profilefield_category',
+	'memberinfo_visitormessage',
+	'memberinfo_small',
+	'memberinfo_socialgroupbit',
+	'memberinfo_tiny',
+	'memberinfo_visitorbit',
+	'memberinfo_albumbit',
+	'memberinfo_imbit',
+	'memberinfo_publicgroupbit',
+	'memberinfo_visitormessage_deleted',
+	'memberinfo_visitormessage_ignored',
+	'memberinfo_visitormessage_global_ignored',
+	'memberinfo_usercss',
+	'showthread_quickreply',
 );
+
 
 // pre-cache templates used by specific actions
 $actiontemplates = array();
@@ -78,12 +112,11 @@ if (!($permissions['forumpermissions'] & $vbulletin->bf_ugp_forumpermissions['ca
 	print_no_permission();
 }
 
-
 $vbulletin->input->clean_array_gpc('r', array(
-	'find' => TYPE_STR,
+	'find'        => TYPE_STR,
 	'moderatorid' => TYPE_UINT,
-	'userid' => TYPE_UINT,
-	'username' => TYPE_NOHTML
+	'userid'      => TYPE_UINT,
+	'username'    => TYPE_NOHTML,
 ));
 
 ($hook = vBulletinHook::fetch_hook('member_start')) ? eval($hook) : false;
@@ -109,7 +142,7 @@ if ($vbulletin->GPC['find'] == 'firstposter' AND $threadinfo['threadid'])
 		print_no_permission();
 	}
 
-	$vbulletin->GPC['userid'] = $threadinfo['postuserid'];
+	exec_header_redirect('member.php?' . $vbulletin->session->vars['sessionurl_js'] . "u=$threadinfo[postuserid]");
 }
 else if ($vbulletin->GPC['find'] == 'lastposter' AND $threadinfo['threadid'])
 {
@@ -144,7 +177,8 @@ else if ($vbulletin->GPC['find'] == 'lastposter' AND $threadinfo['threadid'])
 		ORDER BY dateline DESC
 		LIMIT 1
 	");
-	$vbulletin->GPC['userid'] = $getuserid['userid'];
+
+	exec_header_redirect('member.php?' . $vbulletin->session->vars['sessionurl_js'] . "u=$getuserid[userid]");
 }
 else if ($vbulletin->GPC['find'] == 'lastposter' AND $foruminfo['forumid'])
 {
@@ -223,12 +257,12 @@ else if ($vbulletin->GPC['find'] == 'lastposter' AND $foruminfo['forumid'])
 		print_no_permission();
 	}
 
-	$vbulletin->GPC['userid'] = $getuserid['userid'];
+	exec_header_redirect('member.php?' . $vbulletin->session->vars['sessionurl_js'] . "u=$getuserid[userid]");
 }
 else if ($vbulletin->GPC['find'] == 'moderator' AND $vbulletin->GPC['moderatorid'])
 {
 	$moderatorinfo = verify_id('moderator', $vbulletin->GPC['moderatorid'], 1, 1);
-	$vbulletin->GPC['userid'] = $moderatorinfo['userid'];
+	exec_header_redirect('member.php?' . $vbulletin->session->vars['sessionurl_js'] . "u=$moderatorinfo[userid]");
 }
 else if ($vbulletin->GPC['username'] != '' AND !$vbulletin->GPC['userid'])
 {
@@ -241,14 +275,24 @@ if (!$vbulletin->GPC['userid'])
 	eval(standard_error(fetch_error('unregistereduser')));
 }
 
-$userinfo = verify_id('user', $vbulletin->GPC['userid'], 1, 1, 47);
+$fetch_userinfo_options = (
+	FETCH_USERINFO_AVATAR | FETCH_USERINFO_LOCATION |
+	FETCH_USERINFO_PROFILEPIC | FETCH_USERINFO_SIGPIC |
+	FETCH_USERINFO_USERCSS | FETCH_USERINFO_ISFRIEND
+);
+
+($hook = vBulletinHook::fetch_hook('member_start_fetch_user')) ? eval($hook) : false;
+
+$userinfo = verify_id('user', $vbulletin->GPC['userid'], 1, 1, $fetch_userinfo_options);
 
 if ($userinfo['usergroupid'] == 4 AND !($permissions['adminpermissions'] & $vbulletin->bf_ugp_adminpermissions['cancontrolpanel']))
 {
 	print_no_permission();
 }
 
-if ($_REQUEST['do'] == 'vcard' AND $vbulletin->userinfo['userid'] AND $userinfo['showvcard'])
+$show['vcard'] = ($vbulletin->userinfo['userid'] AND $userinfo['showvcard']);
+
+if ($_REQUEST['do'] == 'vcard' AND $show['vcard'])
 {
 	// source: http://www.ietf.org/rfc/rfc2426.txt
 	$text = "BEGIN:VCARD\r\n";
@@ -279,540 +323,183 @@ if ($_REQUEST['do'] == 'vcard' AND $vbulletin->userinfo['userid'] AND $userinfo[
 }
 
 // display user info
-
 $userperms = cache_permissions($userinfo, false);
 
-if ($userperms['genericpermissions'] & $vbulletin->bf_ugp_genericpermissions['canbeusernoted'])
+($hook = vBulletinHook::fetch_hook('member_execute_start')) ? eval($hook) : false;
+
+require_once(DIR . '/includes/class_userprofile.php');
+require_once(DIR . '/includes/class_profileblock.php');
+
+$vbulletin->input->clean_array_gpc('r', array(
+	'pagenumber'  => TYPE_UINT,
+	'tab'         => TYPE_NOHTML,
+	'perpage'     => TYPE_UINT,
+	'vmid'        => TYPE_UINT,
+	'showignored' => TYPE_BOOL,
+	'simple'      => TYPE_BOOL,
+));
+
+if ($vbulletin->GPC['vmid'] AND !$vbulletin->GPC['tab'])
 {
-	# User has permission to view self or others
-	if
-		(
-				($userinfo['userid'] == $vbulletin->userinfo['userid'] AND $permissions['genericpermissions'] & $vbulletin->bf_ugp_genericpermissions['canviewownusernotes'])
-			OR 	($userinfo['userid'] != $vbulletin->userinfo['userid'] AND $permissions['genericpermissions'] & $vbulletin->bf_ugp_genericpermissions['canviewothersusernotes'])
+	$vbulletin->GPC['tab'] = 'visitor_messaging';
+}
+
+$profileobj =& new vB_UserProfile($vbulletin, $userinfo);
+$blockfactory =& new vB_ProfileBlockFactory($vbulletin, $profileobj);
+
+$prepared =& $profileobj->prepared;
+$blocks = array();
+$tabs = array();
+$tablinks = array();
+
+$blocklist = array(
+	'stats_mini' => array(
+		'class' => 'MiniStats',
+		'title' => $vbphrase['mini_statistics'],
+	),
+	'friends_mini' => array(
+		'class' => 'Friends',
+		'title' => $vbphrase['friends'],
+	),
+	'albums' => array(
+		'class' => 'Albums',
+		'title' => $vbphrase['albums'],
+	),
+	'visitors' => array(
+		'class' => 'RecentVisitors',
+		'title' => $vbphrase['recent_visitors'],
+		'options' => array(
+			'profilemaxvisitors' => $vbulletin->options['profilemaxvisitors']
 		)
-	{
-		$show['usernotes'] = true;
-		$usernote = $db->query_first_slave("
-			SELECT MAX(dateline) AS lastpost, COUNT(*) AS total
-			FROM " . TABLE_PREFIX . "usernote AS usernote
-			WHERE userid = $userinfo[userid]
-		");
-		$show['usernoteview'] = intval($usernote['total']) ? true : false;
-
-		$usernote['lastpostdate'] = vbdate($vbulletin->options['dateformat'], $usernote['lastpost'], true);
-		$usernote['lastposttime'] = vbdate($vbulletin->options['timeformat'], $usernote['lastpost'], true);
-	}
-	# User has permission to post about self or others
-
-	if
-		(
-				($userinfo['userid'] == $vbulletin->userinfo['userid'] AND $permissions['genericpermissions'] & $vbulletin->bf_ugp_genericpermissions['canpostownusernotes'])
-			OR 	($userinfo['userid'] != $vbulletin->userinfo['userid'] AND $permissions['genericpermissions'] & $vbulletin->bf_ugp_genericpermissions['canpostothersusernotes'])
+	),
+	'groups' => array(
+		'class' => 'Groups',
+		'title' => $vbphrase['group_memberships'],
+	),
+		// PMs must come before Stats to save a query
+	'visitor_messaging' => array(
+		'class'   => 'VisitorMessaging',
+		'title'   => $vbphrase['visitor_messages'],
+		'options' => array(
+			'pagenumber'  => $vbulletin->GPC['pagenumber'],
+			'tab'         => $vbulletin->GPC['tab'],
+			'vmid'        => $vbulletin->GPC['vmid'],
+			'showignored' => $vbulletin->GPC['showignored'],
 		)
+	),
+	'aboutme' => array(
+		'class' => 'AboutMe',
+		'title' => $vbphrase['about_me'],
+		'options' => array(
+			'simple' => $vbulletin->GPC['simple'],
+		),
+	),
+	'stats' => array(
+		'class' => 'Statistics',
+		'title' => $vbphrase['statistics'],
+	),
+	'contactinfo' => array(
+		'class' => 'ContactInfo',
+		'title' => $vbphrase['contact_info'],
+	),
+	'friends' => array(
+		'class'   => 'Friends',
+		'title'   => $vbphrase['friends'],
+		'type'    => 'tab',
+		'options' => array(
+			'fetchamount'       => $vbulletin->options['friends_per_page'],
+			'membertemplate'    => 'memberinfo_small',
+			'template_override'	=> 'memberinfo_block_friends',
+			'pagenumber'        => $vbulletin->GPC['pagenumber'],
+			'tab'               => $vbulletin->GPC['tab'],
+			'fetchorder'        => 'asc',
+		),
+	),
+	'infractions' => array(
+		'class'   => 'Infractions',
+		'title'   => $vbphrase['infractions'],
+		'options' => array(
+			'pagenumber' => $vbulletin->GPC['pagenumber'],
+			'tab'        => $vbulletin->GPC['tab'],
+		),
+	),
+);
+
+if (!empty($vbulletin->GPC['tab']) AND !empty($vbulletin->GPC['perpage']) AND isset($blocklist["{$vbulletin->GPC['tab']}"]))
+{
+	$blocklist["{$vbulletin->GPC['tab']}"]['options']['perpage'] = $vbulletin->GPC['perpage'];
+}
+
+$vbulletin->GPC['simple'] = ($prepared['myprofile'] ? $vbulletin->GPC['simple'] : false);
+
+$profileblock =& $blockfactory->fetch('ProfileFields');
+$profileblock->build_field_data($vbulletin->GPC['simple']);
+
+foreach ($profileblock->locations AS $profilecategoryid => $location)
+{
+	if ($location)
 	{
-		$show['usernotes'] = true;
-		$show['usernotepost'] = true;
+		$blocklist["profile_cat$profilecategoryid"] = array(
+			'class'         => 'ProfileFields',
+			'title'         => $vbphrase["category{$profilecategoryid}_title"],
+			'options'       => array(
+				'category' => $profilecategoryid,
+				'simple'   => $vbulletin->GPC['simple'],
+			),
+			'hook_location' => $location
+		);
 	}
 }
 
-// PROFILE PIC
-$show['profilepic'] = ($vbulletin->options['profilepicenabled'] AND $userinfo['profilepic'] AND ($permissions['genericpermissions'] & $vbulletin->bf_ugp_genericpermissions['canseeprofilepic'] OR $vbulletin->userinfo['userid'] == $userinfo['userid']) AND ($userinfo['permissions']['genericpermissions'] & $vbulletin->bf_ugp_genericpermissions['canprofilepic'] OR $userinfo['adminprofilepic'])) ? true : false;
+($hook = vBulletinHook::fetch_hook('member_build_blocks_start')) ? eval($hook) : false;
 
-if ($vbulletin->options['usefileavatar'])
+if (!empty($vbulletin->GPC['tab']) AND isset($blocklist["{$vbulletin->GPC['tab']}"]))
 {
-	$userinfo['profilepicurl'] = $vbulletin->options['profilepicurl'] . '/profilepic' . $userinfo['userid'] . '_' . $userinfo['profilepicrevision'] . '.gif';
+	$selected_tab = $vbulletin->GPC['tab'];
 }
 else
 {
-	$userinfo['profilepicurl'] = 'image.php?' . $vbulletin->session->vars['sessionurl'] . 'u=' . $userinfo['userid'] . "&amp;dateline=$userinfo[profilepicdateline]&amp;type=profile";
+	$selected_tab = '';
 }
 
-if ($userinfo['ppwidth'] AND $userinfo['ppheight'])
+foreach ($blocklist AS $blockid => $blockinfo)
 {
-	$userinfo['profilepicsize'] = " width=\"$userinfo[ppwidth]\" height=\"$userinfo[ppheight]\" ";
-}
+	$blockobj =& $blockfactory->fetch($blockinfo['class']);
+	$block_html = $blockobj->fetch($blockinfo['title'], $blockid, $blockinfo['options']);
 
-// LAST ACTIVITY AND LAST VISIT
-if (!$userinfo['invisible'] OR ($permissions['genericpermissions'] & $vbulletin->bf_ugp_genericpermissions['canseehidden']) OR $userinfo['userid'] == $vbulletin->userinfo['userid'])
-{
-	$show['lastactivity'] = true;
-	$userinfo['lastactivitydate'] = vbdate($vbulletin->options['dateformat'], $userinfo['lastactivity'], true);
-	$userinfo['lastactivitytime'] = vbdate($vbulletin->options['timeformat'], $userinfo['lastactivity'], true);
-}
-else
-{
-	$show['lastactivity'] = false;
-	$userinfo['lastactivitydate'] = '';
-	$userinfo['lastactivitytime'] = '';
-}
-
-// Get Rank
-$post =& $userinfo;
-
-// JOIN DATE & POSTS PER DAY
-$userinfo['datejoined'] = vbdate($vbulletin->options['dateformat'], $userinfo['joindate']);
-$jointime = (TIMENOW - $userinfo['joindate']) / 86400; // Days Joined
-if ($jointime < 1)
-{ // User has been a member for less than one day.
-	$userinfo['posts'] = vb_number_format($userinfo['posts']);
-	$postsperday = $userinfo['posts'];
-}
-else
-{
-	$postsperday = vb_number_format($userinfo['posts'] / $jointime, 2);
-	$userinfo['posts'] = vb_number_format($userinfo['posts']);
-}
-
-// EMAIL
-$show['email'] = ($vbulletin->options['enableemail'] AND $vbulletin->options['displayemails'] AND $vbulletin->userinfo['permissions']['genericpermissions'] & $vbulletin->bf_ugp_genericpermissions['canemailmember']) ? true : false;
-
-// HOMEPAGE
-$show['homepage'] = ($userinfo['homepage'] != 'http://' AND $userinfo['homepage'] != '') ? true : false;
-
-// PRIVATE MESSAGE
-$show['pm'] = ($vbulletin->options['enablepms'] AND $vbulletin->userinfo['permissions']['pmquota'] AND ($vbulletin->userinfo['permissions']['adminpermissions'] & $vbulletin->bf_ugp_adminpermissions['cancontrolpanel']
-	 					OR ($userinfo['receivepm'] AND $userperms['pmquota']
-	 						AND (!$userinfo['receivepmbuddies'] OR can_moderate() OR strpos(" $userinfo[buddylist] ", ' ' . $vbulletin->userinfo['userid'] . ' ') !== false))
-	 				)) ? true : false;
-
-// IM icons
-construct_im_icons($userinfo, true);
-if (!$vbulletin->options['showimicons'])
-{
-	$show['textimicons'] = true;
-}
-
-// AVATAR
-$avatarurl = fetch_avatar_url($userinfo['userid']);
-
-if ($avatarurl == '' OR !$vbulletin->options['avatarenabled'] OR ($avatarurl['hascustom'] AND !($userinfo['permissions']['genericpermissions'] & $vbulletin->bf_ugp_genericpermissions['canuseavatar']) AND !$userinfo['adminavatar']))
-{
-	$show['avatar'] = false;
-}
-else
-{
-	$show['avatar'] = true;
-	$userinfo['avatarsize'] = $avatarurl[1];
-	$userinfo['avatarurl'] = $avatarurl[0];
-}
-
-$show['lastpost'] = false;
-// GET LAST POST
-if ($vbulletin->options['profilelastpost'] AND $userinfo['lastpost'])
-{
-	if (!in_coventry($userinfo['userid']))
+	if (!empty($blockinfo['hook_location']))
 	{
-		if ($userinfo['lastpostid'] AND $getlastpost = $db->query_first_slave("
-			SELECT thread.title, thread.threadid, thread.forumid, post.postid, post.dateline
-			FROM " . TABLE_PREFIX . "post AS post
-			INNER JOIN " . TABLE_PREFIX . "thread AS thread USING (threadid)
-			WHERE post.postid = $userinfo[lastpostid]
-				AND post.visible = 1
-				AND thread.visible = 1
-		"))
-		{
-			$getperms = fetch_permissions($getlastpost['forumid']);
-			if ($getperms & $vbulletin->bf_ugp_forumpermissions['canview'])
-			{
-				$show['lastpost'] = true;
-				$userinfo['lastposttitle'] = $getlastpost['title'];
-				$userinfo['lastposturl'] = 'showthread.php?' . $vbulletin->session->vars['sessionurl'] . "p=$getlastpost[postid]#post$getlastpost[postid]";
-				$userinfo['lastpostdate'] = vbdate($vbulletin->options['dateformat'], $getlastpost['dateline'], true);
-				$userinfo['lastposttime'] = vbdate($vbulletin->options['timeformat'], $getlastpost['dateline']);
-			}
-		}
-
-		if (!$show['lastpost'])
-		{
-			$getlastposts = $db->query_read_slave("
-				SELECT thread.title, thread.threadid, thread.forumid, post.postid, post.dateline
-				FROM " . TABLE_PREFIX . "post AS post
-				INNER JOIN " . TABLE_PREFIX . "thread AS thread USING (threadid)
-				WHERE thread.visible = 1
-					AND post.userid =  $userinfo[userid]
-					AND post.visible = 1
-				ORDER BY post.dateline DESC
-				LIMIT 20
-			");
-			while ($getlastpost = $db->fetch_array($getlastposts))
-			{
-				$getperms = fetch_permissions($getlastpost['forumid']);
-				if ($getperms & $vbulletin->bf_ugp_forumpermissions['canview'])
-				{
-					$show['lastpost'] = true;
-					$userinfo['lastposttitle'] = $getlastpost['title'];
-					$userinfo['lastposturl'] = 'showthread.php?' . $vbulletin->session->vars['sessionurl'] . "p=$getlastpost[postid]#post$getlastpost[postid]";
-					$userinfo['lastpostdate'] = vbdate($vbulletin->options['dateformat'], $getlastpost['dateline'], true);
-					$userinfo['lastposttime'] = vbdate($vbulletin->options['timeformat'], $getlastpost['dateline']);
-					break;
-				}
-			}
-		}
-	}
-
-	if (!$show['lastpost'])
-	{
-		$show['lastpost'] = true;
-		$userinfo['lastposttitle'] = '';
-		$userinfo['lastposturl'] = '#';
-		$userinfo['lastpostdate'] = $vbphrase['never'];
-		$userinfo['lastposttime'] = '';
-	}
-}
-
-// reputation
-fetch_reputation_image($userinfo, $userperms);
-
-// signature
-if ($userinfo['signature'] AND $userinfo['permissions']['genericpermissions'] & $vbulletin->bf_ugp_genericpermissions['canusesignature'])
-{
-	require_once(DIR . '/includes/class_bbcode.php');
-	$bbcode_parser =& new vB_BbCodeParser($vbulletin, fetch_tag_list());
-	$bbcode_parser->set_parse_userinfo($userinfo, $userperms);
-	$userinfo['signature'] = $bbcode_parser->parse($userinfo['signature'], 'signature');
-
-	$show['signature'] = true;
-}
-else
-{
-	$show['signature'] = false;
-}
-
-// REFERRALS
-if ($vbulletin->options['usereferrer'])
-{
-	$refcount = $db->query_first_slave("SELECT COUNT(*) AS count FROM " . TABLE_PREFIX . "user WHERE referrerid = $userinfo[userid]");
-	$referrals = vb_number_format($refcount['count']);
-}
-
-// extra info panel
-$show['extrainfo'] = false;
-
-// BIRTHDAY
-// Set birthday fields right here!
-if ($userinfo['birthday'] AND $userinfo['showbirthday'] > 0)
-{
-	$bday = explode('-', $userinfo['birthday']);
-
-	$year = vbdate('Y', TIMENOW, false, false);
-	$month = vbdate('n', TIMENOW, false, false);
-	$day = vbdate('j', TIMENOW, false, false);
-	if ($year > $bday[2] AND $bday[2] != '0000' AND $userinfo['showbirthday'] != 3)
-	{
-		$userinfo['age'] = $year - $bday[2];
-		if ($month < $bday[0] OR ($month == $bday[0] AND $day < $bday[1]))
-		{
-			$userinfo['age']--;
-		}
-
-		if ($userinfo['age'] > 101)
-		{	// why can't we have 102 year old forum users?
-			// Got me!?
-			$show['age'] = false;
-		}
-		else
-		{
-			$show['age'] = true;
-			$show['extrainfo'] = true;
-		}
-	}
-
-	if ($userinfo['showbirthday'] >= 2)
-	{
-		if ($year > $bday[2] AND $bday[2] > 1901 AND $bday[2] != '0000' AND $userinfo['showbirthday'] == 2)
-		{
-			require_once(DIR . '/includes/functions_misc.php');
-			$vbulletin->options['calformat1'] = mktimefix($vbulletin->options['calformat1'], $bday[2]);
-			if ($bday[2] >= 1970)
-			{
-				$yearpass = $bday[2];
-			}
-			else
-			{
-				// day of the week patterns repeat every 28 years, so
-				// find the first year >= 1970 that has this pattern
-				$yearpass = $bday[2] + 28 * ceil((1970 - $bday[2]) / 28);
-			}
-			$userinfo['birthday'] = vbdate($vbulletin->options['calformat1'], mktime(0, 0, 0, $bday[0], $bday[1], $yearpass), false, true, false);
-		}
-		else
-		{
-			// lets send a valid year as some PHP3 don't like year to be 0
-			$userinfo['birthday'] = vbdate($vbulletin->options['calformat2'], mktime(0, 0, 0, $bday[0], $bday[1], 1992), false, true, false);
-		}
-		if ($userinfo['birthday'] == '')
-		{
-			if ($bday[2] == '0000')
-			{
-				$userinfo['birthday'] = "$bday[0]-$bday[1]";
-			}
-			else
-			{
-				$userinfo['birthday'] = "$bday[0]-$bday[1]-$bday[2]";
-			}
-		}
-		$show['extrainfo'] = true;
-		$show['birthday'] = true;
+		$template_hook["$blockinfo[hook_location]"] .= $block_html;
 	}
 	else
 	{
-		$show['birthday'] = false;
+		$blocks["$blockid"] = $block_html;
 	}
 }
 
-// *********************
-// CUSTOM PROFILE FIELDS
-$profilefield_categories = array(0 => array());
-$profilefields_result = $db->query_read_slave("
-	SELECT pf.profilefieldid, pf.profilefieldcategoryid, pf.required, pf.type, pf.data, pf.def, pf.height
-	FROM " . TABLE_PREFIX . "profilefield AS pf
-	LEFT JOIN " . TABLE_PREFIX . "profilefieldcategory AS pfc ON(pfc.profilefieldcategoryid = pf.profilefieldcategoryid)
-	WHERE pf.form = 0 " . iif(!($permissions['genericpermissions'] & $vbulletin->bf_ugp_genericpermissions['canseehiddencustomfields']), "
-			AND pf.hidden = 0") . "
-	ORDER BY pfc.displayorder, pf.displayorder
-");
-while ($profilefield = $db->fetch_array($profilefields_result))
+$usercss = construct_usercss($userinfo, $show['usercss_switch']);
+construct_usercss_switch($show['usercss_switch'], $usercss_switch_phrase);
+
+eval('$memberinfo_css = "' . fetch_template('memberinfo_css') . '";');
+
+// check to see if we can see a 'Members List' link in the breadcrumb
+if ($vbulletin->options['enablememberlist'] AND $permissions['genericpermissions'] & $vbulletin->bf_ugp_genericpermissions['canviewmembers'])
 {
-	$profilefield_categories["$profilefield[profilefieldcategoryid]"][] = $profilefield;
+	$navbits = construct_navbits(array(
+		'memberlist.php' . $vbulletin->session->vars['sessionurl_q'] => $vbphrase['members_list'],
+		'' => construct_phrase($vbphrase['xs_profile'], $userinfo['username'])
+	));
 }
-
-$customfields = '';
-$customfields_category = array();
-foreach ($profilefield_categories AS $profilefieldcategoryid => $profilefields)
-{	
-	$category = array(
-		'title' => $vbphrase["category{$profilefieldcategoryid}_title"],
-		'description' => $vbphrase["category{$profilefieldcategoryid}_desc"],
-		'fields' => ''
-	);
-	
-	foreach ($profilefields AS $profilefield)
-	{
-		exec_switch_bg();
-		
-		fetch_profilefield_display($profilefield, $userinfo["field$profilefield[profilefieldid]"]);
-	
-		($hook = vBulletinHook::fetch_hook('member_customfields')) ? eval($hook) : false;
-	
-		if ($profilefield['value'] != '')
-		{
-			$show['extrainfo'] = true;
-			eval('$category[\'fields\'] .= "' . fetch_template('memberinfo_customfields') . '";');
-		}
-	}
-	
-	$customfields_category["$profilefieldcategoryid"] = $category['fields'];
-	
-	eval('$customfields .= "' . fetch_template('memberinfo_customfields_category') . '";');
-}
-// END CUSTOM PROFILE FIELDS
-// *************************
-
-// User Infractions
-if ($vbulletin->userinfo['permissions']['genericpermissions'] & $vbulletin->bf_ugp_genericpermissions['canreverseinfraction']
-	OR $vbulletin->userinfo['permissions']['genericpermissions'] & $vbulletin->bf_ugp_genericpermissions['cangiveinfraction']
-	OR $userinfo['userid'] == $vbulletin->userinfo['userid'])
+else // no, we can't, so miss off that part of the breadcrumb
 {
-
-	($hook = vBulletinHook::fetch_hook('member_infraction_start')) ? eval($hook) : false;
-
-	$perpage = $vbulletin->input->clean_gpc('r', 'perpage', TYPE_UINT);
-	$pagenumber = $vbulletin->input->clean_gpc('r', 'pagenumber', TYPE_UINT);
-
-	$totalinfractions = $db->query_first_slave("
-		SELECT COUNT(*) AS count
-		FROM " . TABLE_PREFIX . "infraction AS infraction
-		LEFT JOIN " . TABLE_PREFIX . "post AS post ON (infraction.postid = post.postid)
-		LEFT JOIN " . TABLE_PREFIX . "thread AS thread ON (post.threadid = thread.threadid)
-		WHERE infraction.userid = $userinfo[userid]
-	");
-
-	// set defaults
-	sanitize_pageresults($totalinfractions['count'], $pagenumber, $perpage, 100, 5);
-	$limitlower = ($pagenumber - 1) * $perpage + 1;
-	$limitupper = $pagenumber * $perpage;
-	if ($limitupper > $totalinfractions['count'])
-	{
-		$limitupper = $totalinfractions['count'];
-		if ($limitlower > $totalinfractions['count'])
-		{
-			$limitlower = $totalinfractions['count'] - $perpage;
-		}
-	}
-	if ($limitlower <= 0)
-	{
-		$limitlower = 1;
-	}
-
-	$colspan = 7;
-	if ($userinfo['userid'] != $vbulletin->userinfo['userid'] AND $vbulletin->userinfo['permissions']['genericpermissions'] & $vbulletin->bf_ugp_genericpermissions['canreverseinfraction'])
-	{
-		$show['reverse'] = true;
-		$colspan++;
-	}
-
-	require_once(DIR . '/includes/class_bbcode.php');
-	$bbcode_parser =& new vB_BbCodeParser($vbulletin, fetch_tag_list());
-
-	$infractions = $db->query_read_slave("
-		SELECT infraction.*, thread.title, user.username, thread.visible AS thread_visible, post.visible,
-			forumid, postuserid, IF(ISNULL(post.postid) AND infraction.postid != 0, 1, 0) AS postdeleted
-		FROM " . TABLE_PREFIX . "infraction AS infraction
-		LEFT JOIN " . TABLE_PREFIX . "post AS post ON (infraction.postid = post.postid)
-		LEFT JOIN " . TABLE_PREFIX . "thread AS thread ON (post.threadid = thread.threadid)
-		INNER JOIN " . TABLE_PREFIX . "user AS user ON (infraction.whoadded = user.userid)
-		WHERE infraction.userid = $userinfo[userid]
-		ORDER BY infraction.dateline DESC
-		LIMIT " . ($limitlower - 1) . ", $perpage
-	");
-	while ($infraction = $db->fetch_array($infractions))
-	{
-		$show['expired'] = $show['reversed'] = $show['neverexpires'] = false;
-		$card = ($infraction['points'] > 0) ? 'redcard' : 'yellowcard';
-		$infraction['timeline'] = vbdate($vbulletin->options['timeformat'], $infraction['dateline']);
-		$infraction['dateline'] = vbdate($vbulletin->options['dateformat'], $infraction['dateline']);
-		switch($infraction['action'])
-		{
-			case 0:
-				if ($infraction['expires'] != 0)
-				{
-					$infraction['expires_timeline'] = vbdate($vbulletin->options['timeformat'], $infraction['expires']);
-					$infraction['expires_dateline'] = vbdate($vbulletin->options['dateformat'], $infraction['expires']);
-					$show['neverexpires'] = false;
-				}
-				else
-				{
-					$show['neverexpires'] = true;
-				}
-				break;
-			case 1:
-				$show['expired'] = true;
-				break;
-			case 2:
-				$show['reversed'] = true;
-				break;
-		}
-		if (vbstrlen($infraction['title']) > 25)
-		{
-			$infraction['title'] = fetch_trimmed_title($infraction['title'], 24);
-		}
-		$infraction['reason'] = !empty($vbphrase['infractionlevel' . $infraction['infractionlevelid'] . '_title']) ? $vbphrase['infractionlevel' . $infraction['infractionlevelid'] . '_title'] : ($infraction['customreason'] ? $infraction['customreason'] : $vbphrase['n_a']);
-
-		$show['threadtitle'] = true;
-		$show['postdeleted'] = false;
-		if ($infraction['postid'] != 0)
-		{
-			if ($infraction['postdeleted'])
-			{
-				$show['postdeleted'] = true;
-			}
-			else if ((!$infraction['visible'] OR !$infraction['thread_visible']) AND !can_moderate($infraction['forumid'], 'canmoderateposts'))
-			{
-				$show['threadtitle'] = false;
-			}
-			else if (($infraction['visible'] == 2 OR $infraction['thread_visible'] == 2) AND !can_moderate($infraction['forumid'], 'candeleteposts'))
-			{
-				$show['threadtitle'] = false;
-			}
-			else
-			{
-				$forumperms = fetch_permissions($infraction['forumid']);
-				if (!($forumperms & $vbulletin->bf_ugp_forumpermissions['canview']))
-				{
-					$show['threadtitle'] = false;
-				}
-				if (!($forumperms & $vbulletin->bf_ugp_forumpermissions['canviewothers']) AND ($infraction['postuserid'] != $vbulletin->userinfo['userid'] OR $vbulletin->userinfo['userid'] == 0))
-				{
-					$show['threadtitle'] = false;
-				}
-			}
-		}
-
-		($hook = vBulletinHook::fetch_hook('member_infractionbit')) ? eval($hook) : false;
-
-		eval('$infractionbits .= "' . fetch_template('userinfraction_infobit') . '";');
-		$show['infractions'] = true;
-	}
-	unset($bbcode_parser);
-
-	$show['giveinfraction'] = (
-			// Must have 'cangiveinfraction' permission. Branch dies right here majority of the time
-			$vbulletin->userinfo['permissions']['genericpermissions'] & $vbulletin->bf_ugp_genericpermissions['cangiveinfraction']
-			// Can not give yourself an infraction
-			AND $userinfo['userid'] != $vbulletin->userinfo['userid']
-			// Can not give an infraction to a post that already has one
-			// Can not give an admin an infraction
-			AND !($userinfo['permissions']['adminpermissions'] & $vbulletin->bf_ugp_adminpermissions['cancontrolpanel'])
-			// Only Admins can give a supermod an infraction
-			AND (
-				!($userinfo['permissions']['adminpermissions'] & $vbulletin->bf_ugp_adminpermissions['ismoderator'])
-				OR $vbulletin->userinfo['permissions']['adminpermissions'] & $vbulletin->bf_ugp_adminpermissions['cancontrolpanel']
-			)
-		);
-
-	$pagenav = construct_page_nav($pagenumber, $perpage, $totalinfractions['count'], 'member.php?' . $vbulletin->session->vars['sessionurl'] . "u=$userinfo[userid]"
-	. (!empty($vbulletin->GPC['perpage']) ? "&amp;pp=$perpage" : "")
-	);
-
-	($hook = vBulletinHook::fetch_hook('member_infraction_complete')) ? eval($hook) : false;
+	$navbits = construct_navbits(array(
+		'' => construct_phrase($vbphrase['xs_profile'], $userinfo['username'])
+	));
 }
 
-require_once(DIR . '/includes/functions_bigthree.php');
-fetch_online_status($userinfo, true);
-
-$buddylist = explode(' ', trim($vbulletin->userinfo['buddylist']));
-$ignorelist = explode(' ', trim($vbulletin->userinfo['ignorelist']));
-if (!in_array($userinfo['userid'], $ignorelist))
-{
-	$show['addignorelist'] = true;
-}
-else
-{
-	$show['addignorelist'] = false;
-}
-if (!in_array($userinfo['userid'], $buddylist))
-{
-	$show['addbuddylist'] = true;
-}
-else
-{
-	$show['addbuddylist'] = false;
-}
-
-// Used in template conditional
-if ($vbulletin->options['WOLenable'] AND $userinfo['action'] AND $permissions['wolpermissions'] & $vbulletin->bf_ugp_wolpermissions['canwhosonline'])
-{
-	$show['currentlocation'] = true;
-}
-
-// get IDs of all member groups
-$membergroups = fetch_membergroupids_array($userinfo);
-
-$membergroupbits = '';
-foreach ($membergroups AS $usergroupid)
-{
-	$usergroup =& $vbulletin->usergroupcache["$usergroupid"];
-	if ($usergroup['ispublicgroup'])
-	{
-		exec_switch_bg();
-		eval('$membergroupbits .= "' . fetch_template('memberinfo_membergroupbit') . '";');
-	}
-}
-
-$show['membergroups'] = iif($membergroupbits != '', true, false);
-$show['profilelinks'] = iif($show['member'] OR $userinfo['showvcard'] OR $show['giveinfraction'], true, false);
-$show['contactlinks'] = iif($show['email'] OR $show['pm'] OR $show['homepage'] OR $show['hasimicons'], true, false);
-
-$navbits = construct_navbits(array(
-	'member.php?' . $vbulletin->session->vars['sessionurl'] . "u=$userinfo[userid]" => $vbphrase['view_profile'],
-	'' => $userinfo['username']
-));
 eval('$navbar = "' . fetch_template('navbar') . '";');
 
-$bgclass = 'alt2';
-$bgclass1 = 'alt1';
-
-$templatename = iif($quick, 'memberinfo_quick', 'MEMBERINFO');
+$templatename = 'MEMBERINFO';
 
 ($hook = vBulletinHook::fetch_hook('member_complete')) ? eval($hook) : false;
 
@@ -820,8 +507,8 @@ eval('print_output("' . fetch_template($templatename) . '");');
 
 /*======================================================================*\
 || ####################################################################
-|| # Downloaded: 18:52, Sat Jul 14th 2007
-|| # CVS: $RCSfile$ - $Revision: 16867 $
+|| # Downloaded: 16:21, Sat Apr 6th 2013
+|| # CVS: $RCSfile$ - $Revision: 26904 $
 || ####################################################################
 \*======================================================================*/
 ?>

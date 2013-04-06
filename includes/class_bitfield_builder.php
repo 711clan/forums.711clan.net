@@ -1,9 +1,9 @@
 <?php
 /*======================================================================*\
 || #################################################################### ||
-|| # vBulletin 3.6.7 PL1 - Licence Number VBF2470E4F
+|| # vBulletin 3.7.2 Patch Level 2 - Licence Number VBF2470E4F
 || # ---------------------------------------------------------------- # ||
-|| # Copyright ©2000-2007 Jelsoft Enterprises Ltd. All Rights Reserved. ||
+|| # Copyright ©2000-2013 Jelsoft Enterprises Ltd. All Rights Reserved. ||
 || # This file may not be redistributed in whole or significant part. # ||
 || # ---------------- VBULLETIN IS NOT FREE SOFTWARE ---------------- # ||
 || # http://www.vbulletin.com | http://www.vbulletin.com/license.html # ||
@@ -14,8 +14,8 @@
 * Class to build array from permissions within XML file
 *
 * @package	vBulletin
-* @version	$Revision: 16249 $
-* @date		$Date: 2007-01-31 12:05:42 -0600 (Wed, 31 Jan 2007) $
+* @version	$Revision: 26074 $
+* @date		$Date: 2008-03-13 10:44:45 -0500 (Thu, 13 Mar 2008) $
 */
 class vB_Bitfield_Builder
 {
@@ -426,6 +426,15 @@ class vB_Bitfield_Builder
 		return $tempdata;
 	}
 
+	/**
+	* Fetches an array from the specified permission group (within the ugp tag).
+	* Note that if you specify an invalid name or the group can't be built
+	* errors will be printed. Intperms and non-sub-grouped fields will be ignored.
+	*
+	* @param	string	Name of group to fetch.
+	*
+	* @return	array	[subgroup][permtitle] => array(phrase => str, value => int)
+	*/
 	function fetch_permission_group($permgroup)
 	{
 		$output = array();
@@ -482,8 +491,8 @@ class vB_Bitfield_Builder
 
 /*======================================================================*\
 || ####################################################################
-|| # Downloaded: 18:52, Sat Jul 14th 2007
-|| # CVS: $RCSfile$ - $Revision: 16249 $
+|| # Downloaded: 16:21, Sat Apr 6th 2013
+|| # CVS: $RCSfile$ - $Revision: 26074 $
 || ####################################################################
 \*======================================================================*/
 ?>

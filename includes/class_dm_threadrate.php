@@ -1,9 +1,9 @@
 <?php
 /*======================================================================*\
 || #################################################################### ||
-|| # vBulletin 3.6.7 PL1 - Licence Number VBF2470E4F
+|| # vBulletin 3.7.2 Patch Level 2 - Licence Number VBF2470E4F
 || # ---------------------------------------------------------------- # ||
-|| # Copyright ©2000-2007 Jelsoft Enterprises Ltd. All Rights Reserved. ||
+|| # Copyright ©2000-2013 Jelsoft Enterprises Ltd. All Rights Reserved. ||
 || # This file may not be redistributed in whole or significant part. # ||
 || # ---------------- VBULLETIN IS NOT FREE SOFTWARE ---------------- # ||
 || # http://www.vbulletin.com | http://www.vbulletin.com/license.html # ||
@@ -27,8 +27,8 @@ if (!class_exists('vB_DataManager'))
 * $t->save();
 *
 * @package	vBulletin
-* @version	$Revision: 14525 $
-* @date		$Date: 2006-03-20 18:04:01 -0600 (Mon, 20 Mar 2006) $
+* @version	$Revision: 25833 $
+* @date		$Date: 2008-02-22 08:10:39 -0600 (Fri, 22 Feb 2008) $
 */
 class vB_DataManager_ThreadRate extends vB_DataManager
 {
@@ -257,8 +257,8 @@ class vB_DataManager_ThreadRate extends vB_DataManager
 * Class to do data update operations for multiple THREADRATE simultaneously
 *
 * @package	vBulletin
-* @version	$Revision: 14525 $
-* @date		$Date: 2006-03-20 18:04:01 -0600 (Mon, 20 Mar 2006) $
+* @version	$Revision: 25833 $
+* @date		$Date: 2008-02-22 08:10:39 -0600 (Fri, 22 Feb 2008) $
 */
 class vB_DataManager_ThreadRate_Multiple extends vB_DataManager_Multiple
 {
@@ -308,8 +308,8 @@ class vB_DataManager_ThreadRate_Multiple extends vB_DataManager_Multiple
 
 /*======================================================================*\
 || ####################################################################
-|| # Downloaded: 18:52, Sat Jul 14th 2007
-|| # CVS: $RCSfile$ - $Revision: 14525 $
+|| # Downloaded: 16:21, Sat Apr 6th 2013
+|| # CVS: $RCSfile$ - $Revision: 25833 $
 || ####################################################################
 \*======================================================================*/
 ?>

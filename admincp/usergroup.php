@@ -1,9 +1,9 @@
 <?php
 /*======================================================================*\
 || #################################################################### ||
-|| # vBulletin 3.6.7 PL1 - Licence Number VBF2470E4F
+|| # vBulletin 3.7.2 Patch Level 2 - Licence Number VBF2470E4F
 || # ---------------------------------------------------------------- # ||
-|| # Copyright ©2000-2007 Jelsoft Enterprises Ltd. All Rights Reserved. ||
+|| # Copyright ©2000-2013 Jelsoft Enterprises Ltd. All Rights Reserved. ||
 || # This file may not be redistributed in whole or significant part. # ||
 || # ---------------- VBULLETIN IS NOT FREE SOFTWARE ---------------- # ||
 || # http://www.vbulletin.com | http://www.vbulletin.com/license.html # ||
@@ -14,7 +14,7 @@
 error_reporting(E_ALL & ~E_NOTICE);
 
 // ##################### DEFINE IMPORTANT CONSTANTS #######################
-define('CVS_REVISION', '$RCSfile$ - $Revision: 16151 $');
+define('CVS_REVISION', '$RCSfile$ - $Revision: 26706 $');
 
 // #################### PRE-CACHE TEMPLATES AND DATA ######################
 $phrasegroups = array('cppermission', 'cpuser', 'promotion', 'pm', 'cpusergroup');
@@ -138,6 +138,26 @@ if ($_REQUEST['do'] == 'add' OR $_REQUEST['do'] == 'edit')
 				'profilepicmaxwidth' => 100, 'profilepicmaxheight' => 100, 'profilepicmaxsize' => 25000, 'sigmaxsizebbcode' => 7
 			);
 		}
+
+		$permgroups = $db->query_read("
+			SELECT usergroup.usergroupid, title,
+				(COUNT(forumpermission.forumpermissionid) + COUNT(calendarpermission.calendarpermissionid)) AS permcount
+			FROM " . TABLE_PREFIX . "usergroup AS usergroup
+			LEFT JOIN " . TABLE_PREFIX . "forumpermission AS forumpermission ON (usergroup.usergroupid = forumpermission.usergroupid)
+			LEFT JOIN " . TABLE_PREFIX . "calendarpermission AS calendarpermission ON (usergroup.usergroupid = calendarpermission.usergroupid)
+			GROUP BY usergroup.usergroupid
+			HAVING permcount > 0
+			ORDER BY title
+		");
+		$ugarr = array('-1' => '--- ' . $vbphrase['none'] . ' ---');
+		while ($group = $db->fetch_array($permgroups))
+		{
+			$ugarr["$group[usergroupid]"] = $group['title'];
+		}
+		print_table_header($vbphrase['default_forum_permissions']);
+		print_select_row($vbphrase['create_permissions_based_off_of_forum'], 'ugid_base', $ugarr, $vbulletin->GPC['defaultgroupid']);
+		print_table_break();
+
 		print_table_header($vbphrase['add_new_usergroup']);
 	}
 	else
@@ -294,28 +314,6 @@ if ($_REQUEST['do'] == 'add' OR $_REQUEST['do'] == 'edit')
 		print_column_style_code(array('width: 70%', 'width: 30%'));
 	}
 
-	if ($_REQUEST['do'] == 'add')
-	{
-		$permgroups = $db->query_read("
-			SELECT usergroup.usergroupid, title,
-				(COUNT(forumpermission.forumpermissionid) + COUNT(calendarpermission.calendarpermissionid)) AS permcount
-			FROM " . TABLE_PREFIX . "usergroup AS usergroup
-			LEFT JOIN " . TABLE_PREFIX . "forumpermission AS forumpermission ON (usergroup.usergroupid = forumpermission.usergroupid)
-			LEFT JOIN " . TABLE_PREFIX . "calendarpermission AS calendarpermission ON (usergroup.usergroupid = calendarpermission.usergroupid)
-			GROUP BY usergroup.usergroupid
-			HAVING permcount > 0
-			ORDER BY title
-		");
-		$ugarr = array('-1' => '--- ' . $vbphrase['none'] . ' ---');
-		while ($group = $db->fetch_array($permgroups))
-		{
-			$ugarr["$group[usergroupid]"] = $group['title'];
-		}
-		print_table_header($vbphrase['default_forum_permissions']);
-		print_select_row($vbphrase['create_permissions_based_off_of_forum'], 'ugid_base', $ugarr);
-		print_table_break();
-	}
-
 	print_submit_row(iif($_REQUEST['do'] == 'add', $vbphrase['save'], $vbphrase['update']));
 }
 
@@ -356,14 +354,41 @@ if ($_POST['do'] == 'update')
 				print_stop_message('cant_delete_last_admin_group');
 			}
 		}
+
 		$db->query_write(fetch_query_sql($vbulletin->GPC['usergroup'], 'usergroup', "WHERE usergroupid=" . $vbulletin->GPC['usergroupid']));
+
 		if (!($vbulletin->GPC['usergroup']['genericpermissions'] & $vbulletin->bf_ugp_genericpermissions['caninvisible']))
-		{ // make the users in this group visible
-			$db->query_write("
-				UPDATE " . TABLE_PREFIX . "user
-				SET options = (options & ~" . $vbulletin->bf_misc_useroptions['invisible'] . ")
-				WHERE usergroupid = " . $vbulletin->GPC['usergroupid'] . "
-			");
+		{
+			if (!($vbulletin->GPC['usergroup']['genericoptions'] & $vbulletin->bf_ugp_genericoptions['allowmembergroups']))
+			{
+				// make the users in this group visible
+				$db->query_write("
+					UPDATE " . TABLE_PREFIX . "user
+					SET options = (options & ~" . $vbulletin->bf_misc_useroptions['invisible'] . ")
+					WHERE usergroupid = " . $vbulletin->GPC['usergroupid'] . "
+				");
+			}
+			else
+			{
+				// find all groups allowed to be invisible - don't change people with those as secondary groups
+				$invisible_groups = '';
+				$invisible_sql = $db->query_read("
+					SELECT usergroupid
+					FROM " . TABLE_PREFIX . "usergroup
+					WHERE genericpermissions & " . $vbulletin->bf_ugp_genericpermissions['caninvisible']
+				);
+				while ($invisible_group = $db->fetch_array($invisible_sql))
+				{
+					$invisible_groups .= "\nAND NOT FIND_IN_SET($invisible_group[usergroupid], membergroupids)";
+				}
+
+				$db->query_write("
+					UPDATE " . TABLE_PREFIX . "user
+					SET options = (options & ~" . $vbulletin->bf_misc_useroptions['invisible'] . ")
+					WHERE usergroupid = " . $vbulletin->GPC['usergroupid'] . "
+						$invisible_groups
+				");
+			}
 		}
 		if ($vbulletin->GPC['usergroup']['adminpermissions'] & $vbulletin->bf_ugp_adminpermissions['cancontrolpanel'])
 		{
@@ -487,6 +512,8 @@ if ($_POST['do'] == 'update')
 		DELETE FROM " . TABLE_PREFIX . "sigparsed
 	");
 
+	($hook = vBulletinHook::fetch_hook('admin_usergroup_save_complete')) ? eval($hook) : false;
+
 	define('CP_REDIRECT', 'usergroup.php?do=modify');
 	print_stop_message('saved_usergroup_x_successfully', htmlspecialchars_uni($vbulletin->GPC['usergroup']['title']));
 
@@ -503,7 +530,9 @@ if ($_REQUEST['do'] == 'remove')
 	}
 	else
 	{
-		print_delete_confirmation('usergroup', $vbulletin->GPC['usergroupid'], 'usergroup', 'kill', 'usergroup', 0, $vbphrase['all_members_of_this_usergroup_will_revert']);
+		print_delete_confirmation('usergroup', $vbulletin->GPC['usergroupid'], 'usergroup', 'kill', 'usergroup', 0,
+			construct_phrase($vbphrase['all_members_of_this_usergroup_will_revert'], $vbulletin->usergroupcache['2']['title'])
+		);
 	}
 
 }
@@ -571,6 +600,8 @@ if ($_POST['do'] == 'kill')
 		");
 	}
 
+	($hook = vBulletinHook::fetch_hook('admin_usergroup_kill')) ? eval($hook) : false;
+
 	define('CP_REDIRECT', 'usergroup.php?do=modify');
 	print_stop_message('deleted_usergroup_successfully');
 }
@@ -604,8 +635,7 @@ if ($_POST['do'] == 'insertleader')
 	{
 		if ($user = $db->query_first("SELECT * FROM " . TABLE_PREFIX . "user WHERE username = '" . $db->escape_string($vbulletin->GPC['username']) . "'"))
 		{
-			$noalter = explode(',', $vbulletin->config['SpecialUsers']['undeletableusers']);
-			if (!empty($noalter[0]) AND in_array($user['userid'], $noalter))
+			if (is_unalterable_user($user['userid']))
 			{
 				print_stop_message('user_is_protected_from_alteration_by_undeletableusers_var');
 			}
@@ -810,7 +840,7 @@ if ($_REQUEST['do'] == 'modify')
 			case 'list': window.location = "user.php?<?php echo $vbulletin->session->vars['sessionurl_js']; ?>do=find&user[usergroupid]=" + usergroupid; break;
 			case 'list2': window.location = "user.php?<?php echo $vbulletin->session->vars['sessionurl_js']; ?>do=find&user[membergroup][]=" + usergroupid; break;
 			case 'reputation': window.location = "user.php?<?php echo $vbulletin->session->vars['sessionurl_js']; ?>do=find&display[username]=1&display[options]=1&display[posts]=1&display[usergroup]=1&display[lastvisit]=1&display[reputation]=1&orderby=reputation&direction=desc&limitnumber=25&user[usergroupid]=" + usergroupid; break;
-			case 'promote': window.location = "usergroup.php?<?php echo $vbulletin->session->vars['sessionurl_js']; ?>do=modifypromotion&usergroupid=" + usergroupid; break;
+			case 'promote': window.location = "usergroup.php?<?php echo $vbulletin->session->vars['sessionurl_js']; ?>do=modifypromotion&returnug=1&usergroupid=" + usergroupid; break;
 			case 'leader': window.location = "usergroup.php?<?php echo $vbulletin->session->vars['sessionurl_js']; ?>do=addleader&usergroupid=" + usergroupid; break;
 			case 'requests': window.location = "usergroup.php?<?php echo $vbulletin->session->vars['sessionurl_js']; ?>do=viewjoinrequests&usergroupid=" + usergroupid; break;
 			default: return false; break;
@@ -858,29 +888,29 @@ if ($_REQUEST['do'] == 'modify')
 	print_form_header('usergroup', 'add');
 
 	$options_default = array(
-		'edit' => $vbphrase['edit_usergroup'],
-		'promote' => $vbphrase['edit_promotions'],
-		'list' => $vbphrase['show_all_primary_users'],
-		'list2' => $vbphrase['show_all_additional_users'],
+		'edit'       => $vbphrase['edit_usergroup'],
+		'promote'    => $vbphrase['edit_promotions'],
+		'list'       => $vbphrase['show_all_primary_users'],
+		'list2'      => $vbphrase['show_all_additional_users'],
 		'reputation' => $vbphrase['view_reputation']
 	);
 	$options_custom = array(
-		'edit' => $vbphrase['edit_usergroup'],
-		'promote' => $vbphrase['edit_promotions'],
-		'kill' => $vbphrase['delete_usergroup'],
-		'list' => $vbphrase['show_all_primary_users'],
-		'list2' => $vbphrase['show_all_additional_users'],
+		'edit'       => $vbphrase['edit_usergroup'],
+		'promote'    => $vbphrase['edit_promotions'],
+		'kill'       => $vbphrase['delete_usergroup'],
+		'list'       => $vbphrase['show_all_primary_users'],
+		'list2'      => $vbphrase['show_all_additional_users'],
 		'reputation' => $vbphrase['view_reputation']
 	);
 	$options_public = array(
-		'edit' => $vbphrase['edit_usergroup'],
-		'promote' => $vbphrase['edit_promotions'],
-		'kill' => $vbphrase['delete_usergroup'],
-		'list' => $vbphrase['show_all_primary_users'],
-		'list2' => $vbphrase['show_all_additional_users'],
+		'edit'       => $vbphrase['edit_usergroup'],
+		'promote'    => $vbphrase['edit_promotions'],
+		'kill'       => $vbphrase['delete_usergroup'],
+		'list'       => $vbphrase['show_all_primary_users'],
+		'list2'      => $vbphrase['show_all_additional_users'],
 		'reputation' => $vbphrase['view_reputation'],
-		'leader' => $vbphrase['add_usergroup_leader'],
-		'requests' => $vbphrase['view_join_requests']
+		'leader'     => $vbphrase['add_usergroup_leader'],
+		'requests'   => $vbphrase['view_join_requests']
 	);
 
 	print_table_header($vbphrase['default_usergroups'], 5);
@@ -919,6 +949,9 @@ if ($_REQUEST['do'] == 'modify')
 // ###################### Start modify promotions #######################
 if ($_REQUEST['do'] == 'modifypromotion')
 {
+	$vbulletin->input->clean_array_gpc('r', array(
+		'returnug' => TYPE_BOOL
+	));
 
 	$title = $db->query_first("SELECT title FROM " . TABLE_PREFIX . "usergroup WHERE usergroupid = " . $vbulletin->GPC['usergroupid']);
 
@@ -941,10 +974,14 @@ if ($_REQUEST['do'] == 'modifypromotion')
 	{
 		construct_hidden_code('usergroupid', $vbulletin->GPC['usergroupid']);
 	}
+	if ($vbulletin->GPC['returnug'])
+	{
+		construct_hidden_code('returnug', 1);
+	}
 
 	foreach($promotions AS $groupid => $promos)
 	{
-		print_table_header("$vbphrase[promotions]: <span style=\"font-weight:normal\">" . $vbulletin->usergroupcache["$groupid"]['title'] . ' ' . construct_link_code($vbphrase['add_new_promotion'], "usergroup.php?" . $vbulletin->session->vars['sessionurl'] . "do=updatepromotion&amp;usergroupid=$groupid") . "</span>", 7);
+		print_table_header("$vbphrase[promotions]: <span style=\"font-weight:normal\">" . $vbulletin->usergroupcache["$groupid"]['title'] . ' ' . construct_link_code($vbphrase['add_new_promotion'], "usergroup.php?" . $vbulletin->session->vars['sessionurl'] . "do=updatepromotion&amp;usergroupid=$groupid" . ($vbulletin->GPC['returnug'] ? '&amp;returnug=1' : '')) . "</span>", 7);
 		print_cells_row(array(
 			$vbphrase['usergroup'],
 			$vbphrase['promotion_type'],
@@ -981,7 +1018,7 @@ if ($_REQUEST['do'] == 'modifypromotion')
 				$promotion['reputation'],
 				$promotion['date'],
 				$promotion['posts'],
-				construct_link_code($vbphrase['edit'], "usergroup.php?" . $vbulletin->session->vars['sessionurl'] . "userpromotionid=$promotion[userpromotionid]&do=updatepromotion") . construct_link_code($vbphrase['delete'], "usergroup.php?" . $vbulletin->session->vars['sessionurl'] . "userpromotionid=$promotion[userpromotionid]&do=removepromotion"),
+				construct_link_code($vbphrase['edit'], "usergroup.php?" . $vbulletin->session->vars['sessionurl'] . "userpromotionid=$promotion[userpromotionid]&do=updatepromotion" . ($vbulletin->GPC['returnug'] ? '&returnug=1' : '')) . construct_link_code($vbphrase['delete'], "usergroup.php?" . $vbulletin->session->vars['sessionurl'] . "userpromotionid=$promotion[userpromotionid]&do=removepromotion" . ($vbulletin->GPC['returnug'] ? '&returnug=1' : '')),
 			));
 		}
 	}
@@ -994,7 +1031,8 @@ if ($_REQUEST['do'] == 'modifypromotion')
 if ($_REQUEST['do'] == 'updatepromotion')
 {
 	$vbulletin->input->clean_array_gpc('r', array(
-		'userpromotionid' => TYPE_INT
+		'userpromotionid' => TYPE_INT,
+		'returnug'        => TYPE_BOOL,
 	));
 
 	$usergroups = array();
@@ -1021,6 +1059,10 @@ if ($_REQUEST['do'] == 'updatepromotion')
 			$promotion['usergroupid'] = $vbulletin->GPC['usergroupid'];
 		}
 
+		if ($vbulletin->GPC['returnug'])
+		{
+			construct_hidden_code('returnug', 1);
+		}
 		print_table_header($vbphrase['add_new_promotion']);
 		print_select_row($vbphrase['usergroup'], 'promotion[usergroupid]', $usergroups, $promotion['usergroupid']);
 
@@ -1044,6 +1086,10 @@ if ($_REQUEST['do'] == 'updatepromotion')
 		{
 			$promotion['reputationtype'] = 0;
 		}
+		if ($vbulletin->GPC['returnug'])
+		{
+			construct_hidden_code('returnug', 1);
+		}
 		construct_hidden_code('userpromotionid', $vbulletin->GPC['userpromotionid']);
 		construct_hidden_code('usergroupid', $promotion['usergroupid']);
 		print_table_header(construct_phrase($vbphrase['x_y_id_z'], $vbphrase['promotion'], $promotion['title'], $promotion['userpromotionid']));
@@ -1063,12 +1109,12 @@ if ($_REQUEST['do'] == 'updatepromotion')
 		7 => $vbphrase['promotion_strategy8'],
 	);
 
-	print_select_row($vbphrase['reputation_comparison_type'], 'promotion[reputationtype]', array($vbphrase['greater_or_equal_to'], $vbphrase['less_than']), $promotion['reputationtype']);
 	print_input_row($vbphrase['reputation_level'], 'promotion[reputation]', $promotion['reputation']);
 	print_input_row($vbphrase['days_registered'], 'promotion[date]', $promotion['date']);
 	print_input_row($vbphrase['posts'], 'promotion[posts]', $promotion['posts']);
 	print_select_row($vbphrase['promotion_strategy'] . " <dfn> $vbphrase[promotion_strategy_description]</dfn>", 'promotion[strategy]', $promotionarray, $promotion['strategy']);
 	print_select_row($vbphrase['promotion_type'] . ' <dfn>' . $vbphrase['promotion_type_description_primary_additional'] . '</dfn>', 'promotion[type]', array(1 => $vbphrase['primary_usergroup'], 2 => $vbphrase['additional_usergroups']), $promotion['type']);
+	print_select_row($vbphrase['reputation_comparison_type'] . '<dfn>' . $vbphrase['reputation_comparison_type_desc'] . '</dfn>', 'promotion[reputationtype]', array($vbphrase['greater_or_equal_to'], $vbphrase['less_than']), $promotion['reputationtype']);
 	print_chooser_row($vbphrase['move_user_to_usergroup'] . " <dfn>$vbphrase[move_user_to_usergroup_description]</dfn>", 'promotion[joinusergroupid]', 'usergroup', $promotion['joinusergroupid'], '&nbsp;');
 
 	print_submit_row(iif(empty($vbulletin->GPC['userpromotionid']), $vbphrase['save'], '_default_'));
@@ -1081,6 +1127,7 @@ if ($_POST['do'] == 'doupdatepromotion')
 	$vbulletin->input->clean_array_gpc('p', array(
 		'promotion'       => TYPE_ARRAY,
 		'userpromotionid' => TYPE_INT,
+		'returnug'        => TYPE_BOOL,
 	));
 
 	if ($vbulletin->GPC['promotion']['joinusergroupid'] == -1)
@@ -1116,7 +1163,7 @@ if ($_POST['do'] == 'doupdatepromotion')
 	// $title = $db->query_first("SELECT title FROM " . TABLE_PREFIX . "usergroup WHERE usergroupid = " . $vbulletin->GPC['usergroupid']);
 	// $message = str_replace('{title}', $title['title'], $message);
 
-	define('CP_REDIRECT', "usergroup.php?do=modifypromotion&usergroupid=" . $vbulletin->GPC['usergroupid']);
+	define('CP_REDIRECT', "usergroup.php?do=modifypromotion" . ($vbulletin->GPC['returnug'] ? "&returnug=1&usergroupid=" . $vbulletin->GPC['usergroupid'] : ''));
 	print_stop_message('saved_promotion_successfully');
 }
 
@@ -1126,8 +1173,9 @@ if ($_REQUEST['do'] == 'removepromotion')
 {
 	$vbulletin->input->clean_array_gpc('r', array(
 		'userpromotionid' => TYPE_INT,
+		'returnug'        => TYPE_BOOL,
 	));
-	print_delete_confirmation('userpromotion', $vbulletin->GPC['userpromotionid'], 'usergroup', 'killpromotion', 'promotion_usergroup', 0, '');
+	print_delete_confirmation('userpromotion', $vbulletin->GPC['userpromotionid'], 'usergroup', 'killpromotion', 'promotion_usergroup', array('returnug' => $vbulletin->GPC['returnug']));
 
 }
 
@@ -1136,10 +1184,12 @@ if ($_POST['do'] == 'killpromotion')
 {
 	$vbulletin->input->clean_array_gpc('p', array(
 		'userpromotionid' => TYPE_INT,
+		'returnug'        => TYPE_BOOL,
 	));
+	$promotion = $db->query_first_slave("SELECT usergroupid FROM " . TABLE_PREFIX . "userpromotion WHERE userpromotionid = " . $vbulletin->GPC['userpromotionid']);
 	$db->query_write("DELETE FROM " . TABLE_PREFIX . "userpromotion WHERE userpromotionid = " . $vbulletin->GPC['userpromotionid']);
 
-	define('CP_REDIRECT', 'usergroup.php?do=modifypromotion');
+	define('CP_REDIRECT', 'usergroup.php?do=modifypromotion' . ($vbulletin->GPC['returnug'] ? '&returnug=1&usergroupid=' . $promotion['usergroupid'] : ""));
 	print_stop_message('deleted_promotion_successfully');
 }
 
@@ -1402,8 +1452,8 @@ print_cp_footer();
 
 /*======================================================================*\
 || ####################################################################
-|| # Downloaded: 18:52, Sat Jul 14th 2007
-|| # CVS: $RCSfile$ - $Revision: 16151 $
+|| # Downloaded: 16:21, Sat Apr 6th 2013
+|| # CVS: $RCSfile$ - $Revision: 26706 $
 || ####################################################################
 \*======================================================================*/
 ?>

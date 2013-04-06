@@ -1,9 +1,9 @@
 <?php
 /*======================================================================*\
 || #################################################################### ||
-|| # vBulletin 3.6.7 PL1 - Licence Number VBF2470E4F
+|| # vBulletin 3.7.2 Patch Level 2 - Licence Number VBF2470E4F
 || # ---------------------------------------------------------------- # ||
-|| # Copyright ©2000-2007 Jelsoft Enterprises Ltd. All Rights Reserved. ||
+|| # Copyright ©2000-2013 Jelsoft Enterprises Ltd. All Rights Reserved. ||
 || # This file may not be redistributed in whole or significant part. # ||
 || # ---------------- VBULLETIN IS NOT FREE SOFTWARE ---------------- # ||
 || # http://www.vbulletin.com | http://www.vbulletin.com/license.html # ||
@@ -14,7 +14,7 @@
 error_reporting(E_ALL & ~E_NOTICE);
 
 // ##################### DEFINE IMPORTANT CONSTANTS #######################
-define('CVS_REVISION', '$RCSfile$ - $Revision: 12971 $');
+define('CVS_REVISION', '$RCSfile$ - $Revision: 26275 $');
 
 // #################### PRE-CACHE TEMPLATES AND DATA ######################
 $phrasegroups = array('logging', 'threadmanage');
@@ -25,6 +25,11 @@ require_once('./global.php');
 require_once(DIR . '/includes/functions_log_error.php');
 
 // ############################# LOG ACTION ###############################
+if (!can_administer('canadminmodlog'))
+{
+	print_cp_no_permission();
+}
+
 log_admin_action();
 
 // ########################################################################
@@ -47,7 +52,21 @@ if ($_REQUEST['do'] == 'view')
 		'userid'     => TYPE_UINT,
 		'modaction'  => TYPE_STR,
 		'orderby'    => TYPE_NOHTML,
+		'product'    => TYPE_STR,
+		'startdate'  => TYPE_UNIXTIME,
+		'enddate'    => TYPE_UNIXTIME,
 	));
+
+	$princids = array(
+		'poll_question'    => $vbphrase['question'],
+		'post_title'       => $vbphrase['post'],
+		'thread_title'     => $vbphrase['thread'],
+		'forum_title'      => $vbphrase['forum'],
+		'attachment_title' => $vbphrase['attachment'],
+	);
+
+	$sqlconds = array();
+	$hook_query_fields = $hook_query_joins = '';
 
 	if ($vbulletin->GPC['perpage'] < 1)
 	{
@@ -56,25 +75,44 @@ if ($_REQUEST['do'] == 'view')
 
 	if ($vbulletin->GPC['userid'] OR $vbulletin->GPC['modaction'])
 	{
-		$sqlconds = 'WHERE 1=1 ';
 		if ($vbulletin->GPC['userid'])
 		{
-			$sqlconds .= "AND moderatorlog.userid = " . $vbulletin->GPC['userid'] . " ";
+			$sqlconds[] = "moderatorlog.userid = " . $vbulletin->GPC['userid'];
 		}
 		if ($vbulletin->GPC['modaction'])
 		{
-			$sqlconds .= 'AND moderatorlog.action LIKE "%' . $db->escape_string_like($vbulletin->GPC['modaction']) . '%" ';
+			$sqlconds[] = "moderatorlog.action LIKE '%" . $db->escape_string_like($vbulletin->GPC['modaction']) . "%'";
 		}
 	}
-	else
+
+	if ($vbulletin->GPC['startdate'])
 	{
-		$sqlconds = '';
+		$sqlconds[] = "moderatorlog.dateline >= " . $vbulletin->GPC['startdate'];
 	}
+
+	if ($vbulletin->GPC['enddate'])
+	{
+ 		$sqlconds[] = "moderatorlog.dateline <= " . $vbulletin->GPC['enddate'];
+	}
+
+	if ($vbulletin->GPC['product'])
+	{
+		if ($vbulletin->GPC['product'] == 'vbulletin')
+		{
+			$sqlconds[] = "moderatorlog.product IN ('', 'vbulletin')";
+		}
+		else
+		{
+			$sqlconds[] = "moderatorlog.product = '" . $db->escape_string($vbulletin->GPC['product']) . "'";
+		}
+	}
+
+	($hook = vBulletinHook::fetch_hook('admin_modlogviewer_query')) ? eval($hook) : false;
 
 	$counter = $db->query_first("
 		SELECT COUNT(*) AS total
 		FROM " . TABLE_PREFIX . "moderatorlog AS moderatorlog
-		$sqlconds
+		" . (!empty($sqlconds) ? "WHERE " . implode("\r\n\tAND ", $sqlconds) : "") . "
 	");
 	$totalpages = ceil($counter['total'] / $vbulletin->GPC['perpage']);
 
@@ -99,7 +137,8 @@ if ($_REQUEST['do'] == 'view')
 
 	$logs = $db->query_read("
 		SELECT moderatorlog.*, user.username,
-		post.title AS post_title, forum.title AS forum_title, thread.title AS thread_title, poll.question AS poll_question, attachment.filename AS attachment_title
+			post.title AS post_title, forum.title AS forum_title, thread.title AS thread_title, poll.question AS poll_question, attachment.filename AS attachment_title
+			$hook_query_fields
 		FROM " . TABLE_PREFIX . "moderatorlog AS moderatorlog
 		LEFT JOIN " . TABLE_PREFIX . "user AS user ON (user.userid = moderatorlog.userid)
 		LEFT JOIN " . TABLE_PREFIX . "post AS post ON (post.postid = moderatorlog.postid)
@@ -107,7 +146,8 @@ if ($_REQUEST['do'] == 'view')
 		LEFT JOIN " . TABLE_PREFIX . "thread AS thread ON (thread.threadid = moderatorlog.threadid)
 		LEFT JOIN " . TABLE_PREFIX . "poll AS poll ON (poll.pollid = moderatorlog.pollid)
 		LEFT JOIN " . TABLE_PREFIX . "attachment AS attachment ON (attachment.attachmentid = moderatorlog.attachmentid)
-		$sqlconds
+		$hook_join_fields
+		" . (!empty($sqlconds) ? "WHERE " . implode("\r\n\tAND ", $sqlconds) : "") . "
 		ORDER BY $order
 		LIMIT $startat, " . $vbulletin->GPC['perpage'] . "
 	");
@@ -144,14 +184,6 @@ if ($_REQUEST['do'] == 'view')
 		$headings[] = str_replace(' ', '&nbsp;', $vbphrase['ip_address']);
 		print_cells_row($headings, 1);
 
-		$princids = array(
-			'poll_question' => $vbphrase['question'],
-			'post_title' => $vbphrase['post'],
-			'thread_title' => $vbphrase['thread'],
-			'forum_title' => $vbphrase['forum'],
-			'attachment_title' => $vbphrase['attachment'],
-		);
-
 		while ($log = $db->fetch_array($logs))
 		{
 			$cell = array();
@@ -181,6 +213,8 @@ if ($_REQUEST['do'] == 'view')
 
 			$cell[] = $log['action'];
 
+			($hook = vBulletinHook::fetch_hook('admin_modlogviewer_query_loop')) ? eval($hook) : false;
+
 			$celldata = '';
 			reset($princids);
 			foreach ($princids AS $sqlfield => $output)
@@ -207,7 +241,12 @@ if ($_REQUEST['do'] == 'view')
 							$celldata .= construct_link_code(htmlspecialchars_uni($log["$sqlfield"]), "../attachment.php?" . $vbulletin->session->vars['sessionurl'] . "attachmentid=$log[attachmentid]&amp;nocache=" . vbrand(0,1000000), true);
 							break;
 						default:
-							$celldata .= $log["$sqlfield"];
+							$handled = false;
+							($hook = vBulletinHook::fetch_hook('admin_modlogviewer_query_linkfield')) ? eval($hook) : false;
+							if (!$handled)
+							{
+								$celldata .= $log["$sqlfield"];
+							}
 					}
 				}
 			}
@@ -233,28 +272,46 @@ if ($_REQUEST['do'] == 'prunelog' AND can_access_logs($vbulletin->config['Specia
 	$vbulletin->input->clean_array_gpc('r', array(
 		'daysprune' => TYPE_UINT,
 		'userid'    => TYPE_UINT,
-		'modaction' => TYPE_STR
+		'modaction' => TYPE_STR,
+		'product'   => TYPE_STR,
 	));
 
 	$datecut = TIMENOW - (86400 * $vbulletin->GPC['daysprune']);
-	$query = "SELECT COUNT(*) AS total FROM " . TABLE_PREFIX . "moderatorlog WHERE dateline < $datecut";
 
+	$sqlconds = array("dateline < $datecut");
 	if ($vbulletin->GPC['userid'])
 	{
-		$query .= "\nAND userid = " . $vbulletin->GPC['userid'];
+		$sqlconds[] = "userid = " . $vbulletin->GPC['userid'];
+
 	}
 	if ($vbulletin->GPC['modaction'])
 	{
-		$query .= "\nAND action LIKE '%" . $db->escape_string_like($vbulletin->GPC['modaction']) . "%'";
+		$sqlconds[] = "action LIKE '%" . $db->escape_string_like($vbulletin->GPC['modaction']) . "%'";
+	}
+	if ($vbulletin->GPC['product'])
+	{
+		if ($vbulletin->GPC['product'] == 'vbulletin')
+		{
+			$sqlconds[] = "product IN ('', 'vbulletin')";
+		}
+		else
+		{
+			$sqlconds[] = "product = '" . $db->escape_string($vbulletin->GPC['product']) . "'";
+		}
 	}
 
-	$logs = $db->query_first($query);
+	$logs = $db->query_first("
+		SELECT COUNT(*) AS total
+		FROM " . TABLE_PREFIX . "moderatorlog
+		WHERE " . (!empty($sqlconds) ? implode("\r\n\tAND ", $sqlconds) : "") . "
+	");
 	if ($logs['total'])
 	{
 		print_form_header('modlog', 'doprunelog');
 		construct_hidden_code('datecut', $datecut);
 		construct_hidden_code('modaction', $vbulletin->GPC['modaction']);
 		construct_hidden_code('userid', $vbulletin->GPC['userid']);
+		construct_hidden_code('product', $vbulletin->GPC['product']);
 		print_table_header($vbphrase['prune_moderator_log']);
 		print_description_row(construct_phrase($vbphrase['are_you_sure_you_want_to_prune_x_log_entries_from_moderator_log'], vb_number_format($logs['total'])));
 		print_submit_row($vbphrase['yes'], 0, 0, $vbphrase['no']);
@@ -273,19 +330,34 @@ if ($_POST['do'] == 'doprunelog' AND can_access_logs($vbulletin->config['Special
 		'datecut'   => TYPE_UINT,
 		'modaction' => TYPE_STR,
 		'userid'    => TYPE_UINT,
+		'product'   => TYPE_STR,
 	));
 
-	$sqlconds = ' ';
+	$sqlconds = array("dateline < " . $vbulletin->GPC['datecut']);
 	if (!empty($vbulletin->GPC['modaction']))
 	{
-		$sqlconds .= "AND action LIKE '%" . $db->escape_string_like($vbulletin->GPC['modaction']) . "%'";
+		$sqlconds[] = "action LIKE '%" . $db->escape_string_like($vbulletin->GPC['modaction']) . "%'";
 	}
 	if (!empty($vbulletin->GPC['userid']))
 	{
-		$sqlconds .= " AND userid = " . $vbulletin->GPC['userid'];
+		$sqlconds[] = "userid = " . $vbulletin->GPC['userid'];
+	}
+	if ($vbulletin->GPC['product'])
+	{
+		if ($vbulletin->GPC['product'] == 'vbulletin')
+		{
+			$sqlconds[] = "product IN ('', 'vbulletin')";
+		}
+		else
+		{
+			$sqlconds[] = "product = '" . $db->escape_string($vbulletin->GPC['product']) . "'";
+		}
 	}
 
-	$db->query_write("DELETE FROM " . TABLE_PREFIX . "moderatorlog WHERE dateline < " . $vbulletin->GPC['datecut'] . " $sqlconds");
+	$db->query_write("
+		DELETE FROM " . TABLE_PREFIX . "moderatorlog
+		WHERE " . (!empty($sqlconds) ? implode("\r\n\tAND ", $sqlconds) : "") . "
+	");
 
 	define('CP_REDIRECT', 'modlog.php?do=choose');
 	print_stop_message('pruned_moderator_log_successfully');
@@ -310,6 +382,12 @@ if ($_REQUEST['do'] == 'choose')
 	print_table_header($vbphrase['moderator_log_viewer']);
 	print_input_row($vbphrase['log_entries_to_show_per_page'], 'perpage', 15);
 	print_select_row($vbphrase['show_only_entries_generated_by'], 'userid', $userlist);
+	print_time_row($vbphrase['start_date'], 'startdate', 0, 0);
+	print_time_row($vbphrase['end_date'], 'enddate', 0, 0);
+	if (count($products = fetch_product_list()) > 1)
+	{
+		print_select_row($vbphrase['product'], 'product', array('' => $vbphrase['all_products']) + $products);
+	}
 	print_select_row($vbphrase['order_by'], 'orderby', array('date' => $vbphrase['date'], 'user' => $vbphrase['username']), 'date');
 	print_submit_row($vbphrase['view'], 0);
 
@@ -318,6 +396,10 @@ if ($_REQUEST['do'] == 'choose')
 		print_form_header('modlog', 'prunelog');
 		print_table_header($vbphrase['prune_moderator_log']);
 		print_select_row($vbphrase['remove_entries_logged_by_user'], 'userid', $userlist);
+		if (count($products) > 1)
+		{
+			print_select_row($vbphrase['product'], 'product', array('' => $vbphrase['all_products']) + $products);
+		}
 		print_input_row($vbphrase['remove_entries_older_than_days'], 'daysprune', 30);
 		print_submit_row($vbphrase['prune_log_entries'], 0);
 	}
@@ -328,8 +410,8 @@ print_cp_footer();
 
 /*======================================================================*\
 || ####################################################################
-|| # Downloaded: 18:52, Sat Jul 14th 2007
-|| # CVS: $RCSfile$ - $Revision: 12971 $
+|| # Downloaded: 16:21, Sat Apr 6th 2013
+|| # CVS: $RCSfile$ - $Revision: 26275 $
 || ####################################################################
 \*======================================================================*/
 ?>

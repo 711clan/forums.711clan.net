@@ -1,9 +1,9 @@
 <?php
 /*======================================================================*\
 || #################################################################### ||
-|| # vBulletin 3.6.7 PL1 - Licence Number VBF2470E4F
+|| # vBulletin 3.7.2 Patch Level 2 - Licence Number VBF2470E4F
 || # ---------------------------------------------------------------- # ||
-|| # Copyright ©2000-2007 Jelsoft Enterprises Ltd. All Rights Reserved. ||
+|| # Copyright ©2000-2013 Jelsoft Enterprises Ltd. All Rights Reserved. ||
 || # This file may not be redistributed in whole or significant part. # ||
 || # ---------------- VBULLETIN IS NOT FREE SOFTWARE ---------------- # ||
 || # http://www.vbulletin.com | http://www.vbulletin.com/license.html # ||
@@ -563,17 +563,9 @@ function can_moderate_calendar($calendarid = 0, $do = '', $userid = -1)
 {
 	global $vbulletin, $cmodcache;
 
-	cache_calendar_moderators();
-
 	if ($userid == -1)
 	{
 		$userid = $vbulletin->userinfo['userid'];
-	}
-
-	if ($vbulletin->userinfo['permissions']['adminpermissions'] & $vbulletin->bf_ugp_adminpermissions['cancontrolpanel'])
-	{
-		DEVDEBUG('  USER IS AN ADMINISTRATOR ');
-		return true;
 	}
 
 	if ($vbulletin->userinfo['permissions']['adminpermissions'] & $vbulletin->bf_ugp_adminpermissions['ismoderator'])
@@ -582,7 +574,7 @@ function can_moderate_calendar($calendarid = 0, $do = '', $userid = -1)
 		return true;
 	}
 
-	// if we got this far, user is not a super moderator
+	cache_calendar_moderators();
 
 	if ($calendarid == 0)
 	{ // just check to see if the user is a moderator of any calendar
@@ -594,6 +586,7 @@ function can_moderate_calendar($calendarid = 0, $do = '', $userid = -1)
 			if (!empty($calendarmods["$userid"]))
 			{
 				$ismod = 1;
+				break;
 			}
 		}
 		return $ismod;
@@ -1156,7 +1149,6 @@ function fetch_event_criteria($option)
 // ###################### Start getevent #######################
 function cache_event_info(&$event, $month, $day, $year, $adjust = 1, $cache = true)
 {
-
 	static $foundday, $foundevent, $foundholiday, $e;
 
 	global $vbulletin;
@@ -1201,7 +1193,7 @@ function cache_event_info(&$event, $month, $day, $year, $adjust = 1, $cache = tr
 	{ // this is a recurring event
 		if ($event['recurring'] == 1)
 		{
-			if (($todaystart - $e["$eventid"]['startday']) % (86400 * $event['recuroption']))
+			if ($event['recuroption'] == 0 OR ($todaystart - $e["$eventid"]['startday']) % (86400 * $event['recuroption']))
 			{
 				return false;
 			}
@@ -1233,6 +1225,10 @@ function cache_event_info(&$event, $month, $day, $year, $adjust = 1, $cache = tr
 		{
 			$monthbit = explode('|', $event['recuroption']);
 			$weekrep = $monthbit[0];
+			if ($weekrep == 0)
+			{
+				return false;
+			}
 
 			$daysfromstart = ($todaystart - $e["$eventid"]['startday']) / 86400;
 			$week = intval($daysfromstart / 7);
@@ -1322,6 +1318,11 @@ function cache_event_info(&$event, $month, $day, $year, $adjust = 1, $cache = tr
 			$monthbit = explode('|', $event['recuroption']);
 			$monthrep = $monthbit[1];
 
+			if ($monthbit[0] == 0 OR $monthbit[1] == 0)
+			{
+				return false;
+			}
+
 			if (gmdate('w', $event['dateline_from_user']) != gmdate('w', $event['dateline_from'] + ($event['utc'] * 3600)) AND $adjust)
 			{
 				if ($event['dateline_from_user'] > $event['dateline_from'] + ($event['utc'] * 3600))
@@ -1396,6 +1397,11 @@ function cache_event_info(&$event, $month, $day, $year, $adjust = 1, $cache = tr
 			$monthday = $monthbit[1];
 			$monthweek = $monthbit[0];
 
+			if ($monthrep == 0 OR $monthweek < 1 OR $monthweek > 5 OR $monthday < 1 OR $monthday > 7)
+			{
+				return false;
+			}
+
 			$fromdate = $e["$eventid"]['startday'];
 			$todate = $e["$eventid"]['endday'];
 			if (!is_array($foundday["$eventid"]))
@@ -1451,6 +1457,10 @@ function cache_event_info(&$event, $month, $day, $year, $adjust = 1, $cache = tr
 				}
 			}
 			$monthbit = explode('|', $event['recuroption']);
+			if ($monthbit[0] < 1 OR $monthbit[0] > 12 OR $monthbit[1] < 1 OR $monthbit[1] > 31)
+			{
+				return false;
+			}
 			if ($todaystart != gmmktime(0, 0, 0, $monthbit[0], $monthbit[1], $year))
 			{
 				return false;
@@ -1459,6 +1469,11 @@ function cache_event_info(&$event, $month, $day, $year, $adjust = 1, $cache = tr
 		else if ($event['recurring'] == 7)
 		{
 			$monthbit = explode('|', $event['recuroption']);
+
+			if ($monthbit[0] < 1 OR $monthbit[0] > 5 OR $monthbit[1] < 1 OR $monthbit[1] > 7 OR $monthbit[2] < 1 OR $monthbit[2] > 12)
+			{
+				return false;
+			}
 
 			$tempmonth = $month;
 			$tempday = $day;
@@ -1683,8 +1698,8 @@ function build_events()
 
 /*======================================================================*\
 || ####################################################################
-|| # Downloaded: 18:52, Sat Jul 14th 2007
-|| # CVS: $RCSfile$ - $Revision: 16003 $
+|| # Downloaded: 16:21, Sat Apr 6th 2013
+|| # CVS: $RCSfile$ - $Revision: 26274 $
 || ####################################################################
 \*======================================================================*/
 ?>

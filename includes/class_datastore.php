@@ -1,9 +1,9 @@
 <?php
 /*======================================================================*\
 || #################################################################### ||
-|| # vBulletin 3.6.7 PL1 - Licence Number VBF2470E4F
+|| # vBulletin 3.7.2 Patch Level 2 - Licence Number VBF2470E4F
 || # ---------------------------------------------------------------- # ||
-|| # Copyright ©2000-2007 Jelsoft Enterprises Ltd. All Rights Reserved. ||
+|| # Copyright ©2000-2013 Jelsoft Enterprises Ltd. All Rights Reserved. ||
 || # This file may not be redistributed in whole or significant part. # ||
 || # ---------------- VBULLETIN IS NOT FREE SOFTWARE ---------------- # ||
 || # http://www.vbulletin.com | http://www.vbulletin.com/liceNse.html # ||
@@ -15,51 +15,14 @@ if (!class_exists('vB_Datastore'))
 	exit;
 }
 
-// #############################################################################
-// eAccelerator
-
-class vB_Datastore_eAccelerator extends vB_Datastore
-{
-	/*
-	Unfortunately, due to a design issue with eAccelerator
-	we must disable this module at this time.
-
-	The reason for this is that eAccelerator does not distinguish
-	between memory allocated for cached scripts and memory allocated
-	as shared memory storage.
-
-	Therefore, the possibility exists for the administrator to turn
-	off the board, which would then instruct eAccelerator to update
-	its cache of the datastore. However, if the memory allocated is
-	insufficient to store the new version of the datastore due to
-	being filled with cached scripts, this will not be performed
-	successfully, resulting in the OLD version of the datastore
-	remaining, with the net result that the board does NOT turn off
-	until the web server is restarted (which refreshes the shared
-	memory)
-
-	This problem affects anything read from the datastore, including
-	the forumcache, the options cache, the usergroup cache, smilies,
-	bbcodes, post icons...
-
-	As a result we have no alternative but to totally disable the
-	eAccelerator datastore module at this time. If at some point in
-	the future this design issue is resolved, we will re-enable it.
-
-	We still recommend running eAccelerator with PHP due to the huge
-	performance benefits, but at this time it is not viable to use
-	it for datastore cacheing. - Kier
-	*/
-}
-
 /**
 * Class for fetching and initializing the vBulletin datastore from eAccelerator
 *
 * @package	vBulletin
-* @version	$Revision: 16963 $
-* @date		$Date: 2007-05-10 11:03:40 -0500 (Thu, 10 May 2007) $
+* @version	$Revision: 26074 $
+* @date		$Date: 2008-03-13 10:44:45 -0500 (Thu, 13 Mar 2008) $
 */
-class vB_Datastore_eAccelerator_This_Has_Problems extends vB_Datastore
+class vB_Datastore_eAccelerator extends vB_Datastore
 {
 	/**
 	* Indicates if the result of a call to the register function should store the value in memory
@@ -126,7 +89,7 @@ class vB_Datastore_eAccelerator_This_Has_Problems extends vB_Datastore
 		$ptitle = $this->prefix . $title;
 
 		if (($data = eaccelerator_get($ptitle)) === null)
-		{ // appears its not there, lets grab the data, lock the shared memory and put it in
+		{ // appears its not there, lets grab the data
 			$itemlist[] = "'" . $this->dbobject->escape_string($title) . "'";
 			return false;
 		}
@@ -142,13 +105,13 @@ class vB_Datastore_eAccelerator_This_Has_Problems extends vB_Datastore
 	*
 	* @return	void
 	*/
-	function register($title, $data)
+	function register($title, $data, $unserialize_detect = 2)
 	{
 		if ($this->store_result === true)
 		{
 			$this->build($title, $data);
 		}
-		parent::register($title, $data);
+		parent::register($title, $data, $unserialize_detect);
 	}
 
 	/**
@@ -163,56 +126,8 @@ class vB_Datastore_eAccelerator_This_Has_Problems extends vB_Datastore
 	{
 		$ptitle = $this->prefix . $title;
 
-		if (!function_exists('eaccelerator_put'))
-		{
-			trigger_error('eAccelerator not installed', E_USER_ERROR);
-		}
-		if ($this->lock($ptitle))
-		{
-			eaccelerator_rm($ptitle);
-			$check = eaccelerator_put($ptitle, $data);
-			$this->unlock($ptitle);
-			/* This was mainly for debugging, it does not matter now since we can fallback to the db method
-			if ($check === false)
-			{
-				trigger_error('Unable to write to shared memory', E_USER_ERROR);
-			}*/
-		}
-		else
-		{
-			trigger_error('Could not obtain shared memory lock', E_USER_ERROR);
-		}
-	}
-
-	/**
-	* Obtains a lock for the datastore
-	*
-	* @param	string	title of the datastore item
-	*
-	* @return	boolean
-	*/
-	function lock($title)
-	{
-		$lock_ex = eaccelerator_lock($title);
-		$i = 0;
-		while ($lock_ex === false AND ($i++ < 5))
-		{
-			$lock_ex = eaccelerator_lock($title);
-			sleep(1);
-		}
-		return $lock_ex;
-	}
-
-	/**
-	* Releases the datastore lock
-	*
-	* @param	string	title of the datastore item
-	*
-	* @return	void
-	*/
-	function unlock($title)
-	{
-		eaccelerator_unlock($title);
+		eaccelerator_rm($ptitle);
+		eaccelerator_put($ptitle, $data);
 	}
 }
 
@@ -223,8 +138,8 @@ class vB_Datastore_eAccelerator_This_Has_Problems extends vB_Datastore
 * Class for fetching and initializing the vBulletin datastore from a Memcache Server
 *
 * @package	vBulletin
-* @version	$Revision: 16963 $
-* @date		$Date: 2007-05-10 11:03:40 -0500 (Thu, 10 May 2007) $
+* @version	$Revision: 26074 $
+* @date		$Date: 2008-03-13 10:44:45 -0500 (Thu, 13 Mar 2008) $
 */
 class vB_Datastore_Memcached extends vB_Datastore
 {
@@ -401,13 +316,13 @@ class vB_Datastore_Memcached extends vB_Datastore
 	*
 	* @return	void
 	*/
-	function register($title, $data)
+	function register($title, $data, $unserialize_detect = 2)
 	{
 		if ($this->store_result === true)
 		{
 			$this->build($title, $data);
 		}
-		parent::register($title, $data);
+		parent::register($title, $data, $unserialize_detect);
 	}
 
 	/**
@@ -445,8 +360,8 @@ class vB_Datastore_Memcached extends vB_Datastore
 * Class for fetching and initializing the vBulletin datastore from APC
 *
 * @package	vBulletin
-* @version	$Revision: 16963 $
-* @date		$Date: 2007-05-10 11:03:40 -0500 (Thu, 10 May 2007) $
+* @version	$Revision: 26074 $
+* @date		$Date: 2008-03-13 10:44:45 -0500 (Thu, 13 Mar 2008) $
 */
 class vB_Datastore_APC extends vB_Datastore
 {
@@ -531,13 +446,13 @@ class vB_Datastore_APC extends vB_Datastore
 	*
 	* @return	void
 	*/
-	function register($title, $data)
+	function register($title, $data, $unserialize_detect = 2)
 	{
 		if ($this->store_result === true)
 		{
 			$this->build($title, $data);
 		}
-		parent::register($title, $data);
+		parent::register($title, $data, $unserialize_detect);
 	}
 
 	/**
@@ -553,13 +468,133 @@ class vB_Datastore_APC extends vB_Datastore
 		$ptitle = $this->prefix . $title;
 
 		apc_delete($ptitle);
+		apc_store($ptitle, $data);
+	}
 
-		if (!function_exists('apc_store'))
+}
+
+// #############################################################################
+// XCache
+
+/**
+* Class for fetching and initializing the vBulletin datastore from XCache
+*
+* @package	vBulletin
+* @version	$Revision: 26074 $
+* @date		$Date: 2008-03-13 10:44:45 -0500 (Thu, 13 Mar 2008) $
+*/
+class vB_Datastore_XCache extends vB_Datastore
+{
+	/**
+	* Indicates if the result of a call to the register function should store the value in memory
+	*
+	* @var	boolean
+	*/
+	var $store_result = false;
+
+	/**
+	* Fetches the contents of the datastore from XCache
+	*
+	* @param	array	Array of items to fetch from the datastore
+	*
+	* @return	void
+	*/
+	function fetch($itemarray)
+	{
+		if (!function_exists('xcache_get'))
 		{
-			trigger_error('APC not installed', E_USER_ERROR);
+			trigger_error('Xcache not installed', E_USER_ERROR);
 		}
 
-		apc_store($ptitle, $data);
+		if (!ini_get('xcache.var_size'))
+		{
+			trigger_error('Storing of variables is not enabled within XCache', E_USER_ERROR);
+		}
+
+		$db =& $this->dbobject;
+
+		$itemlist = array();
+
+		foreach ($this->defaultitems AS $item)
+		{
+			$this->do_fetch($item, $itemlist);
+		}
+
+		if (is_array($itemarray))
+		{
+			foreach ($itemarray AS $item)
+			{
+				$this->do_fetch($item, $itemlist);
+			}
+		}
+
+		$this->store_result = true;
+
+		// some of the items we are looking for were not found, lets get them in one go
+		if (!empty($itemlist))
+		{
+			$this->do_db_fetch(implode(',', $itemlist));
+		}
+
+		$this->check_options();
+
+		// set the version number variable
+		$this->registry->versionnumber =& $this->registry->options['templateversion'];
+	}
+
+	/**
+	* Fetches the data from shared memory and detects errors
+	*
+	* @param	string	title of the datastore item
+	* @param	array	A reference to an array of items that failed and need to fetched from the database
+	*
+	* @return	boolean
+	*/
+	function do_fetch($title, &$itemlist)
+	{
+		$ptitle = $this->prefix . $title;
+
+		if (!xcache_isset($ptitle))
+		{ // appears its not there, lets grab the data, lock the shared memory and put it in
+			$itemlist[] = "'" . $this->dbobject->escape_string($title) . "'";
+			return false;
+		}
+		$data = xcache_get($ptitle);
+		$this->register($title, $data);
+		return true;
+	}
+
+	/**
+	* Sorts the data returned from the cache and places it into appropriate places
+	*
+	* @param	string	The name of the data item to be processed
+	* @param	mixed	The data associated with the title
+	*
+	* @return	void
+	*/
+	function register($title, $data, $unserialize_detect = 2)
+	{
+		if ($this->store_result === true)
+		{
+			$this->build($title, $data);
+		}
+		parent::register($title, $data, $unserialize_detect);
+	}
+
+	/**
+	* Updates the appropriate cache file
+	*
+	* @param	string	title of the datastore item
+	* @param	mixed	The data associated with the title
+	*
+	* @return	void
+	*/
+	function build($title, $data)
+	{
+		$ptitle = $this->prefix . $title;
+
+		xcache_unset($ptitle);
+		xcache_set($ptitle, $data);
 	}
 
 }
@@ -571,8 +606,8 @@ class vB_Datastore_APC extends vB_Datastore
 * Class for fetching and initializing the vBulletin datastore from files
 *
 * @package	vBulletin
-* @version	$Revision: 16963 $
-* @date		$Date: 2007-05-10 11:03:40 -0500 (Thu, 10 May 2007) $
+* @version	$Revision: 26074 $
+* @date		$Date: 2008-03-13 10:44:45 -0500 (Thu, 13 Mar 2008) $
 */
 class vB_Datastore_Filecache extends vB_Datastore
 {
@@ -708,10 +743,38 @@ class vB_Datastore_Filecache extends vB_Datastore
 		{
 			$cache = file_get_contents(DATASTORE . '/datastore_cache.php');
 
-			// this is to workaround bug 976
-			if (preg_match("/([\r\n]### start $title ###)(.*)([\r\n]### end $title ###)/siU", $cache, $match))
+			// this is equivalent to the old preg_match system, but doesn't have problems with big files (#23186)
+			$open_match = strpos($cache, "### start $title ###");
+			if ($open_match) // we don't want to match the first character either!
 			{
-				$cache = str_replace($match[0], "\n### start $title ###\n$$title = $data_code;\n### end $title ###", $cache);
+				// matched and not at the beginning
+				$preceding = $cache[$open_match - 1];
+				if ($preceding != "\n" AND $preceding != "\r")
+				{
+					$open_match = false;
+				}
+			}
+
+			if ($open_match)
+			{
+				$close_match = strpos($cache, "### end $title ###", $open_match);
+				if ($close_match) // we don't want to match the first character either!
+				{
+					// matched and not at the beginning
+					$preceding = $cache[$close_match - 1];
+					if ($preceding != "\n" AND $preceding != "\r")
+					{
+						$close_match = false;
+					}
+				}
+			}
+
+			// if we matched the beginning and end, then update the cache
+			if (!empty($open_match) AND !empty($close_match))
+			{
+				$replace_start = $open_match - 1; // include the \n
+				$replace_end = $close_match + strlen("### end $title ###");
+				$cache = substr_replace($cache, "\n### start $title ###\n$$title = $data_code;\n### end $title ###", $replace_start, $replace_end - $replace_start);
 			}
 
 			// try an atomic operation first, if that fails go for the old method
@@ -788,6 +851,14 @@ class vB_Datastore_Filecache extends vB_Datastore
 		$this->dbobject->query_write("UPDATE " . TABLE_PREFIX . "adminutil SET text = 0 WHERE title = 'datastorelock'");
 	}
 
+	/**
+	* Fetches the specified datastore item from the database and tries
+	* to update the file cache with it. Data is automatically unserialized.
+	*
+	* @param	string	Datastore item to fetch
+	*
+	* @return	mixed	Data from datastore (unserialized if fetched)
+	*/
 	function fetch_build($title)
 	{
 		$data = '';
@@ -830,8 +901,8 @@ class vB_Datastore_Filecache extends vB_Datastore
 
 /*======================================================================*\
 || ####################################################################
-|| # Downloaded: 18:52, Sat Jul 14th 2007
-|| # CVS: $RCSfile$ - $Revision: 16963 $
+|| # Downloaded: 16:21, Sat Apr 6th 2013
+|| # CVS: $RCSfile$ - $Revision: 26074 $
 || ####################################################################
 \*======================================================================*/
 ?>

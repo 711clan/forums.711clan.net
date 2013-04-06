@@ -1,9 +1,9 @@
 <?php
 /*======================================================================*\
 || #################################################################### ||
-|| # vBulletin 3.6.7 PL1 - Licence Number VBF2470E4F
+|| # vBulletin 3.7.2 Patch Level 2 - Licence Number VBF2470E4F
 || # ---------------------------------------------------------------- # ||
-|| # Copyright ©2000-2007 Jelsoft Enterprises Ltd. All Rights Reserved. ||
+|| # Copyright ©2000-2013 Jelsoft Enterprises Ltd. All Rights Reserved. ||
 || # This file may not be redistributed in whole or significant part. # ||
 || # ---------------- VBULLETIN IS NOT FREE SOFTWARE ---------------- # ||
 || # http://www.vbulletin.com | http://www.vbulletin.com/license.html # ||
@@ -15,6 +15,7 @@ error_reporting(E_ALL & ~E_NOTICE);
 
 // #################### DEFINE IMPORTANT CONSTANTS #######################
 define('THIS_SCRIPT', 'register');
+define('CSRF_PROTECTION', true);
 
 // ################### PRE-CACHE TEMPLATES AND DATA ######################
 // get special phrase groups
@@ -30,7 +31,7 @@ $specialtemplates = array(
 
 // pre-cache templates used by all actions
 $globaltemplates = array(
-	'imagereg',
+	'humanverify',
 	'register',
 	'register_rules',
 	'register_verify_age',
@@ -44,6 +45,7 @@ $globaltemplates = array(
 	'userfield_select_option',
 	'userfield_select_multiple',
 	'userfield_textarea',
+	'userfield_wrapper',
 	'modifyoptions_timezone',
 	'modifyprofile_birthday',
 );
@@ -219,8 +221,6 @@ if ($_POST['do'] == 'addmember')
 		'passwordconfirm'     => TYPE_STR,
 		'passwordconfirm_md5' => TYPE_STR,
 		'referrername'        => TYPE_NOHTML,
-		'imagestamp'          => TYPE_STR,
-		'imagehash'           => TYPE_STR,
 		'coppauser'           => TYPE_BOOL,
 		'day'                 => TYPE_UINT,
 		'month'               => TYPE_UINT,
@@ -229,6 +229,7 @@ if ($_POST['do'] == 'addmember')
 		'dst'                 => TYPE_UINT,
 		'userfield'           => TYPE_ARRAY,
 		'showbirthday'        => TYPE_UINT,
+		'humanverify'         => TYPE_ARRAY,
 	));
 
 	if (!$vbulletin->options['allowregistration'])
@@ -246,6 +247,41 @@ if ($_POST['do'] == 'addmember')
 	$userdata =& datamanager_init('User', $vbulletin, ERRTYPE_ARRAY);
 
 	// coppa option
+	if ($vbulletin->options['usecoppa'])
+	{
+		$current['year'] = date('Y');
+		$current['month'] = date('m');
+		$current['day'] = date('d');
+
+		$month = $vbulletin->GPC['month'];
+		$year = $vbulletin->GPC['year'];
+		$day = $vbulletin->GPC['day'];
+
+		if ($year > 1970 AND mktime(0, 0, 0, $month, $day, $year) > mktime(0, 0, 0, $current['month'], $current['day'], $current['year'] - 13))
+		{
+			if ($vbulletin->options['checkcoppa'])
+			{
+				vbsetcookie('coppaage', $month . '-' . $day . '-' . $year, 1);
+			}
+
+			if ($vbulletin->options['usecoppa'] == 2)
+			{
+				standard_error(fetch_error('under_thirteen_registration_denied'));
+			}
+
+			$vbulletin->GPC['coppauser'] = true;
+
+		}
+		else
+		{
+			$vbulletin->GPC['coppauser'] = false;
+		}
+	}
+	else
+	{
+		$vbulletin->GPC['coppauser'] = false;
+	}
+
 	$userdata->set_info('coppauser', $vbulletin->GPC['coppauser']);
 	$userdata->set_info('coppapassword', $vbulletin->GPC['password']);
 	$userdata->set_bitfield('options', 'coppauser', $vbulletin->GPC['coppauser']);
@@ -276,7 +312,6 @@ if ($_POST['do'] == 'addmember')
 	{
 		$userdata->error('emailmismatch');
 	}
-	// set email
 	$userdata->set('email', $vbulletin->GPC['email']);
 
 	$userdata->set('username', $vbulletin->GPC['username']);
@@ -287,16 +322,16 @@ if ($_POST['do'] == 'addmember')
 		$userdata->set('referrerid', $vbulletin->GPC['referrername']);
 	}
 
-	// Check Reg Image
-	if ($vbulletin->options['regimagecheck'] AND $vbulletin->options['regimagetype'])
+	// Human Verification
+	if ($vbulletin->options['hvcheck_registration'])
 	{
-		require_once(DIR . '/includes/functions_regimage.php');
-		if (!verify_regimage_hash($vbulletin->GPC['imagehash'], $vbulletin->GPC['imagestamp']))
+		require_once(DIR . '/includes/class_humanverify.php');
+		$verify =& vB_HumanVerify::fetch_library($vbulletin);
+		if (!$verify->verify_token($vbulletin->GPC['humanverify']))
 		{
-	  		$userdata->error('register_imagecheck');
-	  	}
+			$userdata->error($verify->fetch_error());
+		}
 	}
-
 	// Set specified options
 	if (!empty($vbulletin->GPC['options']))
 	{
@@ -380,8 +415,9 @@ if ($_POST['do'] == 'addmember')
 
 		if ($userid)
 		{
+			$userinfo = fetch_userinfo($userid);
 			$userdata_rank =& datamanager_init('User', $vbulletin, ERRTYPE_SILENT);
-			$userdata_rank->set_existing(fetch_userinfo($userid));
+			$userdata_rank->set_existing($userinfo);
 			$userdata_rank->set('posts', 0);
 			$userdata_rank->save();
 
@@ -528,7 +564,7 @@ else if ($_GET['do'] == 'addmember')
 // ############################### start register ###############################
 if ($_REQUEST['do'] == 'register')
 {
-	$vbulletin->input->clean_array_gpc('r', array(
+	$vbulletin->input->clean_array_gpc('p', array(
 		'agree'   => TYPE_BOOL,
 		'year'    => TYPE_UINT,
 		'month'   => TYPE_UINT,
@@ -602,11 +638,12 @@ if ($_REQUEST['do'] == 'register')
 	$imgcodeonoff = ($vbulletin->options['allowbbimagecode'] ? $vbphrase['on'] : $vbphrase['off']);
 	$smiliesonoff = ($vbulletin->options['allowsmilies'] ? $vbphrase['on'] : $vbphrase['off']);
 
-	// image verification
-	if ($vbulletin->options['regimagecheck'] AND $vbulletin->options['regimagetype'])
+	// human verification
+	if ($vbulletin->options['hvcheck_registration'])
 	{
-		require_once(DIR . '/includes/functions_regimage.php');
-		$imagehash = fetch_regimage_hash();
+		require_once(DIR . '/includes/class_humanverify.php');
+		$verify =& vB_HumanVerify::fetch_library($vbulletin);
+		$human_verify = $verify->output_token();
 	}
 
 	// Referrer
@@ -664,22 +701,7 @@ if ($_REQUEST['do'] == 'register')
 			$vbulletin->userinfo["$profilefieldname"] = $vbulletin->GPC['userfield']["$profilefieldname"];
 		}
 
-		if ($profilefield['required'] == 2)
-		{
-			// not required to be filled in but still show
-			$profile_variable =& $customfields_other;
-		}
-		else // required to be filled in
-		{
-			if ($profilefield['form'])
-			{
-				$profile_variable =& $customfields_option;
-			}
-			else
-			{
-				$profile_variable =& $customfields_profile;
-			}
-		}
+		$custom_field_holder = '';
 
 		if ($profilefield['type'] == 'input')
 		{
@@ -691,7 +713,7 @@ if ($_REQUEST['do'] == 'register')
 			{
 				$vbulletin->userinfo["$profilefieldname"] = htmlspecialchars_uni($vbulletin->userinfo["$profilefieldname"]);
 			}
-			eval('$profile_variable .= "' . fetch_template('userfield_textbox') . '";');
+			eval('$custom_field_holder = "' . fetch_template('userfield_textbox') . '";');
 		}
 		else if ($profilefield['type'] == 'textarea')
 		{
@@ -703,7 +725,7 @@ if ($_REQUEST['do'] == 'register')
 			{
 				$vbulletin->userinfo["$profilefieldname"] = htmlspecialchars_uni($vbulletin->userinfo["$profilefieldname"]);
 			}
-			eval('$profile_variable .= "' . fetch_template('userfield_textarea') . '";');
+			eval('$custom_field_holder = "' . fetch_template('userfield_textarea') . '";');
 		}
 		else if ($profilefield['type'] == 'select')
 		{
@@ -747,13 +769,15 @@ if ($_REQUEST['do'] == 'register')
 				$selected = '';
 			}
 			$show['noemptyoption'] = iif($profilefield['def'] != 2, true, false);
-			eval('$profile_variable .= "' . fetch_template('userfield_select') . '";');
+			eval('$custom_field_holder = "' . fetch_template('userfield_select') . '";');
 		}
 		else if ($profilefield['type'] == 'radio')
 		{
 			$data = unserialize($profilefield['data']);
 			$radiobits = '';
 			$foundfield = 0;
+			$perline = 0;
+			$unclosedtr = true;
 
 			foreach ($data AS $key => $val)
 			{
@@ -768,13 +792,22 @@ if ($_REQUEST['do'] == 'register')
 					$checked = 'checked="checked"';
 					$foundfield = 1;
 				}
+				if ($perline == 0)
+				{
+					$radiobits .= '<tr>';
+				}
 				eval('$radiobits .= "' . fetch_template('userfield_radio_option') . '";');
 				$perline++;
 				if ($profilefield['perline'] > 0 AND $perline >= $profilefield['perline'])
 				{
-					$radiobits .= '<br />';
+					$radiobits .= '</tr>';
 					$perline = 0;
+					$unclosedtr = false;
 				}
+			}
+			if ($unclosedtr)
+			{
+				$radiobits .= '</tr>';
 			}
 			if ($profilefield['optional'])
 			{
@@ -784,13 +817,14 @@ if ($_REQUEST['do'] == 'register')
 				}
 				eval('$optionalfield = "' . fetch_template('userfield_optional_input') . '";');
 			}
-			eval('$profile_variable .= "' . fetch_template('userfield_radio') . '";');
+			eval('$custom_field_holder = "' . fetch_template('userfield_radio') . '";');
 		}
 		else if ($profilefield['type'] == 'checkbox')
 		{
 			$data = unserialize($profilefield['data']);
 			$radiobits = '';
 			$perline = 0;
+			$unclosedtr = true;
 			foreach ($data AS $key => $val)
 			{
 				if ($vbulletin->userinfo["$profilefieldname"] & pow(2,$key))
@@ -802,21 +836,36 @@ if ($_REQUEST['do'] == 'register')
 					$checked = '';
 				}
 				$key++;
+				if ($perline == 0)
+				{
+					$radiobits .= '<tr>';
+				}
 				eval('$radiobits .= "' . fetch_template('userfield_checkbox_option') . '";');
 				$perline++;
 				if ($profilefield['perline'] > 0 AND $perline >= $profilefield['perline'])
 				{
-					$radiobits .= '<br />';
+					$radiobits .= '</tr>';
 					$perline = 0;
+					$unclosedtr = false;
 				}
 			}
-			eval('$profile_variable .= "' . fetch_template('userfield_radio') . '";');
+			if ($unclosedtr)
+			{
+				$radiobits .= '</tr>';
+			}
+			eval('$custom_field_holder = "' . fetch_template('userfield_radio') . '";');
 		}
 		else if ($profilefield['type'] == 'select_multiple')
 		{
 			$data = unserialize($profilefield['data']);
 			$selectbits = '';
 			$selected = '';
+
+			if ($profilefield['height'] == 0)
+			{
+				$profilefield['height'] = count($data);
+			}
+
 			foreach ($data AS $key => $val)
 			{
 				if ($vbulletin->userinfo["$profilefieldname"] & pow(2, $key))
@@ -830,8 +879,27 @@ if ($_REQUEST['do'] == 'register')
 				$key++;
 				eval('$selectbits .= "' . fetch_template('userfield_select_option') . '";');
 			}
-			eval('$profile_variable .= "' . fetch_template('userfield_select_multiple') . '";');
+			eval('$custom_field_holder = "' . fetch_template('userfield_select_multiple') . '";');
 		}
+
+		if ($profilefield['required'] == 2)
+		{
+			// not required to be filled in but still show
+			$profile_variable =& $customfields_other;
+		}
+		else // required to be filled in
+		{
+			if ($profilefield['form'])
+			{
+				$profile_variable =& $customfields_option;
+			}
+			else
+			{
+				$profile_variable =& $customfields_profile;
+			}
+		}
+
+		eval('$profile_variable .= "' . fetch_template('userfield_wrapper') . '";');
 	}
 
 	if (!$vbulletin->GPC['who'])
@@ -844,14 +912,6 @@ if ($_REQUEST['do'] == 'register')
 	$show['customfields_option'] = ($customfields_option) ? true : false;
 	$show['customfields_other'] = ($customfields_other) ? true : false;
 	$show['email'] = ($vbulletin->options['enableemail'] AND $vbulletin->options['displayemails']) ? true : false;
-	if ($vbulletin->options['regimagecheck'] AND $vbulletin->options['regimagetype'])
-	{
-		eval('$imagereg = "' . fetch_template('imagereg') . '";');
-	}
-	else
-	{
-		$imagereg = '';
-	}
 
 	$vbulletin->input->clean_array_gpc('p', array(
 		'timezoneoffset' => TYPE_NUM
@@ -960,7 +1020,7 @@ if ($vbulletin->GPC['a'] == 'act')
 		}
 
 		// delete activationid
-		//$db->query_write("DELETE FROM " . TABLE_PREFIX . "useractivation WHERE userid=$userinfo[userid] AND type=0");
+		$db->query_write("DELETE FROM " . TABLE_PREFIX . "useractivation WHERE userid=$userinfo[userid] AND type=0");
 
 		/*
 		This shouldn't be needed any more since we handle this during registration
@@ -1247,8 +1307,8 @@ if ($_REQUEST['do'] == 'killactivation')
 
 /*======================================================================*\
 || ####################################################################
-|| # Downloaded: 18:52, Sat Jul 14th 2007
-|| # CVS: $RCSfile$ - $Revision: 16142 $
+|| # Downloaded: 16:21, Sat Apr 6th 2013
+|| # CVS: $RCSfile$ - $Revision: 26548 $
 || ####################################################################
 \*======================================================================*/
 ?>

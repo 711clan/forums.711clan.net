@@ -1,9 +1,9 @@
 <?php
 /*======================================================================*\
 || #################################################################### ||
-|| # vBulletin 3.6.7 PL1 - Licence Number VBF2470E4F
+|| # vBulletin 3.7.2 Patch Level 2 - Licence Number VBF2470E4F
 || # ---------------------------------------------------------------- # ||
-|| # Copyright ©2000-2007 Jelsoft Enterprises Ltd. All Rights Reserved. ||
+|| # Copyright ©2000-2013 Jelsoft Enterprises Ltd. All Rights Reserved. ||
 || # This file may not be redistributed in whole or significant part. # ||
 || # ---------------- VBULLETIN IS NOT FREE SOFTWARE ---------------- # ||
 || # http://www.vbulletin.com | http://www.vbulletin.com/license.html # ||
@@ -15,6 +15,7 @@ error_reporting(E_ALL & ~E_NOTICE);
 
 // ##################### DEFINE IMPORTANT CONSTANTS #######################
 define('THIS_SCRIPT', 'announcement');
+define('CSRF_PROTECTION', true);
 
 // #################### PRE-CACHE TEMPLATES AND DATA ######################
 // get special phrase groups
@@ -82,11 +83,18 @@ $vbulletin->input->clean_gpc('r', 'announcementid', TYPE_UINT);
 if ($vbulletin->GPC['announcementid'])
 {
 	$announcementinfo = verify_id('announcement', $vbulletin->GPC['announcementid'], 1, 1);
-	if ($announcementinfo['forumid'] != -1)
+	if ($announcementinfo['forumid'] != -1 AND $_POST['do'] != 'update')
 	{
 		$vbulletin->GPC['forumid'] = $announcementinfo['forumid'];
 	}
 	$announcementinfo = array_merge($announcementinfo , convert_bits_to_array($announcementinfo['announcementoptions'], $vbulletin->bf_misc_announcementoptions));
+
+	// verify that the visiting user has permission to view this announcement
+	if (($announcementinfo['startdate'] > TIMENOW OR $announcementinfo['enddate'] < TIMENOW) AND !can_moderate($vbulletin->GPC['forumid'], 'canannounce'))
+	{
+		// announcement date is out of range and user is not a moderator
+		print_no_permission();
+	}
 }
 
 // #############################################################################
@@ -104,7 +112,7 @@ if ($_POST['do'] == 'delete')
 	}
 	else
 	{
-		exec_header_redirect('announcement.php?' . $vbulletin->session->vars['sessionurl_q'] . "do=edit&a=$announcementinfo[announcementid]");
+		exec_header_redirect('announcement.php?' . $vbulletin->session->vars['sessionurl'] . "do=edit&a=$announcementinfo[announcementid]");
 	}
 }
 
@@ -121,7 +129,7 @@ if ($_POST['do'] == 'update')
 		'startdate'   => TYPE_ARRAY_UINT,
 		'enddate'     => TYPE_ARRAY_UINT,
 		'options'     => TYPE_ARRAY_BOOL,
-		'reset_views' => TYPE_BOOL,
+		'reset_views' => TYPE_BOOL
 	));
 
 	if (!can_moderate($vbulletin->GPC['forumid'], 'canannounce'))
@@ -200,6 +208,7 @@ if ($_REQUEST['do'] == 'edit')
 		}
 
 		$show['editing_mode'] = true;
+		$announcementinfo['title'] = fetch_censored_text($announcementinfo['title']);
 	}
 	else
 	{
@@ -210,11 +219,11 @@ if ($_REQUEST['do'] == 'edit')
 		}
 
 		$announcementinfo = array(
-			'forumid' => $vbulletin->GPC['forumid'],
-			'title' => '',
-			'pagetext' => '',
-			'startdate' => TIMENOW,
-			'enddate' => vbmktime(0, 0, 0, vbdate('n', TIMENOW, false, false) + 1, vbdate('j', TIMENOW, false, false), vbdate('Y', TIMENOW, false, false)),
+			'forumid'             => $vbulletin->GPC['forumid'],
+			'title'               => '',
+			'pagetext'            => '',
+			'startdate'           => TIMENOW,
+			'enddate'             => vbmktime(0, 0, 0, vbdate('n', TIMENOW, false, false) + 1, vbdate('j', TIMENOW, false, false), vbdate('Y', TIMENOW, false, false)),
 			'announcementoptions' => 29
 		);
 
@@ -272,7 +281,7 @@ if ($_REQUEST['do'] == 'edit')
 		0, // is html?
 		'announcement', // forumid
 		true, // allow smilies
-		($announcementinfo['allowsmilies'] AND !$edit['disablesmilies']) ? 1 : 0 // parse smilies
+		($announcementinfo['announcementoptions'] & $vbulletin->bf_misc_announcementoptions['allowsmilies']) ? 1 : 0 // parse smilies
 	);
 
 	// build navbar
@@ -337,6 +346,9 @@ if ($_REQUEST['do'] == 'view')
 
 	construct_forum_jump();
 
+	$hook_query_fields = $hook_query_joins = $hook_query_where = '';
+	($hook = vBulletinHook::fetch_hook('announcement_query')) ? eval($hook) : false;
+
 	$announcements = $db->query_read_slave("
 		SELECT announcement.announcementid, announcement.announcementid AS postid, startdate, enddate, announcement.title, pagetext, announcementoptions, views,
 			user.*, userfield.*, usertextfield.*,
@@ -344,6 +356,7 @@ if ($_REQUEST['do'] == 'view')
 			IF(displaygroupid=0, user.usergroupid, displaygroupid) AS displaygroupid, infractiongroupid
 			" . ($vbulletin->options['avatarenabled'] ? ",avatar.avatarpath, NOT ISNULL(customavatar.userid) AS hascustomavatar, customavatar.dateline AS avatardateline,customavatar.width AS avwidth,customavatar.height AS avheight" : "") . "
 			" . (($vbulletin->userinfo['userid']) ? ", NOT ISNULL(announcementread.announcementid) AS readannouncement" : "") . "
+			$hook_query_fields
 		FROM  " . TABLE_PREFIX . "announcement AS announcement
 		" . (($vbulletin->userinfo['userid']) ? "LEFT JOIN " . TABLE_PREFIX . "announcementread AS announcementread ON(announcementread.announcementid = announcement.announcementid AND announcementread.userid = " . $vbulletin->userinfo['userid'] . ")" : "") . "
 		LEFT JOIN " . TABLE_PREFIX . "user AS user ON(user.userid=announcement.userid)
@@ -352,13 +365,15 @@ if ($_REQUEST['do'] == 'view')
 		LEFT JOIN " . TABLE_PREFIX . "sigpic AS sigpic ON(sigpic.userid = announcement.userid)
 		" . ($vbulletin->options['avatarenabled'] ? "LEFT JOIN " . TABLE_PREFIX . "avatar AS avatar ON(avatar.avatarid=user.avatarid)
 		LEFT JOIN " . TABLE_PREFIX . "customavatar AS customavatar ON(customavatar.userid=announcement.userid)" : "") . "
-		" . (!empty($vbulletin->GPC['announcementid']) ? "WHERE announcement.announcementid = " . $vbulletin->GPC['announcementid'] : "
-			WHERE startdate <= " . TIMENOW . "
-				AND enddate >= " . TIMENOW . "
-				" . (!empty($forumlist) ? "AND $forumlist" : "") . "
-			ORDER BY startdate DESC, announcementid DESC
-		")
-	);
+		$hook_query_joins
+		WHERE
+			" . ($vbulletin->GPC['announcementid'] ?
+				"announcement.announcementid = " . $vbulletin->GPC['announcementid'] :
+				"startdate <= " . TIMENOW . " AND enddate >= " . TIMENOW . " " . (!empty($forumlist) ? "AND $forumlist" : "")
+			) . "
+			$hook_query_where
+		ORDER BY startdate DESC, announcementid DESC
+	");
 
 	if ($db->num_rows($announcements) == 0)
 	{ // no announcements
@@ -461,8 +476,8 @@ if ($_REQUEST['do'] == 'view')
 
 /*======================================================================*\
 || ####################################################################
-|| # Downloaded: 18:52, Sat Jul 14th 2007
-|| # CVS: $RCSfile$ - $Revision: 16935 $
+|| # Downloaded: 16:21, Sat Apr 6th 2013
+|| # CVS: $RCSfile$ - $Revision: 26401 $
 || ####################################################################
 \*======================================================================*/
 ?>

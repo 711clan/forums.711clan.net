@@ -1,28 +1,35 @@
 <?php
 /*======================================================================*\
 || #################################################################### ||
-|| # vBulletin 3.6.7 PL1 - Licence Number VBF2470E4F
+|| # vBulletin 3.7.2 Patch Level 2 - Licence Number VBF2470E4F
 || # ---------------------------------------------------------------- # ||
-|| # Copyright ©2000-2007 Jelsoft Enterprises Ltd. All Rights Reserved. ||
+|| # Copyright ©2000-2013 Jelsoft Enterprises Ltd. All Rights Reserved. ||
 || # This file may not be redistributed in whole or significant part. # ||
 || # ---------------- VBULLETIN IS NOT FREE SOFTWARE ---------------- # ||
 || # http://www.vbulletin.com | http://www.vbulletin.com/license.html # ||
 || #################################################################### ||
 \*======================================================================*/
 
-// ###################### Start fetch_coventry #######################
-// gets a list of userids in Coventry. Specify 'string' as your argument
-// if you want a comma-separated string rather than an array
-function fetch_coventry($returntype = 'array')
+/**
+* Fetches the list of coventry user IDs.
+*
+* @param	string	Type of data to return ('array' returns array of users, otherwise comma-delimited string)
+* @param	boolean	True if you want to include the browsing user
+*
+* @return	string|array	List of coventry users in the specified format
+*/
+function fetch_coventry($returntype = 'array', $withself = false)
 {
 	global $vbulletin;
 	static $Coventry;
+	static $Coventry_with;
 
 	if (!isset($Coventry))
 	{
 		if (trim($vbulletin->options['globalignore']) != '')
 		{
 			$Coventry = preg_split('#\s+#s', $vbulletin->options['globalignore'], -1, PREG_SPLIT_NO_EMPTY);
+			$Coventry_with = $Coventry;
 			$bbuserkey = array_search($vbulletin->userinfo['userid'], $Coventry);
 			if ($bbuserkey !== FALSE AND $bbuserkey !== NULL)
 			{
@@ -31,25 +38,48 @@ function fetch_coventry($returntype = 'array')
 		}
 		else
 		{
-			$Coventry = array();
+			$Coventry = $Coventry_with = array();
 		}
 	}
 
-	if ($returntype === 'array')
+	if ($withself)
 	{
-		// return array
-		return $Coventry;
+		if ($returntype === 'array')
+		{
+			// return array
+			return $Coventry_with;
+		}
+		else
+		{
+			// return comma-separated string
+			return implode(',', $Coventry_with);
+		}
 	}
 	else
 	{
-		// return comma-separated string
-		return implode(',', $Coventry);
+		if ($returntype === 'array')
+		{
+			// return array
+			return $Coventry;
+		}
+		else
+		{
+			// return comma-separated string
+			return implode(',', $Coventry);
+		}
 	}
 }
 
-// ###################### Start getOnlineStatus #######################
-// work out if bbuser can see online status of user
-// also puts in + and * symbols as $user[buddymark] and $user[invisiblemark]
+/**
+* Fetches the online states for the user, taking into account the browsing
+* user's viewing permissions. Also modifies the user to include [buddymark]
+* and [invisiblemark]
+*
+* @param	array	Array of userinfo to fetch online status for
+* @param	boolean	True if you want to set $user[onlinestatus] with template results
+*
+* @return	integer	0 = offline, 1 = online, 2 = online but invisible (if permissions allow)
+*/
 function fetch_online_status(&$user, $setstatusimage = false)
 {
 	global $vbulletin, $stylevar, $vbphrase;
@@ -144,23 +174,6 @@ function mark_thread_read(&$threadinfo, &$foruminfo, $userid, $time)
 	// now if applicable search to see if this was the last thread requiring marking in this forum
 	if ($vbulletin->options['threadmarking'] == 2 AND $userid)
 	{
-		/*$forumread = intval(max($threadinfo['forumread'], TIMENOW - ($vbulletin->options['markinglimit'] * 86400)));
-		$unread = $db->query_first("
-			SELECT COUNT(*) AS count
- 			FROM " . TABLE_PREFIX . "thread AS thread
- 			LEFT JOIN " . TABLE_PREFIX . "threadread AS threadread ON (threadread.threadid = thread.threadid AND threadread.userid = $userid)
- 			WHERE thread.forumid = $threadinfo[forumid]
-	      		AND thread.visible = 1
-	      		AND thread.sticky IN (0,1)
-	      		AND thread.lastpost > $forumread
-	      		AND thread.open <> 10
-	      		AND (threadread.threadid IS NULL OR threadread.readtime < thread.lastpost)
-		");
-		if ($unread['count'] == 0)
-		{
-			mark_forum_read($foruminfo, $userid, TIMENOW);
-		}*/
-
 		// forum can only be marked as read if all the children are read as well,
 		// so determine which children "count"
 		if ($foruminfo['childlist'] AND $userid == $vbulletin->userinfo['userid'])
@@ -274,7 +287,7 @@ function mark_forum_read(&$foruminfo, $userid, $time, $check_parents = true)
 
 			// determine the read time for all forums that we need to consider
 			$readtimes = array();
-			$readtimes_query = $db->query_read("
+			$readtimes_query = $db->query_read_slave("
 				SELECT forumid, readtime
 				FROM " . TABLE_PREFIX . "forumread
 				WHERE userid = $userid
@@ -296,12 +309,11 @@ function mark_forum_read(&$foruminfo, $userid, $time, $check_parents = true)
 					continue;
 				}
 
-				// can only mark this forum read if we've actually read the last post itself
-				$markread = (max($cutoff, $readtimes["$parentid"]) >= $rawlastpostinfo["$parentid"]['lastpost']);
+				$markread = true;
 
-				if ($markread AND is_array($vbulletin->iforumcache["$parentid"]))
+				// now look through all the children and confirm they are all read
+				if (is_array($vbulletin->iforumcache["$parentid"]))
 				{
-					// now look through all the children and confirm they are all read
 					foreach ($vbulletin->iforumcache["$parentid"] AS $childid)
 					{
 						if (max($cutoff, $readtimes["$childid"]) < $vbulletin->forumcache["$childid"]['lastpost'])
@@ -309,6 +321,27 @@ function mark_forum_read(&$foruminfo, $userid, $time, $check_parents = true)
 							$markread = false;
 							break;
 						}
+					}
+				}
+
+				// if all children are read, make sure all the threads in this forum are read too
+				if ($markread)
+				{
+					$forumread = intval(max($readtimes["$parentid"], $cutoff));
+					$unread = $db->query_first("
+						SELECT COUNT(*) AS count
+			 			FROM " . TABLE_PREFIX . "thread AS thread
+			 			LEFT JOIN " . TABLE_PREFIX . "threadread AS threadread ON (threadread.threadid = thread.threadid AND threadread.userid = $userid)
+			 			WHERE thread.forumid = $parentid
+				      		AND thread.visible = 1
+				      		AND thread.sticky IN (0,1)
+				      		AND thread.lastpost > $forumread
+				      		AND thread.open <> 10
+				      		AND (threadread.threadid IS NULL OR threadread.readtime < thread.lastpost)
+					");
+					if ($unread['count'] > 0)
+					{
+						$markread = false;
 					}
 				}
 
@@ -345,7 +378,13 @@ function mark_forum_read(&$foruminfo, $userid, $time, $check_parents = true)
 	return $forums_marked;
 }
 
-// ###################### Start getforumrules #######################
+/**
+* Constructs a forum rules template for the specified forum, with selected permissions.
+* Does not return a value, instead putting the results in the global $forumrules.
+*
+* @param	array	Array of forum info
+* @param	integer	Bitfield of permissions for the specified forum
+*/
 function construct_forum_rules($foruminfo, $permissions)
 {
 	// array of foruminfo and permissions for this forum
@@ -359,24 +398,64 @@ function construct_forum_rules($foruminfo, $permissions)
 	$can['postnew'] = (($permissions & $vbulletin->bf_ugp_forumpermissions['canpostnew']) AND $foruminfo['allowposting']);
 	$can['replyown'] = (($permissions & $vbulletin->bf_ugp_forumpermissions['canreplyown']) AND $foruminfo['allowposting']);
 	$can['replyothers'] = (($permissions & $vbulletin->bf_ugp_forumpermissions['canreplyothers']) AND $foruminfo['allowposting']);
+	$can['reply'] = ($can['replyown'] OR $can['replyothers']);
 	$can['editpost'] = $permissions & $vbulletin->bf_ugp_forumpermissions['caneditpost'];
 	$can['postattachment'] = (($permissions & $vbulletin->bf_ugp_forumpermissions['canpostattachment']) AND $foruminfo['allowposting'] AND !empty($vbulletin->userinfo['attachmentextensions']));
-
-	$notword = $vbphrase['not'];
-	$rules['postnew'] = iif($can['postnew'], '', $notword);
-	$rules['postreply'] = iif($can['replyown'] OR $can['replyothers'], '', $notword);
-	$rules['edit'] = iif($can['editpost'], '', $notword);
-	$rules['attachment'] = iif(($can['postattachment']) AND ($can['postnew'] OR $can['replyown'] OR $can['replyothers']), '', $notword);
+	$can['attachment'] = ($can['postattachment'] AND ($can['postnew'] OR $can['replyown'] OR $can['replyothers']));
 
 	($hook = vBulletinHook::fetch_hook('forumrules')) ? eval($hook) : false;
 
 	eval('$forumrules = "' . fetch_template('forumrules') . '";');
 }
 
+/**
+* Fetches the tagbits for display in a thread.
+*
+* @param	array	Thread info
+*
+* @return	string	Tag bits, including a none word and progress image
+*/
+function fetch_tagbits($threadinfo)
+{
+	global $vbulletin, $stylevar, $vbphrase, $show, $template_hook;
+
+
+	if ($threadinfo['taglist'])
+	{
+		$tag_array = explode(',', $threadinfo['taglist']);
+
+		$tag_list = '';
+		foreach ($tag_array AS $tag)
+		{
+			$tag = trim($tag);
+			if ($tag === '')
+			{
+				continue;
+			}
+			$tag_url = urlencode(unhtmlspecialchars($tag));
+			$tag = fetch_word_wrapped_string($tag);
+
+			($hook = vBulletinHook::fetch_hook('tag_fetchbit')) ? eval($hook) : false;
+
+			$tag_list .= ($tag_list != '' ? ', ' : '');
+			eval('$tag_list .= trim("' . fetch_template('tagbit') . '");');
+		}
+	}
+	else
+	{
+		$tag_list = '';
+	}
+
+	($hook = vBulletinHook::fetch_hook('tag_fetchbit_complete')) ? eval($hook) : false;
+
+	eval('$wrapped = "' . fetch_template('tagbit_wrapper') . '";');
+	return $wrapped;
+}
+
 /*======================================================================*\
 || ####################################################################
-|| # Downloaded: 18:52, Sat Jul 14th 2007
-|| # CVS: $RCSfile$ - $Revision: 16590 $
+|| # Downloaded: 16:21, Sat Apr 6th 2013
+|| # CVS: $RCSfile$ - $Revision: 26052 $
 || ####################################################################
 \*======================================================================*/
 ?>

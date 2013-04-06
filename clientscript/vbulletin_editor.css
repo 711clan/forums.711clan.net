@@ -1,8 +1,8 @@
 /*======================================================================*\
 || #################################################################### ||
-|| # vBulletin 3.6.7 PL1
+|| # vBulletin 3.7.2 Patch Level 2
 || # ---------------------------------------------------------------- # ||
-|| # All code in this file is ©2000-2007 Jelsoft Enterprises Ltd.     # ||
+|| # All code in this file is ©2000-2013 Jelsoft Enterprises Ltd.     # ||
 || # This file may not be redistributed in whole or significant part. # ||
 || # ---------------- VBULLETIN IS NOT FREE SOFTWARE ---------------- # ||
 || # http://www.vbulletin.com | http://www.vbulletin.com/license.html # ||
@@ -19,14 +19,6 @@
 #controlbar, .controlbar
 {
 	padding: 2px;
-}
-
-/* the WYSIWYG edit area itself */
-#htmlbox
-{
-	border: 2px inset;
-	font: 10pt verdana;
-	overflow: auto;
 }
 
 /* an individual button */
@@ -161,7 +153,7 @@
 
 /*======================================================================*\
 || ####################################################################
-|| # Downloaded: 18:52, Sat Jul 14th 2007
-|| # CVS: $RCSfile$ - $Revision: 13469 $
+|| # Downloaded: 16:21, Sat Apr 6th 2013
+|| # CVS: $RCSfile$ - $Revision: 26322 $
 || ####################################################################
 \*======================================================================*/

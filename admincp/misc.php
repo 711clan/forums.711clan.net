@@ -1,9 +1,9 @@
 <?php
 /*======================================================================*\
 || #################################################################### ||
-|| # vBulletin 3.6.7 PL1 - Licence Number VBF2470E4F
+|| # vBulletin 3.7.2 Patch Level 2 - Licence Number VBF2470E4F
 || # ---------------------------------------------------------------- # ||
-|| # Copyright ©2000-2007 Jelsoft Enterprises Ltd. All Rights Reserved. ||
+|| # Copyright ©2000-2013 Jelsoft Enterprises Ltd. All Rights Reserved. ||
 || # This file may not be redistributed in whole or significant part. # ||
 || # ---------------- VBULLETIN IS NOT FREE SOFTWARE ---------------- # ||
 || # http://www.vbulletin.com | http://www.vbulletin.com/license.html # ||
@@ -16,7 +16,7 @@ error_reporting(E_ALL & ~E_NOTICE);
 ignore_user_abort(1);
 
 // ##################### DEFINE IMPORTANT CONSTANTS #######################
-define('CVS_REVISION', '$RCSfile$ - $Revision: 16363 $');
+define('CVS_REVISION', '$RCSfile$ - $Revision: 26665 $');
 define('NOZIP', 1);
 
 // #################### PRE-CACHE TEMPLATES AND DATA ######################
@@ -106,8 +106,6 @@ if ($_REQUEST['do'] == 'buildpostindex')
 		$vbulletin->GPC['perpage'] = 250;
 	}
 
-	$finishat = $vbulletin->GPC['startat'] + $vbulletin->GPC['perpage'];
-
 	echo '<p>' . $vbphrase['building_search_index'] . ' ';
 	vbflush();
 
@@ -121,12 +119,14 @@ if ($_REQUEST['do'] == 'buildpostindex')
 		INNER JOIN " . TABLE_PREFIX . "forum AS forum ON(forum.forumid = thread.forumid)
 		WHERE (forum.options & " . $vbulletin->bf_misc_forumoptions['indexposts'] . ")
 			AND post.postid >= " . $vbulletin->GPC['startat'] . "
-			AND post.postid < $finishat
 		ORDER BY post.postid
-	");
+		LIMIT " . $vbulletin->GPC['perpage']
+	);
 
 	echo $vbphrase['posts_queried'] . '</p><p>';
 	vbflush();
+
+	$finishat = $vbulletin->GPC['startat'];
 
 	while ($post = $db->fetch_array($posts) AND (!$vbulletin->GPC['doprocess'] OR $vbulletin->GPC['totalposts'] < $vbulletin->GPC['doprocess']))
 	{
@@ -151,7 +151,11 @@ if ($_REQUEST['do'] == 'buildpostindex')
 
 		echo $vbphrase['done'] . "<br />\n";
 		vbflush();
+
+		$finishat = ($post['postid'] > $finishat ? $post['postid'] : $finishat);
 	}
+
+	$finishat++;
 
 	require_once(DIR . '/includes/functions_misc.php');
 	$pagetime = vb_number_format(fetch_microtime_difference($starttime), 2);
@@ -199,32 +203,39 @@ if ($_REQUEST['do'] == 'updateposts')
 	$users = $db->query_read("
 		SELECT *
 		FROM " . TABLE_PREFIX . "user
-		WHERE userid >= " . $vbulletin->GPC['startat'] . " AND userid < $finishat
+		WHERE userid >= " . $vbulletin->GPC['startat'] . "
 		ORDER BY userid
-	");
+		LIMIT " . $vbulletin->GPC['perpage']
+	);
+
+	$finishat = $vbulletin->GPC['startat'];
+
 	while ($user = $db->fetch_array($users))
 	{
 		$totalposts = $db->query_first("
-			SELECT COUNT(*) AS posts FROM " . TABLE_PREFIX . "post AS post
-			INNER JOIN " . TABLE_PREFIX . "thread AS thread USING (threadid)
-			LEFT JOIN " . TABLE_PREFIX . "deletionlog AS deletionlog_t ON (deletionlog_t.primaryid = thread.threadid AND deletionlog_t.type = 'thread')
-			LEFT JOIN " . TABLE_PREFIX . "deletionlog AS deletionlog_p ON (deletionlog_p.primaryid = post.postid AND deletionlog_p.type = 'post')
-			WHERE post.userid = $user[userid] AND
-				thread.forumid IN (0$gotforums) AND
-				deletionlog_t.primaryid IS NULL AND
-				deletionlog_p.primaryid IS NULL
+			SELECT COUNT(*) AS posts
+			FROM " . TABLE_PREFIX . "post AS post
+			INNER JOIN " . TABLE_PREFIX . "thread AS thread ON (thread.threadid = post.threadid)
+			WHERE post.userid = $user[userid]
+				AND thread.forumid IN (0$gotforums)
+				AND thread.visible = 1
+				AND post.visible = 1
 		");
 
 		$userdm =& datamanager_init('User', $vbulletin, ERRTYPE_CP);
 		$userdm->set_existing($user);
 		$userdm->set('posts', $totalposts['posts']);
+		$userdm->set_ladder_usertitle($totalposts['posts']);
 		$userdm->save();
 		unset($userdm);
 
 		echo construct_phrase($vbphrase['processing_x'], $user['userid']) . "<br />\n";
 		vbflush();
+
+		$finishat = ($user['userid'] > $finishat ? $user['userid'] : $finishat);
 	}
 
+	$finishat++;
 
 	if ($checkmore = $db->query_first("SELECT userid FROM " . TABLE_PREFIX . "user WHERE userid >= $finishat LIMIT 1"))
 	{
@@ -248,8 +259,6 @@ if ($_REQUEST['do'] == 'updateuser')
 		$vbulletin->GPC['perpage'] = 1000;
 	}
 
-	$finishat = $vbulletin->GPC['startat'] + $vbulletin->GPC['perpage'];
-
 	echo '<p>' . $vbphrase['updating_user_info'] . '</p>';
 	$tmp_usergroup_cache = array();
 
@@ -272,9 +281,13 @@ if ($_REQUEST['do'] == 'updateuser')
 		IF(user.displaygroupid=0, user.usergroupid, user.displaygroupid) AS displaygroupid
 		FROM " . TABLE_PREFIX . "user AS user
 		LEFT JOIN " . TABLE_PREFIX . "usertextfield AS usertextfield USING (userid)
-		WHERE user.userid >= " . $vbulletin->GPC['startat'] . " AND user.userid < $finishat
+		WHERE user.userid >= " . $vbulletin->GPC['startat'] . "
 		ORDER BY user.userid
-	");
+		LIMIT " . $vbulletin->GPC['perpage']
+	);
+
+	$finishat = $vbulletin->GPC['startat'];
+
 	while ($user = $db->fetch_array($users))
 	{
 		$userdm =& datamanager_init('User', $vbulletin, ERRTYPE_CP);
@@ -309,7 +322,11 @@ if ($_REQUEST['do'] == 'updateuser')
 
 		echo construct_phrase($vbphrase['processing_x'], $user['userid']) . "<br />\n";
 		vbflush();
+
+		$finishat = ($user['userid'] > $finishat ? $user['userid'] : $finishat);
 	}
+
+	$finishat++;
 
 	if ($checkmore = $db->query_first("SELECT userid FROM " . TABLE_PREFIX . "user WHERE userid >= $finishat LIMIT 1"))
 	{
@@ -331,16 +348,16 @@ if ($_REQUEST['do'] == 'updateusernames')
 		$vbulletin->GPC['perpage'] = 1000;
 	}
 
-	$finishat = $vbulletin->GPC['startat'] + $vbulletin->GPC['perpage'];
-
 	echo '<p>' . $vbphrase['updating_usernames'] . '</p>';
 	$users = $db->query_read("
 		SELECT *
 		FROM " . TABLE_PREFIX . "user
-		WHERE userid >= " . $vbulletin->GPC['startat'] . " AND
-			userid < $finishat
+		WHERE userid >= " . $vbulletin->GPC['startat'] . "
 		ORDER BY userid
-	");
+		LIMIT " . $vbulletin->GPC['perpage']
+	);
+
+	$finishat = $vbulletin->GPC['startat'];
 	while ($user = $db->fetch_array($users))
 	{
 		$userman =& datamanager_init('User', $vbulletin, ERRTYPE_SILENT);
@@ -350,7 +367,11 @@ if ($_REQUEST['do'] == 'updateusernames')
 
 		echo construct_phrase($vbphrase['processing_x'], $user['userid']) . "<br />\n";
 		vbflush();
+
+		$finishat = ($user['userid'] > $finishat ? $user['userid'] : $finishat);
 	}
+
+	$finishat++; // move past the last processed user
 
 	if ($checkmore = $db->query_first("SELECT userid FROM " . TABLE_PREFIX . "user WHERE userid >= $finishat LIMIT 1"))
 	{
@@ -373,23 +394,28 @@ if ($_REQUEST['do'] == 'updateforum')
 		$vbulletin->GPC['perpage'] = 100;
 	}
 
-	$finishat = $vbulletin->GPC['startat'] + $vbulletin->GPC['perpage'];
-
 	echo '<p>' . $vbphrase['updating_forums'] . '</p>';
 
 	$forums = $db->query_read("
 		SELECT forumid
 		FROM " . TABLE_PREFIX . "forum
-		WHERE forumid >= " . $vbulletin->GPC['startat'] . " AND
-			forumid < $finishat
+		WHERE forumid >= " . $vbulletin->GPC['startat'] . "
 		ORDER BY forumid
-	");
+		LIMIT " . $vbulletin->GPC['perpage']
+	);
+
+	$finishat = $vbulletin->GPC['startat'];
+
 	while($forum = $db->fetch_array($forums))
 	{
 		build_forum_counters($forum['forumid'], true);
 		echo construct_phrase($vbphrase['processing_x'], $forum['forumid']) . "<br />\n";
 		vbflush();
+
+		$finishat = ($forum['forumid'] > $finishat ? $forum['forumid'] : $finishat);
 	}
+
+	$finishat++;
 
 	if ($checkmore = $db->query_first("SELECT forumid FROM " . TABLE_PREFIX . "forum WHERE forumid >= $finishat LIMIT 1"))
 	{
@@ -439,23 +465,28 @@ if ($_REQUEST['do'] == 'updatethread')
 		$vbulletin->GPC['perpage'] = 2000;
 	}
 
-	$finishat = $vbulletin->GPC['startat'] + $vbulletin->GPC['perpage'];
-
 	echo '<p>' . $vbphrase['updating_threads'] . '</p>';
 
 	$threads = $db->query_read("
 		SELECT threadid
 		FROM " . TABLE_PREFIX . "thread
-		WHERE threadid >= " . $vbulletin->GPC['startat'] . " AND
-		threadid < $finishat
+		WHERE threadid >= " . $vbulletin->GPC['startat'] . "
 		ORDER BY threadid
-	");
+		LIMIT " . $vbulletin->GPC['perpage']
+	);
+
+	$finishat = $vbulletin->GPC['startat'];
+
 	while ($thread = $db->fetch_array($threads))
 	{
 		build_thread_counters($thread['threadid']);
 		echo construct_phrase($vbphrase['processing_x'], $thread['threadid'])."<br />\n";
 		vbflush();
+
+		$finishat = ($thread['threadid'] > $finishat ? $thread['threadid'] : $finishat);
 	}
+
+	$finishat++;
 
 	if ($checkmore = $db->query_first("SELECT threadid FROM " . TABLE_PREFIX . "thread WHERE threadid >= $finishat LIMIT 1"))
 	{
@@ -478,17 +509,19 @@ if ($_REQUEST['do'] == 'updatesimilar')
 		$vbulletin->GPC['perpage'] = 100;
 	}
 
-	$finishat = $vbulletin->GPC['startat'] + $vbulletin->GPC['perpage'];
 
 	echo '<p>' . $vbphrase['updating_similar_threads'] . '</p>';
 
 	$threads = $db->query_read("
 		SELECT title, threadid
 		FROM " . TABLE_PREFIX . "thread
-		WHERE threadid >= " . $vbulletin->GPC['startat'] . " AND
-			threadid < $finishat
+		WHERE threadid >= " . $vbulletin->GPC['startat'] . "
 		ORDER BY threadid
-	");
+		LIMIT " . $vbulletin->GPC['perpage']
+	);
+
+	$finishat = $vbulletin->GPC['startat'];
+
 	while ($thread = $db->fetch_array($threads))
 	{
 		$similarthreads = fetch_similar_threads($thread['title'], $thread['threadid']);
@@ -500,7 +533,11 @@ if ($_REQUEST['do'] == 'updatesimilar')
 
 		echo construct_phrase($vbphrase['processing_x'], $thread['threadid']) . "<br />\n";
 		vbflush();
+
+		$finishat = ($thread['threadid'] > $finishat ? $thread['threadid'] : $finishat);
 	}
+
+	$finishat++;
 
 	if ($checkmore = $db->query_first("SELECT threadid FROM " . TABLE_PREFIX . "thread WHERE threadid >= $finishat LIMIT 1"))
 	{
@@ -577,7 +614,10 @@ if ($_REQUEST['do'] == 'rebuildthumbs')
 		'autoredirect' => TYPE_BOOL,
 	));
 
-	@ini_set('memory_limit', -1);
+	if (($memory_limit = ini_size_to_bytes(@ini_get('memory_limit'))) < 128 * 1024 * 1024 AND $memory_limit > 0)
+	{
+		@ini_set('memory_limit', 128 * 1024 * 1024);
+	}
 
 	require_once(DIR . '/includes/class_image.php');
 	$image =& vB_Image::fetch_library($vbulletin);
@@ -616,7 +656,6 @@ if ($_REQUEST['do'] == 'rebuildthumbs')
 		$vbulletin->GPC['startat'] = intval($firstattach['min']);
 	}
 
-	$finishat = $vbulletin->GPC['startat'] + $vbulletin->GPC['perpage'];
 
 	echo '<p>' . construct_phrase($vbphrase['building_attachment_thumbnails'], "misc.php?" . $vbulletin->session->vars['sessionurl'] . "do=rebuildthumbs&startat=" . $vbulletin->GPC['startat'] . "&pp=" . $vbulletin->GPC['perpage'] . "&autoredirect=" . $vbulletin->GPC['autoredirect'] . "&quality=" . $vbulletin->GPC['quality']) . '</p>';
 
@@ -629,10 +668,13 @@ if ($_REQUEST['do'] == 'rebuildthumbs')
 		SELECT attachmentid, filedata, userid, postid, filename, dateline
 		FROM " . TABLE_PREFIX . "attachment
 		WHERE attachmentid >= " . $vbulletin->GPC['startat'] . "
-			AND	attachmentid < $finishat
 			AND	SUBSTRING_INDEX(filename, '.', -1) IN ($extensions)
 		ORDER BY attachmentid
-	");
+		LIMIT " . $vbulletin->GPC['perpage']
+	);
+
+	$finishat = $vbulletin->GPC['startat'];
+
 	while ($attachment = $db->fetch_array($attachments))
 	{
 		if (!$vbulletin->options['attachfile']) // attachments are in the database
@@ -701,7 +743,11 @@ if ($_REQUEST['do'] == 'rebuildthumbs')
 		}
 		echo '<br />';
 		vbflush();
+
+		$finishat = ($attachment['attachmentid'] > $finishat ? $attachment['attachmentid'] : $finishat);
 	}
+
+	$finishat++;
 
 	if ($checkmore = $db->query_first("SELECT attachmentid FROM " . TABLE_PREFIX . "attachment WHERE attachmentid >= $finishat AND SUBSTRING_INDEX(filename, '.', -1) IN ('gif', 'jpg', 'jpeg', 'jpe', 'png') LIMIT 1"))
 	{
@@ -718,6 +764,232 @@ if ($_REQUEST['do'] == 'rebuildthumbs')
 	}
 }
 
+// ################## Start rebuilding avatar thumbnails ################
+if ($_REQUEST['do'] == 'rebuildavatars')
+{
+	$vbulletin->input->clean_array_gpc('r', array(
+		'autoredirect' => TYPE_BOOL,
+	));
+
+	if (($memory_limit = ini_size_to_bytes(@ini_get('memory_limit'))) < 128 * 1024 * 1024 AND $memory_limit > 0)
+	{
+		@ini_set('memory_limit', 128 * 1024 * 1024);
+	}
+
+	if ($vbulletin->options['imagetype'] != 'Magick' AND !function_exists('imagetypes'))
+	{
+		//define('CP_REDIRECT', 'misc.php');
+		print_stop_message('your_version_no_image_support');
+	}
+
+	if (empty($vbulletin->GPC['perpage']))
+	{
+		$vbulletin->GPC['perpage'] = 20;
+	}
+
+	if (!$vbulletin->GPC['startat'])
+	{
+		$firstattach = $db->query_first("SELECT MIN(userid) AS min FROM " . TABLE_PREFIX . "customavatar");
+		$vbulletin->GPC['startat'] = intval($firstattach['min']);
+	}
+
+	echo '<p>' . construct_phrase($vbphrase['building_avatar_thumbnails'], "misc.php?" . $vbulletin->session->vars['sessionurl'] . "do=rebuildavatars&startat=" . $vbulletin->GPC['startat'] . "&pp=" . $vbulletin->GPC['perpage'] . "&autoredirect=" . $vbulletin->GPC['autoredirect']) . '</p>';
+
+	$avatars = $db->query_read("
+		SELECT user.userid, user.avatarrevision, customavatar.filedata, customavatar.filename, customavatar.dateline, customavatar.width, customavatar.height
+		FROM " . TABLE_PREFIX . "customavatar AS customavatar
+		INNER JOIN " . TABLE_PREFIX . "user AS user ON(user.userid=customavatar.userid)
+		WHERE customavatar.userid >= " . $vbulletin->GPC['startat'] . "
+		ORDER BY customavatar.userid
+		LIMIT " . $vbulletin->GPC['perpage']
+	);
+
+	$finishat = $vbulletin->GPC['startat'];
+
+	while ($avatar = $db->fetch_array($avatars))
+	{
+		echo construct_phrase($vbphrase['processing_x'], "$vbphrase[avatar] : $avatar[userid] (" . file_extension($avatar['filename']) . ') ');
+
+		if ($vbulletin->options['usefileavatar'])
+		{
+			$avatarurl = $vbulletin->options['avatarurl'] . "/avatar$avatar[userid]_$avatar[avatarrevision].gif";
+			$avatar['filedata'] = @file_get_contents($avatarurl);
+		}
+
+		if (!empty($avatar['filedata']))
+		{
+			$dataman =& datamanager_init('Userpic_Avatar', $vbulletin, ERRTYPE_STANDARD, 'userpic');
+			$dataman->set_existing($avatar);
+			$dataman->save();
+			unset($dataman);
+		}
+
+		echo '<br />';
+		vbflush();
+
+		$finishat = ($avatar['userid'] > $finishat ? $avatar['userid'] : $finishat);
+	}
+
+	$finishat++;
+
+	if ($checkmore = $db->query_first("SELECT userid FROM " . TABLE_PREFIX . "customavatar WHERE userid >= $finishat LIMIT 1"))
+	{
+		if ($vbulletin->GPC['autoredirect'] == 1)
+		{
+			print_cp_redirect("misc.php?" . $vbulletin->session->vars['sessionurl'] . "do=rebuildavatars&amp;startat=$finishat&amp;pp=" . $vbulletin->GPC['perpage'] . "&amp;autoredirect=1");
+		}
+		echo "<p><a href=\"misc.php?" . $vbulletin->session->vars['sessionurl'] . "do=rebuildavatars&amp;startat=$finishat&amp;pp=" . $vbulletin->GPC['perpage'] . '">' . $vbphrase['click_here_to_continue_processing'] . "</a></p>";
+	}
+	else
+	{
+		define('CP_REDIRECT', 'misc.php');
+		print_stop_message('rebuilt_avatar_thumbnails_successfully');
+	}
+}
+
+// ################## Start rebuilding admin avatar thumbnails ################
+if ($_REQUEST['do'] == 'rebuildadminavatars')
+{
+	$vbulletin->input->clean_array_gpc('r', array(
+		'autoredirect' => TYPE_BOOL,
+	));
+
+	if (($current_memory_limit = ini_size_to_bytes(@ini_get('memory_limit'))) < 128 * 1024 * 1024 AND $current_memory_limit > 0)
+	{
+		@ini_set('memory_limit', 128 * 1024 * 1024);
+	}
+	require_once(DIR . '/includes/class_image.php');
+
+	if ($vbulletin->options['imagetype'] != 'Magick' AND !function_exists('imagetypes'))
+	{
+		//define('CP_REDIRECT', 'misc.php');
+		print_stop_message('your_version_no_image_support');
+	}
+
+	$avatarpath = DIR . '/images/avatars/thumbs';
+
+	if (!is_writable($avatarpath))
+	{
+		print_stop_message('avatarpath_not_writable');
+	}
+
+	if (empty($vbulletin->GPC['perpage']))
+	{
+		$vbulletin->GPC['perpage'] = 20;
+	}
+
+	if (!$vbulletin->GPC['startat'])
+	{
+		$firstavatar = $db->query_first("SELECT MIN(avatarid) AS min FROM " . TABLE_PREFIX . "avatar");
+		$vbulletin->GPC['startat'] = intval($firstavatar['min']);
+	}
+
+	echo '<p>' . construct_phrase($vbphrase['building_avatar_thumbnails'], "misc.php?" . $vbulletin->session->vars['sessionurl'] . "do=rebuildadminavatars&startat=" . $vbulletin->GPC['startat'] . "&pp=" . $vbulletin->GPC['perpage'] . "&autoredirect=" . $vbulletin->GPC['autoredirect']) . '</p>';
+
+	$avatars = $db->query_read("
+		SELECT avatarid, avatarpath, title
+		FROM " . TABLE_PREFIX . "avatar
+		WHERE avatarid >= " . $vbulletin->GPC['startat'] . "
+		ORDER BY avatarid
+		LIMIT " . $vbulletin->GPC['perpage']
+	);
+
+	$finishat = $vbulletin->GPC['startat'];
+
+	while ($avatar = $db->fetch_array($avatars))
+	{
+		$finishat = ($avatar['avatarid'] > $finishat ? $avatar['avatarid'] : $finishat);
+
+		echo construct_phrase($vbphrase['processing_x'], "$vbphrase[avatar] : $avatar[avatarid] ($avatar[title])");
+
+		$imagepath = $avatar['avatarpath'];
+		$destination = $avatarpath . '/' . $avatar['avatarid'] . '.gif';
+		$remotefile = false;
+
+		if ($avatar['avatarpath'][0] == '/')
+		{
+			// absolute web path -- needs to be translated into a full path and handled that way
+			$avatar['avatarpath'] = create_full_url($avatar['avatarpath']);
+		}
+		if (substr($avatar['avatarpath'], 0, 7) == 'http://')
+		{
+			if ($vbulletin->options['safeupload'])
+			{
+				$imagepath = $vbulletin->options['tmppath'] . '/' . md5(uniqid(microtime()) . $avatar['avatarid']);
+			}
+			else
+			{
+				$imagepath = tempnam(ini_get('upload_tmp_dir'), 'vbthumb');
+			}
+			if ($filenum = @fopen($imagepath, 'wb'))
+			{
+				require_once(DIR . '/includes/class_vurl.php');
+				$vurl = new vB_vURL($vbulletin);
+				$vurl->set_option(VURL_URL, $avatar['avatarpath']);
+				$vurl->set_option(VURL_HEADER, true);
+				$vurl->set_option(VURL_RETURNTRANSFER, true);
+				if ($result = $vurl->exec())
+				{
+					@fwrite($filenum, $result['body']);
+				}
+				unset($vurl);
+				@fclose($filenum);
+				$remotefile = true;
+			}
+		}
+
+		if (!file_exists($imagepath))
+		{
+			echo " ... <span class=\"modsincethirtydays\">$vbphrase[unable_to_read_avatar]</span><br />\n";
+			vbflush();
+			continue;
+		}
+
+		$image =& vB_Image::fetch_library($vbulletin);
+		$imageinfo = $image->fetch_image_info($imagepath);
+		if ($imageinfo[0] > FIXED_SIZE_AVATAR_WIDTH OR $imageinfo[1] > FIXED_SIZE_AVATAR_HEIGHT)
+		{
+			$file = 'file.' . ($imageinfo[2] == 'JPEG' ? 'jpg' : strtolower($imageinfo[2]));
+			$thumbnail = $image->fetch_thumbnail($file, $imagepath, FIXED_SIZE_AVATAR_WIDTH, FIXED_SIZE_AVATAR_HEIGHT);
+			if ($thumbnail['filedata'] AND $filenum = @fopen($destination, 'wb'))
+			{
+				@fwrite($filenum, $thumbnail['filedata']);
+				@fclose($filenum);
+			}
+			unset($thumbnail);
+		}
+		else if ($filenum = fopen($destination, 'wb'))
+		{
+			@fwrite($filenum, file_get_contents($imagepath));
+			fclose($filenum);
+		}
+
+		if ($remotefile)
+		{
+			@unlink($imagepath);
+		}
+
+		echo "<br />\n";
+		vbflush();
+	}
+
+	$finishat++;
+
+	if ($checkmore = $db->query_first("SELECT avatarid FROM " . TABLE_PREFIX . "avatar WHERE avatarid >= $finishat LIMIT 1"))
+	{
+		if ($vbulletin->GPC['autoredirect'] == 1)
+		{
+			print_cp_redirect("misc.php?" . $vbulletin->session->vars['sessionurl'] . "do=rebuildadminavatars&amp;startat=$finishat&amp;pp=" . $vbulletin->GPC['perpage'] . "&amp;autoredirect=1");
+		}
+		echo "<p><a href=\"misc.php?" . $vbulletin->session->vars['sessionurl'] . "do=rebuildadminavatars&amp;startat=$finishat&amp;pp=" . $vbulletin->GPC['perpage'] . '">' . $vbphrase['click_here_to_continue_processing'] . "</a></p>";
+	}
+	else
+	{
+		define('CP_REDIRECT', 'misc.php');
+		print_stop_message('rebuilt_avatar_thumbnails_successfully');
+	}
+
+}
 // ###################### Start rebuilding post cache #######################
 if ($_REQUEST['do'] == 'buildpostcache')
 {
@@ -782,20 +1054,21 @@ if ($_REQUEST['do'] == 'buildpostcache')
 		$vbulletin->GPC['startat'] = intval($firstpost['min']);
 	}
 
-	$finishat = $vbulletin->GPC['startat'] + $vbulletin->GPC['perpage'];
-
 	echo '<p>' . $vbphrase['building_post_cache'] . '</p>';
-	$saveparsed = '';
 
 	$posts = $db->query_read("
 		SELECT postid, forumid, pagetext, allowsmilie, thread.lastpost
 		FROM " . TABLE_PREFIX . "post AS post, " . TABLE_PREFIX . "thread AS thread
 		WHERE post.threadid = thread.threadid AND
 			postid >= " . $vbulletin->GPC['startat'] . " AND
-			postid < $finishat AND
 			thread.lastpost >= " . (TIMENOW - ($vbulletin->options['cachemaxage'] * 60 * 60 * 24)) . "
 		ORDER BY postid
-	");
+		LIMIT " . $vbulletin->GPC['perpage']
+	);
+
+	$finishat = $vbulletin->GPC['startat'];
+
+	$saveparsed = '';
 	while ($post = $db->fetch_array($posts))
 	{
 		# Only cache posts for the chosen style if this post belongs to a forum with a styleoverride
@@ -847,6 +1120,24 @@ if ($_REQUEST['do'] == 'buildpostcache')
 			}
 			echo "<br />\n";
 		}
+
+		if (strlen($saveparsed) > 500000)
+		{
+			// break the query every 500k
+			$saveparsed = substr($saveparsed, 1);
+
+			/*insert query*/
+			$db->query_write("
+				REPLACE INTO " . TABLE_PREFIX . "postparsed
+				(postid, dateline, hasimages, pagetext_html , styleid, languageid)
+				VALUES
+				$saveparsed
+			");
+
+			$saveparsed = '';
+		}
+
+		$finishat = ($post['postid'] > $finishat ? $post['postid'] : $finishat);
 	}
 	if ($saveparsed)
 	{
@@ -859,12 +1150,10 @@ if ($_REQUEST['do'] == 'buildpostcache')
 			$saveparsed
 		");
 	}
-	else
-	{
-		echo construct_phrase($vbphrase['processing_x'], $vbphrase['n_a']) . "\n";
-	}
 
 	vbflush();
+
+	$finishat++;
 
 	if ($checkmore = $db->query_first("SELECT postid FROM " . TABLE_PREFIX . "post WHERE postid >= $finishat LIMIT 1"))
 	{
@@ -894,16 +1183,17 @@ if ($_REQUEST['do'] == 'removedupe')
 		$vbulletin->GPC['perpage'] = 500;
 	}
 
-	$finishat = $vbulletin->GPC['startat'] + $vbulletin->GPC['perpage'];
 
 	echo '<p>' . $vbphrase['removing_duplicate_threads'] . '</p>';
 
 	$threads = $db->query_read("
 		SELECT threadid, title, forumid, postusername, dateline
-		FROM " . TABLE_PREFIX . "thread WHERE threadid >= " . $vbulletin->GPC['startat'] . " AND
-			threadid < $finishat
+		FROM " . TABLE_PREFIX . "thread WHERE threadid >= " . $vbulletin->GPC['startat'] . "
 		ORDER BY threadid
-	");
+		LIMIT " . $vbulletin->GPC['perpage']
+	);
+
+	$finishat = $vbulletin->GPC['startat'];
 
 	while ($thread = $db->fetch_array($threads))
 	{
@@ -927,7 +1217,12 @@ if ($_REQUEST['do'] == 'removedupe')
 		}
 		echo construct_phrase($vbphrase['processing_x'], $thread['threadid'])."<br />\n";
 		vbflush();
+
+		$finishat = ($thread['threadid'] > $finishat ? $thread['threadid'] : $finishat);
 	}
+
+	$finishat++;
+
 	if ($checkmore = $db->query_first("SELECT threadid FROM " . TABLE_PREFIX . "thread WHERE threadid >= $finishat LIMIT 1"))
 	{
 		print_cp_redirect("misc.php?" . $vbulletin->session->vars['sessionurl'] . "do=removedupe&startat=$finishat&pp=" . $vbulletin->GPC['perpage']);
@@ -1440,6 +1735,20 @@ if ($_REQUEST['do'] == 'chooser')
 	print_yes_no_row($vbphrase['include_automatic_javascript_redirect'], 'autoredirect', 1);
 	print_submit_row($vbphrase['rebuild_attachment_thumbnails']);
 
+	print_form_header('misc', 'rebuildavatars');
+	print_table_header($vbphrase['rebuild_custom_avatar_thumbnails'], 2, 0);
+	#print_description_row($vbphrase['function_rebuilds_avatars']);
+	print_input_row($vbphrase['number_of_avatars_to_process_per_cycle'], 'perpage', 25);
+	print_yes_no_row($vbphrase['include_automatic_javascript_redirect'], 'autoredirect', 1);
+	print_submit_row($vbphrase['rebuild_custom_avatar_thumbnails']);
+
+	print_form_header('misc', 'rebuildadminavatars');
+	print_table_header($vbphrase['rebuild_avatar_thumbnails'], 2, 0);
+	#print_description_row($vbphrase['function_rebuilds_avatars']);
+	print_input_row($vbphrase['number_of_avatars_to_process_per_cycle'], 'perpage', 25);
+	print_yes_no_row($vbphrase['include_automatic_javascript_redirect'], 'autoredirect', 1);
+	print_submit_row($vbphrase['rebuild_avatar_thumbnails']);
+
 	print_form_header('misc', 'rebuildreputation');
 	print_table_header($vbphrase['rebuild_user_reputation'], 2, 0);
 	print_description_row($vbphrase['function_rebuilds_reputation']);
@@ -1484,8 +1793,8 @@ print_cp_footer();
 
 /*======================================================================*\
 || ####################################################################
-|| # Downloaded: 18:52, Sat Jul 14th 2007
-|| # CVS: $RCSfile$ - $Revision: 16363 $
+|| # Downloaded: 16:21, Sat Apr 6th 2013
+|| # CVS: $RCSfile$ - $Revision: 26665 $
 || ####################################################################
 \*======================================================================*/
 ?>

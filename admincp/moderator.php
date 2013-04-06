@@ -1,9 +1,9 @@
 <?php
 /*======================================================================*\
 || #################################################################### ||
-|| # vBulletin 3.6.7 PL1 - Licence Number VBF2470E4F
+|| # vBulletin 3.7.2 Patch Level 2 - Licence Number VBF2470E4F
 || # ---------------------------------------------------------------- # ||
-|| # Copyright ©2000-2007 Jelsoft Enterprises Ltd. All Rights Reserved. ||
+|| # Copyright ©2000-2013 Jelsoft Enterprises Ltd. All Rights Reserved. ||
 || # This file may not be redistributed in whole or significant part. # ||
 || # ---------------- VBULLETIN IS NOT FREE SOFTWARE ---------------- # ||
 || # http://www.vbulletin.com | http://www.vbulletin.com/license.html # ||
@@ -14,7 +14,7 @@
 error_reporting(E_ALL & ~E_NOTICE);
 
 // ##################### DEFINE IMPORTANT CONSTANTS #######################
-define('CVS_REVISION', '$RCSfile$ - $Revision: 16923 $');
+define('CVS_REVISION', '$RCSfile$ - $Revision: 25974 $');
 
 // #################### PRE-CACHE TEMPLATES AND DATA ######################
 $phrasegroups = array('cppermission', 'forum', 'moderator');
@@ -39,7 +39,15 @@ $vbulletin->input->clean_array_gpc('r', array(
 ));
 
 // ############################# LOG ACTION ###############################
-log_admin_action(iif($vbulletin->GPC['moderatorid'] != 0, " moderator id = " . $vbulletin->GPC['moderatorid'], iif($vbulletin->GPC['forumid'] != 0, "forum id = " . $vbulletin->GPC['forumid'], iif($vbulletin->GPC['userid'] != 0, "user id = " . $vbulletin->GPC['userid'], iif(!empty($vbulletin->GPC['modusername']), "mod username = " . $vbulletin->GPC['modusername'])))));
+log_admin_action(
+	($vbulletin->GPC['moderatorid'] != 0 ? " moderator id = " . $vbulletin->GPC['moderatorid'] :
+		($vbulletin->GPC['forumid'] != 0 ? "forum id = " . $vbulletin->GPC['forumid'] :
+			($vbulletin->GPC['userid'] != 0 ? "user id = " . $vbulletin->GPC['userid'] :
+				(!empty($vbulletin->GPC['modusername']) ? "mod username = " . $vbulletin->GPC['modusername'] : '')
+			)
+		)
+	)
+);
 
 // ########################################################################
 // ######################### START MAIN SCRIPT ############################
@@ -55,11 +63,30 @@ if (empty($_REQUEST['do']))
 // ###################### Start add / edit moderator #######################
 if ($_REQUEST['do'] == 'add' OR $_REQUEST['do'] == 'edit' OR $_REQUEST['do'] == 'editglobal')
 {
+	require_once(DIR . '/includes/class_bitfield_builder.php');
+	if (vB_Bitfield_Builder::build(false) !== false)
+	{
+		$myobj =& vB_Bitfield_Builder::init();
+		if (sizeof($myobj->data['misc']['moderatorpermissions']) != sizeof($vbulletin->bf_misc_moderatorpermissions)
+			OR
+			sizeof($myobj->data['misc']['moderatorpermissions2']) != sizeof($vbulletin->bf_misc_moderatorpermissions2))
+		{
+			$myobj->save($db);
+			define('CP_REDIRECT', $vbulletin->scriptpath);
+			print_stop_message('rebuilt_bitfields_successfully');
+		}
+	}
+	else
+	{
+		echo "<strong>error</strong>\n";
+		print_r(vB_Bitfield_Builder::fetch_errors());
+	}
+
 	if ($_REQUEST['do'] == 'editglobal')
 	{
 		$moderator = $db->query_first("
 			SELECT user.username, user.userid,
-			moderator.forumid, moderator.permissions, moderator.moderatorid
+			moderator.forumid, moderator.permissions, moderator.permissions2, moderator.moderatorid
 			FROM " . TABLE_PREFIX . "user AS user
 			LEFT JOIN " . TABLE_PREFIX . "moderator AS moderator ON (moderator.userid = user.userid AND moderator.forumid = -1)
 			WHERE user.userid = " . $vbulletin->GPC['userid']
@@ -69,32 +96,24 @@ if ($_REQUEST['do'] == 'add' OR $_REQUEST['do'] == 'edit' OR $_REQUEST['do'] == 
 		construct_hidden_code('forumid', '-1');
 		construct_hidden_code('modusername', $moderator['username'], false);
 		$username = $moderator['username'];
+		log_admin_action('username = ' . $moderator['username']);
 
 		if (empty($moderator['moderatorid']))
 		{
-			// This $moderator array gets overwritten below
-			$moderator = array(
-				'caneditposts'           => 1,
-				'candeleteposts'         => 1,
-				'canopenclose'           => 1,
-				'caneditthreads'         => 1,
-				'canmanagethreads'       => 1,
-				'canannounce'            => 1,
-				'canmoderateposts'       => 1,
-				'canmoderateattachments' => 1,
-				'canviewips'             => 1,
-			);
-
-			// this user doesn't have a record for super mod permissions, which is equivalent to having them all
-			$globalperms = array_sum($vbulletin->bf_misc_moderatorpermissions) - ($vbulletin->bf_misc_moderatorpermissions['newthreademail'] + $vbulletin->bf_misc_moderatorpermissions['newpostemail']);
-			$moderator = convert_bits_to_array($globalperms, $vbulletin->bf_misc_moderatorpermissions, 1);
+			// this user doesn't have a record for super mod permissions, which is equivalent to having them all (except the email perms)
+			$globalperms['permissions'] = array_sum($vbulletin->bf_misc_moderatorpermissions) - ($vbulletin->bf_misc_moderatorpermissions['newthreademail'] + $vbulletin->bf_misc_moderatorpermissions['newpostemail']);
+			$globalperms['permissions2'] = array_sum($vbulletin->bf_misc_moderatorpermissions2);
+			$moderator = convert_bits_to_array($globalperms['permissions'], $vbulletin->bf_misc_moderatorpermissions);
+			$perms2 = convert_bits_to_array($globalperms['permissions2'], $vbulletin->bf_misc_moderatorpermissions2);
 			$moderator['username'] = $username;
+			$moderator = array_merge($perms2, $moderator);
 		}
 		else
 		{
 			construct_hidden_code('moderatorid', $moderator['moderatorid']);
-			$perms = convert_bits_to_array($moderator['permissions'], $vbulletin->bf_misc_moderatorpermissions, 1);
-			$moderator = array_merge($perms, $moderator);
+			$perms = convert_bits_to_array($moderator['permissions'], $vbulletin->bf_misc_moderatorpermissions);
+			$perms2 = convert_bits_to_array($moderator['permissions2'], $vbulletin->bf_misc_moderatorpermissions2);
+			$moderator = array_merge($perms, $perms2, $moderator);
 		}
 
 		print_table_header($vbphrase['super_moderator_permissions'] . ' - <span class="normal">' . $moderator['username'] . '</span>');
@@ -103,23 +122,25 @@ if ($_REQUEST['do'] == 'add' OR $_REQUEST['do'] == 'edit' OR $_REQUEST['do'] == 
 	{
 		// add moderator - set default values
 		$foruminfo = $db->query_first("
-			SELECT forumid,title AS forumtitle
+			SELECT forumid, title AS forumtitle
 			FROM " . TABLE_PREFIX . "forum
 			WHERE forumid = " . $vbulletin->GPC['forumid'] . "
 		");
-		$moderator = array(
-			'caneditposts' => 1,
-			'candeleteposts' => 1,
-			'canopenclose' => 1,
-			'caneditthreads' => 1,
-			'canmanagethreads' => 1,
-			'canannounce' => 1,
-			'canmoderateposts' => 1,
-			'canmoderateattachments' => 1,
-			'canviewips' => 1,
-			'forumid' => $foruminfo['forumid'],
-			'forumtitle' => $foruminfo['forumtitle']
-		);
+
+		// add moderator - set default values
+		$moderator = array();
+		foreach ($myobj->data['misc']['moderatorpermissions'] AS $permission => $option)
+		{
+			$moderator["$permission"] = $option['default'] ? 1 : 0;
+		}
+		foreach ($myobj->data['misc']['moderatorpermissions2'] AS $permission => $option)
+		{
+			$moderator["$permission"] = $option['default'] ? 1 : 0;
+		}
+
+		$moderator['forumid'] = $foruminfo['forumid'];
+		$moderator['forumtitle'] = $foruminfo['forumtitle'];
+
 		print_form_header('moderator', 'update');
 		print_table_header(construct_phrase($vbphrase['add_new_moderator_to_forum_x'], $foruminfo['forumtitle']));
 	}
@@ -127,15 +148,17 @@ if ($_REQUEST['do'] == 'add' OR $_REQUEST['do'] == 'edit' OR $_REQUEST['do'] == 
 	{
 		// edit moderator - query moderator
 		$moderator = $db->query_first("
-			SELECT moderator.moderatorid,moderator.userid,
-			moderator.forumid,moderator.permissions,user.username,forum.title AS forumtitle
+			SELECT moderator.moderatorid, moderator.userid,
+			moderator.forumid, moderator.permissions, moderator.permissions2, user.username, forum.title AS forumtitle, user.username
 			FROM " . TABLE_PREFIX . "moderator AS moderator
 			LEFT JOIN " . TABLE_PREFIX . "user AS user ON (user.userid = moderator.userid)
 			LEFT JOIN " . TABLE_PREFIX . "forum AS forum ON (forum.forumid = moderator.forumid)
 			WHERE moderatorid = " . $vbulletin->GPC['moderatorid'] . "
 		");
-		$perms = convert_bits_to_array($moderator['permissions'], $vbulletin->bf_misc_moderatorpermissions, 1);
-		$moderator = array_merge($perms, $moderator);
+		$perms = convert_bits_to_array($moderator['permissions'], $vbulletin->bf_misc_moderatorpermissions);
+		$perms2 = convert_bits_to_array($moderator['permissions2'], $vbulletin->bf_misc_moderatorpermissions2);
+		$moderator = array_merge($perms, $perms2, $moderator);
+		log_admin_action('username = ' . $moderator['username'] . ', userid = ' . $moderator['userid']);
 
 		// delete link
 		print_form_header('moderator', 'remove');
@@ -151,7 +174,7 @@ if ($_REQUEST['do'] == 'add' OR $_REQUEST['do'] == 'edit' OR $_REQUEST['do'] == 
 	if ($_REQUEST['do'] != 'editglobal')
 	{
 		print_forum_chooser($vbphrase['forum_and_children'], 'forumid', $moderator['forumid']);
-		print_input_row($vbphrase['moderator_username'], 'modusername', $moderator['username'], 0);
+		print_input_row($vbphrase['moderator_usernames'] . "<dfn>$vbphrase[separate_usernames_semicolon]</dfn>", 'modusername', $moderator['username'], 0);
 		construct_hidden_code('redir', $vbulletin->GPC['redir']);
 	}
 
@@ -186,6 +209,22 @@ if ($_REQUEST['do'] == 'add' OR $_REQUEST['do'] == 'edit' OR $_REQUEST['do'] == 
 	print_yes_no_row($vbphrase['can_mass_move_threads'], 'modperms[canmassmove]', $moderator['canmassmove']);
 	print_yes_no_row($vbphrase['can_mass_prune_threads'], 'modperms[canmassprune]', $moderator['canmassprune']);
 	print_yes_no_row($vbphrase['can_set_forum_password'], 'modperms[cansetpassword]', $moderator['cansetpassword']);
+	// visitor messaging permissions
+	print_description_row($vbphrase['visitor_message_permissions'], false, 2, 'thead');
+	print_yes_no_row($vbphrase['can_edit_posts'], 'modperms[caneditvisitormessages]', $moderator['caneditvisitormessages']);
+	print_yes_no_row($vbphrase['can_delete_posts'], 'modperms[candeletevisitormessages]', $moderator['candeletevisitormessages']);
+	print_yes_no_row($vbphrase['can_physically_delete_posts'], 'modperms[canremovevisitormessages]', $moderator['canremovevisitormessages']);
+	print_yes_no_row($vbphrase['can_moderate_posts'], 'modperms[canmoderatevisitormessages]', $moderator['canmoderatevisitormessages']);
+
+	// Social Groups
+	print_description_row($vbphrase['social_group_permissions'], false, 2, 'thead');
+	print_yes_no_row($vbphrase['can_edit_social_groups'], 'modperms[caneditsocialgroups]', $moderator['caneditsocialgroups']);
+	print_yes_no_row($vbphrase['can_delete_social_groups'], 'modperms[candeletesocialgroups]', $moderator['candeletesocialgroups']);
+	print_yes_no_row($vbphrase['can_edit_posts'], 'modperms[caneditgroupmessages]', $moderator['caneditgroupmessages']);
+	print_yes_no_row($vbphrase['can_delete_posts'], 'modperms[candeletegroupmessages]', $moderator['candeletegroupmessages']);
+	print_yes_no_row($vbphrase['can_physically_delete_posts'], 'modperms[canremovegroupmessages]', $moderator['canremovegroupmessages']);
+	print_yes_no_row($vbphrase['can_moderate_posts'], 'modperms[canmoderategroupmessages]', $moderator['canmoderategroupmessages']);
+
 	// user permissions
 	print_description_row($vbphrase['user_permissions'], false, 2, 'thead');
 	print_yes_no_row($vbphrase['can_view_ip_addresses'], 'modperms[canviewips]', $moderator['canviewips']);
@@ -196,6 +235,17 @@ if ($_REQUEST['do'] == 'add' OR $_REQUEST['do'] == 'edit' OR $_REQUEST['do'] == 
 	print_yes_no_row($vbphrase['can_edit_user_avatars'], 'modperms[caneditavatar]', $moderator['caneditavatar']);
 	print_yes_no_row($vbphrase['can_edit_user_profile_pictures'], 'modperms[caneditprofilepic]', $moderator['caneditprofilepic']);
 	print_yes_no_row($vbphrase['can_edit_user_reputation_comments'], 'modperms[caneditreputation]', $moderator['caneditreputation']);
+
+	// album permissions
+	print_description_row($vbphrase['user_album_permissions'], false, 2, 'thead');
+	print_yes_no_row($vbphrase['can_edit_albums_pictures'], 'modperms[caneditalbumpicture]', $moderator['caneditalbumpicture']);
+	print_yes_no_row($vbphrase['can_delete_albums_pictures'], 'modperms[candeletealbumpicture]', $moderator['candeletealbumpicture']);
+	print_yes_no_row($vbphrase['can_moderate_pictures'], 'modperms[canmoderatepictures]', $moderator['canmoderatepictures']);
+ 	print_yes_no_row($vbphrase['can_edit_picture_comments'], 'modperms[caneditpicturecomments]', $moderator['caneditpicturecomments']);
+ 	print_yes_no_row($vbphrase['can_delete_picture_comments'], 'modperms[candeletepicturecomments]', $moderator['candeletepicturecomments']);
+ 	print_yes_no_row($vbphrase['can_remove_picture_comments'], 'modperms[canremovepicturecomments]', $moderator['canremovepicturecomments']);
+ 	print_yes_no_row($vbphrase['can_moderate_picture_comments'], 'modperms[canmoderatepicturecomments]', $moderator['canmoderatepicturecomments']);
+
 	// new thread/new post email preferences
 	print_description_row($vbphrase['email_preferences'], false, 2, 'thead');
 	print_yes_no_row($vbphrase['receive_email_on_new_thread'], 'modperms[newthreademail]', $moderator['newthreademail']);
@@ -216,43 +266,143 @@ if ($_POST['do'] == 'update')
 		'membergroupids' => TYPE_ARRAY_UINT
 	));
 
-	$moddata =& datamanager_init('Moderator', $vbulletin, ERRTYPE_CP);
+	$modnames = $successnames = $moddata_dms = $moddata_existing = array();
+
 	if ($vbulletin->GPC['moderatorid'])
 	{
-		$moddata->set_existing($db->query_first("
+		$moddata_existing = $db->query_first("
 			SELECT moderator.*,
 			user.username, user.usergroupid, user.membergroupids
 			FROM " . TABLE_PREFIX . "moderator AS moderator
 			INNER JOIN " . TABLE_PREFIX . "user AS user USING(userid)
 			WHERE moderator.moderatorid = " . $vbulletin->GPC['moderatorid']
-		));
+		);
+		$modnames[] = trim(htmlspecialchars_uni($vbulletin->GPC['modusername']));
+		log_admin_action('username = ' . $moddata_existing['username'] . ', userid = ' . $moddata_existing['userid']);
 	}
 	else
 	{
-		$moddata->set_info('usergroupid', $vbulletin->GPC['usergroupid']);
-		$moddata->set_info('membergroupids', $vbulletin->GPC['membergroupids']);
+		// split multiple recipients into an array
+		if (preg_match('/(?<!&#[0-9]{3}|&#[0-9]{4}|&#[0-9]{5});/', $vbulletin->GPC['modusername'])) // multiple recipients attempted
+		{
+			$modnamelist = preg_split('/(?<!&#[0-9]{3}|&#[0-9]{4}|&#[0-9]{5});/', $vbulletin->GPC['modusername'], -1, PREG_SPLIT_NO_EMPTY);
+			foreach ($modnamelist AS $name)
+			{
+				$name = trim($name);
+				if ($name != '')
+				{
+					$modnames[] = htmlspecialchars_uni($name);
+				}
+			}
+		}
+		// just a single user
+		else
+		{
+			$modnames[] = trim(htmlspecialchars_uni($vbulletin->GPC['modusername']));
+		}
 	}
-	$moddata->set('username', htmlspecialchars_uni($vbulletin->GPC['modusername']));
-	$moddata->set('forumid', $vbulletin->GPC['forumid']);
-	foreach ($vbulletin->GPC['modperms'] AS $key => $val)
+
+	foreach ($modnames AS $name)
 	{
-		$moddata->set_bitfield('permissions', $key, $val);
+		if (empty($name))
+		{
+			continue;
+		}
+
+		$moddata =& datamanager_init('Moderator', $vbulletin, ERRTYPE_CP);
+
+		if ($moddata_existing)
+		{
+			$moddata->set_existing($moddata_existing);
+		}
+		else
+		{
+			$moddata->set_info('usergroupid', $vbulletin->GPC['usergroupid']);
+			$moddata->set_info('membergroupids', $vbulletin->GPC['membergroupids']);
+		}
+
+		$moddata->set('username', $name);
+		$moddata->set('forumid', $vbulletin->GPC['forumid']);
+
+		foreach ($vbulletin->GPC['modperms'] AS $key => $val)
+		{
+			if (isset($vbulletin->bf_misc_moderatorpermissions["$key"]))
+			{
+				$moddata->set_bitfield('permissions', $key, $val);
+			}
+			else if (isset($vbulletin->bf_misc_moderatorpermissions2["$key"]))
+			{
+				$moddata->set_bitfield('permissions2', $key, $val);
+			}
+		}
+
+		$moddata->pre_save();
+		$moddata_dms[] =& $moddata;
+		$successnames[] = $name;
 	}
 
-	($hook = vBulletinHook::fetch_hook('admin_moderator_save')) ? eval($hook) : false;
+	unset($moddata);
 
-	$moddata->save();
-
-	if ($vbulletin->GPC['forumid'] == -1 OR !empty($vbulletin->GPC['redir']))
+	$dm_errors = '';
+	// we will only get here if every other DM succeeded
+	foreach (array_keys($moddata_dms) AS $dmkey)
 	{
-		// use showlist for both but probably need to handle showmods
-		define('CP_REDIRECT', "moderator.php?do=" . ($vbulletin->GPC['redir'] == 'showlist' ? 'showlist' : 'showlist'));
+		$moddata =& $moddata_dms["$dmkey"];
+
+		($hook = vBulletinHook::fetch_hook('admin_moderator_save')) ? eval($hook) : false;
+
+		$moddata->save();
+		if (!empty($moddata->errors))
+		{
+			$html = "<ul><li> " . $moddata->info['user']['username'] . "</li>";
+			$html .= "<ul><li>" . implode($moddata->errors, "</li>\n<li>") . "</li></ul>";
+			$html .="</ul>";
+			$dm_errors .= $html;
+		}
+		else
+		{
+			log_admin_action('username = ' . $moddata->info['user']['username']);
+		}
+	}
+
+	if (!empty($dm_errors))
+	{
+		$not_affected = array();
+		// need to find the users not affected
+		foreach ($moddata_dms AS $moddata)
+		{
+			if (empty($moddata->errors))
+			{
+				$not_affected[] = $moddata->info['user']['username'];
+			}
+		}
+
+		print_form_header('', '', 0, 1, 'messageform', '65%');
+		print_table_header($vbphrase['vbulletin_message']);
+		print_description_row("$vbphrase[error_occurred_while_making_users_moderators]<blockquote>$dm_errors<br /></blockquote>");
+		if (!empty($not_affected))
+		{
+			print_description_row("$vbphrase[the_following_users_were_made_moderators]<blockquote><ul><li>" . implode($not_affected, "</li>\n<li>") . "</li></ul></blockquote>");
+		}
+		print_table_footer();
+		print_cp_footer();
+		exit;
+	}
+
+	if ($vbulletin->GPC['forumid'] == -1)
+	{
+		define('CP_REDIRECT', 'moderator.php?do=showlist');
+	}
+	else if (!empty($vbulletin->GPC['redir']))
+	{
+		define('CP_REDIRECT', 'moderator.php?do=' . ($vbulletin->GPC['redir'] == 'showmods' ? 'showmods' : 'showlist') . '&f=' . $vbulletin->GPC['forumid']);
 	}
 	else
 	{
 		define('CP_REDIRECT', "forum.php?do=modify&amp;f=" . $vbulletin->GPC['forumid'] . "#forum" . $vbulletin->GPC['forumid']);
 	}
-	print_stop_message('saved_moderator_x_successfully', $moddata->info['user']['username']);
+
+	print_stop_message('saved_moderator_x_successfully', implode('; ', $successnames));
 
 }
 
@@ -273,11 +423,18 @@ if ($_REQUEST['do'] == 'remove')
 
 if ($_POST['do'] == 'kill')
 {
-	$mod = $db->query_first("SELECT * FROM " . TABLE_PREFIX . "moderator WHERE moderatorid = " . $vbulletin->GPC['moderatorid']);
+	$mod = $db->query_first("
+		SELECT moderator.*, user.username
+		FROM " . TABLE_PREFIX . "moderator AS moderator
+		LEFT JOIN " . TABLE_PREFIX . "user AS user USING (userid)
+		WHERE moderatorid = " . $vbulletin->GPC['moderatorid']
+	);
 	if (!$mod)
 	{
 		print_stop_message('invalid_moderator_specified');
 	}
+
+	log_admin_action('username = ' . $mod['username'] . ', userid = ' . $mod['userid']);
 
 	$moddata =& datamanager_init('Moderator', $vbulletin, ERRTYPE_CP);
 	$moddata->set_existing($mod);
@@ -290,6 +447,10 @@ if ($_POST['do'] == 'kill')
 	if ($vbulletin->GPC['redir'] == 'modlist')
 	{
 		define('CP_REDIRECT', 'moderator.php?do=showlist');
+	}
+	else if ($vbulletin->GPC['redir'] == 'showmods')
+	{
+		define('CP_REDIRECT', 'moderator.php?do=showmods&f=' . $mod['forumid']);
 	}
 	else
 	{
@@ -469,6 +630,7 @@ if ($_REQUEST['do'] == 'showmods')
 
 	if (!$db->num_rows($forums))
 	{
+		define('CP_BACKURL', '');
 		print_stop_message('this_forum_does_not_have_any_moderators');
 	}
 
@@ -541,7 +703,7 @@ if ($_REQUEST['do'] == 'showmods')
 
 			echo "\t\t\t<li><a href=\"user.php?" . $vbulletin->session->vars['sessionurl'] . "do=edit&amp;u=$forum[userid]\" target=\"_blank\">$forum[username]</a>" .
 				"\t\t\t\t<span class=\"smallfont\">(" . construct_link_code($vbphrase['edit'], "moderator.php?" . $vbulletin->session->vars['sessionurl'] . "do=edit&moderatorid=$forum[moderatorid]&amp;redir=showmods") .
-				construct_link_code($vbphrase['remove'], "moderator.php?" . $vbulletin->session->vars['sessionurl'] . "do=remove&moderatorid=$forum[moderatorid]&redir=modlist") . ")" .
+				construct_link_code($vbphrase['remove'], "moderator.php?" . $vbulletin->session->vars['sessionurl'] . "do=remove&moderatorid=$forum[moderatorid]&redir=showmods") . ")" .
 				" - " . $vbphrase['last_online'] . " <span class=\"$onlinecolor\">" . $lastonline . "</span></span>\n" .
 				"\t\t\t</li><br />\n";
 		}
@@ -663,8 +825,8 @@ print_cp_footer();
 
 /*======================================================================*\
 || ####################################################################
-|| # Downloaded: 18:52, Sat Jul 14th 2007
-|| # CVS: $RCSfile$ - $Revision: 16923 $
+|| # Downloaded: 16:21, Sat Apr 6th 2013
+|| # CVS: $RCSfile$ - $Revision: 25974 $
 || ####################################################################
 \*======================================================================*/
 ?>
