@@ -1,9 +1,9 @@
 <?php
 /*======================================================================*\
 || #################################################################### ||
-|| # vBulletin 3.6.7 PL1 - Licence Number VBF2470E4F
+|| # vBulletin 3.7.2 Patch Level 2 - Licence Number VBF2470E4F
 || # ---------------------------------------------------------------- # ||
-|| # Copyright ©2000-2007 Jelsoft Enterprises Ltd. All Rights Reserved. ||
+|| # Copyright ©2000-2013 Jelsoft Enterprises Ltd. All Rights Reserved. ||
 || # This file may not be redistributed in whole or significant part. # ||
 || # ---------------- VBULLETIN IS NOT FREE SOFTWARE ---------------- # ||
 || # http://www.vbulletin.com | http://www.vbulletin.com/license.html # ||
@@ -14,7 +14,7 @@
 error_reporting(E_ALL & ~E_NOTICE);
 
 // ##################### DEFINE IMPORTANT CONSTANTS #######################
-define('CVS_REVISION', '$RCSfile$ - $Revision: 16175 $');
+define('CVS_REVISION', '$RCSfile$ - $Revision: 25644 $');
 
 // #################### PRE-CACHE TEMPLATES AND DATA ######################
 $phrasegroups = array('calendar', 'cppermission', 'holiday');
@@ -75,8 +75,8 @@ if (empty($_REQUEST['do']))
 if ($_REQUEST['do'] == 'addcustom')
 {
 	$vbulletin->input->clean_array_gpc('r', array(
-		'calendarcustomfieldid'	=> TYPE_INT,
-		'calendarid'			=> TYPE_INT
+		'calendarcustomfieldid' => TYPE_INT,
+		'calendarid'            => TYPE_INT
 	));
 
 	if ($vbulletin->GPC['calendarcustomfieldid'])
@@ -276,8 +276,8 @@ if ($_REQUEST['do'] == 'add' or $_REQUEST['do'] == 'edit')
 
 		if (!empty($calendar['neweventemail']))
 		{
-			$calendar['neweventemail'] = unserialize($calendar['neweventemail']);
-			$calendar['neweventemail'] =  ($calendar['neweventemail'] ? '' : implode("\n", $calendar['neweventemail']));
+			$calendar['neweventemail'] = @unserialize($calendar['neweventemail']);
+			$calendar['neweventemail'] =  (!$calendar['neweventemail'] ? '' : implode("\n", $calendar['neweventemail']));
 		}
 	}
 
@@ -487,14 +487,16 @@ if ($_REQUEST['do'] == 'modify')
 		$cell[] = "\n\t<select name=\"c$calendar[calendarid]\" onchange=\"js_calendar_jump($calendar[calendarid]);\" class=\"bginput\">\n" . construct_select_options($calendaroptions) . "\t</select>\n\t<input type=\"button\" class=\"button\" value=\"".$vbphrase['go']."\" onclick=\"js_calendar_jump($calendar[calendarid]);\" />\n\t";
 		$cell[] = "<input type=\"text\" class=\"bginput\" name=\"order[$calendar[calendarid]]\" value=\"$calendar[displayorder]\" tabindex=\"1\" size=\"3\" title=\"" . $vbphrase['order_by']  . 'ssss' ."\" />";
 
-		$mods = array('no_value' => $vbphrase['moderators'].' (' . sizeof($cmodcache["$calendar[calendarid]"]) . ')', 'Add' => $vbphrase['add']);
+		$mods = array('no_value' => $vbphrase['moderators']. ' (' . sizeof($cmodcache["$calendar[calendarid]"]) . ')');
 		if (is_array($cmodcache["$calendar[calendarid]"]))
 		{
 			foreach ($cmodcache["$calendar[calendarid]"] AS $moderator)
 			{
-				$mods["$moderator[calendarmoderatorid]"] = "&gt; $moderator[username]";
+				$mods["$moderator[calendarmoderatorid]"] = "&nbsp; &nbsp; $moderator[username]";
 			}
 		}
+		$mods['Add'] = $vbphrase['add'];
+
 		$cell[] = "\n\t<select name=\"m$calendar[calendarid]\" onchange=\"js_moderator_jump($calendar[calendarid]);\" class=\"bginput\">\n" . construct_select_options($mods) . "\t</select>\n\t<input type=\"button\" class=\"button\" value=\"" . $vbphrase['go'] . "\" onclick=\"js_moderator_jump($calendar[calendarid]);\" />\n\t";
 
 		print_cells_row($cell);
@@ -543,7 +545,7 @@ if ($_POST['do'] == 'kill')
 
 	$db->query_write("DELETE FROM " . TABLE_PREFIX . "event WHERE calendarid = " . $vbulletin->GPC['calendarid']);
 	$db->query_write("DELETE FROM " . TABLE_PREFIX . "calendarpermission WHERE calendarid = " . $vbulletin->GPC['calendarid']);
-	$db->query_write("DELETE FROM " . TABLE_PREFIX . "calendarcustomfield WHERE calendarcustomfieldid = " . $vbulletin->GPC['calendarid']);
+	$db->query_write("DELETE FROM " . TABLE_PREFIX . "calendarcustomfield WHERE calendarid = " . $vbulletin->GPC['calendarid']);
 	$db->query_write("DELETE FROM " . TABLE_PREFIX . "calendar WHERE calendarid = " . $vbulletin->GPC['calendarid']);
 
 	define('CP_REDIRECT', 'admincalendar.php');
@@ -565,13 +567,13 @@ if ($_REQUEST['do'] == 'addmod' or $_REQUEST['do'] == 'editmod')
 		// add moderator - set default values
 		$calendarinfo = $db->query_first("SELECT calendarid, title AS calendartitle FROM " . TABLE_PREFIX . "calendar WHERE calendarid = " . $vbulletin->GPC['calendarid']);
 		$moderator = array(
-			'caneditevents' => 1,
-			'candeleteevents' => 1,
+			'caneditevents'     => 1,
+			'candeleteevents'   => 1,
 			'canmoderateevents' => 1,
-			'canviewips' => 1,
-			'canmoveevents' => 1,
-			'calendarid' => $calendarinfo['calendarid'],
-			'calendartitle' => $calendarinfo['calendartitle']
+			'canviewips'        => 1,
+			'canmoveevents'     => 1,
+			'calendarid'        => $calendarinfo['calendarid'],
+			'calendartitle'     => $calendarinfo['calendartitle']
 		);
 		print_form_header('admincalendar', 'updatemod');
 		print_table_header(construct_phrase($vbphrase['add_new_moderator_to_calendar_x'], $calendarinfo['calendartitle']));
@@ -759,7 +761,6 @@ if ($_REQUEST['do'] == 'modifyholiday')
 	$options = array(
 		'edit' => $vbphrase['edit'],
 		'kill' => $vbphrase['delete'],
-		'no_value' => '_________________'
 	);
 
 	print_form_header('admincalendar', 'updateholiday');
@@ -992,8 +993,8 @@ print_cp_footer();
 
 /*======================================================================*\
 || ####################################################################
-|| # Downloaded: 18:52, Sat Jul 14th 2007
-|| # CVS: $RCSfile$ - $Revision: 16175 $
+|| # Downloaded: 16:21, Sat Apr 6th 2013
+|| # CVS: $RCSfile$ - $Revision: 25644 $
 || ####################################################################
 \*======================================================================*/
 ?>

@@ -1,9 +1,9 @@
 <?php
 /*======================================================================*\
 || #################################################################### ||
-|| # vBulletin 3.6.7 PL1 - Licence Number VBF2470E4F
+|| # vBulletin 3.7.2 Patch Level 2 - Licence Number VBF2470E4F
 || # ---------------------------------------------------------------- # ||
-|| # Copyright ©2000-2007 Jelsoft Enterprises Ltd. All Rights Reserved. ||
+|| # Copyright ©2000-2013 Jelsoft Enterprises Ltd. All Rights Reserved. ||
 || # This file may not be redistributed in whole or significant part. # ||
 || # ---------------- VBULLETIN IS NOT FREE SOFTWARE ---------------- # ||
 || # http://www.vbulletin.com | http://www.vbulletin.com/license.html # ||
@@ -19,18 +19,11 @@ if (!isset($GLOBALS['vbulletin']->db))
 * Class that provides payment verification and form generation functions
 *
 * @package	vBulletin
-* @version	$Revision: 16100 $
-* @date		$Date: 2007-01-15 06:44:01 -0600 (Mon, 15 Jan 2007) $
+* @version	$Revision: 25144 $
+* @date		$Date: 2007-12-14 05:45:31 -0600 (Fri, 14 Dec 2007) $
 */
 class vB_PaidSubscriptionMethod_worldpay extends vB_PaidSubscriptionMethod
 {
-	/**
-	* The currencies that are supported by this payment provider
-	*
-	* @var	array
-	*/
-	var $supported_currency = array('usd' => true, 'gbp' => true, 'eur' => true);
-
 	/**
 	* The variable indicating if this payment provider supports recurring transactions
 	*
@@ -127,8 +120,8 @@ class vB_PaidSubscriptionMethod_worldpay extends vB_PaidSubscriptionMethod
 
 /*======================================================================*\
 || ####################################################################
-|| # Downloaded: 18:52, Sat Jul 14th 2007
-|| # CVS: $RCSfile$ - $Revision: 16100 $
+|| # Downloaded: 16:21, Sat Apr 6th 2013
+|| # CVS: $RCSfile$ - $Revision: 25144 $
 || ####################################################################
 \*======================================================================*/
 ?>

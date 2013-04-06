@@ -1,9 +1,9 @@
 <?php
 /*======================================================================*\
 || #################################################################### ||
-|| # vBulletin 3.6.7 PL1 - Licence Number VBF2470E4F
+|| # vBulletin 3.7.2 Patch Level 2 - Licence Number VBF2470E4F
 || # ---------------------------------------------------------------- # ||
-|| # Copyright ©2000-2007 Jelsoft Enterprises Ltd. All Rights Reserved. ||
+|| # Copyright ©2000-2013 Jelsoft Enterprises Ltd. All Rights Reserved. ||
 || # This file may not be redistributed in whole or significant part. # ||
 || # ---------------- VBULLETIN IS NOT FREE SOFTWARE ---------------- # ||
 || # http://www.vbulletin.com | http://www.vbulletin.com/license.html # ||
@@ -473,68 +473,6 @@ function verify_word_allowed(&$word)
 {
 	global $vbulletin, $phrasequery;
 
-	if ($vbulletin->options['fulltextsearch'])
-	{
-		static $badwords;
-
-		if (!preg_match('#^"([^"]+)"$#s', $word))
-		{
-			if (strpos($word, '*') !== false)
-			{
-				if ($vbulletin->options['allowwildcards'])
-				{
-					#  try to remove some characters that mysql is going to silently convert to spaces on us
-					# Can't get more specific without breaking other character sets
-					if (vbstrlen(preg_replace('#[\000-\031~!@\#$%^&*()=\[\]{}\\":;<>,.?/`]|\'{2,}#si', '', $word)) < ($vbulletin->options['minsearchlength'] - 1))
-					{
-						// word is too short
-						$word = htmlspecialchars_uni($word);
-						eval(standard_error(fetch_error('searchinvalidterm', $word, $vbulletin->options['minsearchlength'])));
-					}
-					else
-					{
-						return true;
-					}
-				}
-				else
-				{
-					// wildcards are not allowed - error
-					$word = htmlspecialchars_uni($word);
-					eval(standard_error(fetch_error('searchinvalidterm', $word, $vbulletin->options['minsearchlength'])));
-				}
-			}
-			else
-			{
-				#  try to remove some characters that mysql is going to silently convert to spaces on us
-				# Can't get more specific without breaking other character sets
-				if (vbstrlen(preg_replace('#[\000-\031~!@\#$%^&*()=\[\]{}\\":;<>,.?/`]|\'{2,}#si', '', $word)) < $vbulletin->options['minsearchlength'])
-				{
-					// word is too short
-					$word = htmlspecialchars_uni($word);
-					eval(standard_error(fetch_error('searchinvalidterm', $word, $vbulletin->options['minsearchlength'])));
-				}
-				else
-				{
-					return true;
-				}
-			}
-		}
-
-		if (!$badwords)
-		{
-			$badwords = explode(' ', $vbulletin->options['badwords']);
-		}
-
-		if (in_array(strtolower($word), $badwords))
-		{
-			return false;
-		}
-		else
-		{
-			return true;
-		}
-	}
-
 	$wordlower = strtolower($word);
 
 	// check if the word contains wildcards
@@ -989,10 +927,244 @@ function fetch_titleonly_url($searchterms)
 	}
 }
 
+/**
+* Fetches the HTML for the tag cloud.
+*
+* @param	string	Type of cloud. Supports search, usage
+*
+* @return	string	Tag cloud HTML (nothing if no cloud)
+*/
+function fetch_tagcloud($type = 'usage')
+{
+	global $vbulletin, $stylevar, $vbphrase, $show, $template_hook;
+
+	if ($vbulletin->options['tagcloud_usergroup'] > 0 AND !isset($vbulletin->usergroupcache[$vbulletin->options['tagcloud_usergroup']]))
+	{
+		// handle a usergroup being deleted: default to live permission checking
+		$vbulletin->options['tagcloud_usergroup'] = -1;
+	}
+
+	$cacheable = ($vbulletin->options['tagcloud_usergroup'] != -1);
+
+	if (!$cacheable)
+	{
+		$cloud = null;
+	}
+	else
+	{
+		switch ($type)
+		{
+			case 'search':
+				$cloud = $vbulletin->searchcloud;
+				break;
+
+			case 'usage':
+			default:
+				$cloud = $vbulletin->tagcloud;
+				break;
+		}
+	}
+
+	if (!is_array($cloud) OR $cloud['dateline'] < (TIMENOW - (60 * $vbulletin->options['tagcloud_cachetime'])))
+	{
+		if ($type == 'search')
+		{
+			$tags_result = $vbulletin->db->query_read_slave("
+				SELECT tagsearch.tagid, tag.tagtext, COUNT(*) AS searchcount
+				FROM " . TABLE_PREFIX . "tagsearch AS tagsearch
+				INNER JOIN " . TABLE_PREFIX . "tag AS tag ON (tagsearch.tagid = tag.tagid)
+				" . ($vbulletin->options['tagcloud_searchhistory'] ?
+					"WHERE tagsearch.dateline > " . (TIMENOW - (60 * 60 * 24 * $vbulletin->options['tagcloud_searchhistory'])) :
+					'') . "
+				GROUP BY tagsearch.tagid, tag.tagtext
+				ORDER BY searchcount DESC
+				LIMIT " . $vbulletin->options['tagcloud_tags']
+			);
+		}
+		else
+		{
+			if (!$vbulletin->options['tagcloud_usergroup'])
+			{
+				$perm_limit = false;
+			}
+			else
+			{
+				$forums = array();
+				$perm_limit = true;
+
+				foreach ($vbulletin->forumcache AS $forumid => $forum)
+				{
+					// -1 for live permission checking
+					$perm_array = ($vbulletin->options['tagcloud_usergroup'] == -1
+						? $vbulletin->userinfo['forumpermissions']["$forumid"]
+						: $forum['permissions'][$vbulletin->options['tagcloud_usergroup']]
+					);
+
+					if ($perm_array & $vbulletin->bf_ugp_forumpermissions['canview']
+						AND $perm_array & $vbulletin->bf_ugp_forumpermissions['canviewthreads']
+						AND $perm_array & $vbulletin->bf_ugp_forumpermissions['canviewothers']
+					)
+					{
+						$forums[] = intval($forumid);
+					}
+
+				}
+			}
+
+			if (!$perm_limit OR $forums)
+			{
+				$tags_result = $vbulletin->db->query_read_slave("
+					SELECT tagthread.tagid, tag.tagtext, COUNT(*) AS searchcount
+					FROM " . TABLE_PREFIX . "tagthread AS tagthread
+					INNER JOIN " . TABLE_PREFIX . "tag AS tag ON (tagthread.tagid = tag.tagid)
+					INNER JOIN " . TABLE_PREFIX . "thread AS thread ON (tagthread.threadid = thread.threadid)
+					WHERE thread.open <> 10
+						AND thread.visible = 1
+					" . ($perm_limit ? "AND thread.forumid IN (" . implode(',', $forums) . ")" : '') . "
+					" . ($vbulletin->options['tagcloud_usagehistory'] ?
+						"AND tagthread.dateline > " . (TIMENOW - (60 * 60 * 24 * $vbulletin->options['tagcloud_usagehistory'])) :
+						'') . "
+					GROUP BY tagthread.tagid, tag.tagtext
+					ORDER BY searchcount DESC
+					LIMIT " . $vbulletin->options['tagcloud_tags']
+				);
+			}
+		}
+
+		$total = 0;
+		$count = 0;
+
+		if (!empty($tags_result))
+		{
+			$count = $vbulletin->db->num_rows($tags_result);
+
+			while ($currenttag = $vbulletin->db->fetch_array($tags_result))
+			{
+				$tags["$currenttag[tagtext]"] = $currenttag;
+				$total += $currenttag['searchcount'];
+			}
+			$vbulletin->db->free_result($tags_result);
+		}
+
+		$final_tags = array();
+
+		if ($count > 0)
+		{
+			// calculate the standard deviation
+			$mean = $total / $count;
+
+			$summation = 0;
+			foreach ($tags AS $tagtext => $tagvalue)
+			{
+				$summation += pow(($tagvalue['searchcount'] - $mean), 2);
+			}
+
+			$sd = sqrt($summation / $count);
+
+			uksort($tags, 'strnatcasecmp');
+
+			if ($sd)
+			{
+				$sdtags = array();
+				$lowestsds = 0;
+				$highestsds = 0;
+
+				// find the max and min standard deviations
+				foreach ($tags AS $tagtext => $currenttag)
+				{
+					$tags["$tagtext"]['deviation'] = $currenttag['searchcount'] - $mean;
+					$tags["$tagtext"]['sds'] = $tags["$tagtext"]['deviation'] / $sd;
+					$sdtags[] = $tags["$tagtext"];
+
+					if ($tags["$tagtext"]['sds'] < $lowestsds)
+					{
+						$lowestsds = $tags["$tagtext"]['sds'];
+					}
+
+					if ($tags["$tagtext"]['sds'] > $highestsds)
+					{
+						$highestsds = $tags["$tagtext"]['sds'];
+					}
+				}
+
+				$levels = $vbulletin->options['tagcloud_levels'];
+
+				foreach ($sdtags AS $thistag)
+				{
+					// normalize the std devs to 0 - 1, then map back to 1 - #levls
+					$thistag['level'] = round((($thistag['sds'] - $lowestsds) / ($highestsds - $lowestsds)) * ($levels - 1)) + 1;
+					$thistag['tagtext_url'] = urlencode(unhtmlspecialchars($thistag['tagtext']));
+
+					$final_tags[] = $thistag;
+				}
+			}
+			else
+			{
+				foreach ($tags AS $tagtext => $tagarr)
+				{
+					$final_tags[] = array(
+						'tagid' => $tagarr['tagid'],
+						'tagtext' => $tagtext,
+						'tagtext_url' => urlencode(unhtmlspecialchars($tagtext)),
+						'level' => round($vbulletin->options['tagcloud_levels'] / 2)
+					);
+				}
+			}
+		}
+
+		$cloud = array(
+			'tags' => $final_tags,
+			'count' => sizeof($final_tags),
+			'dateline' => TIMENOW
+		);
+
+		if ($cacheable)
+		{
+			if ($type == 'search')
+			{
+				$vbulletin->searchcloud = $cloud;
+				build_datastore('searchcloud', serialize($cloud), 1);
+			}
+			else
+			{
+				$vbulletin->tagcloud = $cloud;
+				build_datastore('tagcloud', serialize($cloud), 1);
+			}
+		}
+	}
+
+	if (empty($cloud['tags']))
+	{
+		return '';
+	}
+
+	$cloud['links'] = '';
+
+	foreach ($cloud['tags'] AS $thistag)
+	{
+		($hook = vBulletinHook::fetch_hook('tag_cloud_bit')) ? eval($hook) : false;
+
+		eval('$cloud[\'links\'] .= "' . fetch_template('tag_cloud_link') . '";');
+	}
+
+	$cloud['count'] = vb_number_format($cloud['count']);
+
+	if ($type == 'search')
+	{
+		eval('$cloud_html .= "' . fetch_template('tag_cloud_box_search') . '";');
+	}
+	else
+	{
+		eval('$cloud_html .= "' . fetch_template('tag_cloud_box') . '";');
+	}
+
+	return $cloud_html;
+}
+
 /*======================================================================*\
 || ####################################################################
-|| # Downloaded: 18:52, Sat Jul 14th 2007
-|| # CVS: $RCSfile$ - $Revision: 16956 $
+|| # Downloaded: 16:21, Sat Apr 6th 2013
+|| # CVS: $RCSfile$ - $Revision: 26539 $
 || ####################################################################
 \*======================================================================*/
 ?>

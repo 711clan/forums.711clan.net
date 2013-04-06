@@ -1,9 +1,9 @@
 <?php
 /*======================================================================*\
 || #################################################################### ||
-|| # vBulletin 3.6.7 PL1 - Licence Number VBF2470E4F
+|| # vBulletin 3.7.2 Patch Level 2 - Licence Number VBF2470E4F
 || # ---------------------------------------------------------------- # ||
-|| # Copyright ©2000-2007 Jelsoft Enterprises Ltd. All Rights Reserved. ||
+|| # Copyright ©2000-2013 Jelsoft Enterprises Ltd. All Rights Reserved. ||
 || # This file may not be redistributed in whole or significant part. # ||
 || # ---------------- VBULLETIN IS NOT FREE SOFTWARE ---------------- # ||
 || # http://www.vbulletin.com | http://www.vbulletin.com/license.html # ||
@@ -38,7 +38,7 @@ function cache_moderators($userid = null)
 // this function creates a lastpostinfo array that tells makeforumbit which forum
 // each forum should grab its last post info from.
 // it also tots up the thread/post totals for each forum. - PERMISSIONS are taken into account.
-function fetch_last_post_array()
+function fetch_last_post_array($root_forumid = -1)
 {
 	global $vbulletin, $lastpostarray, $counters;
 
@@ -51,6 +51,15 @@ function fetch_last_post_array()
 		foreach ($moo AS $forumid)
 		{
 			$forum = $vbulletin->forumcache["$forumid"];
+			if (!$forum['displayorder'] OR !($forum['options'] & $vbulletin->bf_misc_forumoptions['active']))
+			{
+				if ($root_forumid == -1 OR !in_array($root_forumid, explode(',', $forum['childlist'])))
+				{
+					// only going to show below this part of the tree if we're already there
+					$cannotView["$forumid"] = 1;
+				}
+				continue;
+			}
 
 			// if we have no permission to view the forum's parent
 			// set cannotView permissions cache for this forum and continue
@@ -63,14 +72,12 @@ function fetch_last_post_array()
 
 				$forumperms = $vbulletin->userinfo['forumpermissions']["$forumid"];
 
-				// if we have no permissions for this forum, set the cannotView permissions cache
-				// so that we don't have to check its child forums
-				//if (!($forumperms & $vbulletin->bf_ugp_forumpermissions['canview']) OR !($forumperms & $vbulletin->bf_ugp_forumpermissions['canviewothers'])
-				if ((!($forumperms & $vbulletin->bf_ugp_forumpermissions['canview']) AND (($vbulletin->forumcache["$forumid"]['showprivate'] AND $vbulletin->forumcache["$forumid"]['showprivate'] != 3) OR (!$vbulletin->forumcache["$forumid"]['showprivate'] AND $vbulletin->options['showprivateforums'] != 2))) OR ($forum['password'] AND !verify_forum_password($forum['forumid'], $forum['password'], false)))
-				{
-					$cannotView["$forumid"] = 1;
-				}
-				else
+				// can view and validated password OR show counters for private forums -> show post count
+				if (
+					($forumperms & $vbulletin->bf_ugp_forumpermissions['canview'] AND (!$forum['password'] OR verify_forum_password($forum['forumid'], $forum['password'], false)))
+					OR ($vbulletin->forumcache["$forumid"]['showprivate'] AND $vbulletin->forumcache["$forumid"]['showprivate'] == 3)
+					OR (!$vbulletin->forumcache["$forumid"]['showprivate'] AND $vbulletin->options['showprivateforums'] == 2)
+				)
 				{
 					if (!isset($lastpostarray["$forumid"]))
 					{
@@ -87,6 +94,13 @@ function fetch_last_post_array()
 							continue;
 						}
 
+						if (!($forumperms & $vbulletin->bf_ugp_forumpermissions['canviewothers']) AND $vbulletin->forumcache["$forumid"]['lastposter'] != $vbulletin->userinfo['username'])
+						{
+							// can't view others threads in this forum and the last post isn't by us
+							// so don't try to traverse up the tree
+							continue;
+						}
+
 						// compare the date for the last post info with the last post date
 						// for the parent forum, and if it's greater, set the last post info
 						// array for this forum to point to that forum... (erm..)
@@ -95,8 +109,13 @@ function fetch_last_post_array()
 							$lastpostarray["$parentid"] = $forumid;
 							$vbulletin->forumcache["$parentid"]['lastpost'] = $forum['lastpost'];
 						}
-					} // end foreach($parents)
-				} // end can view
+					}
+				}
+				else
+				{
+					$cannotView["$forumid"] = 1;
+				}
+
 			} // end can view parent
 		}
 	}
@@ -119,7 +138,6 @@ function fetch_last_post_array()
 			}
 		}
 	}
-
 }
 
 // ###################### Start makeforumbit #######################
@@ -137,7 +155,7 @@ function construct_forum_bit($parentid, $depth = 0, $subsonly = 0)
 	// call fetch_last_post_array() first to get last post info for forums
 	if (!is_array($lastpostarray))
 	{
-		fetch_last_post_array();
+		fetch_last_post_array($parentid);
 	}
 
 	if (empty($vbulletin->iforumcache["$parentid"]))
@@ -147,7 +165,7 @@ function construct_forum_bit($parentid, $depth = 0, $subsonly = 0)
 
 	if (!defined('MAXFORUMDEPTH'))
 	{
-		define('MAXFORUMDEPTH', 1);
+		define('MAXFORUMDEPTH', 2);
 	}
 
 	$forumbits = '';
@@ -225,6 +243,18 @@ function construct_forum_bit($parentid, $depth = 0, $subsonly = 0)
 					$lastpostinfo['lastposttime'] = vbdate($vbulletin->options['timeformat'], $lastpostinfo['lastpost']);
 					$lastpostinfo['trimthread'] = fetch_trimmed_title(fetch_censored_text($lastpostinfo['lastthread']));
 
+					if ($lastpostinfo['lastprefixid'] AND $vbulletin->options['showprefixlastpost'])
+					{
+						$lastpostinfo['prefix'] = ($vbulletin->options['showprefixlastpost'] == 2 ?
+							$vbphrase["prefix_$lastpostinfo[lastprefixid]_title_rich"] :
+							htmlspecialchars_uni($vbphrase["prefix_$lastpostinfo[lastprefixid]_title_plain"])
+						);
+					}
+					else
+					{
+						$lastpostinfo['prefix'] = '';
+					}
+
 					if ($vbulletin->forumcache["$lastpostforum[forumid]"]['options'] & $vbulletin->bf_misc_forumoptions['allowicons'] AND $icon = fetch_iconinfo($lastpostinfo['lasticonid']))
 					{
 						$show['icon'] = true;
@@ -236,7 +266,6 @@ function construct_forum_bit($parentid, $depth = 0, $subsonly = 0)
 
 					$show['lastpostinfo'] = (!$lastpostforum['password'] OR verify_forum_password($lastpostforum['forumid'], $lastpostforum['password'], false));
 
-($hook = vBulletinHook::fetch_hook('colorname')) ? eval($hook) : false;
 					eval('$forum[\'lastpostinfo\'] = "' . fetch_template('forumhome_lastpostby') . '";');
 				}
 			}
@@ -253,7 +282,22 @@ function construct_forum_bit($parentid, $depth = 0, $subsonly = 0)
 			$forum['statusicon'] = fetch_forum_lightbulb($forumid, $lastpostinfo, $forum);
 
 			// add lock to lightbulb if necessary
-			if ((!($forumperms & $vbulletin->bf_ugp_forumpermissions['canpostnew']) OR !($forum['options'] & $vbulletin->bf_misc_forumoptions['allowposting'])) AND $vbulletin->options['showlocks'] AND !$forum['link'])
+			// from 3.6.9 & 3.7.0 we now show locks only if a user can not post AT ALL
+			// previously it was just if they could not create new threads
+			if (
+				$vbulletin->options['showlocks'] // show locks to users who can't post
+				AND !$forum['link'] // forum is not a link
+				AND
+				(
+					!($forum['options'] & $vbulletin->bf_misc_forumoptions['allowposting']) // forum does not allow posting
+					OR
+					(
+						    !($forumperms & $vbulletin->bf_ugp_forumpermissions['canpostnew']) // can't post new threads
+						AND !($forumperms & $vbulletin->bf_ugp_forumpermissions['canreplyown']) // can't reply to own threads
+						AND !($forumperms & $vbulletin->bf_ugp_forumpermissions['canreplyothers']) // can't reply to others' threads						
+					)
+				)
+			)
 			{
 				$forum['statusicon'] .= '_lock';
 			}
@@ -283,14 +327,14 @@ function construct_forum_bit($parentid, $depth = 0, $subsonly = 0)
 						($hook = vBulletinHook::fetch_hook('forumbit_moderator')) ? eval($hook) : false;
 
 						$showmods["$moderator[userid]"] = true;
+
+						$show['comma_leader'] = isset($forum['moderators']);
 						if (!isset($forum['moderators']))
 						{
-							eval('$forum[\'moderators\'] = "' . fetch_template('forumhome_moderator') . '";');
+							$forum['moderators'] = '';
 						}
-						else
-						{
-							eval('$forum[\'moderators\'] .= ", ' . fetch_template('forumhome_moderator') . '";');
-						}
+
+						eval('$forum[\'moderators\'] .= "' . fetch_template('forumhome_moderator') . '";');
 					}
 				}
 				if (!isset($forum['moderators']))
@@ -463,6 +507,8 @@ function construct_subforum_bit($parentid, $cancontainthreads, $output = '', $de
 			{
 				$output .= construct_subforum_bit($forumid, $cancontainthreads, $subforum, $depthmark . '--', $depth + 1);
 			}
+
+			($hook = vBulletinHook::fetch_hook('forumbit_subforumbit2')) ? eval($hook) : false;
 		}
 	}
 
@@ -513,8 +559,8 @@ function fetch_iconinfo($iconid = 0)
 
 /*======================================================================*\
 || ####################################################################
-|| # Downloaded: 18:52, Sat Jul 14th 2007
-|| # CVS: $RCSfile$ - $Revision: 16318 $
+|| # Downloaded: 16:21, Sat Apr 6th 2013
+|| # CVS: $RCSfile$ - $Revision: 26194 $
 || ####################################################################
 \*======================================================================*/
 ?>

@@ -1,9 +1,9 @@
 <?php
 /*======================================================================*\
 || #################################################################### ||
-|| # vBulletin 3.6.7 PL1 - Licence Number VBF2470E4F
+|| # vBulletin 3.7.2 Patch Level 2 - Licence Number VBF2470E4F
 || # ---------------------------------------------------------------- # ||
-|| # Copyright ©2000-2007 Jelsoft Enterprises Ltd. All Rights Reserved. ||
+|| # Copyright ©2000-2013 Jelsoft Enterprises Ltd. All Rights Reserved. ||
 || # This file may not be redistributed in whole or significant part. # ||
 || # ---------------- VBULLETIN IS NOT FREE SOFTWARE ---------------- # ||
 || # http://www.vbulletin.com | http://www.vbulletin.com/license.html # ||
@@ -14,7 +14,7 @@
 error_reporting(E_ALL & ~E_NOTICE);
 
 // ##################### DEFINE IMPORTANT CONSTANTS #######################
-define('CVS_REVISION', '$RCSfile$ - $Revision: 16762 $');
+define('CVS_REVISION', '$RCSfile$ - $Revision: 26870 $');
 
 // #################### PRE-CACHE TEMPLATES AND DATA ######################
 $phrasegroups = array('cphome');
@@ -99,6 +99,13 @@ if (!empty($vbulletin->GPC['redirect']))
 {
 	require_once(DIR . '/includes/functions_login.php');
 	$redirect = htmlspecialchars_uni(fetch_replaced_session_url($vbulletin->GPC['redirect']));
+	$redirect = create_full_url($redirect);
+	$redirect = preg_replace(
+		array('/&#0*59;?/', '/&#x0*3B;?/i', '#;#'),
+		'%3B',
+		$redirect
+	);
+	$redirect = preg_replace('#&amp%3B#i', '&amp;', $redirect);
 
 	print_cp_header($vbphrase['redirecting_please_wait'], '', "<meta http-equiv=\"Refresh\" content=\"0; URL=$redirect\" />");
 	echo "<p>&nbsp;</p><blockquote><p>$vbphrase[redirecting_please_wait]</p></blockquote>";
@@ -159,7 +166,7 @@ if ($_REQUEST['do'] == 'head')
 	?>
 	<table border="0" width="100%" height="100%">
 	<tr align="center" valign="top">
-		<td style="text-align:<?php echo $stylevar['left']; ?>"><a href="http://www.vbulletin.com/" target="_blank"><b><?php echo $vbphrase['admin_control_panel']; ?></b> (vBulletin <?php echo FILE_VERSION_VBULLETIN . print_form_middle('VBF2470E4F'); ?>)<?php echo iif(is_demo_mode(), ' <b>DEMO MODE</b>'); ?></a></td>
+		<td style="text-align:<?php echo $stylevar['left']; ?>"><a href="http://www.vbulletin.com/" target="_blank"><b><?php echo $vbphrase['admin_control_panel']; ?></b> (vBulletin <?php echo ADMIN_VERSION_VBULLETIN . print_form_middle('VBF2470E4F'); ?>)<?php echo iif(is_demo_mode(), ' <b>DEMO MODE</b>'); ?></a></td>
 		<td><a href="http://members.vbulletin.com/" id="head_version_link" target="_blank">&nbsp;</a></td>
 		<td style="white-space:nowrap; text-align:<?php echo $stylevar['right']; ?>; font-weight:bold">
 			<a href="../<?php echo $vbulletin->options['forumhome']; ?>.php<?php echo $vbulletin->session->vars['sessionurl_q']; ?>" target="_blank"><?php echo $vbphrase['forum_home_page']; ?></a>
@@ -315,8 +322,8 @@ if ($_REQUEST['do'] == 'nav')
 			{
 				continue;
 			}
-
-			$navfiles["$matches[1]"] = $file;
+			$nav_key = preg_replace('#[^a-z0-9]#i', '', $matches[1]);
+			$navfiles["$nav_key"] = $file;
 		}
 		closedir($handle);
 	}
@@ -458,11 +465,11 @@ if ($_REQUEST['do'] == 'frames' OR empty($_REQUEST['do']))
 
 	$navframe = "<frame src=\"index.php?" . $vbulletin->session->vars['sessionurl'] . "do=nav" . iif($vbulletin->GPC['nojs'], '&amp;nojs=1') . "\" name=\"nav\" scrolling=\"yes\" frameborder=\"0\" marginwidth=\"0\" marginheight=\"0\" border=\"no\" />\n";
 	$headframe = "<frame src=\"index.php?" . $vbulletin->session->vars['sessionurl'] . "do=head\" name=\"head\" scrolling=\"no\" noresize=\"noresize\" frameborder=\"0\" marginwidth=\"10\" marginheight=\"0\" border=\"no\" />\n";
-	$mainframe = "<frame src=\"" . iif(!empty($vbulletin->GPC['loc']) AND !preg_match('#^[a-z]+:#i', $vbulletin->GPC['loc']), $vbulletin->GPC['loc'], "index.php?" . $vbulletin->session->vars['sessionurl'] . "do=home") . "\" name=\"main\" scrolling=\"yes\" frameborder=\"0\" marginwidth=\"10\" marginheight=\"10\" border=\"no\" />\n";
+	$mainframe = "<frame src=\"" . iif(!empty($vbulletin->GPC['loc']) AND !preg_match('#^[a-z]+:#i', $vbulletin->GPC['loc']), create_full_url($vbulletin->GPC['loc']), "index.php?" . $vbulletin->session->vars['sessionurl'] . "do=home") . "\" name=\"main\" scrolling=\"yes\" frameborder=\"0\" marginwidth=\"10\" marginheight=\"10\" border=\"no\" />\n";
 
 	?>
 	<!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Frameset//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-frameset.dtd">
-	<html dir="<?php echo $stylevar['textdirection']; ?>" lang="<?php echo $stylevar['languagecode']; ?>">
+	<html xmlns="http://www.w3.org/1999/xhtml" dir="<?php echo $stylevar['textdirection']; ?>" lang="<?php echo $stylevar['languagecode']; ?>">
 	<head>
 	<script type="text/javascript">
 	<!--
@@ -532,7 +539,7 @@ if (empty($vbulletin->config['Database']['force_sql_mode']))
 {
 	// check to see if MySQL is running strict mode and recommend disabling it
 	$db->hide_errors();
-	$strict_mode_check = $db->query_first("SHOW VARIABLES LIKE 'sql\_mode'");
+	$strict_mode_check = $db->query_first("SHOW VARIABLES LIKE 'sql\\_mode'");
 	if (strpos(strtolower($strict_mode_check['Value']), 'strict_') !== false)
 	{
 		ob_start();
@@ -779,16 +786,24 @@ $eventcount = $db->query_first("
 $postcount = $db->query_first("
 	SELECT COUNT(*) AS count
 	FROM " . TABLE_PREFIX . "moderation AS moderation
-	INNER JOIN " . TABLE_PREFIX . "post AS post USING (postid)
-	WHERE moderation.type='reply'
+	INNER JOIN " . TABLE_PREFIX . "post AS post ON (post.postid = moderation.primaryid)
+	WHERE moderation.type = 'reply'
 ");
 
 // ##### Threads to Moderate
 $threadcount = $db->query_first("
 	SELECT COUNT(*) AS count
 	FROM " . TABLE_PREFIX . "moderation AS moderation
-	INNER JOIN " . TABLE_PREFIX . "thread AS thread USING (threadid)
-	WHERE moderation.type='thread'
+	INNER JOIN " . TABLE_PREFIX . "thread AS thread ON (thread.threadid = moderation.primaryid)
+	WHERE moderation.type = 'thread'
+");
+
+// ##### Messages to Moderate
+$messagecount = $db->query_first("
+	SELECT COUNT(*) AS count
+	FROM " . TABLE_PREFIX . "moderation AS moderation
+	INNER JOIN " . TABLE_PREFIX . "visitormessage AS visitormessage ON (visitormessage.vmid = moderation.primaryid)
+	WHERE moderation.type = 'visitormessage'
 ");
 
 print_form_header('index', 'home');
@@ -825,14 +840,18 @@ if ($vbulletin->options['adminquickstats'])
 	print_cells_row(array(
 		$vbphrase['php_memory_limit'], ($memorylimit AND $memorylimit != '-1') ? vb_number_format($memorylimit, 2, true) : $vbphrase['none'],
 		$vbphrase['unique_registered_visitors_today'], vb_number_format($vbulletin->acpstats['userstoday']),
-		$vbphrase['new_threads_today'], vb_number_format($newthreads['count']),
+		$vbphrase['messages_awaiting_moderation'], vb_number_format($messagecount['count']) . ' ' . construct_link_code($vbphrase['view'], '../' . $vbulletin->config['Misc']['modcpdir'] . '/moderate.php?' . $vbulletin->session->vars['sessionurl'] . "do=messages"),
 	), 0, 0, -5, 'top', 1, 1);
 	print_cells_row(array(
 		$vbphrase['mysql_version'], $mysqlversion['version'],
 		$vbphrase['new_users_today'], vb_number_format($vbulletin->acpstats['newusers']),
-		$vbphrase['new_posts_today'], vb_number_format($vbulletin->acpstats['newposts']),
+		$vbphrase['new_threads_today'], vb_number_format($newthreads['count']),
 	), 0, 0, -5, 'top', 1, 1);
-	print_cells_row(array($vbphrase['mysql_max_packet_size'], vb_number_format($maxpacket, 2, 1), '&nbsp;', '&nbsp;', '&nbsp;', '&nbsp;'), 0, 0, -5, 'top', 1, 1);
+	print_cells_row(array(
+		$vbphrase['mysql_max_packet_size'], vb_number_format($maxpacket, 2, 1),
+		$vbphrase['new_posts_today'], vb_number_format($vbulletin->acpstats['newposts']),
+		'&nbsp;', '&nbsp;',
+	), 0, 0, -5, 'top', 1, 1);
 }
 else
 {
@@ -904,14 +923,25 @@ if (intval($vbulletin->maxloggedin['maxonline']) <= ($guests + $members))
 	build_datastore('maxloggedin', serialize($vbulletin->maxloggedin), 1);
 }
 
-if (PHP_OS == 'Linux' AND @file_exists('/proc/loadavg') AND $stats = @file_get_contents('/proc/loadavg') AND trim($stats) != '')
-{
-	$stats = explode(' ', $stats);
-	$stats[0] = vb_number_format($stats[0], 2);
-	$stats[1] = vb_number_format($stats[1], 2);
-	$stats[2] = vb_number_format($stats[2], 2);
+$loadavg = array();
 
-	print_label_row($vbphrase['server_load_averages'], "$stats[0]&nbsp;&nbsp;$stats[1]&nbsp;&nbsp;$stats[2] | " . construct_phrase($vbphrase['users_online_x_members_y_guests'], vb_number_format($guests + $members), vb_number_format($members), vb_number_format($guests)), '', 'top', NULL, false);
+if (PHP_OS == 'Linux' AND $stats = @exec('uptime 2>&1') AND trim($stats) != '' AND preg_match('#: ([\d.,]+),?\s+([\d.,]+),?\s+([\d.,]+)$#', $stats, $regs))
+{
+	$loadavg[0] = vb_number_format($regs[1], 2);
+	$loadavg[1] = vb_number_format($regs[2], 2);
+	$loadavg[2] = vb_number_format($regs[3], 2);
+}
+else if (PHP_OS == 'Linux' AND @file_exists('/proc/loadavg') AND $stats = @file_get_contents('/proc/loadavg') AND trim($stats) != '')
+{
+	$loadavg = explode(' ', $stats);
+	$loadavg[0] = vb_number_format($loadavg[0], 2);
+	$loadavg[1] = vb_number_format($loadavg[1], 2);
+	$loadavg[2] = vb_number_format($loadavg[2], 2);
+}
+
+if (!empty($loadavg))
+{
+	print_label_row($vbphrase['server_load_averages'], "$loadavg[0]&nbsp;&nbsp;$loadavg[1]&nbsp;&nbsp;$loadavg[2] | " . construct_phrase($vbphrase['users_online_x_members_y_guests'], vb_number_format($guests + $members), vb_number_format($members), vb_number_format($guests)), '', 'top', NULL, false);
 }
 else
 {
@@ -932,6 +962,18 @@ if (can_administer('canadminusers'))
 		', '', 'top', NULL, false
 	);
 }
+
+print_label_row($vbphrase['quick_phrase_finder'], '
+	<form action="phrase.php?do=dosearch" method="post" style="display:inline">
+	<input type="text" class="bginput" name="searchstring" size="30" tabindex="1" />
+	<input type="submit" value=" ' . $vbphrase['find'] . ' " class="button" tabindex="1" />
+	<input type="hidden" name="do" value="dosearch" />
+	<input type="hidden" name="languageid" value="-10" />
+	<input type="hidden" name="searchwhere" value="10" />
+	<input type="hidden" name="adminhash" value="' . ADMINHASH . '" />
+	</form>
+	', '', 'top', NULL, false
+);
 
 print_label_row($vbphrase['php_function_lookup'], '
 	<form action="http://www.ph' . 'p.net/manual-lookup.ph' . 'p" method="get" style="display:inline">
@@ -994,7 +1036,7 @@ require_once(DIR . '/includes/vbulletin_credits.php');
 <!--
 if (typeof(vb_version) != "undefined")
 {
-	var this_vb_version = "<?php echo FILE_VERSION_VBULLETIN; ?>";
+	var this_vb_version = "<?php echo ADMIN_VERSION_VBULLETIN; ?>";
 	if (isNewerVersion(this_vb_version, vb_version))
 	{
 		document.writeln('<a href="http://www.vbulletin.com/forum/showthread.ph' + 'p?p=' + vb_announcementid + '" target="_blank">' + construct_phrase(latest_string, vb_version) + '</a><br />' + construct_phrase(current_string, this_vb_version.bold()));
@@ -1015,7 +1057,7 @@ unset($DEVDEBUG);
 ?>
 <script type="text/javascript">
 <!--
-var current_version = "<?php echo FILE_VERSION_VBULLETIN; ?>";
+var current_version = "<?php echo ADMIN_VERSION_VBULLETIN; ?>";
 var latest_string = "<?php echo $vbphrase['latest_version_available_x']; ?>";
 var current_string = "<?php echo $vbphrase['you_are_running_vbulletin_version_x']; ?>";
 var download_string = "<?php echo $vbphrase['download_vbulletin_x_from_members_area']; ?>";
@@ -1188,8 +1230,8 @@ if ($_POST['do'] == 'handlemessage')
 
 /*======================================================================*\
 || ####################################################################
-|| # Downloaded: 18:52, Sat Jul 14th 2007
-|| # CVS: $RCSfile$ - $Revision: 16762 $
+|| # Downloaded: 16:21, Sat Apr 6th 2013
+|| # CVS: $RCSfile$ - $Revision: 26870 $
 || ####################################################################
 \*======================================================================*/
 ?>

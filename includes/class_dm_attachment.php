@@ -1,9 +1,9 @@
 <?php
 /*======================================================================*\
 || #################################################################### ||
-|| # vBulletin 3.6.7 PL1 - Licence Number VBF2470E4F
+|| # vBulletin 3.7.2 Patch Level 2 - Licence Number VBF2470E4F
 || # ---------------------------------------------------------------- # ||
-|| # Copyright ©2000-2007 Jelsoft Enterprises Ltd. All Rights Reserved. ||
+|| # Copyright ©2000-2013 Jelsoft Enterprises Ltd. All Rights Reserved. ||
 || # This file may not be redistributed in whole or significant part. # ||
 || # ---------------- VBULLETIN IS NOT FREE SOFTWARE ---------------- # ||
 || # http://www.vbulletin.com | http://www.vbulletin.com/license.html # ||
@@ -26,8 +26,8 @@ require_once(DIR . '/includes/functions_file.php');
 * datamanager at the present.
 *
 * @package	vBulletin
-* @version	$Revision: 16089 $
-* @date		$Date: 2007-01-12 12:05:56 -0600 (Fri, 12 Jan 2007) $
+* @version	$Revision: 26884 $
+* @date		$Date: 2008-06-09 09:13:59 -0500 (Mon, 09 Jun 2008) $
 */
 class vB_DataManager_Attachment extends vB_DataManager
 {
@@ -132,7 +132,19 @@ class vB_DataManager_Attachment extends vB_DataManager
 	*/
 	function verify_filename(&$filename)
 	{
-		$this->set('extension', strtolower(substr(strrchr($filename, '.'), 1)));
+		$ext_pos = strrpos($filename, '.');
+		if ($ext_pos !== false)
+		{
+			$extension = substr($filename, $ext_pos + 1);
+			// 100 (filename length in DB) - 1 (.) - length of extension
+			$filename = substr($filename, 0, min(100 - 1 - strlen($extension), $ext_pos)) . ".$extension";
+		}
+		else
+		{
+			$extension = '';
+		}
+
+		$this->set('extension', strtolower($extension));
 		return true;
 	}
 
@@ -317,10 +329,12 @@ class vB_DataManager_Attachment extends vB_DataManager
 				post.threadid,
 				post.dateline AS post_dateline,
 				post.userid AS post_userid,
-				thread.forumid
+				thread.forumid,
+				editlog.hashistory
 			FROM " . TABLE_PREFIX . "attachment AS attachment
 			LEFT JOIN " . TABLE_PREFIX . "post AS post ON (post.postid = attachment.postid)
 			LEFT JOIN " . TABLE_PREFIX . "thread AS thread ON (thread.threadid = post.threadid)
+			LEFT JOIN " . TABLE_PREFIX . "editlog AS editlog ON (editlog.postid = post.postid)
 			WHERE " . $this->condition
 		);
 		while ($id = $this->registry->db->fetch_array($ids))
@@ -340,10 +354,14 @@ class vB_DataManager_Attachment extends vB_DataManager
 							/*insert query*/
 							$this->registry->db->query_write("
 								REPLACE INTO " . TABLE_PREFIX . "editlog
-										(postid, userid, username, dateline)
+										(postid, userid, username, dateline, hashistory)
 								VALUES
-									($id[postid], " . $this->registry->userinfo['userid'] . ", '" . $this->registry->db->escape_string($this->registry->userinfo['username']) . "', " . TIMENOW . ")"
-							);
+									($id[postid],
+									" . $this->registry->userinfo['userid'] . ",
+									'" . $this->registry->db->escape_string($this->registry->userinfo['username']) . "',
+									" . TIMENOW . ",
+									" . intval($id['hashistory']) . ")
+							");
 							$replaced["$id[postid]"] = true;
 						}
 					}
@@ -450,8 +468,8 @@ class vB_DataManager_Attachment extends vB_DataManager
 * Class to do data save/delete operations for ATTACHMENTS in the DATABASE.
 *
 * @package	vBulletin
-* @version	$Revision: 16089 $
-* @date		$Date: 2007-01-12 12:05:56 -0600 (Fri, 12 Jan 2007) $
+* @version	$Revision: 26884 $
+* @date		$Date: 2008-06-09 09:13:59 -0500 (Mon, 09 Jun 2008) $
 */
 
 class vB_DataManager_Attachment_Database extends vB_DataManager_Attachment
@@ -471,10 +489,16 @@ class vB_DataManager_Attachment_Database extends vB_DataManager_Attachment
 			return $this->presave_called;
 		}
 
+		if (!empty($this->info['filedata_location']) AND file_exists($this->info['filedata_location']))
+		{
+			$this->set_info('filedata', file_get_contents($this->info['filedata_location']));
+		}
+
 		if (!empty($this->info['filedata']))
 		{
 			$this->setr('filedata', $this->info['filedata']);
 		}
+
 		if (!empty($this->info['thumbnail']))
 		{
 			$this->setr('thumbnail', $this->info['thumbnail']);
@@ -489,8 +513,8 @@ class vB_DataManager_Attachment_Database extends vB_DataManager_Attachment
 * Class to do data save/delete operations for ATTACHMENTS in the FILE SYSTEM.
 *
 * @package	vBulletin
-* @version	$Revision: 16089 $
-* @date		$Date: 2007-01-12 12:05:56 -0600 (Fri, 12 Jan 2007) $
+* @version	$Revision: 26884 $
+* @date		$Date: 2008-06-09 09:13:59 -0500 (Mon, 09 Jun 2008) $
 */
 class vB_DataManager_Attachment_Filesystem extends vB_DataManager_Attachment
 {
@@ -530,12 +554,18 @@ class vB_DataManager_Attachment_Filesystem extends vB_DataManager_Attachment
 			$this->set('filehash', md5($this->info['filedata']));
 			$this->set('filesize', strlen($this->info['filedata']));
 		}
+		else if (!empty($this->info['filedata_location']) AND file_exists($this->info['filedata_location']))
+		{
+			$this->set('filehash', md5_file($this->info['filedata_location']));
+			$this->set('filesize', filesize($this->info['filedata_location']));
+		}
+
 		if (!empty($this->info['thumbnail']))
 		{
 			$this->set('thumbnail_filesize', strlen($this->info['thumbnail']));
 		}
 
-		if (!empty($this->info['filedata']) OR !empty($this->info['thumbnail']))
+		if (!empty($this->info['filedata']) OR !empty($this->info['thumbnail']) OR !empty($this->info['filedata_location']))
 		{
 			$path = $this->verify_attachment_path($this->fetch_field('userid'));
 			if (!$path)
@@ -573,9 +603,30 @@ class vB_DataManager_Attachment_Filesystem extends vB_DataManager_Attachment
 			$filename = fetch_attachment_path($userid, $attachmentid);
 			if ($fp = fopen($filename, 'wb'))
 			{
-				fwrite($fp, $this->info['filedata']);
+				if (!fwrite($fp, $this->info['filedata']))
+				{
+					$failed = true;
+				}
 				fclose($fp);
 				#remove possible existing thumbnail in case no thumbnail is written in the next step.
+				if (file_exists(fetch_attachment_path($userid, $attachmentid, true)))
+				{
+					@unlink(fetch_attachment_path($userid, $attachmentid, true));
+				}
+			}
+			else
+			{
+				$failed = true;
+			}
+		}
+		else if (!empty($this->info['filedata_location']))
+		{
+			$filename = fetch_attachment_path($userid, $attachmentid);
+			if (@rename($this->info['filedata_location'], $filename))
+			{
+				$mask = 0777 & ~umask();
+				@chmod($filename, $mask);
+
 				if (file_exists(fetch_attachment_path($userid, $attachmentid, true)))
 				{
 					@unlink(fetch_attachment_path($userid, $attachmentid, true));
@@ -593,7 +644,10 @@ class vB_DataManager_Attachment_Filesystem extends vB_DataManager_Attachment
 			$filename = fetch_attachment_path($userid, $attachmentid, true);
 			if ($fp = fopen($filename, 'wb'))
 			{
-				fwrite($fp, $this->info['thumbnail']);
+				if (!fwrite($fp, $this->info['thumbnail']))
+				{
+					$failed = true;
+				}
 				fclose($fp);
 			}
 			else
@@ -614,7 +668,7 @@ class vB_DataManager_Attachment_Filesystem extends vB_DataManager_Attachment
 			}
 
 			// $php_errormsg is automatically set if track_vars is enabled
-			$this->error('upload_copyfailed', htmlspecialchars_uni($php_errormsg));
+			$this->error('upload_copyfailed', htmlspecialchars_uni($php_errormsg), fetch_attachment_path($userid));
 			return false;
 		}
 		else
@@ -647,8 +701,8 @@ class vB_DataManager_Attachment_Filesystem extends vB_DataManager_Attachment
 
 /*======================================================================*\
 || ####################################################################
-|| # Downloaded: 18:52, Sat Jul 14th 2007
-|| # CVS: $RCSfile$ - $Revision: 16089 $
+|| # Downloaded: 16:21, Sat Apr 6th 2013
+|| # CVS: $RCSfile$ - $Revision: 26884 $
 || ####################################################################
 \*======================================================================*/
 ?>

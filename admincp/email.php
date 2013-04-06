@@ -1,9 +1,9 @@
 <?php
 /*======================================================================*\
 || #################################################################### ||
-|| # vBulletin 3.6.7 PL1 - Licence Number VBF2470E4F
+|| # vBulletin 3.7.2 Patch Level 2 - Licence Number VBF2470E4F
 || # ---------------------------------------------------------------- # ||
-|| # Copyright ©2000-2007 Jelsoft Enterprises Ltd. All Rights Reserved. ||
+|| # Copyright ©2000-2013 Jelsoft Enterprises Ltd. All Rights Reserved. ||
 || # This file may not be redistributed in whole or significant part. # ||
 || # ---------------- VBULLETIN IS NOT FREE SOFTWARE ---------------- # ||
 || # http://www.vbulletin.com | http://www.vbulletin.com/license.html # ||
@@ -14,10 +14,10 @@
 error_reporting(E_ALL & ~E_NOTICE);
 
 // ##################### DEFINE IMPORTANT CONSTANTS #######################
-define('CVS_REVISION', '$RCSfile$ - $Revision: 15628 $');
+define('CVS_REVISION', '$RCSfile$ - $Revision: 26250 $');
 
 // #################### PRE-CACHE TEMPLATES AND DATA ######################
-$phrasegroups = array('user', 'cpuser', 'messaging', 'cprofilefield');
+$phrasegroups = array('user', 'cpuser', 'messaging', 'cprofilefield', 'profilefield');
 $specialtemplates = array();
 
 // ########################## REQUIRE BACK-END ############################
@@ -64,10 +64,19 @@ if ($_POST['do'] == 'dosendmail' OR $_POST['do'] == 'makelist')
 
 	$vbulletin->GPC['septext'] = nl2br(htmlspecialchars_uni($vbulletin->GPC['septext']));
 
+	// ensure that we don't send blank emails by mistake
+	if ($_POST['do'] == 'dosendmail')
+	{
+		if ($vbulletin->GPC['subject'] == '' OR $vbulletin->GPC['message'] == '')
+		{
+			print_stop_message('please_complete_required_fields');
+		}
+	}
+
 	if (!empty($vbulletin->GPC['serializeduser']))
 	{
-		$vbulletin->GPC['user'] = @unserialize($vbulletin->GPC['serializeduser']);
-		$vbulletin->GPC['profile'] = @unserialize($vbulletin->GPC['serializedprofile']);
+		$vbulletin->GPC['user'] = @unserialize(verify_client_string($vbulletin->GPC['serializeduser']));
+		$vbulletin->GPC['profile'] = @unserialize(verify_client_string($vbulletin->GPC['serializedprofile']));
 	}
 
 	$condition = fetch_user_search_sql($vbulletin->GPC['user'], $vbulletin->GPC['profile']);
@@ -141,7 +150,7 @@ if ($_POST['do'] == 'dosendmail' OR $_POST['do'] == 'makelist')
 				$page = $vbulletin->GPC['startat'] / $vbulletin->GPC['perpage'] + 1;
 				$totalpages = ceil($counter['total'] / $vbulletin->GPC['perpage']);
 
-				if (strpos($vbulletin->GPC['message'], '$activateid') OR strpos($vbulletin->GPC['message'], '$activatelink'))
+				if (strpos($vbulletin->GPC['message'], '$activateid') !== false OR strpos($vbulletin->GPC['message'], '$activatelink') !== false)
 				{
 					$hasactivateid = 1;
 				}
@@ -241,11 +250,10 @@ if ($_REQUEST['do'] == 'donext')
 
 	$vbulletin->GPC['startat'] += $vbulletin->GPC['perpage'];
 
-	print_form_header('email', 'dosendmail');
+	print_form_header('email', 'dosendmail', false, true, 'cpform_dosendmail');
 	construct_hidden_code('test', $vbulletin->GPC['test']);
-	construct_hidden_code('sendhtml', $_POST['sendhtml']);
-	construct_hidden_code('serializeduser', serialize($vbulletin->GPC['user']));
-	construct_hidden_code('serializedprofile', serialize($vbulletin->GPC['profile']));
+	construct_hidden_code('serializeduser', sign_client_string(serialize($vbulletin->GPC['user'])));
+	construct_hidden_code('serializedprofile', sign_client_string(serialize($vbulletin->GPC['profile'])));
 	construct_hidden_code('from', $vbulletin->GPC['from']);
 	construct_hidden_code('subject', $vbulletin->GPC['subject']);
 	construct_hidden_code('message', $vbulletin->GPC['message']);
@@ -254,6 +262,37 @@ if ($_REQUEST['do'] == 'donext')
 
 	print_submit_row($vbphrase['next_page'], 0);
 
+	?>
+	<script type="text/javascript">
+	<!--
+	if (document.cpform_dosendmail)
+	{
+		function send_submit()
+		{
+			var submits = YAHOO.util.Dom.getElementsBy(
+				function(element) { return (element.type == "submit") },
+				"input", this
+			);
+			var submit_button;
+
+			for (var i = 0; i < submits.length; i++)
+			{
+				submit_button = submits[i];
+				submit_button.disabled = true;
+				setTimeout(function() { submit_button.disabled = false; }, 10000);
+			}
+
+			return false;
+		}
+
+		YAHOO.util.Event.on(document.cpform_dosendmail, 'submit', send_submit);
+		send_submit.call(document.cpform_dosendmail);
+		document.cpform_dosendmail.submit();
+	}
+	// -->
+	</script>
+	<?php
+	vbflush();
 }
 
 // *************************** Main email form **********************
@@ -283,7 +322,6 @@ function check_all_usergroups(formobj, toggle_status)
 		print_input_row($vbphrase['from'], 'from', $vbulletin->options['webmasteremail']);
 		print_input_row($vbphrase['subject'], 'subject');
 		print_textarea_row($vbphrase['message_email'], 'message', '', 10, 50);
-		print_yes_no_row('Send HTML Email?', 'sendhtml', 0);
 		$text = $vbphrase['send'];
 
 	}
@@ -307,8 +345,8 @@ print_cp_footer();
 
 /*======================================================================*\
 || ####################################################################
-|| # Downloaded: 18:52, Sat Jul 14th 2007
-|| # CVS: $RCSfile$ - $Revision: 15628 $
+|| # Downloaded: 16:21, Sat Apr 6th 2013
+|| # CVS: $RCSfile$ - $Revision: 26250 $
 || ####################################################################
 \*======================================================================*/
 ?>

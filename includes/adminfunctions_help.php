@@ -1,9 +1,9 @@
 <?php
 /*======================================================================*\
 || #################################################################### ||
-|| # vBulletin 3.6.7 PL1 - Licence Number VBF2470E4F
+|| # vBulletin 3.7.2 Patch Level 2 - Licence Number VBF2470E4F
 || # ---------------------------------------------------------------- # ||
-|| # Copyright ©2000-2007 Jelsoft Enterprises Ltd. All Rights Reserved. ||
+|| # Copyright ©2000-2013 Jelsoft Enterprises Ltd. All Rights Reserved. ||
 || # This file may not be redistributed in whole or significant part. # ||
 || # ---------------- VBULLETIN IS NOT FREE SOFTWARE ---------------- # ||
 || # http://www.vbulletin.com | http://www.vbulletin.com/license.html # ||
@@ -89,10 +89,13 @@ function xml_import_help_topics($xml = false)
 		$arr = array($arr);
 	}
 
+
 	foreach($arr AS $helpscript)
 	{
 		$help_sql = array();
 		$phrase_sql = array();
+		$help_sql_len = 0;
+		$phrase_sql_len = 0;
 
 		// Deal with single entry
 		if (!is_array($helpscript['helptopic'][0]))
@@ -110,6 +113,7 @@ function xml_import_help_topics($xml = false)
 				1,
 				'" . $vbulletin->db->escape_string($product) . "')
 			";
+			$help_sql_len += strlen(end($help_sql));
 
 			if ($has_phrases)
 			{
@@ -131,6 +135,9 @@ function xml_import_help_topics($xml = false)
 						" . intval($topic['text']['date']) . ",
 						'" . $vbulletin->db->escape_string($topic['text']['version']) . "')
 					";
+
+					$phrase_sql_len += strlen(end($phrase_sql));
+
 				}
 
 				if (isset($topic['title']['value']))
@@ -145,7 +152,38 @@ function xml_import_help_topics($xml = false)
 						" . intval($topic['title']['date']) . ",
 						'" . $vbulletin->db->escape_string($topic['title']['version']) . "')
 					";
+					$phrase_sql_len += strlen(end($phrase_sql));
 				}
+			}
+
+			if ($phrase_sql_len > 102400)
+			{
+				// insert max of 100k of phrases at a time
+				/*insert query*/
+				$vbulletin->db->query_write("
+					REPLACE INTO " . TABLE_PREFIX . "phrase
+						(languageid, fieldname, varname, text, product, username, dateline, version)
+					VALUES
+						" . implode(",\n", $phrase_sql)
+				);
+
+				$phrase_sql = array();
+				$phrase_sql_len = 0;
+			}
+
+			if ($help_sql_len > 102400)
+			{
+				// insert max of 100k of phrases at a time
+				/*insert query*/
+				$vbulletin->db->query_write("
+					REPLACE INTO " . TABLE_PREFIX . "adminhelp
+						(script, action, optionname, displayorder, volatile, product)
+					VALUES
+						" . implode(",\n\t", $help_sql)
+				);
+
+				$help_sql_len = array();
+				$help_sql = 0;
 			}
 		}
 
@@ -181,8 +219,8 @@ function xml_import_help_topics($xml = false)
 
 /*======================================================================*\
 || ####################################################################
-|| # Downloaded: 18:52, Sat Jul 14th 2007
-|| # CVS: $RCSfile$ - $Revision: 16991 $
+|| # Downloaded: 16:21, Sat Apr 6th 2013
+|| # CVS: $RCSfile$ - $Revision: 26319 $
 || ####################################################################
 \*======================================================================*/
 ?>

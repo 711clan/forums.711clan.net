@@ -1,9 +1,9 @@
 <?php
 /*======================================================================*\
 || #################################################################### ||
-|| # vBulletin 3.6.7 PL1 - Licence Number VBF2470E4F
+|| # vBulletin 3.7.2 Patch Level 2 - Licence Number VBF2470E4F
 || # ---------------------------------------------------------------- # ||
-|| # Copyright ©2000-2007 Jelsoft Enterprises Ltd. All Rights Reserved. ||
+|| # Copyright ©2000-2013 Jelsoft Enterprises Ltd. All Rights Reserved. ||
 || # This file may not be redistributed in whole or significant part. # ||
 || # ---------------- VBULLETIN IS NOT FREE SOFTWARE ---------------- # ||
 || # http://www.vbulletin.com | http://www.vbulletin.com/license.html # ||
@@ -82,7 +82,7 @@ function fetch_reputation_image(&$post, &$perms)
 	if ($post['reputation'] == 0)
 	{
 		$reputationgif = 'balance';
-		$reputation_value = $post['reputation'] * -1;
+		$reputation_value = 0;
 	}
 	else if ($post['reputation'] < 0)
 	{
@@ -98,7 +98,7 @@ function fetch_reputation_image(&$post, &$perms)
 
 	if ($reputation_value > 500)
 	{  // bright green bars take 200 pts not the normal 100
-		$reputation_value = ($reputation_value - ($reputation_value - 500)) + (($reputation_value - 500) / 2);
+		$reputation_value = ($reputation_value / 2) + 250;
 	}
 
 	$reputationbars = intval($reputation_value / 100); // award 1 reputation bar for every 100 points
@@ -143,8 +143,8 @@ function fetch_reputation_image(&$post, &$perms)
 
 /*======================================================================*\
 || ####################################################################
-|| # Downloaded: 18:52, Sat Jul 14th 2007
-|| # CVS: $RCSfile$ - $Revision: 14732 $
+|| # Downloaded: 16:21, Sat Apr 6th 2013
+|| # CVS: $RCSfile$ - $Revision: 24960 $
 || ####################################################################
 \*======================================================================*/
 ?>

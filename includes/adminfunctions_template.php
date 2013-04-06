@@ -1,9 +1,9 @@
 <?php
 /*======================================================================*\
 || #################################################################### ||
-|| # vBulletin 3.6.7 PL1 - Licence Number VBF2470E4F
+|| # vBulletin 3.7.2 Patch Level 2 - Licence Number VBF2470E4F
 || # ---------------------------------------------------------------- # ||
-|| # Copyright ©2000-2007 Jelsoft Enterprises Ltd. All Rights Reserved. ||
+|| # Copyright ©2000-2013 Jelsoft Enterprises Ltd. All Rights Reserved. ||
 || # This file may not be redistributed in whole or significant part. # ||
 || # ---------------- VBULLETIN IS NOT FREE SOFTWARE ---------------- # ||
 || # http://www.vbulletin.com | http://www.vbulletin.com/license.html # ||
@@ -34,7 +34,9 @@ $_query_common_templates = array(
 	'footer',
 	'headinclude'
 );
-$_query_special_templates = array(
+
+global $_query_special_templates;
+ $_query_special_templates = array(
 	// message editor menu contents
 	'editor_jsoptions_font',
 	'editor_jsoptions_size',
@@ -62,15 +64,15 @@ CREATE TABLE " . TABLE_PREFIX . "template_temp (
 	templateid INT UNSIGNED NOT NULL AUTO_INCREMENT,
 	styleid SMALLINT NOT NULL DEFAULT '0',
 	title VARCHAR(100) NOT NULL DEFAULT '',
-	template MEDIUMTEXT NOT NULL,
-	template_un MEDIUMTEXT NOT NULL,
+	template MEDIUMTEXT,
+	template_un MEDIUMTEXT,
 	templatetype enum('template','stylevar','css','replacement') NOT NULL default 'template',
 	dateline INT UNSIGNED NOT NULL DEFAULT '0',
 	username VARCHAR(100) NOT NULL DEFAULT '',
 	version VARCHAR(30) NOT NULL DEFAULT '',
-	product VARCHAR(15) NOT NULL,
+	product VARCHAR(25) NOT NULL,
 	PRIMARY KEY (templateid),
-	UNIQUE KEY title (title, styleid)
+	UNIQUE KEY title (title, styleid, templatetype)
 )
 ";
 
@@ -408,7 +410,7 @@ function build_template_id_cache($styleid, $doreturn = false, $parentids = false
 	{
 		$vbulletin->db->query_write("
 			UPDATE " . TABLE_PREFIX . "style
-			SET templatelist = '$templatelist'
+			SET templatelist = '" . $vbulletin->db->escape_string($templatelist) . "'
 			WHERE styleid = $styleid
 		");
 	}
@@ -573,6 +575,8 @@ function print_rebuild_style($styleid, $title = '', $docss = 1, $dostylevars = 1
 {
 	global $vbulletin, $vbphrase;
 
+	$styleid = intval($styleid);
+
 	if (empty($title))
 	{
 		if ($styleid == -1)
@@ -587,6 +591,11 @@ function print_rebuild_style($styleid, $title = '', $docss = 1, $dostylevars = 1
 				FROM " . TABLE_PREFIX . "style
 				WHERE styleid = $styleid
 			");
+			if (!$getstyle)
+			{
+				return;
+			}
+
 			$title = $getstyle['title'];
 		}
 	}
@@ -621,7 +630,7 @@ function print_rebuild_style($styleid, $title = '', $docss = 1, $dostylevars = 1
 */
 function delete_css_file($styleid, $csscontents)
 {
-	if (preg_match('#^<link rel="stylesheet" type="text/css" href="(clientscript/vbulletin_css/style-\w{8}-0*' . $styleid . '\.css)"( id="vbulletin_css")? />$#', $csscontents, $match))
+	if (preg_match('#@import url\("(clientscript/vbulletin_css/style-\w{8}-0*' . $styleid . '\.css)"\);#siU', $csscontents, $match))
 	{
 		// attempt to delete old css file
 		@unlink("./$match[1]");
@@ -667,6 +676,12 @@ function build_style($styleid, $title = '', $actions, $parentlist = '', $indent 
 {
 	global $vbulletin, $_queries, $vbphrase, $_query_special_templates;
 	static $phrase, $csscache;
+
+	if (($actions['doreplacements'] OR $actions['docss']) AND $vbulletin->options['storecssasfile'])
+	{
+		$actions['docss'] = true;
+		$actions['doreplacements'] = true;
+	}
 
 	if ($styleid != -1)
 	{
@@ -723,51 +738,6 @@ function build_style($styleid, $title = '', $actions, $parentlist = '', $indent 
 			vbflush();
 		}
 
-		// css
-		if ($actions['docss'])
-		{
-			// build a quick cache with the ~old~ contents of the css fields from the style table
-			if (!is_array($csscache))
-			{
-				$csscache = array();
-				$fetchstyles = $vbulletin->db->query_read("SELECT styleid, css FROM " . TABLE_PREFIX . "style");
-				while ($fetchstyle = $vbulletin->db->fetch_array($fetchstyles))
-				{
-					$fetchstyle['css'] .= "\n";
-					$csscache["$fetchstyle[styleid]"] = substr($fetchstyle['css'], 0, strpos($fetchstyle['css'], "\n"));
-				}
-			}
-
-			// rebuild the css field for this style
-			$css = array();
-			foreach($template_cache['css'] AS $template)
-			{
-				$css["$template[title]"] = unserialize($template['template']);
-			}
-
-			// build the CSS contents
-			$csscolors = array();
-			$css = construct_css($css, $styleid, $title, $csscolors);
-
-			// attempt to delete the old css file if it exists
-			delete_css_file($styleid, $csscache["$styleid"]);
-
-			$adblock_is_evil = str_replace('ad', 'be', substr(md5(microtime()), 8, 8));
-			$cssfilename = 'clientscript/vbulletin_css/style-' . $adblock_is_evil . '-' . str_pad($styleid, 5, '0', STR_PAD_LEFT) . '.css';
-
-			if ($vbulletin->options['storecssasfile'] AND write_css_file($cssfilename, $css))
-			{
-				$QUERY[] = "css = '" . $vbulletin->db->escape_string("<link rel=\"stylesheet\" type=\"text/css\" href=\"$cssfilename\" id=\"vbulletin_css\" />") . "'";
-			}
-			else
-			{
-				$QUERY[] = "css = '" . $vbulletin->db->escape_string("<style type=\"text/css\" id=\"vbulletin_css\">\r\n<!--\r\n$css\r\n-->\r\n</style>") . "'";
-			}
-			$QUERY[] = "csscolors = '" . $vbulletin->db->escape_string(serialize($csscolors)) . "'";
-			echo "($vbphrase[css]) ";
-			vbflush();
-		}
-
 		// replacements
 		if ($actions['doreplacements'])
 		{
@@ -789,6 +759,57 @@ function build_style($styleid, $title = '', $actions, $parentlist = '', $indent 
 				$QUERY[] = 'replacements = \'\'';
 			}
 			echo "($vbphrase[replacement_variables]) ";
+			vbflush();
+		}
+
+		// css
+		if ($actions['docss'])
+		{
+			// build a quick cache with the ~old~ contents of the css fields from the style table
+			if (!is_array($csscache))
+			{
+				$csscache = array();
+				$fetchstyles = $vbulletin->db->query_read("SELECT styleid, css FROM " . TABLE_PREFIX . "style");
+				while ($fetchstyle = $vbulletin->db->fetch_array($fetchstyles))
+				{
+					$fetchstyle['css'] .= "\n";
+					$csscache["$fetchstyle[styleid]"] = $fetchstyle['css'];
+				}
+			}
+
+			// rebuild the css field for this style
+			$css = array();
+			foreach($template_cache['css'] AS $template)
+			{
+				$css["$template[title]"] = unserialize($template['template']);
+			}
+
+			// build the CSS contents
+			$csscolors = array();
+			$css = construct_css($css, $styleid, $title, $csscolors);
+
+			// attempt to delete the old css file if it exists
+			delete_css_file($styleid, $csscache["$styleid"]);
+
+			$adblock_is_evil = str_replace('ad', 'be', substr(md5(microtime()), 8, 8));
+			$cssfilename = 'clientscript/vbulletin_css/style-' . $adblock_is_evil . '-' . str_pad($styleid, 5, '0', STR_PAD_LEFT) . '.css';
+
+			// if we are going to store CSS as files, run replacement variable substitution on the file to be saved
+			if ($vbulletin->options['storecssasfile'] AND write_css_file($cssfilename, process_replacement_vars($css, array('styleid' => $styleid, 'replacements' => serialize($replacements)))))
+			{
+				$css = "@import url(\"$cssfilename\");";
+			}
+
+			$fullcsstext = "<style type=\"text/css\" id=\"vbulletin_css\">\r\n" .
+				"/**\r\n* vBulletin " . $vbulletin->options['templateversion'] . " CSS\r\n* Style: '$title'; Style ID: $styleid\r\n*/\r\n" .
+				"$css\r\n</style>\r\n" .
+				"<link rel=\"stylesheet\" type=\"text/css\" href=\"clientscript/vbulletin_important.css?v=" . $vbulletin->options['simpleversion'] . "\" />"
+			;
+
+			$QUERY[] = "css = '" . $vbulletin->db->escape_string($fullcsstext) . "'";
+			$QUERY[] = "csscolors = '" . $vbulletin->db->escape_string(serialize($csscolors)) . "'";
+
+			echo "($vbphrase[css]) ";
 			vbflush();
 		}
 
@@ -877,8 +898,8 @@ function construct_css($css, $styleid, $styletitle, &$csscolors)
 	$extra2 = trim($css['EXTRA2']['all']);
 	if ($vbulletin->options['storecssasfile'])
 	{
-		$extra = preg_replace('#(?<=[^a-z0-9-])url\((\'|"|)(.*)\\1\)#iUe', "rewrite_css_file_url('\\2', '\\1')", $extra);
-		$extra2 = preg_replace('#(?<=[^a-z0-9-])url\((\'|"|)(.*)\\1\)#iUe', "rewrite_css_file_url('\\2', '\\1')", $extra2);
+		$extra = preg_replace('#(?<=[^a-z0-9-]|^)url\((\'|"|)(.*)\\1\)#iUe', "rewrite_css_file_url('\\2', '\\1')", $extra);
+		$extra2 = preg_replace('#(?<=[^a-z0-9-]|^)url\((\'|"|)(.*)\\1\)#iUe', "rewrite_css_file_url('\\2', '\\1')", $extra2);
 	}
 	unset($css['EXTRA'], $css['EXTRA2']);
 
@@ -896,7 +917,7 @@ function construct_css($css, $styleid, $styletitle, &$csscolors)
 		'.tfoot',
 		'.alt1, .alt1Active',
 		'.alt2, .alt2Active',
-		'td.inlinemod',
+		'.inlinemod',
 		'.wysiwyg',
 		'textarea, .bginput',
 		'.button',
@@ -922,6 +943,8 @@ function construct_css($css, $styleid, $styletitle, &$csscolors)
 		'.vbmenu_hilite',
 	);
 
+	($hook = vBulletinHook::fetch_hook('css_output_build')) ? eval($hook) : false;
+
 	// loop through the $css_write_order array to make sure we
 	// write the css into the template in the correct order
 
@@ -942,7 +965,7 @@ function construct_css($css, $styleid, $styletitle, &$csscolors)
 				}
 				if ($vbulletin->options['storecssasfile'])
 				{
-					$value = preg_replace('#(?<=[^a-z0-9-])url\((\'|"|)(.*)\\1\)#iUe', "rewrite_css_file_url('\\2', '\\1')", $value);
+					$value = preg_replace('#(?<=[^a-z0-9-]|^)url\((\'|"|)(.*)\\1\)#iUe', "rewrite_css_file_url('\\2', '\\1')", $value);
 				}
 				switch ($cssidentifier)
 				{
@@ -1047,10 +1070,25 @@ function construct_css($css, $styleid, $styletitle, &$csscolors)
 				}
 				$cssarray[] = "option, optgroup\r\n{\r\n" . implode('', $optioncss) . "}\r\n";
 			}
+			else if ($itemname == 'textarea, .bginput')
+			{
+				$optioncss = array();
+				if ($optionsize = trim($css["$itemname"]['font']['size']))
+				{
+					$optioncss[] = "\tfont-size: $optionsize;\r\n";
+				}
+				if ($optionfamily = trim($css["$itemname"]['font']['family']))
+				{
+					$optioncss[] = "\tfont-family: $optionfamily;\r\n";
+				}
+				$cssarray[] = ".bginput option, .bginput optgroup\r\n{\r\n" . implode('', $optioncss) . "}\r\n";
+			}
 		}
 	}
 
-	return trim("/* vBulletin 3 CSS For Style '$styletitle' (styleid: $styleid) */\r\n" . implode('', $cssarray) . $extra . "\r\n" . $extra2);
+	($hook = vBulletinHook::fetch_hook('css_output_build_end')) ? eval($hook) : false;
+
+	return trim(implode('', $cssarray) . "$extra\r\n$extra2");
 }
 
 // #############################################################################
@@ -1815,7 +1853,7 @@ function process_template_conditionals($template, $haltonerror = true)
 						$funcpos = strpos($condition_value, $matches[0]["$key"]);
 						$functions[] = array(
 							'func' => stripslashes($match),
-							'usage' => substr($condition_value, $funcpos, (strpos($condition_value, ')', $funcpos) - $funcpos + 1)),
+							'usage' => stripslashes(substr($condition_value, $funcpos, (strpos($condition_value, ')', $funcpos) - $funcpos + 1))),
 						);
 					}
 				}
@@ -2256,6 +2294,30 @@ function cache_styles($getids = false, $styleid = -1, $depth = 0)
 		define('STYLECOUNT', $vbulletin->db->num_rows($styles));
 		while ($style = $vbulletin->db->fetch_array($styles))
 		{
+			if (trim($style['parentlist']) == '')
+			{
+				$parentlist = fetch_template_parentlist($style['styleid']);
+
+				$vbulletin->db->query_write("
+					UPDATE " . TABLE_PREFIX . "style
+					SET parentlist = '" . $vbulletin->db->escape_string($parentlist) . "'
+					WHERE styleid = " . intval($style['styleid'])  . "
+				");
+
+				$style['parentlist'] = $parentlist;
+			}
+
+			if (trim($style['templatelist']) == '')
+			{
+				$style['templatelist'] = build_template_id_cache($style['styleid'], true, $style['parentlist']);
+
+				$vbulletin->db->query_write("
+					UPDATE " . TABLE_PREFIX . "style
+					SET templatelist = '" . $vbulletin->db->escape_string($style['templatelist']) . "'
+					WHERE styleid = " . intval($style['styleid'])
+				);
+			}
+
 			$cache["$style[parentid]"]["$style[displayorder]"]["$style[styleid]"] = $style;
 		}
 	}
@@ -2434,7 +2496,7 @@ function print_common_template_row($varname)
 
 	$color = fetch_inherited_color($template['styleid'], $vbulletin->GPC['dostyleid']);
 	$revertcode = construct_revert_code($template['styleid'], 'template', $varname);
-	
+
 	print_textarea_row(
 		"<b>$varname</b> <dfn>$description</dfn><span class=\"smallfont\"><br /><br />$revertcode[info]<br /><br />$revertcode[revertcode]</span>",
 		"commontemplate[$varname]",
@@ -2480,7 +2542,7 @@ function print_replacement_row($find, $replace, $rows = 2, $cols = 50)
 * @param	string	Stylevar varname
 * @param	integer	Size of text box
 */
-function print_stylevar_row($title, $varname, $size = 30)
+function print_stylevar_row($title, $varname, $size = 30, $validation_regex = '', $failsafe_value = '')
 {
 	global $stylevars, $stylevar_info, $vbulletin;
 
@@ -2490,6 +2552,12 @@ function print_stylevar_row($title, $varname, $size = 30)
 	if ($help = construct_table_help_button("stylevar[$varname]"))
 	{
 		$helplink = "&nbsp;$help";
+	}
+
+	if ($validation_regex != '')
+	{
+		construct_hidden_code("stylevar[_validation][$varname]", htmlspecialchars_uni($validation_regex));
+		construct_hidden_code("stylevar[_failsafe][$varname]", htmlspecialchars_uni($failsafe_value));
 	}
 
 	print_cells_row(array(
@@ -2760,6 +2828,37 @@ function construct_color_row($title, $name, $value, $class = 'bginput', $size = 
 	$numcolors ++;
 
 	return $html;
+}
+
+// #############################################################################
+/**
+* Prints a row containing an <input type="text" />
+*
+* @param	string	Title for row
+* @param	string	Name for input field
+* @param	string	Value for input field
+* @param	boolean	Whether or not to htmlspecialchars the input field value
+* @param	integer	Size for input field
+* @param	integer	Max length for input field
+* @param	string	Text direction for input field
+* @param	mixed	If specified, overrides the default CSS class for the input field
+*/
+function print_color_input_row($title, $name, $value = '', $htmlise = true, $size = 35, $maxlength = 0, $direction = '', $inputclass = false)
+{
+	global $vbulletin, $numcolors, $stylevar;
+
+	$direction = verify_text_direction($direction);
+
+	print_label_row(
+		$title,
+		"<div id=\"ctrl_$name\">
+			<input style=\"float:$stylevar[left]; margin-$stylevar[right]: 4px\" type=\"text\" class=\"" . iif($inputclass, $inputclass, 'bginput') . "\" name=\"$name\" id=\"color_$numcolors\" value=\"" . iif($htmlise, htmlspecialchars_uni($value), $value) . "\" size=\"$size\"" . iif($maxlength, " maxlength=\"$maxlength\"") . " dir=\"$direction\" tabindex=\"1\"" . iif($vbulletin->debug, " title=\"name=&quot;$name&quot;\"") . " onchange=\"preview_color($numcolors)\" />
+			<div style=\"float:$stylevar[left]\" id=\"preview_$numcolors\" class=\"colorpreview\" onclick=\"open_color_picker($numcolors, event)\"></div>
+		</div>",
+		'', 'top', $name
+	);
+
+	$numcolors++;
 }
 
 // #############################################################################
@@ -3051,6 +3150,11 @@ function build_special_templates($newtemplates, $templatetype, $vartype)
 
 	foreach ($template_cache["$templatetype"] AS $title => $oldtemplate)
 	{
+		// ignore the '_validation' and '_failsafe' keys
+		if ($title == '_validation' OR $title == '_failsafe')
+		{
+			continue;
+		}
 
 		// just carry on if there is no data for the current $newtemplate
 		if (!isset($newtemplates["$title"]))
@@ -3079,8 +3183,18 @@ function build_special_templates($newtemplates, $templatetype, $vartype)
 		switch($templatetype)
 		{
 			case 'stylevar':
+			{
 				$newtemplate = $newtemplates["$title"];
+
+				if (isset($newtemplates['_validation']["$title"]))
+				{
+					if (!preg_match($newtemplates['_validation']["$title"], $newtemplate))
+					{
+						$newtemplate = $newtemplates['_failsafe']["$title"];
+					}
+				}
 				break;
+			}
 			case 'css':
 				$newtemplate = serialize($newtemplates["$title"]);
 				break;
@@ -3150,8 +3264,7 @@ function print_template_javascript()
 	<input type="text" class="bginput" name="string" accesskey="t" value="' . htmlspecialchars_uni($vbulletin->GPC['searchstring']) . '" size="20" onChange="n=0;" tabindex="1" />
 	<input type="button" class="button" style="font-weight:normal" value=" ' . $vbphrase['find'] . ' " accesskey="f" onClick="findInPage(document.cpform.string.value);" tabindex="1" />
 	&nbsp;') .
-	'<input type="button" class="button" style="font-weight:normal" value="' . $vbphrase['preview'] . '" accesskey="p" onclick="displayHTML();" tabindex="1" />
-	<input type="button" class="button" style="font-weight:normal" value=" ' . $vbphrase['copy'] . ' " accesskey="c" onclick="HighlightAll();" tabindex="1" />
+	'<input type="button" class="button" style="font-weight:normal" value=" ' . $vbphrase['copy'] . ' " accesskey="c" onclick="HighlightAll();" tabindex="1" />
 	&nbsp;
 	<input type="button" class="button" style="font-weight:normal" value="' . $vbphrase['view_quickref'] . '" accesskey="v" onclick="js_open_phrase_ref(0, 0);" tabindex="1" />
 	');
@@ -3569,6 +3682,12 @@ function check_template_errors($template)
 		return fetch_error('template_conditional_end_missing_x', (substr_count($match[1], "\n") + 1));
 	}
 
+	if (preg_match('#^(.*)</if>#siU', $template, $match))
+	{
+		// remnants of a conditional -- missing beginning
+		return fetch_error('template_conditional_beginning_missing_x', (substr_count($match[1], "\n") + 1));
+	}
+
 	if (strpos(@ini_get('disable_functions'), 'ob_start') !== false)
 	{
 		// alternate method in case OB is disabled; probably not as fool proof
@@ -3590,13 +3709,20 @@ function check_template_errors($template)
 	}
 	else
 	{
-		$oldlevel = error_reporting(E_PARSE | E_ERROR);
-		ob_start();
+		$olderrors = @ini_set('display_errors', true);
+		$oldlevel = error_reporting(E_ERROR | E_PARSE | E_CORE_ERROR | E_COMPILE_ERROR | E_USER_ERROR);
 
+		ob_start();
 		eval('$devnull = "' . $template . '";');
 		$errors = ob_get_contents();
 		ob_end_clean();
+
 		error_reporting($oldlevel);
+		if ($olderrors !== false)
+		{
+			@ini_set('display_errors', $olderrors);
+		}
+
 		return $errors;
 	}
 }
@@ -3665,6 +3791,7 @@ $only = array
 	'forumhome'      => $vbphrase['group_forum_home'],
 	'pagenav'        => $vbphrase['group_page_navigation'],
 	'postbit'        => $vbphrase['group_postbit'],
+	'posthistory'    => $vbphrase['group_posthistory'],
 	'threadbit'      => $vbphrase['group_threadbit'],
 	'im_'            => $vbphrase['group_instant_messaging'],
 	'memberinfo'     => $vbphrase['group_member_info'],
@@ -3683,7 +3810,13 @@ $only = array
 	'userinfraction' => $vbphrase['group_user_infraction'],
 	'subscription'   => $vbphrase['group_paid_subscriptions'],
 	'announcement'   => $vbphrase['announcement'],
-
+	'visitormessage' => $vbphrase['group_visitor_message'],
+	'humanverify'    => $vbphrase['group_human_verification'],
+	'socialgroups'	 => $vbphrase['group_socialgroups'],
+	'picture'        => $vbphrase['group_picture_comment'],
+	'ad_'            => $vbphrase['group_ad_location'],
+	'album'          => $vbphrase['group_album'],
+	'tag'            => $vbphrase['tag'],
 	'aaa' => 'AAA Old Backup'
 );
 
@@ -3694,8 +3827,8 @@ if (class_exists('vBulletinHook'))
 
 /*======================================================================*\
 || ####################################################################
-|| # Downloaded: 18:52, Sat Jul 14th 2007
-|| # CVS: $RCSfile$ - $Revision: 15918 $
+|| # Downloaded: 16:21, Sat Apr 6th 2013
+|| # CVS: $RCSfile$ - $Revision: 26527 $
 || ####################################################################
 \*======================================================================*/
 ?>

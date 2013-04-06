@@ -1,9 +1,9 @@
 <?php
 /*======================================================================*\
 || #################################################################### ||
-|| # vBulletin 3.6.7 PL1 - Licence Number VBF2470E4F
+|| # vBulletin 3.7.2 Patch Level 2 - Licence Number VBF2470E4F
 || # ---------------------------------------------------------------- # ||
-|| # Copyright ©2000-2007 Jelsoft Enterprises Ltd. All Rights Reserved. ||
+|| # Copyright ©2000-2013 Jelsoft Enterprises Ltd. All Rights Reserved. ||
 || # This file may not be redistributed in whole or significant part. # ||
 || # ---------------- VBULLETIN IS NOT FREE SOFTWARE ---------------- # ||
 || # http://www.vbulletin.com | http://www.vbulletin.com/license.html # ||
@@ -20,7 +20,7 @@ error_reporting(E_ALL & ~E_NOTICE);
 */
 function print_setting_group($dogroup, $advanced = 0)
 {
-	global $settingscache, $grouptitlecache, $vbulletin, $vbphrase, $bgcounter, $settingphrase, $stylevar, $gdinfo;
+	global $settingscache, $grouptitlecache, $vbulletin, $vbphrase, $bgcounter, $settingphrase, $stylevar;
 
 	if (!is_array($settingscache["$dogroup"]))
 	{
@@ -28,6 +28,8 @@ function print_setting_group($dogroup, $advanced = 0)
 	}
 
 	print_column_style_code(array('width:45%', 'width:55%'));
+
+	echo "<thead>\r\n";
 
 	print_table_header(
 		$settingphrase["settinggroup_$grouptitlecache[$dogroup]"]
@@ -40,337 +42,583 @@ function print_setting_group($dogroup, $advanced = 0)
 		)
 	);
 
+	echo "</thead>\r\n";
+
 	$bgcounter = 1;
 
 	foreach ($settingscache["$dogroup"] AS $settingid => $setting)
 	{
 		if (($advanced OR !$setting['advanced']) AND !empty($setting['varname']))
 		{
-			print_description_row(
-				iif($vbulletin->debug, '<div class="smallfont" style="float:' . $stylevar['right'] . '">' . construct_link_code($vbphrase['edit'], "options.php?" . $vbulletin->session->vars['sessionurl'] . "do=editsetting&varname=$setting[varname]") . construct_link_code($vbphrase['delete'], "options.php?" . $vbulletin->session->vars['sessionurl'] . "do=removesetting&varname=$setting[varname]") . '</div>') .
-				'<div>' . $settingphrase["setting_$setting[varname]_title"] . "<a name=\"$setting[varname]\"></a></div>",
-				0, 2, "optiontitle\" title=\"\$vbulletin->options['" . $setting['varname'] . "']"
-			);
-
-			echo "<tbody id=\"tbody_$settingid\">\r\n";
-
-			// make sure all rows use the alt1 class
-			$bgcounter--;
-
-			$description = "<div class=\"smallfont\" title=\"\$vbulletin->options['$setting[varname]']\">" . $settingphrase["setting_$setting[varname]_desc"] . '</div>';
-			$name = "setting[$setting[varname]]";
-			$right = "<span class=\"smallfont\">$vbphrase[error]</span>";
-			$width = 40;
-			$rows = 8;
-
-			if (preg_match('#^input:?(\d+)$#s', $setting['optioncode'], $matches))
-			{
-				$width = $matches[1];
-				$setting['optioncode'] = '';
-			}
-			else if (preg_match('#^textarea:?(\d+)(,(\d+))?$#s', $setting['optioncode'], $matches))
-			{
-				$rows = $matches[1];
-				if ($matches[2])
-				{
-					$width = $matches[3];
-				}
-				$setting['optioncode'] = 'textarea';
-			}
-			else if (preg_match('#^bitfield:(.*)$#siU', $setting['optioncode'], $matches))
-			{
-				$setting['optioncode'] = 'bitfield';
-				$setting['bitfield'] =& fetch_bitfield_definitions($matches[1]);
-			}
-			else if (preg_match('#^(select|radio):(piped|eval)(\r\n|\n|\r)(.*)$#siU', $setting['optioncode'], $matches))
-			{
-				$setting['optioncode'] = "$matches[1]:$matches[2]";
-				$setting['optiondata'] = trim($matches[4]);
-			}
-			else if (preg_match('#^usergroup:?(\d+)$#s', $setting['optioncode'], $matches))
-			{
-				$size = intval($matches[1]);
-				$setting['optioncode'] = 'usergroup';
-			}
-
-			switch ($setting['optioncode'])
-			{
-				// input type="text"
-				case '':
-				{
-					print_input_row($description, $name, $setting['value'], 1, $width);
-				}
-				break;
-
-				// input type="radio"
-				case 'yesno':
-				{
-					print_yes_no_row($description, $name, $setting['value']);
-				}
-				break;
-
-				// textarea
-				case 'textarea':
-				{
-					print_textarea_row($description, $name, $setting['value'], $rows, $width);
-				}
-				break;
-
-				// bitfield
-				case 'bitfield':
-				{
-					$setting['value'] = intval($setting['value']);
-					$setting['html'] = '';
-
-					if ($setting['bitfield'] === NULL)
-					{
-						print_label_row($description, construct_phrase("<strong>$vbphrase[settings_bitfield_error]</strong>", implode(',', vB_Bitfield_Builder::fetch_errors())), '', 'top', $name, 40);
-					}
-					else
-					{
-						#$setting['html'] .= "<fieldset><legend>$vbphrase[yes] / $vbphrase[no]</legend>";
-						$setting['html'] .= "<div id=\"ctrl_setting[$setting[varname]]\" class=\"smallfont\">\r\n";
-						$setting['html'] .= "<input type=\"hidden\" name=\"setting[$setting[varname]][0]\" value=\"0\" />\r\n";
-						foreach ($setting['bitfield'] AS $key => $value)
-						{
-							$value = intval($value);
-							$setting['html'] .= "<table style=\"width:175px; float:$stylevar[left]\" cellpadding=\"0\" cellspacing=\"0\" border=\"0\"><tr valign=\"top\">
-							<td><input type=\"checkbox\" name=\"setting[$setting[varname]][$value]\" id=\"setting[$setting[varname]]_$key\" value=\"$value\"" . (($setting['value'] & $value) ? ' checked="checked"' : '') . " /></td>
-							<td width=\"100%\" style=\"padding-top:4px\"><label for=\"setting[$setting[varname]]_$key\" class=\"smallfont\">" . fetch_phrase_from_key($key) . "</label></td>\r\n</tr></table>\r\n";
-						}
-
-						#$setting['html'] .= "</fieldset>";
-						print_label_row($description, $setting['html'], '', 'top', $name, 40);
-					}
-				}
-				break;
-
-				// select:piped
-				case 'select:piped':
-				{
-					print_select_row($description, $name, fetch_piped_options($setting['optiondata']), $setting['value']);
-				}
-				break;
-
-				// radio:piped
-				case 'radio:piped':
-				{
-					print_radio_row($description, $name, fetch_piped_options($setting['optiondata']), $setting['value'], 'smallfont');
-				}
-				break;
-
-				// select:eval
-				case 'select:eval':
-				{
-					$options = null;
-
-					eval($setting['optiondata']);
-
-					if (is_array($options) AND !empty($options))
-					{
-						print_select_row($description, $name, $options, $setting['value']);
-					}
-					else
-					{
-						print_input_row($description, $name, $setting['value']);
-					}
-				}
-				break;
-
-				// radio:eval
-				case 'radio:eval':
-				{
-					$options = null;
-
-					eval($setting['optiondata']);
-
-					if (is_array($options) AND !empty($options))
-					{
-						print_radio_row($description, $name, $options, $setting['value'], 'smallfont');
-					}
-					else
-					{
-						print_input_row($description, $name, $setting['value']);
-					}
-				}
-				break;
-
-				case 'username':
-				{
-					if (intval($setting['value']) AND $userinfo = $vbulletin->db->query_first("SELECT username FROM " . TABLE_PREFIX . "user WHERE userid = " . intval($setting['value'])))
-					{
-						print_input_row($description, $name, $userinfo['username'], false);
-					}
-					else
-					{
-						print_input_row($description, $name);
-					}
-					break;
-				}
-
-				case 'usergroup':
-				{
-					$usergrouplist = array();
-					foreach ($vbulletin->usergroupcache AS $usergroup)
-					{
-						$usergrouplist["$usergroup[usergroupid]"] = $usergroup['title'];
-					}
-
-					if ($size > 1)
-					{
-						print_select_row($description, $name . '[]', array(0 => '') + $usergrouplist, unserialize($setting['value']), false, $size, true);
-					}
-					else
-					{
-						print_select_row($description, $name, $usergrouplist, $setting['value']);
-					}
-					break;
-				}
-
-				// arbitrary number of <input type="text" />
-				case 'multiinput':
-				{
-					$setting['html'] = "<div id=\"ctrl_$setting[varname]\"><fieldset id=\"multi_input_fieldset_$setting[varname]\" style=\"padding:4px\">";
-
-					$setting['values'] = unserialize($setting['value']);
-					$setting['values'] = (is_array($setting['values']) ? $setting['values'] : array());
-					$setting['values'][] = '';
-
-					foreach ($setting['values'] AS $key => $value)
-					{
-						$setting['html'] .= "<div id=\"multi_input_container_$setting[varname]_$key\">" . ($key + 1) . " <input type=\"text\" class=\"bginput\" name=\"setting[$setting[varname]][$key]\" id=\"multi_input_$setting[varname]_$key\" size=\"40\" value=\"" . htmlspecialchars_uni($value) . "\" tabindex=\"1\" /></div>";
-					}
-
-					$i = sizeof($setting['values']);
-					if ($i == 0)
-					{
-						$setting['html'] .= "<div><input type=\"text\" class=\"bginput\" name=\"setting[$setting[varname]][$i]\" size=\"40\" tabindex=\"1\" /></div>";
-					}
-
-					$setting['html'] .= "
-						</fieldset>
-						<div class=\"smallfont\"><a href=\"#\" onclick=\"return multi_input['$setting[varname]'].add()\">Add Another Option</a></div>
-						<script type=\"text/javascript\">
-						<!--
-						multi_input['$setting[varname]'] = new vB_Multi_Input('$setting[varname]', $i, '" . $vbulletin->options['cpstylefolder'] . "');
-						//-->
-						</script>
-					";
-
-					print_label_row($description, $setting['html']);
-					break;
-				}
-
-				// default registration options
-				case 'defaultregoptions':
-				{
-					$setting['value'] = intval($setting['value']);
-
-					$checkbox_options = array(
-						'receiveemail' => 'display_email',
-						'adminemail' => 'receive_admin_emails',
-						'invisiblemode' => 'invisible_mode',
-						'vcard' => 'allow_vcard_download',
-						'signature' => 'display_signatures',
-						'avatar' => 'display_avatars',
-						'image' => 'display_images',
-						'showreputation' => 'display_reputation',
-						'enablepm' => 'receive_private_messages',
-						'emailonpm' => 'send_notification_email_when_a_private_message_is_received',
-						'pmpopup' => 'pop_up_notification_box_when_a_private_message_is_received',
-					);
-
-					$setting['value'] = intval($setting['value']);
-
-					$setting['html'] = '';
-					#$setting['html'] .= "<fieldset><legend>$vbphrase[yes] / $vbphrase[no]</legend>";
-					$setting['html'] .= "<div id=\"ctrl_setting[$setting[varname]]\" class=\"smallfont\">\r\n";
-					$setting['html'] .= "<input type=\"hidden\" name=\"setting[$setting[varname]][0]\" value=\"0\" />\r\n";
-					foreach ($checkbox_options AS $key => $phrase)
-					{
-						$value = $vbulletin->bf_misc_regoptions["$key"];
-
-						$setting['html'] .= "<table style=\"width:175px; float:$stylevar[left]\" cellpadding=\"0\" cellspacing=\"0\" border=\"0\"><tr valign=\"top\">
-						<td><input type=\"checkbox\" name=\"setting[$setting[varname]][$value]\" id=\"setting[$setting[varname]]_$key\" value=\"$value\"" . (($setting['value'] & $value) ? ' checked="checked"' : '') . " /></td>
-						<td width=\"100%\" style=\"padding-top:4px\"><label for=\"setting[$setting[varname]]_$key\" class=\"smallfont\">" . fetch_phrase_from_key($phrase) . "</label></td>\r\n</tr></table>\r\n";
-					}
-					#$setting['html'] .= "</fieldset>";
-					print_label_row($description, $setting['html'], '', 'top', $name, 40);
-				}
-				break;
-
-				// cp folder options
-				case 'cpstylefolder':
-				{
-					if ($folders = fetch_cpcss_options() AND !empty($folders))
-					{
-						print_select_row($description, $name, $folders, $setting['value'], 1, 6);
-					}
-					else
-					{
-						print_input_row($description, $name, $setting['value'], 1, 40);
-					}
-				}
-				break;
-
-				// cookiepath / cookiedomain options
-				case 'cookiepath':
-				case 'cookiedomain':
-				{
-					$func = 'fetch_valid_' . $setting['optioncode'] . 's';
-
-					$cookiesettings = $func(($setting['optioncode'] == 'cookiepath' ? $vbulletin->script : $_SERVER['HTTP_HOST']), $vbphrase['blank']);
-
-					$setting['found'] = in_array($setting['value'], array_keys($cookiesettings));
-
-					$setting['html'] = "
-					<div id=\"ctrl_$setting[varname]\">
-					<fieldset>
-						<legend>$vbphrase[suggested_settings]</legend>
-						<div style=\"padding:4px\">
-							<select name=\"setting[$setting[varname]]\" tabindex=\"1\" class=\"bginput\">" .
-								construct_select_options($cookiesettings, $setting['value']) . "
-							</select>
-						</div>
-					</fieldset>
-					<br />
-					<fieldset>
-						<legend>$vbphrase[custom_setting]</legend>
-						<div style=\"padding:4px\">
-							<label for=\"{$settingid}o\"><input type=\"checkbox\" id=\"{$settingid}o\" name=\"setting[{$settingid}_other]\" tabindex=\"1\" value=\"1\"" . ($setting['found'] ? '' : ' checked="checked"') . " />$vbphrase[use_custom_setting]
-							</label><br />
-							<input type=\"text\" class=\"bginput\" size=\"25\" name=\"setting[{$settingid}_value]\" value=\"" . ($setting['found'] ? '' : $setting['value']) . "\" />
-						</div>
-					</fieldset>
-					</div>";
-
-					print_label_row($description, $setting['html'], '', 'top', $name, 50);
-				}
-				break;
-
-				// just a label
-				default:
-				{
-					$handled = false;
-					($hook = vBulletinHook::fetch_hook('admin_options_print')) ? eval($hook) : false;
-					if (!$handled)
-					{
-						eval("\$right = \"<div id=\\\"ctrl_setting[$setting[varname]]\\\">$setting[optioncode]</div>\";");
-						print_label_row($description, $right, '', 'top', $name, 50);
-					}
-				}
-				break;
-			}
-
-			echo "</tbody>\r\n";
-
-			$valid = exec_setting_validation_code($setting['varname'], $setting['value'], $setting['validationcode']);
-
-			echo "<tbody id=\"tbody_error_$settingid\" style=\"display:" . (($valid === 1 OR $valid === true) ? 'none' : '') . "\"><tr><td class=\"alt1 smallfont\" colspan=\"2\"><div style=\"padding:4px; border:solid 1px red; background-color:white; color:black\"><strong>$vbphrase[error]</strong>:<div id=\"span_error_$settingid\">$valid</div></div></td></tr></tbody>";
-
-			//print_description_row("<h2 align=\"center\">" . ($setting['datatype'] ? $setting['datatype'] : 'free') . "</h2>");
+			print_setting_row($setting, $settingphrase);
 		}
 	}
+}
+
+/**
+* Prints a setting row for use in options.php?do=options
+*
+* @param	array	Settings array
+* @param	array	Phrases
+*/
+function print_setting_row($setting, $settingphrase)
+{
+	global $vbulletin, $vbphrase, $bgcounter, $settingphrase, $stylevar;
+
+	$settingid = $setting['varname'];
+
+	echo '<tbody>';
+	print_description_row(
+		iif($vbulletin->debug, '<div class="smallfont" style="float:' . $stylevar['right'] . '">' . construct_link_code($vbphrase['edit'], "options.php?" . $vbulletin->session->vars['sessionurl'] . "do=editsetting&amp;varname=$setting[varname]") . construct_link_code($vbphrase['delete'], "options.php?" . $vbulletin->session->vars['sessionurl'] . "do=removesetting&amp;varname=$setting[varname]") . '</div>') .
+		'<div>' . $settingphrase["setting_$setting[varname]_title"] . "<a name=\"$setting[varname]\"></a></div>",
+		0, 2, 'optiontitle' . ($vbulletin->debug ? "\" title=\"\$vbulletin->options['" . $setting['varname'] . "']" : '')
+	);
+	echo "</tbody><tbody id=\"tbody_$settingid\">\r\n";
+
+	// make sure all rows use the alt1 class
+	$bgcounter--;
+
+	$description = "<div class=\"smallfont\"" . ($vbulletin->debug ? "title=\"\$vbulletin->options['$setting[varname]']\"" : '') . ">" . $settingphrase["setting_$setting[varname]_desc"] . '</div>';
+	$name = "setting[$setting[varname]]";
+	$right = "<span class=\"smallfont\">$vbphrase[error]</span>";
+	$width = 40;
+	$rows = 8;
+
+	if (preg_match('#^input:?(\d+)$#s', $setting['optioncode'], $matches))
+	{
+		$width = $matches[1];
+		$setting['optioncode'] = '';
+	}
+	else if (preg_match('#^textarea:?(\d+)(,(\d+))?$#s', $setting['optioncode'], $matches))
+	{
+		$rows = $matches[1];
+		if ($matches[2])
+		{
+			$width = $matches[3];
+		}
+		$setting['optioncode'] = 'textarea';
+	}
+	else if (preg_match('#^bitfield:(.*)$#siU', $setting['optioncode'], $matches))
+	{
+		$setting['optioncode'] = 'bitfield';
+		$setting['bitfield'] =& fetch_bitfield_definitions($matches[1]);
+	}
+	else if (preg_match('#^(select|radio):(piped|eval)(\r\n|\n|\r)(.*)$#siU', $setting['optioncode'], $matches))
+	{
+		$setting['optioncode'] = "$matches[1]:$matches[2]";
+		$setting['optiondata'] = trim($matches[4]);
+	}
+	else if (preg_match('#^usergroup:?(\d+)$#s', $setting['optioncode'], $matches))
+	{
+		$size = intval($matches[1]);
+		$setting['optioncode'] = 'usergroup';
+	}
+	else if (preg_match('#^(usergroupextra)(\r\n|\n|\r)(.*)$#siU', $setting['optioncode'], $matches))
+	{
+		$setting['optioncode'] = 'usergroupextra';
+		$setting['optiondata'] = trim($matches[3]);
+	}
+
+	switch ($setting['optioncode'])
+	{
+		// input type="text"
+		case '':
+		{
+			print_input_row($description, $name, $setting['value'], 1, $width);
+		}
+		break;
+
+		// input type="radio"
+		case 'yesno':
+		{
+			print_yes_no_row($description, $name, $setting['value']);
+		}
+		break;
+
+		// textarea
+		case 'textarea':
+		{
+			print_textarea_row($description, $name, $setting['value'], $rows, "$width\" style=\"width:90%");
+		}
+		break;
+
+		// bitfield
+		case 'bitfield':
+		{
+			$setting['value'] = intval($setting['value']);
+			$setting['html'] = '';
+
+			if ($setting['bitfield'] === NULL)
+			{
+				print_label_row($description, construct_phrase("<strong>$vbphrase[settings_bitfield_error]</strong>", implode(',', vB_Bitfield_Builder::fetch_errors())), '', 'top', $name, 40);
+			}
+			else
+			{
+				#$setting['html'] .= "<fieldset><legend>$vbphrase[yes] / $vbphrase[no]</legend>";
+				$setting['html'] .= "<div id=\"ctrl_setting[$setting[varname]]\" class=\"smallfont\">\r\n";
+				$setting['html'] .= "<input type=\"hidden\" name=\"setting[$setting[varname]][0]\" value=\"0\" />\r\n";
+				foreach ($setting['bitfield'] AS $key => $value)
+				{
+					$value = intval($value);
+					$setting['html'] .= "<table style=\"width:175px; float:$stylevar[left]\" cellpadding=\"0\" cellspacing=\"0\" border=\"0\"><tr valign=\"top\">
+					<td><input type=\"checkbox\" name=\"setting[$setting[varname]][$value]\" id=\"setting[$setting[varname]]_$key\" value=\"$value\"" . (($setting['value'] & $value) ? ' checked="checked"' : '') . " /></td>
+					<td width=\"100%\" style=\"padding-top:4px\"><label for=\"setting[$setting[varname]]_$key\" class=\"smallfont\">" . fetch_phrase_from_key($key) . "</label></td>\r\n</tr></table>\r\n";
+				}
+
+				$setting['html'] .= "</div>\r\n";
+				#$setting['html'] .= "</fieldset>";
+				print_label_row($description, $setting['html'], '', 'top', $name, 40);
+			}
+		}
+		break;
+
+		// select:piped
+		case 'select:piped':
+		{
+			print_select_row($description, $name, fetch_piped_options($setting['optiondata']), $setting['value']);
+		}
+		break;
+
+		// radio:piped
+		case 'radio:piped':
+		{
+			print_radio_row($description, $name, fetch_piped_options($setting['optiondata']), $setting['value'], 'smallfont');
+		}
+		break;
+
+		// select:eval
+		case 'select:eval':
+		{
+			$options = null;
+
+			eval($setting['optiondata']);
+
+			if (is_array($options) AND !empty($options))
+			{
+				print_select_row($description, $name, $options, $setting['value']);
+			}
+			else
+			{
+				print_input_row($description, $name, $setting['value']);
+			}
+		}
+		break;
+
+		// radio:eval
+		case 'radio:eval':
+		{
+			$options = null;
+
+			eval($setting['optiondata']);
+
+			if (is_array($options) AND !empty($options))
+			{
+				print_radio_row($description, $name, $options, $setting['value'], 'smallfont');
+			}
+			else
+			{
+				print_input_row($description, $name, $setting['value']);
+			}
+		}
+		break;
+
+		case 'username':
+		{
+			if (intval($setting['value']) AND $userinfo = $vbulletin->db->query_first("SELECT username FROM " . TABLE_PREFIX . "user WHERE userid = " . intval($setting['value'])))
+			{
+				print_input_row($description, $name, $userinfo['username'], false);
+			}
+			else
+			{
+				print_input_row($description, $name);
+			}
+			break;
+		}
+
+		case 'usergroup':
+		{
+			$usergrouplist = array();
+			foreach ($vbulletin->usergroupcache AS $usergroup)
+			{
+				$usergrouplist["$usergroup[usergroupid]"] = $usergroup['title'];
+			}
+
+			if ($size > 1)
+			{
+				print_select_row($description, $name . '[]', array(0 => '') + $usergrouplist, unserialize($setting['value']), false, $size, true);
+			}
+			else
+			{
+				print_select_row($description, $name, $usergrouplist, $setting['value']);
+			}
+			break;
+		}
+
+		case 'usergroupextra':
+		{
+			$usergrouplist = fetch_piped_options($setting['optiondata']);
+			foreach ($vbulletin->usergroupcache AS $usergroup)
+			{
+				$usergrouplist["$usergroup[usergroupid]"] = $usergroup['title'];
+			}
+
+			print_select_row($description, $name, $usergrouplist, $setting['value']);
+			break;
+		}
+
+		// arbitrary number of <input type="text" />
+		case 'multiinput':
+		{
+			$setting['html'] = "<div id=\"ctrl_$setting[varname]\"><fieldset id=\"multi_input_fieldset_$setting[varname]\" style=\"padding:4px\">";
+
+			$setting['values'] = unserialize($setting['value']);
+			$setting['values'] = (is_array($setting['values']) ? $setting['values'] : array());
+			$setting['values'][] = '';
+
+			foreach ($setting['values'] AS $key => $value)
+			{
+				$setting['html'] .= "<div id=\"multi_input_container_$setting[varname]_$key\">" . ($key + 1) . " <input type=\"text\" class=\"bginput\" name=\"setting[$setting[varname]][$key]\" id=\"multi_input_$setting[varname]_$key\" size=\"40\" value=\"" . htmlspecialchars_uni($value) . "\" tabindex=\"1\" /></div>";
+			}
+
+			$i = sizeof($setting['values']);
+			if ($i == 0)
+			{
+				$setting['html'] .= "<div><input type=\"text\" class=\"bginput\" name=\"setting[$setting[varname]][$i]\" size=\"40\" tabindex=\"1\" /></div>";
+			}
+
+			$setting['html'] .= "
+				</fieldset>
+				<div class=\"smallfont\"><a href=\"#\" onclick=\"return multi_input['$setting[varname]'].add()\">Add Another Option</a></div>
+				<script type=\"text/javascript\">
+				<!--
+				multi_input['$setting[varname]'] = new vB_Multi_Input('$setting[varname]', $i, '" . $vbulletin->options['cpstylefolder'] . "');
+				//-->
+				</script>
+			";
+
+			print_label_row($description, $setting['html']);
+			break;
+		}
+
+		// default registration options
+		case 'defaultregoptions':
+		{
+			$setting['value'] = intval($setting['value']);
+
+			$checkbox_options = array(
+				'receiveemail' => 'display_email',
+				'adminemail' => 'receive_admin_emails',
+				'invisiblemode' => 'invisible_mode',
+				'vcard' => 'allow_vcard_download',
+				'signature' => 'display_signatures',
+				'avatar' => 'display_avatars',
+				'image' => 'display_images',
+				'showreputation' => 'display_reputation',
+				'enablepm' => 'receive_private_messages',
+				'emailonpm' => 'send_notification_email_when_a_private_message_is_received',
+				'pmpopup' => 'pop_up_notification_box_when_a_private_message_is_received',
+			);
+
+			$setting['value'] = intval($setting['value']);
+
+			$setting['html'] = '';
+			#$setting['html'] .= "<fieldset><legend>$vbphrase[yes] / $vbphrase[no]</legend>";
+			$setting['html'] .= "<div id=\"ctrl_setting[$setting[varname]]\" class=\"smallfont\">\r\n";
+			$setting['html'] .= "<input type=\"hidden\" name=\"setting[$setting[varname]][0]\" value=\"0\" />\r\n";
+			foreach ($checkbox_options AS $key => $phrase)
+			{
+				$value = $vbulletin->bf_misc_regoptions["$key"];
+
+				$setting['html'] .= "<table style=\"width:175px; float:$stylevar[left]\" cellpadding=\"0\" cellspacing=\"0\" border=\"0\"><tr valign=\"top\">
+				<td><input type=\"checkbox\" name=\"setting[$setting[varname]][$value]\" id=\"setting[$setting[varname]]_$key\" value=\"$value\"" . (($setting['value'] & $value) ? ' checked="checked"' : '') . " /></td>
+				<td width=\"100%\" style=\"padding-top:4px\"><label for=\"setting[$setting[varname]]_$key\" class=\"smallfont\">" . fetch_phrase_from_key($phrase) . "</label></td>\r\n</tr></table>\r\n";
+			}
+			#$setting['html'] .= "</fieldset>";
+			print_label_row($description, $setting['html'], '', 'top', $name, 40);
+		}
+		break;
+
+		// cp folder options
+		case 'cpstylefolder':
+		{
+			if ($folders = fetch_cpcss_options() AND !empty($folders))
+			{
+				print_select_row($description, $name, $folders, $setting['value'], 1, 6);
+			}
+			else
+			{
+				print_input_row($description, $name, $setting['value'], 1, 40);
+			}
+		}
+		break;
+
+		// cookiepath / cookiedomain options
+		case 'cookiepath':
+		case 'cookiedomain':
+		{
+			$func = 'fetch_valid_' . $setting['optioncode'] . 's';
+
+			$cookiesettings = $func(($setting['optioncode'] == 'cookiepath' ? $vbulletin->script : $_SERVER['HTTP_HOST']), $vbphrase['blank']);
+
+			$setting['found'] = in_array($setting['value'], array_keys($cookiesettings));
+
+			$setting['html'] = "
+			<div id=\"ctrl_$setting[varname]\">
+			<fieldset>
+				<legend>$vbphrase[suggested_settings]</legend>
+				<div style=\"padding:4px\">
+					<select name=\"setting[$setting[varname]]\" tabindex=\"1\" class=\"bginput\">" .
+						construct_select_options($cookiesettings, $setting['value']) . "
+					</select>
+				</div>
+			</fieldset>
+			<br />
+			<fieldset>
+				<legend>$vbphrase[custom_setting]</legend>
+				<div style=\"padding:4px\">
+					<label for=\"{$settingid}o\"><input type=\"checkbox\" id=\"{$settingid}o\" name=\"setting[{$settingid}_other]\" tabindex=\"1\" value=\"1\"" . ($setting['found'] ? '' : ' checked="checked"') . " />$vbphrase[use_custom_setting]
+					</label><br />
+					<input type=\"text\" class=\"bginput\" size=\"25\" name=\"setting[{$settingid}_value]\" value=\"" . ($setting['found'] ? '' : $setting['value']) . "\" />
+				</div>
+			</fieldset>
+			</div>";
+
+			print_label_row($description, $setting['html'], '', 'top', $name, 50);
+		}
+		break;
+
+		// just a label
+		default:
+		{
+			$handled = false;
+			($hook = vBulletinHook::fetch_hook('admin_options_print')) ? eval($hook) : false;
+			if (!$handled)
+			{
+				eval("\$right = \"<div id=\\\"ctrl_setting[$setting[varname]]\\\">$setting[optioncode]</div>\";");
+				print_label_row($description, $right, '', 'top', $name, 50);
+			}
+		}
+		break;
+	}
+
+	echo "</tbody>\r\n";
+
+	$valid = exec_setting_validation_code($setting['varname'], $setting['value'], $setting['validationcode']);
+
+	echo "<tbody id=\"tbody_error_$settingid\" style=\"display:" . (($valid === 1 OR $valid === true) ? 'none' : '') . "\"><tr><td class=\"alt1 smallfont\" colspan=\"2\"><div style=\"padding:4px; border:solid 1px red; background-color:white; color:black\"><strong>$vbphrase[error]</strong>:<div id=\"span_error_$settingid\">$valid</div></div></td></tr></tbody>";
+}
+
+/**
+* Updates the setting table based on data passed in then rebuilds the datastore.
+* Only entries in the array are updated (allows partial updates).
+*
+* @param	array	Array of settings. Format: [setting_name] = new_value
+*/
+function save_settings($settings)
+{
+	global $vbulletin, $vbphrase, $stylevar;
+
+	$varnames = array();
+	foreach(array_keys($settings) AS $varname)
+	{
+		$varnames[] = $vbulletin->db->escape_string($varname);
+	}
+
+	$oldsettings = $vbulletin->db->query_read("
+		SELECT value, varname, datatype, optioncode
+		FROM " . TABLE_PREFIX . "setting
+		WHERE varname IN ('" . implode("', '", $varnames) . "')
+		ORDER BY varname
+	");
+	while ($oldsetting = $vbulletin->db->fetch_array($oldsettings))
+	{
+		switch ($oldsetting['varname'])
+		{
+			// **************************************************
+			case 'bbcode_html_colors':
+			{
+				$settings['bbcode_html_colors'] = serialize($settings['bbcode_html_colors']);
+			}
+			break;
+
+			// **************************************************
+			case 'styleid':
+			{
+				$vbulletin->db->query_write("
+					UPDATE " . TABLE_PREFIX . "style
+					SET userselect = 1
+					WHERE styleid = " . $settings['styleid'] . "
+				");
+			}
+			break;
+
+			// **************************************************
+			case 'banemail':
+			{
+				build_datastore('banemail', $settings['banemail']);
+				$settings['banemail'] = '';
+			}
+			break;
+
+			// **************************************************
+			case 'editormodes':
+			{
+				$vbulletin->input->clean_array_gpc('p', array('fe' => TYPE_UINT, 'qr' => TYPE_UINT, 'qe' => TYPE_UINT));
+
+				$settings['editormodes'] = serialize(array(
+					'fe' => $vbulletin->GPC['fe'],
+					'qr' => $vbulletin->GPC['qr'],
+					'qe' => $vbulletin->GPC['qe']
+				));
+			}
+			break;
+
+			// **************************************************
+			case 'cookiepath':
+			case 'cookiedomain':
+			{
+				if ($settings[$oldsetting['varname'] . '_other'] AND $settings[$oldsetting['varname'] . '_value'])
+				{
+					$settings[$oldsetting['varname']] = $settings[$oldsetting['varname'] . '_value'];
+				}
+			}
+			break;
+
+			// **************************************************
+			default:
+			{
+				($hook = vBulletinHook::fetch_hook('admin_options_processing')) ? eval($hook) : false;
+
+				if ($oldsetting['optioncode'] == 'multiinput')
+				{
+					$store = array();
+					foreach ($settings["$oldsetting[varname]"] AS $value)
+					{
+						if ($value != '')
+						{
+							$store[] = $value;
+						}
+					}
+					$settings["$oldsetting[varname]"] = serialize($store);
+				}
+				else if (preg_match('#^usergroup:[0-9]+$#', $oldsetting['optioncode']))
+				{
+					// serialize the array of usergroup inputs
+					if (!is_array($settings["$oldsetting[varname]"]))
+					{
+						 $settings["$oldsetting[varname]"] = array();
+					}
+					$settings["$oldsetting[varname]"] = array_map('intval', $settings["$oldsetting[varname]"]);
+					$settings["$oldsetting[varname]"] = serialize($settings["$oldsetting[varname]"]);
+				}
+			}
+		}
+
+		$newvalue = validate_setting_value($settings["$oldsetting[varname]"], $oldsetting['datatype']);
+
+		// this is a strict type check because we want '' to be different from 0
+		// some special cases below only use != checks to see if the logical value has changed
+		if (strval($oldsetting['value']) !== strval($newvalue))
+		{
+			switch ($oldsetting['varname'])
+			{
+				case 'activememberdays':
+				case 'activememberoptions':
+					if ($oldsetting['value'] != $newvalue)
+					{
+						require_once(DIR . '/includes/functions_databuild.php');
+						build_birthdays();
+					}
+				break;
+
+				case 'showevents':
+				case 'showholidays':
+					if ($oldsetting['value'] != $newvalue)
+					{
+						require_once(DIR . '/includes/functions_calendar.php');
+						build_events();
+					}
+				break;
+
+				case 'languageid':
+				{
+					if ($oldsetting['value'] != $newvalue)
+					{
+						$vbulletin->options['languageid'] = $newvalue;
+						require_once(DIR . '/includes/adminfunctions_language.php');
+						build_language($vbulletin->options['languageid']);
+					}
+				}
+				break;
+
+				case 'cpstylefolder':
+				{
+					$admindm =& datamanager_init('Admin', $vbulletin, ERRTYPE_CP);
+					$admindm->set_existing($vbulletin->userinfo);
+					$admindm->set('cssprefs', $newvalue);
+					$admindm->save();
+					unset($admindm);
+				}
+				break;
+
+				case 'storecssasfile':
+				{
+					if (!is_demo_mode() AND $oldsetting['value'] != $newvalue)
+					{
+						$vbulletin->options['storecssasfile'] = $newvalue;
+						require_once(DIR . '/includes/adminfunctions_template.php');
+						print_rebuild_style(-1, '', 1, 0, 0, 0);
+					}
+				}
+				break;
+
+				case 'loadlimit':
+				{
+					update_loadavg();
+				}
+				break;
+
+				case 'view_tagcloud_as_usergroup':
+				{
+					build_datastore('tagcloud', serialize(''), 1);
+				}
+				break;
+
+				case 'censorwords':
+				case 'codemaxlines':
+				{
+					if ($oldsetting['value'] != $newvalue)
+					{
+						$vbulletin->db->query_write("TRUNCATE TABLE " . TABLE_PREFIX . "postparsed");
+						if ($vbulletin->options['templateversion'] >= '3.6')
+						{
+							$vbulletin->db->query_write("TRUNCATE TABLE " . TABLE_PREFIX . "sigparsed");
+						}
+					}
+
+					($hook = vBulletinHook::fetch_hook('admin_options_processing_censorcode')) ? eval($hook) : false;
+				}
+				break;
+
+				default:
+				{
+					($hook = vBulletinHook::fetch_hook('admin_options_processing_build')) ? eval($hook) : false;
+				}
+			}
+
+			if (is_demo_mode() AND in_array($oldsetting['varname'], array('storecssasfile', 'attachfile', 'usefileavatar', 'errorlogdatabase', 'errorlogsecurity', 'safeupload', 'tmppath')))
+			{
+				continue;
+			}
+
+			$vbulletin->db->query_write("
+				UPDATE " . TABLE_PREFIX . "setting
+				SET value = '" . $vbulletin->db->escape_string($newvalue) . "'
+				WHERE varname = '" . $vbulletin->db->escape_string($oldsetting['varname']) . "'
+			");
+		}
+	}
+	build_options();
 }
 
 /**
@@ -382,12 +630,17 @@ function print_setting_group($dogroup, $advanced = 0)
 *
 * @return	mixed
 */
-function exec_setting_validation_code($varname, $value, $validation_code)
+function exec_setting_validation_code($varname, $value, $validation_code, $raw_value = false)
 {
+	if ($raw_value === false)
+	{
+		$raw_value = $value;
+	}
+
 	if ($validation_code != '')
 	{
-		$validation_function = create_function('&$data', $validation_code);
-		$validation_result = $validation_function($value);
+		$validation_function = create_function('&$data, $raw_data', $validation_code);
+		$validation_result = $validation_function($value, $raw_value);
 
 		if ($validation_result === false OR $validation_result === null)
 		{
@@ -425,6 +678,14 @@ function validate_setting_value(&$value, $datatype, $bool_as_int = true, $userna
 	{
 		case 'number':
 			$value += 0;
+			break;
+
+		case 'integer':
+			$value = intval($value);
+			break;
+
+		case 'posint':
+			$value = max(1, intval($value));
 			break;
 
 		case 'boolean':
@@ -750,8 +1011,8 @@ function fetch_gdinfo()
 			preg_match('/GD Version[^<]*<\/td><td[^>]*>(.*?)<\/td><\/tr>/si', $info, $version);
 			preg_match('/FreeType Linkage[^<]*<\/td><td[^>]*>(.*?)<\/td><\/tr>/si', $info, $freetype);
 			$gdinfo = array(
-				'GD Version' => $version[1],
-				'FreeType Linkage'   => $freetype[1],
+				'GD Version'       => $version[1],
+				'FreeType Linkage' => $freetype[1],
 			);
 		}
 	}
@@ -843,8 +1104,8 @@ function fetch_piped_options($piped_data)
 
 /*======================================================================*\
 || ####################################################################
-|| # Downloaded: 18:52, Sat Jul 14th 2007
-|| # CVS: $RCSfile$ - $Revision: 15992 $
+|| # Downloaded: 16:21, Sat Apr 6th 2013
+|| # CVS: $RCSfile$ - $Revision: 26800 $
 || ####################################################################
 \*======================================================================*/
 ?>

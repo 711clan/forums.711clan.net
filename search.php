@@ -1,9 +1,9 @@
 <?php
 /*======================================================================*\
 || #################################################################### ||
-|| # vBulletin 3.6.7 PL1 - Licence Number VBF2470E4F
+|| # vBulletin 3.7.2 Patch Level 2 - Licence Number VBF2470E4F
 || # ---------------------------------------------------------------- # ||
-|| # Copyright ©2000-2007 Jelsoft Enterprises Ltd. All Rights Reserved. ||
+|| # Copyright ©2000-2013 Jelsoft Enterprises Ltd. All Rights Reserved. ||
 || # This file may not be redistributed in whole or significant part. # ||
 || # ---------------- VBULLETIN IS NOT FREE SOFTWARE ---------------- # ||
 || # http://www.vbulletin.com | http://www.vbulletin.com/license.html # ||
@@ -15,20 +15,23 @@ error_reporting(E_ALL & ~E_NOTICE);
 
 // #################### DEFINE IMPORTANT CONSTANTS #######################
 define('THIS_SCRIPT', 'search');
+define('CSRF_PROTECTION', true);
 define('ALTSEARCH', true);
 
 // ################### PRE-CACHE TEMPLATES AND DATA ######################
 // get special phrase groups
-$phrasegroups = array('search', 'inlinemod');
+$phrasegroups = array('search', 'inlinemod', 'prefix');
 
 // get special data templates from the datastore
 $specialtemplates = array(
-	'iconcache'
+	'iconcache',
+	'searchcloud'
 );
 
 // pre-cache templates used by all actions
 $globaltemplates = array(
-	'imagereg',
+	'humanverify',
+	'optgroup',
 	'search_forums',
 	'search_results',
 	'search_results_postbit', // result from search posts
@@ -40,6 +43,9 @@ $globaltemplates = array(
 	'newreply_reviewbit_ignore',
 	'threadadmin_imod_menu_thread',
 	'threadadmin_imod_menu_post',
+	'tag_cloud_link',
+	'tag_cloud_box_search',
+	'tag_cloud_headinclude'
 );
 
 // ######################### REQUIRE BACK-END ############################
@@ -69,7 +75,9 @@ $globals = array(
 	'searchuser'     => TYPE_STR,
 	'exactname'      => TYPE_BOOL,
 	'starteronly'    => TYPE_BOOL,
+	'tag'            => TYPE_STR, // TYPE_STR, because that's what the error cond for intro expects
 	'forumchoice'    => TYPE_ARRAY,
+	'prefixchoice'   => TYPE_ARRAY_NOHTML,
 	'childforums'    => TYPE_BOOL,
 	'titleonly'      => TYPE_BOOL,
 	'showposts'      => TYPE_BOOL,
@@ -86,8 +94,7 @@ $globals = array(
 	'exclude'        => TYPE_NOHTML,
 	'nocache'        => TYPE_BOOL,
 	'ajax'           => TYPE_BOOL,
-	'imagehash'      => TYPE_STR,
-	'imagestamp'     => TYPE_STR,
+	'humanverify'    => TYPE_ARRAY,
 	'userid'         => TYPE_UINT,
 );
 
@@ -137,9 +144,9 @@ if ($_POST['do'] == 'process')
 }
 
 // workaround for 3.6 bug 1229 - 'find all threads started by x' + captcha
-if ($_REQUEST['do'] == 'process' AND !$vbulletin->userinfo['userid'] AND $vbulletin->options['searchimagecheck'] AND $vbulletin->options['regimagetype'] AND !isset($_REQUEST['imagestamp']))
+if ($_REQUEST['do'] == 'process' AND !$vbulletin->userinfo['userid'] AND $vbulletin->options['hvcheck_search'] AND $vbulletin->options['hv_type'] AND !isset($_POST['humanverify']))
 {
-	// guest user has come from a do=process link that does not include image verification
+	// guest user has come from a do=process link that does not include human verification
 	$_REQUEST['do'] = 'intro';
 }
 
@@ -180,6 +187,12 @@ if ($_REQUEST['do'] == 'process')
 
 	($hook = vBulletinHook::fetch_hook('search_process_start')) ? eval($hook) : false;
 
+	if (!$vbulletin->options['threadtagging'])
+	{
+		//  tagging disabled, don't let them search on it
+		$vbulletin->GPC['tag'] = '';
+	}
+
 	// #############################################################################
 	// start search timer
 	$searchstart = microtime();
@@ -192,18 +205,47 @@ if ($_REQUEST['do'] == 'process')
 
 	// #############################################################################
 	// error if no search terms
-	if (empty($vbulletin->GPC['query']) AND empty($vbulletin->GPC['searchuser']) AND empty($vbulletin->GPC['replyless']))
+	$vbulletin->GPC['prefixchoice'] = array_unique($vbulletin->GPC['prefixchoice']);
+	$have_prefix_limit = false;
+
+	foreach ($vbulletin->GPC['prefixchoice'] AS $prefixid)
+	{
+		if (!$prefixid OR $prefixid == '-1')
+		{
+			// searching on any or no prefix - this is not restrictive enough
+			// so this overrides any other setting
+			$have_prefix_limit = false;
+			break;
+		}
+		else
+		{
+			// matched a prefix - we have a limit, but we might still have
+			// a non-restrictive value so continue looping
+			$have_prefix_limit = true;
+		}
+	}
+
+	$have_search_limit = (
+		$vbulletin->GPC['query']
+		OR $vbulletin->GPC['searchuser']
+		OR $vbulletin->GPC['replyless']
+		OR $vbulletin->GPC['tag']
+		OR $have_prefix_limit
+	);
+
+	if (!$have_search_limit)
 	{
 		$errors[] = 'searchspecifyterms';
 	}
 
-	if (!$vbulletin->userinfo['userid'] AND $vbulletin->options['searchimagecheck'] AND $vbulletin->options['regimagetype'])
+	if (!$vbulletin->userinfo['userid'] AND $vbulletin->options['hvcheck_search'])
 	{
-		require_once(DIR . '/includes/functions_regimage.php');
-		if (!verify_regimage_hash($vbulletin->GPC['imagehash'], $vbulletin->GPC['imagestamp']))
+		require_once(DIR . '/includes/class_humanverify.php');
+		$verify =& vB_HumanVerify::fetch_library($vbulletin);
+		if (!$verify->verify_token($vbulletin->GPC['humanverify']))
 		{
-	  		$errors[] = 'register_imagecheck';
-	  	}
+			$errors[] = $verify->fetch_error();
+		}
 	}
 
 	if (empty($errors))
@@ -221,6 +263,12 @@ if ($_REQUEST['do'] == 'process')
 			$vbulletin->GPC['titleonly'] = false;
 			$vbulletin->GPC['replyless'] = false;
 			$vbulletin->GPC['replylimit'] = false;
+		}
+
+		// if searching for only a tag, we must show results as threads
+		if ($vbulletin->GPC['tag'] AND empty($vbulletin->GPC['query']) AND empty($vbulletin->GPC['searchuser']))
+		{
+			$vbulletin->GPC['showposts'] = false;
 		}
 
 		// #############################################################################
@@ -263,12 +311,29 @@ if ($_REQUEST['do'] == 'process')
 					}
 					else
 					{
-						// look for words that are entirely &#1234;
-						$vbulletin->GPC['query'] .= preg_replace(
-							'/(?<=^|\s)((&#[0-9]+;)+)(?=\s|$)/',
-							'"$1"',
-							$query["$i"]
-						);
+						// look for words that are contain &#1234;, ., or - and quote them (more logical behavior, 24676)
+						$query_parts = '';
+						$space_skipped = false;
+
+						foreach (preg_split('#[ \r\n\t]#s', $query["$i"]) AS $query_part)
+						{
+							if ($space_skipped)
+							{
+								$query_parts .= ' ';
+							}
+							$space_skipped = true;
+
+							if (preg_match('/(&#[0-9]+;|\.|-)/s', $query_part))
+							{
+								$query_parts .= '"' . $query_part . '"';
+							}
+							else
+							{
+								$query_parts .= $query_part;
+							}
+						}
+
+						$vbulletin->GPC['query'] .= $query_parts;
 					}
 				}
 
@@ -288,6 +353,21 @@ if ($_REQUEST['do'] == 'process')
 			// #############################################################################
 			// get forums in which to search
 			$forumchoice = implode(',', fetch_search_forumids($vbulletin->GPC['forumchoice'], $vbulletin->GPC['childforums']));
+
+			// get prefixes
+			if (in_array('', $vbulletin->GPC['prefixchoice']) OR empty($vbulletin->GPC['prefixchoice']))
+			{
+				// any prefix
+				$vbulletin->GPC['prefixchoice'] = array();
+				$prefixchoice = '';
+				$display_prefixes = array();
+			}
+			else
+			{
+				$vbulletin->GPC['prefixchoice'] = array_unique($vbulletin->GPC['prefixchoice']);
+				$prefixchoice = implode(',', $vbulletin->GPC['prefixchoice']);
+				$display_prefixes = $vbulletin->GPC['prefixchoice'];
+			}
 
 			// #############################################################################
 			// get correct sortby value
@@ -351,7 +431,7 @@ if ($_REQUEST['do'] == 'process')
 
 			// #############################################################################
 			// build search hash
-			$searchhash = md5(strtolower($vbulletin->GPC['query']) . "||" . strtolower($vbulletin->GPC['searchuser']) . '||' . $vbulletin->GPC['exactname'] . '||' . $vbulletin->GPC['starteronly'] . "||$forumchoice||" . $vbulletin->GPC['childforums'] . '||' . $vbulletin->GPC['titleonly'] . '||' . $vbulletin->GPC['showposts'] . '||' . $vbulletin->GPC['searchdate'] . '||' . $vbulletin->GPC['beforeafter'] . '||' . $vbulletin->GPC['replyless'] . '||' . $vbulletin->GPC['replylimit'] . '||' . $vbulletin->GPC['searchthreadid'] . '||' . $vbulletin->GPC['exclude'] . iif($vbulletin->options['fulltextsearch'], '||' . $vbulletin->GPC['searchtype']));
+			$searchhash = md5(strtolower($vbulletin->GPC['query']) . "||" . strtolower($vbulletin->GPC['searchuser']) . '||' . strtolower($vbulletin->GPC['tag']) . '||' . $vbulletin->GPC['exactname'] . '||' . $vbulletin->GPC['starteronly'] . "||$forumchoice||$prefixchoice||" . $vbulletin->GPC['childforums'] . '||' . $vbulletin->GPC['titleonly'] . '||' . $vbulletin->GPC['showposts'] . '||' . $vbulletin->GPC['searchdate'] . '||' . $vbulletin->GPC['beforeafter'] . '||' . $vbulletin->GPC['replyless'] . '||' . $vbulletin->GPC['replylimit'] . '||' . $vbulletin->GPC['searchthreadid'] . '||' . $vbulletin->GPC['exclude'] . iif($vbulletin->options['fulltextsearch'], '||' . $vbulletin->GPC['searchtype']));
 
 			// #############################################################################
 			// search for already existing searches...
@@ -420,9 +500,29 @@ if ($_REQUEST['do'] == 'process')
 							// insert new search into database
 							/*insert query*/
 							$db->query_write("
-								REPLACE INTO " . TABLE_PREFIX . "search (userid, titleonly, ipaddress, personal, query, searchuser, forumchoice, sortby, sortorder, searchtime, showposts, orderedids, dateline, searchterms, displayterms, searchhash, completed)
-								VALUES (" . $vbulletin->userinfo['userid'] . ", " . intval($vbulletin->GPC['titleonly']) . " ,'" . $db->escape_string(IPADDRESS) . "', " . ($vbulletin->options['searchsharing'] ? 0 : 1) . ", '" . $db->escape_string($search['query']) . "', '" . $db->escape_string($search['searchuser']) . "', '" . $db->escape_string($search['forumchoice']) . "', '" . $db->escape_string($search['sortby']) . "', '" . $db->escape_string($vbulletin->GPC['sortorder']) . "', $searchtime, " . intval($vbulletin->GPC['showposts']) . ", '" . implode(',', $search['orderedids']) . "', " . TIMENOW . ", '" . $db->escape_string($search['searchterms']) . "', '" . $db->escape_string($search['displayterms']) . "', '" . $db->escape_string($searchhash) . "', 1)
-								### SAVE ITEM IDS IN ORDER ###
+								REPLACE INTO " . TABLE_PREFIX . "search
+									(userid, titleonly, ipaddress, personal, query, searchuser, forumchoice, prefixchoice,
+									sortby, sortorder, searchtime, showposts, orderedids, dateline, searchterms,
+									displayterms, searchhash, completed)
+								VALUES
+									(" . $vbulletin->userinfo['userid'] . ",
+									" . intval($vbulletin->GPC['titleonly']) . ",
+									'" . $db->escape_string(IPADDRESS) . "',
+									" . ($vbulletin->options['searchsharing'] ? 0 : 1) . ",
+									'" . $db->escape_string($search['query']) . "',
+									'" . $db->escape_string($search['searchuser']) . "',
+									'" . $db->escape_string($search['forumchoice']) . "',
+									'" . $db->escape_string($search['prefixchoice']) . "',
+									'" . $db->escape_string($search['sortby']) . "',
+									'" . $db->escape_string($vbulletin->GPC['sortorder']) . "',
+									$searchtime,
+									" . intval($vbulletin->GPC['showposts']) . ",
+									'" . implode(',', $search['orderedids']) . "',
+									" . TIMENOW . ",
+									'" . $db->escape_string($search['searchterms']) . "',
+									'" . $db->escape_string($search['displayterms']) . "',
+									'" . $db->escape_string($searchhash) . "',
+									1)
 							");
 							// redirect to new search result
 							$vbulletin->url = 'search.php?' . $vbulletin->session->vars['sessionurl'] . 'searchid=' . $db->insert_id();
@@ -468,7 +568,6 @@ if ($_REQUEST['do'] == 'process')
 										'" . $db->escape_string($searchhash) . "',
 										1
 									)
-									### SAVE ITEM IDS IN ORDER ###
 								");
 								// redirect to new search result
 								$vbulletin->url = 'search.php?' . $vbulletin->session->vars['sessionurl'] . 'searchid=' . $db->insert_id();
@@ -483,7 +582,8 @@ if ($_REQUEST['do'] == 'process')
 			// for the floodcheck
 			/*insert query*/
 			$db->query_write("
-				REPLACE INTO " . TABLE_PREFIX . "search (userid, titleonly, ipaddress, personal, query, searchuser, forumchoice, sortby, sortorder, searchtime, showposts, orderedids, dateline, searchterms, displayterms, searchhash, completed)
+				REPLACE INTO " . TABLE_PREFIX . "search
+					(userid, titleonly, ipaddress, personal, query, searchuser, forumchoice, prefixchoice, sortby, sortorder, searchtime, showposts, orderedids, dateline, searchterms, displayterms, searchhash, completed)
 				VALUES (
 					" . $vbulletin->userinfo['userid'] . ",
 					" . intval($vbulletin->GPC['titleonly']) . " ,
@@ -492,6 +592,7 @@ if ($_REQUEST['do'] == 'process')
 					'" . $db->escape_string($vbulletin->GPC['query']) . "',
 					'" . $db->escape_string($vbulletin->GPC['searchuser']) . "',
 					'" . $db->escape_string($forumchoice) . "',
+					'" . $db->escape_string($prefixchoice) . "',
 					'" . $db->escape_string($vbulletin->GPC['sortby']) . "',
 					'" . $db->escape_string($vbulletin->GPC['sortorder']) . "',
 					0,
@@ -499,7 +600,7 @@ if ($_REQUEST['do'] == 'process')
 					'',
 					" . TIMENOW . ",
 					'" . $db->escape_string(serialize($searchterms)) . "',
-					'" . $db->escape_string(serialize($display)) . "',
+					'',
 					'" . $db->escape_string($searchhash) . "',
 					0
 				)
@@ -535,6 +636,8 @@ if ($_REQUEST['do'] == 'process')
 				'common' => array(),
 				'users' => array(),
 				'forums' => $display['forums'],
+				'prefixes' => $display_prefixes,
+				'tag' => htmlspecialchars_uni($vbulletin->GPC['tag']),
 				'options' => array(
 					'starteronly' => $vbulletin->GPC['starteronly'],
 					'childforums' => $vbulletin->GPC['childforums'],
@@ -612,6 +715,26 @@ if ($_REQUEST['do'] == 'process')
 						$errors[] = array('invalidid', $vbphrase['user'], $vbulletin->options['contactuslink']);
 					}
 				}
+			}
+		}
+
+		$tag_join = '';
+		if ($vbulletin->GPC['tag'])
+		{
+			$verified_tag = $db->query_first_slave("
+				SELECT tagid, tagtext
+				FROM " . TABLE_PREFIX . "tag
+				WHERE tagtext = '" . $db->escape_string(htmlspecialchars_uni($vbulletin->GPC['tag'])) . "'
+			");
+			if (!$verified_tag)
+			{
+				$errors[] = 'invalid_tag_specified';
+			}
+			else
+			{
+				$db->query_write("INSERT INTO " . TABLE_PREFIX . "tagsearch (tagid, dateline) VALUES (" . $verified_tag['tagid'] . ", " . TIMENOW . ")");
+
+				$tag_join = "INNER JOIN " . TABLE_PREFIX . "tagthread AS tagthread ON (tagthread.tagid = $verified_tag[tagid] AND tagthread.threadid = thread.threadid)";
 			}
 		}
 
@@ -944,8 +1067,8 @@ if ($_REQUEST['do'] == 'process')
 										$requiredposts[0][] = $post['postid'];
 									}
 									unset($post);
-									$db->free_result($posts);
 								}
+								$db->free_result($posts);
 							}
 
 							// #############################################################################
@@ -1259,7 +1382,7 @@ if ($_REQUEST['do'] == 'process')
 				}
 				else
 				{
-					// this means we are searching just on username...
+					// this means we are searching just on username/tag...
 				}
 			}
 			else if ($vbulletin->GPC['searchthreadid'])
@@ -1288,8 +1411,8 @@ if ($_REQUEST['do'] == 'process')
 							$requiredposts[] = $post['postid'];
 						}
 						unset($post);
-						$db->free_result($posts);
 					}
+					$db->free_result($posts);
 
 					if (!empty($requiredposts))
 					{
@@ -1383,6 +1506,25 @@ if ($_REQUEST['do'] == 'process')
 					{
 						$thread_query_logic[] = "thread.forumid NOT IN (" . implode(',', $excludearray) . ")";
 					}
+				}
+
+				// match prefixes
+				if ($prefixchoice)
+				{
+					$prefix_sql = array();
+					foreach (explode(',', $prefixchoice) AS $prefixid)
+					{
+						if ($prefixid == '-1')
+						{
+							// no prefix
+							$prefix_sql[] = "''";
+						}
+						else
+						{
+							$prefix_sql[] = "'" . $db->escape_string($prefixid) . "'";
+						}
+					}
+					$thread_query_logic[] = "thread.prefixid IN (" . implode(',', $prefix_sql) . ")";
 				}
 
 				($hook = vBulletinHook::fetch_hook('search_process_fetch')) ? eval($hook) : false;
@@ -1504,6 +1646,7 @@ if ($_REQUEST['do'] == 'process')
 						SELECT
 						" . implode(', ', $thread_select_logic) . "
 						FROM " . TABLE_PREFIX . "thread AS thread $userid_index
+						$tag_join
 						" . ((!empty($post_query_logic) OR !empty($post_join_query_logic)) ? "INNER JOIN " . TABLE_PREFIX . "post AS post ON(thread.threadid = post.threadid $post_join_query_logic)" : "") . "
 						" . (!empty($querylogic) ? "WHERE " . implode(" AND ", $querylogic) : "") . "
 						$nl_query_limit
@@ -1575,12 +1718,15 @@ if ($_REQUEST['do'] == 'process')
 						#$querylogic[] = $thread_query_logic[] = "post.postid = thread.firstpostid";
 					}
 
+					$do_thread_join = (!empty($thread_query_logic) OR !empty($tag_join) OR ($vbulletin->GPC['sortby'] == 'rank' AND !$rank_select_logic));
+
 					$posts = $db->query_read_slave("
 						SELECT postid, post.dateline
 						" . iif($vbulletin->GPC['sortby'] == 'rank' AND !$rank_select_logic, ', IF(thread.views=0, thread.replycount+1, thread.views) as views, thread.replycount, thread.votenum, thread.votetotal') . "
 						" . (!empty($rank_select_logic) ? ", $rank_select_logic" : "") . "
 						FROM " . TABLE_PREFIX . "post AS post $userid_index
-						" . ((!empty($thread_query_logic) OR ($vbulletin->GPC['sortby'] == 'rank' AND !$rank_select_logic)) ? "INNER JOIN " . TABLE_PREFIX . "thread AS thread ON(thread.threadid = post.threadid)" : "") . "
+						" . ($do_thread_join ? "INNER JOIN " . TABLE_PREFIX . "thread AS thread ON(thread.threadid = post.threadid)" : '') . "
+						$tag_join
 						" . (!empty($querylogic) ? "WHERE " . implode(" AND ", $querylogic) : "") . "
 						$nl_query_limit
 					");
@@ -1752,9 +1898,26 @@ if ($_REQUEST['do'] == 'process')
 						// insert search results into search cache
 						/*insert query*/
 						$db->query_write("
-							REPLACE INTO " . TABLE_PREFIX . "search (userid, titleonly, ipaddress, personal, query, searchuser, forumchoice, sortby, sortorder, searchtime, showposts, orderedids, dateline, searchterms, displayterms, searchhash, completed)
-							VALUES (" . $vbulletin->userinfo['userid'] . ", " . intval($vbulletin->GPC['titleonly']) . " ,'" . $db->escape_string(IPADDRESS) . "', " . ($vbulletin->options['searchsharing'] ? 0 : 1) . ", '" . $db->escape_string($vbulletin->GPC['query']) . "', '" . $db->escape_string($vbulletin->GPC['searchuser']) . "', '" . $db->escape_string($forumchoice) . "', '" . $db->escape_string($vbulletin->GPC['sortby']) . "', '" . $db->escape_string($vbulletin->GPC['sortorder']) . "', $searchtime, " . intval($vbulletin->GPC['showposts']) . ", '" . implode(',', $orderedids) . "', " . time() . ", '" . $db->escape_string(serialize($searchterms)) . "', '" . $db->escape_string(serialize($display)) . "', '" . $db->escape_string($searchhash) . "', 1)
-							### SAVE ORDERED IDS TO SEARCH CACHE ###
+							REPLACE INTO " . TABLE_PREFIX . "search
+								(userid, titleonly, ipaddress, personal, query, searchuser, forumchoice, prefixchoice, sortby, sortorder, searchtime, showposts, orderedids, dateline, searchterms, displayterms, searchhash, completed)
+							VALUES
+								(" . $vbulletin->userinfo['userid'] . ",
+								" . intval($vbulletin->GPC['titleonly']) . ",
+								'" . $db->escape_string(IPADDRESS) . "',
+								" . ($vbulletin->options['searchsharing'] ? 0 : 1) . ",
+								'" . $db->escape_string($vbulletin->GPC['query']) . "',
+								'" . $db->escape_string($vbulletin->GPC['searchuser']) . "',
+								'" . $db->escape_string($forumchoice) . "',
+								'" . $db->escape_string($prefixchoice) . "',
+								'" . $db->escape_string($vbulletin->GPC['sortby']) . "',
+								'" . $db->escape_string($vbulletin->GPC['sortorder']) . "',
+								$searchtime, " . intval($vbulletin->GPC['showposts']) . ",
+								'" . implode(',', $orderedids) . "',
+								" . time() . ",
+								'" . $db->escape_string(serialize($searchterms)) . "',
+								'" . $db->escape_string(serialize($display)) . "',
+								'" . $db->escape_string($searchhash) . "',
+								1)
 						");
 						$searchid = $db->insert_id();
 
@@ -1833,7 +1996,7 @@ if ($_REQUEST['do'] == 'intro')
 	// if search conditions are specified in the URI, use them
 	foreach (array_keys($globals) AS $varname)
 	{
-		if ($vbulletin->GPC_exists["$varname"] AND $varname != 'forumchoice')
+		if ($vbulletin->GPC_exists["$varname"] AND $varname != 'forumchoice' AND $varname != 'prefixchoice' AND $varname != 'humanverify')
 		{
 			$prefs["$varname"] = $vbulletin->GPC["$varname"];
 		}
@@ -1852,7 +2015,7 @@ if ($_REQUEST['do'] == 'intro')
 		}
 
 
-		$forumuinfo = fetch_foruminfo($threadinfo['forumid']);
+		$foruminfo = fetch_foruminfo($threadinfo['forumid']);
 		// *********************************************************************************
 		// check forum permissions
 		$forumperms = fetch_permissions($threadinfo['forumid']);
@@ -1883,13 +2046,14 @@ if ($_REQUEST['do'] == 'intro')
 	}
 
 	// now check appropriate boxes, select menus etc...
+	$formdata = array();
 	foreach ($prefs AS $varname => $value)
 	{
-		$$varname = htmlspecialchars_uni($value);
+		$formdata["$varname"] = $$varname = htmlspecialchars_uni($value);
 		$checkedvar = $varname . 'checked';
 		$selectedvar = $varname . 'selected';
-		$$checkedvar = array($value => 'checked="checked"');
-		$$selectedvar = array($value => 'selected="selected"');
+		$formdata["$checkedvar"] = $$checkedvar = array($value => 'checked="checked"');
+		$formdata["$selectedvar"] = $$selectedvar = array($value => 'selected="selected"');
 	}
 
 	// now get the IDs of the forums we are going to display
@@ -1931,21 +2095,94 @@ if ($_REQUEST['do'] == 'intro')
 
 	$noforumselected = iif(!$haveforum, 'selected="selected"');
 
-	if (!$vbulletin->userinfo['userid'] AND $vbulletin->options['searchimagecheck'] AND $vbulletin->options['regimagetype'])
+	// build prefix options
+	$prefixsets = array();
+
+	$prefixes_sql = $db->query_read("
+		SELECT prefix.prefixsetid, prefix.prefixid, forumprefixset.forumid
+		FROM " . TABLE_PREFIX . "prefix AS prefix
+		INNER JOIN " . TABLE_PREFIX . "prefixset AS prefixset ON (prefixset.prefixsetid = prefix.prefixsetid)
+		INNER JOIN " . TABLE_PREFIX . "forumprefixset AS forumprefixset ON
+			(forumprefixset.prefixsetid = prefixset.prefixsetid)
+		ORDER BY prefixset.displayorder, prefix.displayorder
+	");
+	while ($prefix = $db->fetch_array($prefixes_sql))
 	{
-		require_once(DIR . '/includes/functions_regimage.php');
-		$imagehash = fetch_regimage_hash();
-		eval('$imagereg = "' . fetch_template('imagereg') . '";');
+		$forumperms =& $vbulletin->userinfo['forumpermissions']["$prefix[forumid]"];
+		if (($forumperms & $vbulletin->bf_ugp_forumpermissions['canview'])
+			AND ($forumperms & $vbulletin->bf_ugp_forumpermissions['cansearch'])
+			AND verify_forum_password($prefix['forumid'], $vbulletin->forumcache["$prefix[forumid]"]['password'], false)
+		)
+		{
+			$prefixsets["$prefix[prefixsetid]"]["$prefix[prefixid]"] = $prefix['prefixid'];
+		}
+	}
+
+	$prefix_options = '';
+	foreach ($prefixsets AS $prefixsetid => $prefixes)
+	{
+		$optgroup_options = '';
+		foreach ($prefixes AS $prefixid)
+		{
+			$optionvalue = $prefixid;
+			$optiontitle = htmlspecialchars_uni($vbphrase["prefix_{$prefixid}_title_plain"]);
+			$optionselected = (in_array($prefixid, $vbulletin->GPC['prefixchoice']) ? ' selected="selected"' : '');
+			$optionclass = '';
+
+			eval('$optgroup_options .= "' . fetch_template('option') . '";');
+		}
+
+		// if there's only 1 prefix set available, we don't want to show the optgroup
+		if (sizeof($prefixsets) > 1)
+		{
+			$optgroup_label = htmlspecialchars_uni($vbphrase["prefixset_{$prefixsetid}_title"]);
+			eval('$prefix_options .= "' . fetch_template('optgroup') . '";');
+		}
+		else
+		{
+			$prefix_options = $optgroup_options;
+		}
+	}
+
+	$prefix_selected = array(
+		'any' => ((in_array('', $vbulletin->GPC['prefixchoice']) OR empty($vbulletin->GPC['prefixchoice'])) ? ' selected="selected"' : ''),
+		'none' => (in_array('-1', $vbulletin->GPC['prefixchoice']) ? ' selected="selected"' : '')
+	);
+
+	$show['tag_option'] = $vbulletin->options['threadtagging'];
+
+	// image verification
+	if (!$vbulletin->userinfo['userid'] AND $vbulletin->options['hvcheck_search'])
+	{
+		require_once(DIR . '/includes/class_humanverify.php');
+		$verification =& vB_HumanVerify::fetch_library($vbulletin);
+		$human_verify = $verification->output_token();
 	}
 	else
 	{
-		$imagereg = '';
+		$human_verify = '';
 	}
 
 	if ($vbulletin->debug)
 	{
 		$show['nocache'] = true;
 	}
+
+	// tag cloud display
+	if ($vbulletin->options['threadtagging'] == 1 AND $vbulletin->options['tagcloud_searchcloud'] == 1)
+	{
+		$tag_cloud = fetch_tagcloud('search');
+		if ($tag_cloud)
+		{
+			eval('$tag_cloud_headinclude .= "' . fetch_template('tag_cloud_headinclude') . '";');
+		}
+	}
+	else
+	{
+		$tag_cloud = '';
+		$tag_cloud_headinclude = '';
+	}
+
 	// select the correct part of the forum jump menu
 	$frmjmpsel['search'] = 'class="fjsel" selected="selected"';
 	construct_forum_jump();
@@ -2082,13 +2319,11 @@ if ($_REQUEST['do'] == 'showresults')
 				post.iconid AS posticonid, post.pagetext, post.visible, post.attach,
 				IF(post.userid = 0, post.username, user.username) AS username,
 				thread.threadid, thread.title AS threadtitle, thread.iconid AS threadiconid, thread.replycount,
-				IF(thread.views=0, thread.replycount+1, thread.views) as views, thread.firstpostid,
+				IF(thread.views=0, thread.replycount+1, thread.views) as views, thread.firstpostid, thread.prefixid, thread.taglist,
 				thread.pollid, thread.sticky, thread.open, thread.lastpost, thread.forumid, thread.visible AS thread_visible,
 				user.userid
-
 				" . (can_moderate() ? ",pdeletionlog.userid AS pdel_userid, pdeletionlog.username AS pdel_username, pdeletionlog.reason AS pdel_reason" : "") . "
 				" . (can_moderate() ? ",tdeletionlog.userid AS tdel_userid, tdeletionlog.username AS tdel_username, tdeletionlog.reason AS tdel_reason" : "") . "
-
 				" . iif($vbulletin->options['threadmarking'] AND $vbulletin->userinfo['userid'], ', threadread.readtime AS threadread') . "
 				$hook_query_fields
 			FROM " . TABLE_PREFIX . "post AS post
@@ -2129,17 +2364,29 @@ if ($_REQUEST['do'] == 'showresults')
 
 		if ($vbulletin->userinfo['userid'] AND in_coventry($vbulletin->userinfo['userid'], true))
 		{
-			$lastpost_info = "IF(tachythreadpost.userid IS NULL, thread.lastpost, tachythreadpost.lastpost) AS lastpost, " .
-				"IF(tachythreadpost.userid IS NULL, thread.lastposter, tachythreadpost.lastposter) AS lastposter, " .
-				"IF(tachythreadpost.userid IS NULL, thread.lastpostid, tachythreadpost.lastpostid) AS lastpostid";
+			$tachyjoin = "
+				LEFT JOIN " . TABLE_PREFIX . "tachythreadpost AS tachythreadpost ON
+					(tachythreadpost.threadid = thread.threadid AND tachythreadpost.userid = " . $vbulletin->userinfo['userid'] . ")
+				LEFT JOIN " . TABLE_PREFIX . "tachythreadcounter AS tachythreadcounter ON
+					(tachythreadcounter.threadid = thread.threadid AND tachythreadcounter.userid = " . $vbulletin->userinfo['userid'] . ")
+			";
 
-			$tachyjoin = "LEFT JOIN " . TABLE_PREFIX . "tachythreadpost AS tachythreadpost ON " .
-				"(tachythreadpost.threadid = thread.threadid AND tachythreadpost.userid = " . $vbulletin->userinfo['userid'] . ')';
+			$tachycolumns = '
+				IF(tachythreadcounter.userid IS NULL, thread.replycount, thread.replycount + tachythreadcounter.replycount) AS replycount,
+				IF(views<=IF(tachythreadcounter.userid IS NULL, thread.replycount, thread.replycount + tachythreadcounter.replycount), IF(tachythreadcounter.userid IS NULL, thread.replycount, thread.replycount + tachythreadcounter.replycount)+1, views) AS views,
+				IF(tachythreadpost.userid IS NULL, thread.lastpost, tachythreadpost.lastpost) AS lastpost,
+				IF(tachythreadpost.userid IS NULL, thread.lastposter, tachythreadpost.lastposter) AS lastposter,
+				IF(tachythreadpost.userid IS NULL, thread.lastpostid, tachythreadpost.lastpostid) AS lastpostid
+			';
 		}
 		else
 		{
-			$lastpost_info = "thread.lastpost, thread.lastposter, thread.lastpostid";
-			$tachyjoin = "";
+			$tachyjoin = '';
+
+			$tachycolumns = '
+				replycount, IF(views<=replycount, replycount+1, views) AS views,
+				thread.lastpost, thread.lastposter, thread.lastpostid
+			';
 		}
 
 		$hook_query_fields = $hook_query_joins = "";
@@ -2149,13 +2396,10 @@ if ($_REQUEST['do'] == 'showresults')
 		$dataQuery = "
 			SELECT $previewfield
 				thread.threadid, thread.threadid AS postid, thread.title AS threadtitle, thread.iconid AS threadiconid, thread.dateline, thread.forumid,
-				thread.replycount, IF(thread.views=0, thread.replycount+1, thread.views) as views, thread.sticky,
-				thread.pollid, thread.open, thread.lastpost AS postdateline, thread.visible, thread.hiddencount, thread.deletedcount,
-				$lastpost_info, thread.attach, thread.postusername, thread.forumid,
-
-
+				thread.sticky, thread.prefixid, thread.taglist, thread.pollid, thread.open, thread.lastpost AS postdateline, thread.visible,
+				thread.hiddencount, thread.deletedcount, thread.attach, thread.postusername, thread.forumid,
+				$tachycolumns,
 				" . (can_moderate() ? "deletionlog.userid AS del_userid, deletionlog.username AS del_username, deletionlog.reason AS del_reason," : "") . "
-
 				user.userid AS postuserid
 				" . iif($vbulletin->options['threadsubscribed'] AND $vbulletin->userinfo['userid'], ", NOT ISNULL(subscribethread.subscribethreadid) AS issubscribed") . "
 				" . iif($vbulletin->options['threadmarking'] AND $vbulletin->userinfo['userid'], ', threadread.readtime AS threadread') . "
@@ -2218,7 +2462,7 @@ if ($_REQUEST['do'] == 'showresults')
 		if (!$forum)
 		{
 			// we don't know anything about this forum
-			unset($temp["$forumid"]);
+			unset($tmp["$forumid"]);
 			continue;
 		}
 
@@ -2436,6 +2680,7 @@ if ($_REQUEST['do'] == 'showresults')
 				{
 					$openthread["$item[threadid]"] = 1;
 					$show['openthread'] = true;
+
 				}
 				if ($vbulletin->forumcache["$item[forumid]"]['options'] & $vbulletin->bf_misc_forumoptions['allowicons'])
 				{
@@ -2453,6 +2698,7 @@ if ($_REQUEST['do'] == 'showresults')
 	if (!empty($managepost) OR !empty($approvepost) OR !empty($managethread) OR !empty($approveattachment) OR !empty($movethread) OR !empty($deletethread) OR !empty($approvethread) OR !empty($openthread))
 	{
 		$show['inlinemod'] = true;
+		$show['spamctrls'] = ($show['deletethread'] OR $show['managepost']);
 		$url = SCRIPTPATH;
 	}
 	else
@@ -2490,6 +2736,7 @@ if ($_REQUEST['do'] == 'showresults')
 		while ($announcement = $db->fetch_array($announcements))
 		{
 			fetch_musername($announcement);
+			$announcement['title'] = fetch_censored_text($announcement['title']);
 			$announcement['postdate'] = vbdate($vbulletin->options['dateformat'], $announcement['startdate']);
 			$announcement['statusicon'] = 'new';
 			$announcement['views'] = vb_number_format($announcement['views']);
@@ -2617,10 +2864,20 @@ if ($_REQUEST['do'] == 'showresults')
 				$post['posticontitle'] = '';
 			}
 
+			$post['original_pagetext'] = $post['pagetext'];
+			$strip_quotes = true;
+
 			$post['pagetext'] = preg_replace('#\[quote(=(&quot;|"|\'|)??.*\\2)?\](((?>[^\[]*?|(?R)|.))*)\[/quote\]#siUe', "process_quote_removal('\\3', \$display['highlight'])", $post['pagetext']);
 
+			// Deal with the case that quote was the only content of the post
+			if (trim($post['pagetext']) == '')
+			{
+				$post['pagetext'] = $post['original_pagetext'];
+				$strip_quotes = false;
+			}
+
 			// get first 200 chars of page text
-			$post['pagetext'] = htmlspecialchars_uni(fetch_censored_text(trim(fetch_trimmed_title(strip_bbcode($post['pagetext'], 1), 200))));
+			$post['pagetext'] = htmlspecialchars_uni(fetch_censored_text(trim(fetch_trimmed_title(strip_bbcode($post['pagetext'], $strip_quotes), 200))));
 
 			// get post title
 			if ($post['posttitle'] == '')
@@ -2649,19 +2906,30 @@ if ($_REQUEST['do'] == 'showresults')
 			{
 				$post['del_username'] =& $post['pdel_username'];
 				$post['del_userid'] =& $post['pdel_userid'];
-				$post['del_reason'] =& $post['pdel_reason'];
+				$post['del_reason'] = fetch_censored_text($post['pdel_reason']);
 				$show['deleted'] = true;
 			}
 			else if ($post['tdel_userid'])
 			{
 				$post['del_username'] =& $post['tdel_username'];
 				$post['del_userid'] =& $post['tdel_userid'];
-				$post['del_reason'] =& $post['tdel_reason'];
+				$post['del_reason'] = fetch_censored_text($post['tdel_reason']);
 				$show['deleted'] = true;
 			}
 			else
 			{
 				$show['deleted'] = false;
+			}
+
+			if ($post['prefixid'])
+			{
+				$post['prefix_plain_html'] = htmlspecialchars_uni($vbphrase["prefix_$post[prefixid]_title_plain"]);
+				$post['prefix_rich'] = $vbphrase["prefix_$post[prefixid]_title_rich"];
+			}
+			else
+			{
+				$post['prefix_plain_html'] = '';
+				$post['prefix_rich'] = '';
 			}
 
 			$itemcount ++;
@@ -2774,6 +3042,7 @@ if ($_REQUEST['do'] == 'showresults')
 	{
 		$displayWords = '';
 	}
+
 	if (!empty($display['common']))
 	{
 		$displayCommon = '<b><u>' . implode('</u></b>, <b><u>', htmlspecialchars_uni($display['common'])) . '</u></b>';
@@ -2782,6 +3051,7 @@ if ($_REQUEST['do'] == 'showresults')
 	{
 		$displayCommon = '';
 	}
+
 	if (!empty($display['users']))
 	{
 		foreach ($display['users'] AS $userid => $username)
@@ -2794,6 +3064,7 @@ if ($_REQUEST['do'] == 'showresults')
 	{
 		$displayUsers = '';
 	}
+
 	if (!empty($display['forums']))
 	{
 		foreach ($display['forums'] AS $key => $forumid)
@@ -2806,6 +3077,38 @@ if ($_REQUEST['do'] == 'showresults')
 	{
 		$displayForums = '';
 	}
+
+	if (!empty($display['tag']))
+	{
+		$display_tag = "<b><u>$display[tag]</u></b>";
+	}
+
+	$show['no_prefix'] = false;
+	if (!empty($display['prefixes']))
+	{
+		foreach ($display['prefixes'] AS $key => $prefixid)
+		{
+			if ($prefixid == '-1')
+			{
+				$show['no_prefix'] = true;
+			}
+
+			if (isset($vbphrase["prefix_{$prefixid}_title_plain"]))
+			{
+				$display['prefixes']["$key"] = '<b><u>' . htmlspecialchars_uni($vbphrase["prefix_{$prefixid}_title_plain"]) . '</u></b>';
+			}
+			else
+			{
+				unset($display['prefixes']["$key"]);
+			}
+		}
+		$display_prefixes = implode(" $vbphrase[or] ", $display['prefixes']);
+	}
+	else
+	{
+		$display_prefixes = '';
+	}
+
 	$starteronly =& $display['options']['starteronly'];
 	$childforums =& $display['options']['childforums'];
 	$action =& $display['options']['action'];
@@ -3225,7 +3528,7 @@ if ($_REQUEST['do'] == 'finduser')
 	// check to see if we should be searching in a particular forum or forums
 	if ($vbulletin->GPC['searchthreadid'])
 	{
-		$showforms = false;
+		$showforums = false;
 		$sql = "AND thread.threadid = " . $vbulletin->GPC['searchthreadid'];
 	}
 	else
@@ -3233,6 +3536,7 @@ if ($_REQUEST['do'] == 'finduser')
 		if ($forumids = fetch_search_forumids($vbulletin->GPC['forumchoice'], $vbulletin->GPC['childforums']))
 		{
 			$showforums = true;
+
 		}
 		else
 		{
@@ -3289,8 +3593,8 @@ if ($_REQUEST['do'] == 'finduser')
 		{
 			$orderedids[] = $post['postid'];
 		}
+		$db->free_result($posts);
 	}
-	$db->free_result($posts);
 
 	// did we get some results?
 	if (empty($orderedids))
@@ -3300,15 +3604,15 @@ if ($_REQUEST['do'] == 'finduser')
 
 	// set display terms
 	$display = array(
-		'words' => array(),
+		'words'     => array(),
 		'highlight' => array(),
-		'common' => array(),
-		'users' => array($user['userid'] => $user['username']),
-		'forums' => iif($showforums, $display['forums'], 0),
-		'options' => array(
+		'common'    => array(),
+		'users'     => array($user['userid'] => $user['username']),
+		'forums'    => iif($showforums, $display['forums'], 0),
+		'options'   => array(
 			'starteronly' => $starteronly,
 			'childforums' => 1,
-			'action' => 'process'
+			'action'      => 'process'
 		)
 	);
 
@@ -3354,18 +3658,18 @@ if ($_POST['do'] == 'doprefs')
 		if ($vbulletin->GPC['saveprefs'])
 		{
 			$prefs = array(
-				'exactname' 	=> $vbulletin->GPC['exactname'],
-				'starteronly' 	=> $vbulletin->GPC['starteronly'],
-				'childforums' 	=> $vbulletin->GPC['childforums'],
-				'showposts' 	=> $vbulletin->GPC['showposts'],
-				'titleonly' 	=> $vbulletin->GPC['titleonly'],
-				'searchdate' 	=> $vbulletin->GPC['searchdate'],
-				'beforeafter' 	=> $vbulletin->GPC['beforeafter'],
-				'sortby' 		=> $vbulletin->GPC['sortby'],
-				'sortorder' 	=> $vbulletin->GPC['sortorder'],
-				'replyless' 	=> $vbulletin->GPC['replyless'],
-				'replylimit' 	=> $vbulletin->GPC['replylimit'],
-				'searchtype' 	=> $vbulletin->GPC['searchtype'],
+				'exactname'   => $vbulletin->GPC['exactname'],
+				'starteronly' => $vbulletin->GPC['starteronly'],
+				'childforums' => $vbulletin->GPC['childforums'],
+				'showposts'   => $vbulletin->GPC['showposts'],
+				'titleonly'   => $vbulletin->GPC['titleonly'],
+				'searchdate'  => $vbulletin->GPC['searchdate'],
+				'beforeafter' => $vbulletin->GPC['beforeafter'],
+				'sortby'      => $vbulletin->GPC['sortby'],
+				'sortorder'   => $vbulletin->GPC['sortorder'],
+				'replyless'   => $vbulletin->GPC['replyless'],
+				'replylimit'  => $vbulletin->GPC['replylimit'],
+				'searchtype'  => $vbulletin->GPC['searchtype'],
 			);
 
 			// init user data manager
@@ -3401,16 +3705,16 @@ if ($_POST['do'] == 'doprefs')
 	{
 		foreach (array_keys($globals) AS $varname)
 		{
-			if ($varname == 'forumchoice' AND is_array($vbulletin->GPC['forumchoice']))
+			if (is_array($vbulletin->GPC["$varname"]))
 			{
-				foreach ($vbulletin->GPC['forumchoice'] AS $_forumid)
+				foreach ($vbulletin->GPC["$varname"] AS $_cleanme)
 				{
-					$vbulletin->url .= "forumchoice[]=" . urlencode($_forumid) . "&amp;";
+					$vbulletin->url .= $varname . '[]=' . urlencode($_cleanme) . '&amp;';
 				}
 			}
 			else
 			{
-				$vbulletin->url .= "$varname=" . urlencode($vbulletin->GPC["$varname"]) . '&amp;';
+				$vbulletin->url .= $varname . '[]=' . urlencode($vbulletin->GPC["$varname"]) . '&amp;';
 			}
 		}
 		$vbulletin->url = substr($vbulletin->url, 0, -5);
@@ -3439,14 +3743,15 @@ if ($templatename != '')
 	($hook = vBulletinHook::fetch_hook('search_complete')) ? eval($hook) : false;
 
 	$navbits = construct_navbits($navbits);
+
 	eval('$navbar = "' . fetch_template('navbar') . '";');
 	eval('print_output("' . fetch_template($templatename) . '");');
 }
 
 /*======================================================================*\
 || ####################################################################
-|| # Downloaded: 18:52, Sat Jul 14th 2007
-|| # CVS: $RCSfile$ - $Revision: 16949 $
+|| # Downloaded: 16:21, Sat Apr 6th 2013
+|| # CVS: $RCSfile$ - $Revision: 26900 $
 || ####################################################################
 \*======================================================================*/
 ?>

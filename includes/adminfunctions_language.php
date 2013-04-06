@@ -1,9 +1,9 @@
 <?php
 /*======================================================================*\
 || #################################################################### ||
-|| # vBulletin 3.6.7 PL1 - Licence Number VBF2470E4F
+|| # vBulletin 3.7.2 Patch Level 2 - Licence Number VBF2470E4F
 || # ---------------------------------------------------------------- # ||
-|| # Copyright ©2000-2007 Jelsoft Enterprises Ltd. All Rights Reserved. ||
+|| # Copyright ©2000-2013 Jelsoft Enterprises Ltd. All Rights Reserved. ||
 || # This file may not be redistributed in whole or significant part. # ||
 || # ---------------- VBULLETIN IS NOT FREE SOFTWARE ---------------- # ||
 || # http://www.vbulletin.com | http://www.vbulletin.com/license.html # ||
@@ -105,7 +105,7 @@ function build_language_datastore()
 }
 
 /**
-* Reads a langauge or languages and updates the language db table with the denormalized phrase cache
+* Reads a language or languages and updates the language db table with the denormalized phrase cache
 *
 * @param	integer	ID of language to be built; if -1, build all
 * @param	integer	Not sure actually... any ideas?
@@ -443,7 +443,7 @@ function xml_import_language($xml = false, $languageid = -1, $title = '', $anyve
 
 	if ($skipped_groups)
 	{
-		$sql_skipped = "AND fieldname NOT IN ('" . implode("', '", $skipped_groups) . "')";
+		$sql_skipped = "AND " . TABLE_PREFIX . "phrase.fieldname NOT IN ('" . implode("', '", $skipped_groups) . "')";
 	}
 	else
 	{
@@ -545,6 +545,18 @@ function xml_import_language($xml = false, $languageid = -1, $title = '', $anyve
 					");
 
 					$vbulletin->db->query_write("
+						UPDATE " . TABLE_PREFIX . "phrase, " . TABLE_PREFIX . "phrase AS phrase2
+						SET " . TABLE_PREFIX . "phrase.languageid = -11
+						WHERE " . TABLE_PREFIX . "phrase.languageid = $languageid
+							AND (" . TABLE_PREFIX . "phrase.product = '" . $vbulletin->db->escape_string($langinfo['product']) . "'" . iif($langinfo['product'] == 'vbulletin', " OR " . TABLE_PREFIX . "phrase.product = ''") . ")
+							AND (phrase2.product = '" . $vbulletin->db->escape_string($langinfo['product']) . "'" . iif($langinfo['product'] == 'vbulletin', " OR phrase2.product = ''") . ")
+							AND " . TABLE_PREFIX . "phrase.varname = phrase2.varname
+							AND phrase2.languageid = 0
+							AND " . TABLE_PREFIX . "phrase.fieldname = phrase2.fieldname
+							$sql_skipped
+					");
+
+					$vbulletin->db->query_write("
 						UPDATE " . TABLE_PREFIX . "phrase SET
 							languageid = -10
 						WHERE languageid = $languageid
@@ -615,6 +627,11 @@ function xml_import_language($xml = false, $languageid = -1, $title = '', $anyve
 			{
 				$insertLanguageId = 0;
 			}
+			else if ($phrase['custom'])
+			{
+				// this is a custom phrase (language 0) -- we don't want it to end up in the custom language
+				continue;
+			}
 			else
 			{
 				$insertLanguageId = $languageid;
@@ -665,10 +682,18 @@ function xml_import_language($xml = false, $languageid = -1, $title = '', $anyve
 
 	unset($sql, $arr);
 
+	$vbulletin->db->query_write("
+		UPDATE IGNORE " . TABLE_PREFIX . "phrase
+		SET " . TABLE_PREFIX . "phrase.languageid = $languageid
+		WHERE " . TABLE_PREFIX . "phrase.languageid = -11
+			AND (" . TABLE_PREFIX . "phrase.product = '" . $vbulletin->db->escape_string($langinfo['product']) . "'" . iif($langinfo['product'] == 'vbulletin', " OR " . TABLE_PREFIX . "phrase.product = ''") . ")
+			$sql_skipped
+	");
+
 	// now delete any phrases that were moved into the temporary language for safe-keeping
 	$vbulletin->db->query_write("
 		DELETE FROM " . TABLE_PREFIX . "phrase
-		WHERE languageid = -10
+		WHERE languageid IN (-10, -11)
 			AND (product = '" . $vbulletin->db->escape_string($langinfo['product']) . "'" . iif($langinfo['product'] == 'vbulletin', " OR product = ''") . ")
 			$sql_skipped
 	");
@@ -731,12 +756,17 @@ function fetch_language_type_string($languageid, $title)
 *
 * @param	string	Needle
 * @param	string	Haystack
+* @param	boolean	True if you want to ignore case (case insensitive)
 *
 * @return	string	Highlighted HTML
 */
-function fetch_highlighted_search_results($searchstring, $text)
+function fetch_highlighted_search_results($searchstring, $text, $ignorecase = true)
 {
-	return preg_replace('/(' . preg_quote(htmlspecialchars_uni($searchstring), '/') . ')/siU', '<span class="col-i" style="text-decoration:underline;">\\1</span>', htmlspecialchars_uni($text));
+	return preg_replace(
+		'/(' . preg_quote(htmlspecialchars_uni($searchstring), '/') . ')/sU' . ($ignorecase ? 'i' : ''),
+		'<span class="col-i" style="text-decoration:underline;">\\1</span>',
+		htmlspecialchars_uni($text)
+	);
 }
 
 /**
@@ -911,8 +941,8 @@ function add_phrase_type($phrasegroup_name, $phrasegroup_title, $productid = 'vb
 
 /*======================================================================*\
 || ####################################################################
-|| # Downloaded: 18:52, Sat Jul 14th 2007
-|| # CVS: $RCSfile$ - $Revision: 15893 $
+|| # Downloaded: 16:21, Sat Apr 6th 2013
+|| # CVS: $RCSfile$ - $Revision: 26153 $
 || ####################################################################
 \*======================================================================*/
 ?>

@@ -1,14 +1,21 @@
 <?php
 /*======================================================================*\
 || #################################################################### ||
-|| # vBulletin 3.6.7 PL1 - Licence Number VBF2470E4F
+|| # vBulletin 3.7.2 Patch Level 2 - Licence Number VBF2470E4F
 || # ---------------------------------------------------------------- # ||
-|| # Copyright ©2000-2007 Jelsoft Enterprises Ltd. All Rights Reserved. ||
+|| # Copyright ©2000-2013 Jelsoft Enterprises Ltd. All Rights Reserved. ||
 || # This file may not be redistributed in whole or significant part. # ||
 || # ---------------- VBULLETIN IS NOT FREE SOFTWARE ---------------- # ||
 || # http://www.vbulletin.com | http://www.vbulletin.com/license.html # ||
 || #################################################################### ||
 \*======================================================================*/
+
+if (!isset($GLOBALS['vbulletin']->db))
+{
+	exit;
+}
+
+require_once(DIR . '/includes/functions_misc.php');
 
 // #############################################################################
 /**
@@ -101,40 +108,101 @@ function fetch_moderator_forum_options($topname = NULL, $displaytop = true, $dis
 *
 * @return	string	SQL condition
 */
-function fetch_moderator_forum_list_sql($modaction = '')
+function fetch_moderator_forum_list_sql($permission = '')
 {
 	global $vbulletin;
 
-	if ($vbulletin->userinfo['permissions']['adminpermissions'] & $vbulletin->bf_ugp_adminpermissions['ismoderator'])
+	$modperms = array();
+	foreach ($vbulletin->forumcache AS $mforumid => $null)
 	{
-		$sql = ' OR 1=1';
+		$forumperms = $vbulletin->userinfo['forumpermissions']["$mforumid"];
+		if (can_moderate($mforumid, $permission) AND $forumperms & $vbulletin->bf_ugp_forumpermissions['canview'])
+		{
+			$modforums[] = $mforumid;
+		}
+	}
+
+	if ($modforums)
+	{
+		return "thread.forumid IN(" . implode(", ", $modforums) . ")";
 	}
 	else
 	{
-		$forums = $vbulletin->db->query_read_slave("
-			SELECT DISTINCT forum.forumid
-			FROM " . TABLE_PREFIX . "forum AS forum, " . TABLE_PREFIX . "moderator AS moderator
-			WHERE FIND_IN_SET(moderator.forumid, forum.parentlist)
-				AND moderator.userid = " . $vbulletin->userinfo['userid'] . "
-				" . iif($modaction != '', "AND moderator.permissions & " . intval($vbulletin->bf_misc_moderatorpermissions["$modaction"]))
-		);
-
-		$sql = ' OR thread.forumid IN (0';
-		while ($forum = $vbulletin->db->fetch_array($forums))
-		{
-			$sql .= ",$forum[forumid]";
-		}
-		$sql .= ')';
+		return '';
 	}
-
-	return $sql;
 }
 
+/**
+* Returns a boolean to say whether the user is currently "authenticated" for moderation actions.
+* If the user is not a moderator, this will return true!
+*
+* @param	bool	Whether to update the table to reset the timeout
+*
+* @return	bool	Whether the user is validated or not
+*/
+
+function inlinemod_authenticated($updatetimeout = true)
+{
+	global $vbulletin;
+
+	$vbulletin->input->clean_array_gpc('c', array(
+		COOKIE_PREFIX . 'cpsession' => TYPE_STR,
+	));
+
+	// Only moderators can use the mog login part of login.php, for cases that use inlinemod but don't have this permission return true
+	if (!can_moderate() OR !$vbulletin->options['enable_inlinemod_auth'])
+	{
+		return true;
+	}
+
+	if (!empty($vbulletin->GPC[COOKIE_PREFIX . 'cpsession']))
+	{
+		$cpsession = $vbulletin->db->query_first("
+			SELECT * FROM " . TABLE_PREFIX . "cpsession
+			WHERE userid = " . $vbulletin->userinfo['userid'] . "
+				AND hash = '" . $vbulletin->db->escape_string($vbulletin->GPC[COOKIE_PREFIX . 'cpsession']) . "'
+				AND dateline > " . ($vbulletin->options['timeoutcontrolpanel'] ? intval(TIMENOW - $vbulletin->options['cookietimeout']) : intval(TIMENOW - 3600))
+		);
+
+		if (!empty($cpsession))
+		{
+			if($updatetimeout)
+			{
+				$vbulletin->db->query_write("
+					UPDATE LOW_PRIORITY " . TABLE_PREFIX . "cpsession
+					SET dateline = " . TIMENOW . "
+					WHERE userid = " . $vbulletin->userinfo['userid'] . "
+						AND hash = '" . $vbulletin->db->escape_string($vbulletin->GPC[COOKIE_PREFIX . 'cpsession']) . "'
+				");
+			}
+
+			return true;
+		}
+	}
+
+	return false;
+}
+
+/**
+* Shows the form for inline mod authentication.
+*/
+function show_inline_mod_login()
+{
+	global $vbulletin, $stylevar, $vbphrase, $show;
+
+	$formvars['url'] = $vbulletin->scriptpath;
+	$formvars['username'] = $vbulletin->userinfo['username'];
+	$postvars = construct_post_vars_html();
+
+	eval('$html = "' . fetch_template("threadadmin_authenticate") . '";');
+
+	standard_error($html);
+}
 
 /*======================================================================*\
 || ####################################################################
-|| # Downloaded: 18:52, Sat Jul 14th 2007
-|| # CVS: $RCSfile$ - $Revision: 14941 $
+|| # Downloaded: 16:21, Sat Apr 6th 2013
+|| # CVS: $RCSfile$ - $Revision: 26994 $
 || ####################################################################
 \*======================================================================*/
 ?>

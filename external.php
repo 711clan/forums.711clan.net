@@ -1,9 +1,9 @@
 <?php
 /*======================================================================*\
 || #################################################################### ||
-|| # vBulletin 3.6.7 PL1 - Licence Number VBF2470E4F
+|| # vBulletin 3.7.2 Patch Level 2 - Licence Number VBF2470E4F
 || # ---------------------------------------------------------------- # ||
-|| # Copyright ©2000–2007 Jelsoft Enterprises Ltd. All Rights Reserved. ||
+|| # Copyright ©2000–2013 Jelsoft Enterprises Ltd. All Rights Reserved. ||
 || # This file may not be redistributed in whole or significant part. # ||
 || # ---------------- VBULLETIN IS NOT FREE SOFTWARE ---------------- # ||
 || # http://www.vbulletin.com | http://www.vbulletin.com/license.html # ||
@@ -18,6 +18,7 @@ define('NOSHUTDOWNFUNC', 1);
 define('SKIP_SESSIONCREATE', 1);
 define('DIE_QUIETLY', 1);
 define('THIS_SCRIPT', 'external');
+define('CSRF_PROTECTION', true);
 
 // ################### PRE-CACHE TEMPLATES AND DATA ######################
 // get special phrase groups
@@ -40,6 +41,14 @@ $globaltemplates = array(
 
 // pre-cache templates used by specific actions
 $actiontemplates = array();
+
+// take the first of "forumids" and make it "forumid" for style stuff
+// see bug #22743
+if ($_REQUEST['forumids'])
+{
+	// quick way of getting the first value
+	$_REQUEST['forumid'] = intval($_REQUEST['forumids']);
+}
 
 // ######################### REQUIRE BACK-END ############################
 require_once('./global.php');
@@ -66,6 +75,7 @@ $vbulletin->input->clean_array_gpc('r', array(
 
 ($hook = vBulletinHook::fetch_hook('external_start')) ? eval($hook) : false;
 
+$vbulletin->GPC['type'] = strtoupper($vbulletin->GPC['type']);
 $description = $vbulletin->options['description'];
 $podcast = false;
 // check to see if there is a forum preference
@@ -86,7 +96,7 @@ if ($vbulletin->GPC['forumids'] != '')
 		if (isset($vbulletin->forumcache["$forumid"])
 			AND ($forumperms & $vbulletin->bf_ugp_forumpermissions['canview'])
 			AND ($forumperms & $vbulletin->bf_ugp_forumpermissions['canviewothers'])
-			AND ($forumperms & $vbulletin->bf_ugp_forumpermissions['canviewthreads'])
+			AND (($forumperms & $vbulletin->bf_ugp_forumpermissions['canviewthreads']) OR in_array($vbulletin->GPC['type'], array('JS', 'XML'))) // JS/XML only shows titles
 			AND verify_forum_password($forumid, $vbulletin->forumcache["$forumid"]['password'], false)
 		)
 		{
@@ -130,7 +140,7 @@ else
 		$forumperms =& $vbulletin->userinfo['forumpermissions']["$forumid"];
 		if ($forumperms & $vbulletin->bf_ugp_forumpermissions['canview']
 			AND ($forumperms & $vbulletin->bf_ugp_forumpermissions['canviewothers'])
-			AND ($forumperms & $vbulletin->bf_ugp_forumpermissions['canviewthreads'])
+			AND (($forumperms & $vbulletin->bf_ugp_forumpermissions['canviewthreads']) OR in_array($vbulletin->GPC['type'], array('JS', 'XML'))) // JS/XML only shows titles
 			AND verify_forum_password($forumid, $vbulletin->forumcache["$forumid"]['password'], false)
 		)
 		{
@@ -153,7 +163,6 @@ if (empty($forumchoice))
 	exit;
 }
 
-$vbulletin->GPC['type'] = strtoupper($vbulletin->GPC['type']);
 switch ($vbulletin->GPC['type'])
 {
 	case 'JS':
@@ -286,7 +295,7 @@ $hook_query_fields = $hook_query_joins = $hook_query_where = '';
 $threadcache = array();
 // query last threads from visible / chosen forums
 $threads = $db->query_read_slave("
-	SELECT thread.threadid, thread.title, post.attach,
+	SELECT thread.threadid, thread.title, thread.prefixid, post.attach,
 		" . ($vbulletin->GPC['lastpost']
 			? "thread.lastposter AS postusername, thread.lastpost AS dateline,"
 			: "thread.postusername, thread.dateline, podcastitem.*,")
@@ -318,6 +327,7 @@ $postids = array();
 while ($thread = $db->fetch_array($threads))
 { // fetch the threads
 	// remove sessionhash from urls:
+	$thread['prefix_plain'] = ($thread['prefixid'] ? $vbphrase["prefix_$thread[prefixid]_title_plain"] . ' ' : '');
 	$threadcache[] = $thread;
 	if ($thread['attach'])
 	{
@@ -382,7 +392,7 @@ if ($vbulletin->GPC['type'] == 'JS')
 	{
 		foreach ($threadcache AS $threadnum => $thread)
 		{
-			$thread['title'] = addslashes_js($thread['title']);
+			$thread['title'] = addslashes_js(htmlspecialchars_uni($thread['prefix_plain']) . $thread['title']);
 			$thread['poster'] = addslashes_js($thread['postusername']);
 			$output .= "\tthreads[$threadnum] = new thread($thread[threadid], '$thread[title]', '$thread[poster]', '" . addslashes_js(vbdate($vbulletin->options['dateformat'], $thread['dateline'])) . "', '" . addslashes_js(vbdate($vbulletin->options['timeformat'], $thread['dateline'])) . "');\r\n";
 		}
@@ -411,7 +421,7 @@ else if ($vbulletin->GPC['type'] == 'XML')
 		foreach ($threadcache AS $thread)
 		{
 			$xml->add_group('thread', array('id' => $thread['threadid']));
-				$xml->add_tag('title', unhtmlspecialchars($thread['title']));
+				$xml->add_tag('title', $thread['prefix_plain'] . unhtmlspecialchars($thread['title']));
 				$xml->add_tag('author', unhtmlspecialchars($thread['postusername']));
 				$xml->add_tag('date', vbdate($vbulletin->options['dateformat'], $thread['dateline']));
 				$xml->add_tag('time', vbdate($vbulletin->options['timeformat'], $thread['dateline']));
@@ -488,7 +498,7 @@ else if (in_array($vbulletin->GPC['type'], array('RSS', 'RSS1', 'RSS2')))
 				'rdf:about' => $vbulletin->options['bburl']
 			));
 				$xml->add_tag('title', $rsstitle);
-				$xml->add_tag('link', $vbulletin->options['bburl'], array(), false, true);;
+				$xml->add_tag('link', $vbulletin->options['bburl'], array(), false, true);
 				$xml->add_tag('description', $description);
 				$xml->add_tag('syn:updatePeriod', $updateperiod);
 				$xml->add_tag('syn:updateFrequency', $updatefrequency);
@@ -504,7 +514,7 @@ else if (in_array($vbulletin->GPC['type'], array('RSS', 'RSS1', 'RSS2')))
 				$xml->add_group('image');
 					$xml->add_tag('url', $rssicon);
 					$xml->add_tag('title', $rsstitle);
-					$xml->add_tag('link', $vbulletin->options['bburl'], array(), false, true);;
+					$xml->add_tag('link', $vbulletin->options['bburl'], array(), false, true);
 				$xml->close_group('image');
 			$xml->close_group('channel');
 
@@ -628,7 +638,7 @@ else if (in_array($vbulletin->GPC['type'], array('RSS', 'RSS1', 'RSS2')))
 			{
 				case 'RSS':
 					$xml->add_group('item');
-						$xml->add_tag('title', unhtmlspecialchars($thread['title']));
+						$xml->add_tag('title', $thread['prefix_plain'] . unhtmlspecialchars($thread['title']));
 						$xml->add_tag('link', $vbulletin->options['bburl'] . "/showthread.php?t=$thread[threadid]&goto=newpost", array(), false, true);
 						$xml->add_tag('description', "$vbphrase[forum]: " . unhtmlspecialchars($vbulletin->forumcache["$thread[forumid]"]['title_clean']) . "\r\n$vbphrase[posted_by]: " . unhtmlspecialchars($thread['postusername']) . "\r\n" .
 							construct_phrase($vbphrase['post_time_x_at_y'], vbdate($vbulletin->options['dateformat'], $thread['dateline']), vbdate($vbulletin->options['timeformat'], $thread['dateline'])));
@@ -636,7 +646,7 @@ else if (in_array($vbulletin->GPC['type'], array('RSS', 'RSS1', 'RSS2')))
 					break;
 				case 'RSS1':
 					$xml->add_group('item', array('rdf:about' => $vbulletin->options['bburl'] . "/showthread.php?t=$thread[threadid]"));
-						$xml->add_tag('title', unhtmlspecialchars($thread['title']));
+						$xml->add_tag('title', $thread['prefix_plain'] . unhtmlspecialchars($thread['title']));
 						$xml->add_tag('link', $vbulletin->options['bburl'] . "/showthread.php?t=$thread[threadid]&goto=newpost", array(), false, true);
 
 					$plaintext_parser =& new vB_BbCodeParser_PlainText($vbulletin, fetch_tag_list());
@@ -680,7 +690,7 @@ else if (in_array($vbulletin->GPC['type'], array('RSS', 'RSS1', 'RSS2')))
 					break;
 				case 'RSS2':
 					$xml->add_group('item');
-						$xml->add_tag('title', unhtmlspecialchars($thread['title']));
+						$xml->add_tag('title', $thread['prefix_plain'] . unhtmlspecialchars($thread['title']));
 						$xml->add_tag('link', $vbulletin->options['bburl'] . "/showthread.php?t=$thread[threadid]&goto=newpost", array(), false, true);
 						$xml->add_tag('pubDate', gmdate('D, d M Y H:i:s', $thread['dateline']) . ' GMT');
 
@@ -809,7 +819,7 @@ else if (in_array($vbulletin->GPC['type'], array('RSS', 'RSS1', 'RSS2')))
 	{
 		case 'XML':
 		case 'JS':
-			break;;
+			break;
 		case 'RSS1':
 			$xml->close_group('rdf:RDF');
 			$output .= $xml->output();
@@ -830,18 +840,24 @@ else if (in_array($vbulletin->GPC['type'], array('RSS', 'RSS1', 'RSS2')))
 	}
 }
 
-$db->query_write("
-	REPLACE INTO " . TABLE_PREFIX . "externalcache
-		(cachehash, dateline, text, headers, forumid)
-	VALUES
-		(
-			'" . $db->escape_string($cachehash) . "',
-			" . TIMENOW . ",
-			'" . $db->escape_string($output) . "',
-			'" . $db->escape_string(serialize($headers)) . "',
-			" . intval($podcastforumid) . "
-		)
-");
+$insert_cache = true;
+($hook = vBulletinHook::fetch_hook('external_complete')) ? eval($hook) : false;
+
+if ($insert_cache)
+{
+	$db->query_write("
+		REPLACE INTO " . TABLE_PREFIX . "externalcache
+			(cachehash, dateline, text, headers, forumid)
+		VALUES
+			(
+				'" . $db->escape_string($cachehash) . "',
+				" . TIMENOW . ",
+				'" . $db->escape_string($output) . "',
+				'" . $db->escape_string(serialize($headers)) . "',
+				" . intval($podcastforumid) . "
+			)
+	");
+}
 $db->close();
 
 foreach ($headers AS $header)
@@ -850,12 +866,10 @@ foreach ($headers AS $header)
 }
 echo $output;
 
-($hook = vBulletinHook::fetch_hook('external_complete')) ? eval($hook) : false;
-
 /*======================================================================*\
 || ####################################################################
-|| # Downloaded: 18:52, Sat Jul 14th 2007
-|| # CVS: $RCSfile$ - $Revision: 16381 $
+|| # Downloaded: 16:21, Sat Apr 6th 2013
+|| # CVS: $RCSfile$ - $Revision: 26934 $
 || ####################################################################
 \*======================================================================*/
 ?>

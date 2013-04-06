@@ -1,9 +1,9 @@
 <?php
 /*======================================================================*\
 || #################################################################### ||
-|| # vBulletin 3.6.7 PL1 - Licence Number VBF2470E4F
+|| # vBulletin 3.7.2 Patch Level 2 - Licence Number VBF2470E4F
 || # ---------------------------------------------------------------- # ||
-|| # Copyright ©2000-2007 Jelsoft Enterprises Ltd. All Rights Reserved. ||
+|| # Copyright ©2000-2013 Jelsoft Enterprises Ltd. All Rights Reserved. ||
 || # This file may not be redistributed in whole or significant part. # ||
 || # ---------------- VBULLETIN IS NOT FREE SOFTWARE ---------------- # ||
 || # http://www.vbulletin.com | http://www.vbulletin.com/license.html # ||
@@ -14,7 +14,7 @@
 error_reporting(E_ALL & ~E_NOTICE);
 
 // ##################### DEFINE IMPORTANT CONSTANTS #######################
-define('CVS_REVISION', '$RCSfile$ - $Revision: 15125 $');
+define('CVS_REVISION', '$RCSfile$ - $Revision: 26626 $');
 
 // #################### PRE-CACHE TEMPLATES AND DATA ######################
 $phrasegroups = array('bbcode');
@@ -22,7 +22,8 @@ $specialtemplates = array('bbcodecache');
 
 // ########################## REQUIRE BACK-END ############################
 require_once('./global.php');
-require_once('./includes/class_bbcode.php');
+require_once(DIR . '/includes/functions_misc.php');
+require_once(DIR . '/includes/class_bbcode.php');
 
 // ######################## CHECK ADMIN PERMISSIONS #######################
 if (!can_administer('canadminbbcodes'))
@@ -40,7 +41,14 @@ log_admin_action(iif($vbulletin->GPC['bbcodeid'] != 0, "bbcode id = " . $vbullet
 // ######################### START MAIN SCRIPT ############################
 // ########################################################################
 
-print_cp_header($vbphrase['bb_code_manager']);
+if ($_REQUEST['do'] != 'previewbbcode')
+{
+	print_cp_header($vbphrase['bb_code_manager']);
+}
+else
+{
+	print_cp_header();
+}
 
 if (empty($_REQUEST['do']))
 {
@@ -49,17 +57,21 @@ if (empty($_REQUEST['do']))
 
 // ########################################### ADD #####################################################
 
-if($_REQUEST['do'] == 'add')
+if ($_REQUEST['do'] == 'add')
 {
 	print_form_header('bbcode', 'insert');
 	print_table_header($vbphrase['add_new_bb_code']);
 	print_input_row($vbphrase['title'], 'title');
-	print_input_row($vbphrase['tag'], 'bbcodetag');
+	print_input_row($vbphrase['bb_code_tag_name'], 'bbcodetag');
 	print_textarea_row($vbphrase['replacement'], 'bbcodereplacement', '', 5, 60);
 	print_input_row($vbphrase['example'], 'bbcodeexample');
 	print_textarea_row($vbphrase['description'], 'bbcodeexplanation', '', 10, 60);
 	print_yes_no_row($vbphrase['use_option'], 'twoparams', 0);
 	print_input_row($vbphrase['button_image_desc'], 'buttonimage', '');
+	print_yes_no_row($vbphrase['remove_tag_if_empty'], 'options[strip_empty]', 1);
+	print_yes_no_row($vbphrase['disable_bbcode_in_bbcode'], 'options[stop_parse]', 0);
+	print_yes_no_row($vbphrase['disable_smilies_in_bbcode'], 'options[disable_smilies]', 0);
+	print_yes_no_row($vbphrase['disable_wordwrap_in_bbcode'], 'options[disable_wordwrap]', 0);
 	print_submit_row($vbphrase['save']);
 
 	print_form_header('', '');
@@ -69,16 +81,17 @@ if($_REQUEST['do'] == 'add')
 
 // ############################################## INSERT #########################################
 
-if($_POST['do'] == 'insert')
+if ($_POST['do'] == 'insert')
 {
 	$vbulletin->input->clean_array_gpc('p', array(
-		'title'				=> TYPE_STR,
-		'bbcodetag'			=> TYPE_STR,
-		'bbcodereplacement' => TYPE_STR,
-		'bbcodeexample'		=> TYPE_STR,
-		'bbcodeexplanation' => TYPE_STR,
-		'twoparams'			=> TYPE_INT,
-		'buttonimage'		=> TYPE_STR
+		'title'					=> TYPE_STR,
+		'bbcodetag'				=> TYPE_STR,
+		'bbcodereplacement' 	=> TYPE_STR,
+		'bbcodeexample'			=> TYPE_STR,
+		'bbcodeexplanation' 	=> TYPE_STR,
+		'twoparams'				=> TYPE_BOOL,
+		'buttonimage'			=> TYPE_STR,
+		'options'				=> TYPE_ARRAY_BOOL,
 	));
 
 	if (!$vbulletin->GPC['bbcodetag'] OR !$vbulletin->GPC['bbcodereplacement'] OR !$vbulletin->GPC['bbcodeexample'])
@@ -115,15 +128,16 @@ if($_POST['do'] == 'insert')
 	/*insert query*/
 	$db->query_write("
 		INSERT INTO " . TABLE_PREFIX . "bbcode
-			(bbcodetag, bbcodereplacement, bbcodeexample, bbcodeexplanation, twoparams, title, buttonimage)
+			(bbcodetag, bbcodereplacement, bbcodeexample, bbcodeexplanation, twoparams, title, buttonimage, options)
 		VALUES
-			('" . trim($db->escape_string($vbulletin->GPC['bbcodetag'])) . "',
-			'" . trim($db->escape_string($vbulletin->GPC['bbcodereplacement'])) . "',
-			'" . trim($db->escape_string($vbulletin->GPC['bbcodeexample'])) . "',
-			'" . trim($db->escape_string($vbulletin->GPC['bbcodeexplanation'])) . "',
-			'" . $vbulletin->GPC['twoparams'] . "',
+			('" . $db->escape_string($vbulletin->GPC['bbcodetag']) . "',
+			'" . $db->escape_string($vbulletin->GPC['bbcodereplacement']) . "',
+			'" . $db->escape_string($vbulletin->GPC['bbcodeexample']) . "',
+			'" . $db->escape_string($vbulletin->GPC['bbcodeexplanation']) . "',
+			'" . intval($vbulletin->GPC['twoparams']) . "',
 			'" . $db->escape_string($vbulletin->GPC['title']) . "',
-			'" . $db->escape_string($vbulletin->GPC['buttonimage']) . "')
+			'" . $db->escape_string($vbulletin->GPC['buttonimage']) . "',
+			" . convert_array_to_bits($vbulletin->GPC['options'], $vbulletin->bf_misc['bbcodeoptions']) . " )
 	");
 
 	build_bbcode_cache();
@@ -134,7 +148,7 @@ if($_POST['do'] == 'insert')
 
 // ##################################### EDIT ####################################
 
-if($_REQUEST['do'] == 'edit')
+if ($_REQUEST['do'] == 'edit')
 {
 	$vbulletin->input->clean_array_gpc('r', array(
 		'bbcodeid' 	=> TYPE_INT
@@ -157,21 +171,26 @@ if($_REQUEST['do'] == 'edit')
 	print_table_header(construct_phrase($vbphrase['x_y_id_z'], $vbphrase['bb_code'], $_bbcode['bbcodetag'], $_bbcode['bbcodeid']), 2, 0);
 	construct_hidden_code('bbcodeid', $vbulletin->GPC['bbcodeid']);
 	print_input_row($vbphrase['title'], 'title', $_bbcode['title']);
-	print_input_row($vbphrase['tag'], 'bbcodetag', $_bbcode['bbcodetag']);
+	print_input_row($vbphrase['bb_code_tag_name'], 'bbcodetag', $_bbcode['bbcodetag']);
 	print_textarea_row($vbphrase['replacement'], 'bbcodereplacement', $_bbcode['bbcodereplacement'], 5, 60);
 	print_input_row($vbphrase['example'], 'bbcodeexample', $_bbcode['bbcodeexample']);
 	print_textarea_row($vbphrase['description'], 'bbcodeexplanation', $_bbcode['bbcodeexplanation'], 10, 60);
 	print_yes_no_row($vbphrase['use_option'], 'twoparams', $_bbcode['twoparams']);
 	print_input_row($vbphrase['button_image_desc'], 'buttonimage', $_bbcode['buttonimage']);
+	print_yes_no_row($vbphrase['remove_tag_if_empty'], 'options[strip_empty]', (intval($_bbcode['options']) & $vbulletin->bf_misc['bbcodeoptions']['strip_empty']) ? 1 : 0 );
+	print_yes_no_row($vbphrase['disable_bbcode_in_bbcode'], 'options[stop_parse]', (intval($_bbcode['options']) & $vbulletin->bf_misc['bbcodeoptions']['stop_parse']) ? 1 : 0 );
+	print_yes_no_row($vbphrase['disable_smilies_in_bbcode'], 'options[disable_smilies]', (intval($_bbcode['options']) & $vbulletin->bf_misc['bbcodeoptions']['disable_smilies']) ? 1 : 0);
+	print_yes_no_row($vbphrase['disable_wordwrap_in_bbcode'], 'options[disable_wordwrap]', (intval($_bbcode['options']) & $vbulletin->bf_misc['bbcodeoptions']['disable_wordwrap']) ? 1 : 0);
 	print_submit_row($vbphrase['save']);
 
 	print_form_header('', '');
 	print_description_row('<span class="smallfont">' .$vbphrase['bb_code_explanations']. '</span>');
 	print_table_footer();
 }
+
 // ##################################### UPDATE ####################################
 
-if($_POST['do'] == 'doupdate')
+if ($_POST['do'] == 'doupdate')
 {
 	$vbulletin->input->clean_array_gpc('p', array(
 		'bbcodeid' 			=> TYPE_INT,
@@ -180,8 +199,9 @@ if($_POST['do'] == 'doupdate')
 		'bbcodereplacement' => TYPE_STR,
 		'bbcodeexample'		=> TYPE_STR,
 		'bbcodeexplanation' => TYPE_STR,
-		'twoparams'			=> TYPE_INT,
-		'buttonimage'		=> TYPE_STR
+		'twoparams'			=> TYPE_BOOL,
+		'buttonimage'		=> TYPE_STR,
+		'options'			=> TYPE_ARRAY_BOOL,
 	));
 
 	if (!$vbulletin->GPC['bbcodetag'] OR !$vbulletin->GPC['bbcodereplacement'])
@@ -223,7 +243,8 @@ if($_POST['do'] == 'doupdate')
 			bbcodeexample = '" . $db->escape_string($vbulletin->GPC['bbcodeexample']) . "',
 			bbcodeexplanation = '" . $db->escape_string($vbulletin->GPC['bbcodeexplanation']) . "',
 			twoparams = '" . $db->escape_string($vbulletin->GPC['twoparams']) . "',
-			buttonimage = '" . $db->escape_string($vbulletin->GPC['buttonimage']) . "'
+			buttonimage = '" . $db->escape_string($vbulletin->GPC['buttonimage']) . "',
+			options = " . convert_array_to_bits($vbulletin->GPC['options'], $vbulletin->bf_misc['bbcodeoptions']) . "
 		WHERE bbcodeid = " . $vbulletin->GPC['bbcodeid']
 	);
 
@@ -279,9 +300,26 @@ if ($_POST['do'] == 'test')
 	$_REQUEST['do'] = 'modify';
 }
 
-// ####################################### MODIFY #####################################
+// ########################################################################
+if ($_REQUEST['do'] == 'previewbbcode')
+{
+	define('NO_CP_COPYRIGHT', true);
 
-if($_REQUEST['do'] == 'modify')
+	$vbulletin->input->clean_array_gpc('r', array(
+		'bbcodeid' => TYPE_UINT
+	));
+
+	if ($bbcode = $vbulletin->db->query_first("SELECT * FROM " . TABLE_PREFIX . "bbcode WHERE bbcodeid = " . $vbulletin->GPC['bbcodeid']))
+	{
+		$parser =& new vB_BbCodeParser($vbulletin, fetch_tag_list());
+		$parsed_code = $parser->do_parse($bbcode['bbcodeexample'], false, false, true, false, true);
+
+		echo $parsed_code;
+	}
+}
+
+// ####################################### MODIFY #####################################
+if ($_REQUEST['do'] == 'modify')
 {
 	$parser =& new vB_BbCodeParser($vbulletin, fetch_tag_list());
 
@@ -302,7 +340,7 @@ if($_REQUEST['do'] == 'modify')
 			"<b>$bbcode[title]</b>",
 			"<div class=\"$altclass\" style=\"padding:2px; border:solid 1px; width:200px; height:75px; overflow:auto\"><span class=\"smallfont\">" . htmlspecialchars_uni($bbcode['bbcodeexample']) . '</span></div>',
 			"<div class=\"$altclass\" style=\"padding:2px; border:solid 1px; width:200px; height:75px; overflow:auto\"><span class=\"smallfont\">" . htmlspecialchars_uni($parsed_code) . '</span></div>',
-			$parsed_code
+			'<iframe src="bbcode.php?do=previewbbcode&amp;bbcodeid=' . $bbcode['bbcodeid'] . '" style="width:200px; height:75px;"></iframe>'
 		);
 
 		if ($bbcode['buttonimage'])
@@ -319,7 +357,7 @@ if($_REQUEST['do'] == 'modify')
 		{
 			$cell[] = $vbphrase['n_a'];
 		}
-		$cell[] = construct_link_code($vbphrase['edit'], "bbcode.php?" . $vbulletin->session->vars['sessionurl'] . "do=edit&bbcodeid=$bbcode[bbcodeid]") . construct_link_code($vbphrase['delete'],"bbcode.php?" . $vbulletin->session->vars['sessionurl'] . "do=remove&bbcodeid=$bbcode[bbcodeid]");
+		$cell[] = construct_link_code($vbphrase['edit'], "bbcode.php?" . $vbulletin->session->vars['sessionurl'] . "do=edit&amp;bbcodeid=$bbcode[bbcodeid]") . construct_link_code($vbphrase['delete'],"bbcode.php?" . $vbulletin->session->vars['sessionurl'] . "do=remove&amp;bbcodeid=$bbcode[bbcodeid]");
 		print_cells_row($cell, 0, $class, -4);
 	}
 
@@ -334,12 +372,14 @@ if($_REQUEST['do'] == 'modify')
 	}
 }
 
+// ########################################################################
+
 print_cp_footer();
 
 /*======================================================================*\
 || ####################################################################
-|| # Downloaded: 18:52, Sat Jul 14th 2007
-|| # CVS: $RCSfile$ - $Revision: 15125 $
+|| # Downloaded: 16:21, Sat Apr 6th 2013
+|| # CVS: $RCSfile$ - $Revision: 26626 $
 || ####################################################################
 \*======================================================================*/
 ?>

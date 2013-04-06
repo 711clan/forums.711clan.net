@@ -1,9 +1,9 @@
 <?php
 /*======================================================================*\
 || #################################################################### ||
-|| # vBulletin 3.6.7 PL1 - Licence Number VBF2470E4F
+|| # vBulletin 3.7.2 Patch Level 2 - Licence Number VBF2470E4F
 || # ---------------------------------------------------------------- # ||
-|| # Copyright ©2000-2007 Jelsoft Enterprises Ltd. All Rights Reserved. ||
+|| # Copyright ©2000-2013 Jelsoft Enterprises Ltd. All Rights Reserved. ||
 || # This file may not be redistributed in whole or significant part. # ||
 || # ---------------- VBULLETIN IS NOT FREE SOFTWARE ---------------- # ||
 || # http://www.vbulletin.com | http://www.vbulletin.com/license.html # ||
@@ -16,6 +16,7 @@ error_reporting(E_ALL & ~E_NOTICE);
 // #################### DEFINE IMPORTANT CONSTANTS #######################
 define('GET_EDIT_TEMPLATES', 'editsignature,updatesignature');
 define('THIS_SCRIPT', 'profile');
+define('CSRF_PROTECTION', true);
 
 // ################### PRE-CACHE TEMPLATES AND DATA ######################
 // get special phrase groups
@@ -50,6 +51,7 @@ $actiontemplates = array(
 		'userfield_select_multiple',
 		'userfield_textarea',
 		'userfield_textbox',
+		'userfield_wrapper',
 	),
 	'editoptions' => array(
 		'modifyoptions',
@@ -63,6 +65,7 @@ $actiontemplates = array(
 		'userfield_select_multiple',
 		'userfield_textarea',
 		'userfield_textbox',
+		'userfield_wrapper',
 	),
 	'editavatar' => array(
 		'modifyavatar',
@@ -71,10 +74,6 @@ $actiontemplates = array(
 		'modifyavatarbit',
 		'modifyavatarbit_custom',
 		'modifyavatarbit_noavatar',
-	),
-	'editlist' => array(
-		'modifylist',
-		'modifylistbit'
 	),
 	'editusergroups' => array(
 		'modifyusergroups',
@@ -108,14 +107,33 @@ $actiontemplates = array(
 		'modifyattachments'
 	),
 	'addlist' => array(
-		'modifylist',
-		'modifylistbit'
+		'modifyuserlist_confirm',
 	),
 	'removelist' => array(
-		'modifylist',
-		'modifylistbit'
+		'modifyuserlist_confirm',
+	),
+	'buddylist' => array(
+		'modifybuddylist',
+		'modifybuddylist_user',
+		'modifyuserlist_headinclude',
+	),
+	'ignorelist' => array(
+		'modifyignorelist',
+		'modifyignorelist_user',
+		'modifyuserlist_headinclude',
+	),
+	'customize' => array(
+		'memberinfo_usercss',
+		'modifyusercss',
+		'modifyusercss_backgroundbit',
+		'modifyusercss_backgroundrow',
+		'modifyusercss_bit',
+		'modifyusercss_error',
+		'modifyusercss_error_link',
+		'modifyusercss_headinclude',
 	),
 );
+$actiontemplates['docustomize'] = $actiontemplates['customize'];
 
 $actiontemplates['none'] =& $actiontemplates['editprofile'];
 
@@ -191,6 +209,36 @@ if ($_POST['do'] == 'dst')
 	eval(print_standard_redirect('redirect_dst'));
 }
 
+// ############################### toggle user css ###############################
+if ($_REQUEST['do'] == 'switchusercss')
+{
+	$vbulletin->input->clean_array_gpc('r', array(
+		'hash'     => TYPE_STR,
+		'userid'   => TYPE_UINT,
+	));
+
+	if (!verify_security_token($vbulletin->GPC['hash'], $vbulletin->userinfo['securitytoken_raw']))
+	{
+		print_no_permission();
+	}
+
+	if ($vbulletin->options['socnet'] & $vbulletin->bf_misc_socnet['enable_profile_styling'])
+	{
+		$userdata =& datamanager_init('User', $vbulletin, ERRTYPE_STANDARD);
+		$userdata->set_existing($vbulletin->userinfo);
+
+		$userdata->set_bitfield('options', 'showusercss', ($vbulletin->userinfo['options'] & $vbulletin->bf_misc_useroptions['showusercss'] ? 0 : 1));
+
+		$userdata->save();
+	}
+
+	if ($vbulletin->GPC['userid'] AND $vbulletin->url == $vbulletin->options['forumhome'] . '.php')
+	{
+		$vbulletin->url = 'member.php?' . $vbulletin->session->vars['sessionurl'] . 'u=' . $vbulletin->GPC['userid'];
+	}
+	eval(print_standard_redirect('redirect_usercss_toggled'));
+}
+
 // ############################################################################
 // ############################### EDIT PASSWORD ##############################
 // ############################################################################
@@ -258,6 +306,11 @@ if ($_POST['do'] == 'updatepassword')
 			$vbulletin->GPC['newpassword'] =& $vbulletin->GPC['newpassword_md5'];
 			$vbulletin->GPC['newpasswordconfirm'] =& $vbulletin->GPC['newpasswordconfirm_md5'];
 		}
+		else
+		{
+			$vbulletin->GPC['newpassword'] =& md5($vbulletin->GPC['newpassword']);
+			$vbulletin->GPC['newpasswordconfirm'] =& md5($vbulletin->GPC['newpasswordconfirm']);
+		}
 
 		// check that new passwords match
 		if ($vbulletin->GPC['newpassword'] != $vbulletin->GPC['newpasswordconfirm'])
@@ -272,7 +325,7 @@ if ($_POST['do'] == 'updatepassword')
 		}
 
 		// everything is good - send the singly-hashed MD5 to the password update routine
-		$userdata->set('password', ($vbulletin->GPC['newpassword_md5'] ? $vbulletin->GPC['newpassword_md5'] : $vbulletin->GPC['newpassword']));
+		$userdata->set('password', $vbulletin->GPC['newpassword']);
 
 		// Update cookie if we have one
 		$vbulletin->input->clean_array_gpc('c', array(
@@ -315,7 +368,7 @@ if ($_POST['do'] == 'updatepassword')
 				AND type = 0
 			");
 
-			if (!empty($activation_exists['usergroupid']))
+			if (!empty($activation_exists['usergroupid']) AND $vbulletin->userinfo['usergroupid'] == 3)
 			{
 				$usergroupid = $activation_exists['usergroupid'];
 			}
@@ -366,196 +419,1044 @@ else if ($_GET['do'] == 'updatepassword')
 // ############################################################################
 // ######################### EDIT BUDDY/IGNORE LISTS ##########################
 // ############################################################################
+if ($_REQUEST['do'] == 'addlist')
+{
+	$vbulletin->input->clean_array_gpc('r', array(
+		'userid'   => TYPE_UINT,
+		'userlist' => TYPE_NOHTML,
+	));
 
-// ############################### start remove from list ###############################
+	if ($vbulletin->GPC['userlist'] == 'friend' AND (!($vbulletin->options['socnet'] & $vbulletin->bf_misc_socnet['enable_friends']) OR !($vbulletin->userinfo['permissions']['genericpermissions2'] & $vbulletin->bf_ugp_genericpermissions2['canusefriends'])))
+	{
+		$vbulletin->GPC['userlist'] = 'buddy';
+	}
+
+	$show['friend_checkbox'] = false;
+	$userinfo = verify_id('user', $vbulletin->GPC['userid'], true, true, FETCH_USERINFO_ISFRIEND);
+	cache_permissions($userinfo);
+
+	if ($vbulletin->GPC['userlist'] == 'buddy' OR $vbulletin->GPC['userlist'] == 'friend')
+	{
+		// No slave here
+		$ouruser = $db->query_first("
+			SELECT friend
+			FROM " . TABLE_PREFIX . "userlist
+			WHERE relationid = $userinfo[userid]
+				AND userid = " . $vbulletin->userinfo['userid'] . "
+				AND type = 'buddy'
+		");
+		if ($vbulletin->GPC['userlist'] == 'friend')
+		{
+			if ($ouruser['friend'] == 'pending' OR $ouruser['friend'] == 'denied')
+			{	// We are pending friends
+				eval(print_standard_redirect('redirect_friendspending', true, true));
+			}
+			else if ($ouruser['friend'] == 'yes')
+			{	// We are already friends
+				eval(print_standard_redirect('redirect_friendsalready', true, true));
+			}
+			else if ($vbulletin->GPC['userid'] == $vbulletin->userinfo['userid'])
+			{ // You can't be friends with yourself
+				eval(print_standard_redirect('redirect_friendswithself', true, true));
+			}
+		}
+		else if ($ouruser)
+		{
+			if ($ouruser['friend'] == 'yes')
+			{
+				eval(print_standard_redirect('redirect_friendsalready', true, true));
+			}
+			else
+			{
+				eval(print_standard_redirect('redirect_contactsalready', true, true));
+			}
+		}
+	}
+
+	switch ($vbulletin->GPC['userlist'])
+	{
+		case 'friend':
+			$friend_checked = ' checked="checked"';
+		case 'buddy':
+			if ($userinfo['requestedfriend'])
+			{
+				$confirm_phrase = 'confirm_friendship_request_from_x';
+				$show['friend_checkbox'] = false;
+				$show['hiddenfriend'] = true;
+			}
+			else
+			{
+				$confirm_phrase = 'add_x_to_contacts_confirm';
+				$supplemental_phrase = 'also_send_friend_request_to_x';
+				$show['friend_checkbox'] = ($vbulletin->options['socnet'] & $vbulletin->bf_misc_socnet['enable_friends'] AND $userinfo['permissions']['genericpermissions2'] & $vbulletin->bf_ugp_genericpermissions2['canusefriends']);
+			}
+
+			construct_usercp_nav('buddylist');
+		break;
+		case 'ignore':
+			$uglist = $userinfo['usergroupid'] . (trim($userinfo['membergroupids']) ? ",$userinfo[membergroupids]" : '');
+			if (!$vbulletin->options['ignoremods'] AND can_moderate(0, '', $userinfo['userid'], $uglist) AND !($permissions['adminpermissions'] & $vbulletin->bf_ugp_adminpermissions['cancontrolpanel']))
+			{
+				standard_error(fetch_error('listignoreuser', $userinfo['username']));
+			}
+			else if ($vbulletin->userinfo['userid'] == $userinfo['userid'])
+			{
+				standard_error(fetch_error('cantlistself_ignore'));
+			}
+
+			$confirm_phrase = 'add_x_to_ignorelist_confirm';
+
+			construct_usercp_nav('ignorelist');
+		break;
+		default:
+			standard_error(fetch_error('invalidid', 'list', $vbulletin->options['contactuslink']));
+	}
+	$navbits[''] = $vbphrase['confirm_user_list_modification'];
+
+	// draw cp nav bar
+	$action = 'doaddlist';
+	$userid = $userinfo['userid'];
+	$userlist = $vbulletin->GPC['userlist'];
+	$url =& $vbulletin->url;
+	$templatename = 'modifyuserlist_confirm';
+}
+
 if ($_REQUEST['do'] == 'removelist')
 {
 	$vbulletin->input->clean_array_gpc('r', array(
-		'userid'	  => TYPE_UINT,
-		'userlist' => TYPE_NOHTML
+		'userid'   => TYPE_UINT,
+		'userlist' => TYPE_NOHTML,
 	));
 
-	// verify the kind of list requested
-	if ($vbulletin->GPC['userlist'] != 'buddy')
+	$show['friend_checkbox'] = false;
+	$userinfo = verify_id('user', $vbulletin->GPC['userid'], true, true);
+	cache_permissions($userinfo);
+
+	switch ($vbulletin->GPC['userlist'])
 	{
-		$userlist = 'ignorelist';
-		$show['buddylist'] = false;
+		case 'friend':
+			$confirm_phrase = 'remove_x_from_friendlist_confirm';
+			$supplemental_phrase = 'also_remove_x_from_contacts';
+			$show['friend_checkbox'] = true;
+
+			construct_usercp_nav('buddylist');
+		break;
+		case 'buddy':
+			$confirm_phrase = 'remove_x_from_contacts_confirm';
+			construct_usercp_nav('buddylist');
+		break;
+		case 'ignore':
+			$confirm_phrase = 'remove_x_from_ignorelist_confirm';
+			construct_usercp_nav('ignorelist');
+		break;
+		default:
+			standard_error(fetch_error('invalidid', 'list', $vbulletin->options['contactuslink']));
 	}
-	else
-	{
-		$userlist = 'buddylist';
-		$show['buddylist'] = true;
-	}
 
-	$_REQUEST['do'] = 'editlist';
+	$navbits[''] = $vbphrase['confirm_user_list_modification'];
 
-	($hook = vBulletinHook::fetch_hook('profile_removelist')) ? eval($hook) : false;
-}
-// ############################### start add to list ###############################
-else if ($_REQUEST['do'] == 'addlist')
-{
-	$vbulletin->input->clean_array_gpc('r', array(
-		'userid'	  => TYPE_UINT,
-		'userlist' => TYPE_NOHTML
-	));
-
-	// get info about requested user
-	$userinfo = verify_id('user', $vbulletin->GPC['userid'], 1, 1);
+	// draw cp nav bar
+	$action = 'doremovelist';
 	$userid = $userinfo['userid'];
-	$uglist = $userinfo['usergroupid'] . iif(trim($userinfo['membergroupids']), ",$userinfo[membergroupids]");
-
-	// verify the kind of list requested
-	if ($vbulletin->GPC['userlist'] != 'buddy')
-	{
-		$userlist = 'ignorelist';
-		$show['buddylist'] = false;
-
-		// can't add self to ignore list
-		if ($vbulletin->userinfo['userid'] == $vbulletin->GPC['userid'])
-		{
-			eval(standard_error(fetch_error("cantlistself_$userlist")));
-		}
-
-		// check we're not trying to ignore a staff member
-		if (!$vbulletin->options['ignoremods'] AND can_moderate(0, '', $userid, $uglist) AND !($permissions['adminpermissions'] & $vbulletin->bf_ugp_adminpermissions['cancontrolpanel']))
-		{
-			eval(standard_error(fetch_error('listignoreuser', $userinfo['username'])));
-		}
-	}
-	else
-	{
-		$userlist = 'buddylist';
-		$show['buddylist'] = true;
-	}
-
-	$_REQUEST['do'] = 'editlist';
-
-	($hook = vBulletinHook::fetch_hook('profile_addlist')) ? eval($hook) : false;
+	$userlist = $vbulletin->GPC['userlist'];
+	$url =& $vbulletin->url;
+	$templatename = 'modifyuserlist_confirm';
 }
-else
+
+// ############################### start add to list ###############################
+if ($_POST['do'] == 'doaddlist')
 {
-	// used in do=editlist
-	$userinfo = array();
-	$userlist = null;
+	$vbulletin->input->clean_array_gpc('p', array(
+		'userid'   => TYPE_UINT,
+		'userlist' => TYPE_NOHTML,
+		'friend'   => TYPE_BOOL,
+		'deny'     => TYPE_NOHTML,
+	));
+
+	$userinfo = verify_id('user', $vbulletin->GPC['userid'], true, true);
+	cache_permissions($userinfo);
+
+	($hook = vBulletinHook::fetch_hook('profile_doaddlist_start')) ? eval($hook) : false;
+
+	// no referring URL, send them back to the profile page
+	if ($vbulletin->url == $vbulletin->options['forumhome'] . '.php')
+	{
+		$vbulletin->url = 'member.php?' . $vbulletin->session->vars['sessionurl'] . "u=$userinfo[userid]";
+	}
+
+	// No was clicked
+	if ($vbulletin->GPC['deny'])
+	{
+		eval(print_standard_redirect('action_cancelled'));
+	}
+
+	if ($vbulletin->GPC['userlist'] != 'ignore')
+	{
+		$vbulletin->GPC['userlist'] = $vbulletin->GPC['friend'] ? 'friend' : 'buddy';
+	}
+
+	if ($vbulletin->GPC['userlist'] == 'friend' AND (!($vbulletin->options['socnet'] & $vbulletin->bf_misc_socnet['enable_friends']) OR !($userinfo['permissions']['genericpermissions2'] & $vbulletin->bf_ugp_genericpermissions2['canusefriends']) OR !($vbulletin->userinfo['permissions']['genericpermissions2'] & $vbulletin->bf_ugp_genericpermissions2['canusefriends'])))
+	{
+		$vbulletin->GPC['userlist'] = 'buddy';
+	}
+
+	$users = array();
+	switch ($vbulletin->GPC['userlist'])
+	{
+		case 'friend':
+		case 'buddy':
+
+			// No slave here
+			$ouruser = $db->query_first("
+				SELECT friend
+				FROM " . TABLE_PREFIX . "userlist
+				WHERE relationid = $userinfo[userid]
+					AND userid = " . $vbulletin->userinfo['userid'] . "
+					AND type = 'buddy'
+			");
+		break;
+		case 'ignore':
+			$uglist = $userinfo['usergroupid'] . (trim($userinfo['membergroupids']) ? ",$userinfo[membergroupids]" : '');
+			if (!$vbulletin->options['ignoremods'] AND can_moderate(0, '', $userinfo['userid'], $uglist) AND !($permissions['adminpermissions'] & $vbulletin->bf_ugp_adminpermissions['cancontrolpanel']))
+			{
+				standard_error(fetch_error('listignoreuser', $userinfo['username']));
+			}
+			else if ($vbulletin->userinfo['userid'] == $userinfo['userid'])
+			{
+				standard_error(fetch_error('cantlistself_ignore'));
+			}
+
+			$db->query_write("
+				INSERT IGNORE INTO " . TABLE_PREFIX . "userlist
+					(userid, relationid, type, friend)
+				VALUES
+					(" . $vbulletin->userinfo['userid'] . ", " . intval($userinfo['userid']) . ", 'ignore', 'no')
+			");
+			$users[] = $vbulletin->userinfo['userid'];
+			$redirect_phrase = 'redirect_addlist_ignore';
+		break;
+		default:
+			standard_error(fetch_error('invalidid', 'list', $vbulletin->options['contactuslink']));
+	}
+
+	if ($vbulletin->GPC['userlist'] == 'buddy')
+	{ // if an entry exists already then we're fine
+		if (empty($ouruser))
+		{
+			$db->query_write("
+				INSERT IGNORE INTO " . TABLE_PREFIX . "userlist
+					(userid, relationid, type, friend)
+				VALUES
+					(" . $vbulletin->userinfo['userid'] . ", " . intval($userinfo['userid']) . ", 'buddy', 'no')
+			");
+			$users[] = $vbulletin->userinfo['userid'];
+		}
+		$redirect_phrase = 'redirect_addlist_contact';
+	}
+	else if ($vbulletin->GPC['userlist'] == 'friend')
+	{
+		if ($ouruser['friend'] == 'pending' OR $ouruser['friend'] == 'denied')
+		{	// We are pending friends
+			eval(print_standard_redirect('redirect_friendspending', true, true));
+		}
+		else if ($ouruser['friend'] == 'yes')
+		{	// We are already friends
+			eval(print_standard_redirect('redirect_friendsalready', true, true));
+		}
+		else if ($vbulletin->GPC['userid'] == $vbulletin->userinfo['userid'])
+		{ // You can't be friends with yourself
+			eval(print_standard_redirect('redirect_friendswithself', true, true));
+		}
+
+		// No slave here
+		if ($db->query_first("
+			SELECT friend
+			FROM " . TABLE_PREFIX . "userlist
+			WHERE userid = $userinfo[userid]
+				AND relationid = " . $vbulletin->userinfo['userid'] . "
+				AND type = 'buddy'
+				AND (friend = 'pending' OR friend = 'denied')
+		"))
+		{
+			// Make us friends
+			$db->query_write("
+				REPLACE INTO " . TABLE_PREFIX . "userlist
+					(userid, relationid, type, friend)
+				VALUES
+					({$vbulletin->userinfo['userid']}, $userinfo[userid], 'buddy', 'yes'),
+					($userinfo[userid], {$vbulletin->userinfo['userid']}, 'buddy', 'yes')
+			");
+
+			$db->query_write("
+				UPDATE " . TABLE_PREFIX . "user
+				SET friendcount = friendcount + 1
+				WHERE userid IN ($userinfo[userid], " . $vbulletin->userinfo['userid'] . ")
+			");
+
+			$db->query_write("
+				UPDATE " . TABLE_PREFIX . "user
+				SET friendreqcount = IF(friendreqcount > 0, friendreqcount - 1, 0)
+				WHERE userid = " . $vbulletin->userinfo['userid']
+			);
+
+			$users[] = $vbulletin->userinfo['userid'];
+			$users[] = $userinfo['userid'];
+			$redirect_phrase = 'redirect_friendadded';
+		}
+		else
+		{
+			$db->query_write("
+				REPLACE INTO " . TABLE_PREFIX . "userlist
+					(userid, relationid, type, friend)
+				VALUES
+					({$vbulletin->userinfo['userid']}, $userinfo[userid], 'buddy', 'pending')
+			");
+
+			$cansendemail = (($userinfo['adminemail'] OR $userinfo['showemail']) AND $vbulletin->options['enableemail'] AND $vbulletin->userinfo['permissions']['genericpermissions'] & $vbulletin->bf_ugp_genericpermissions['canemailmember']);
+			if ($cansendemail AND $userinfo['options'] & $vbulletin->bf_misc_useroptions['receivefriendemailrequest'])
+			{
+				$touserinfo =& $userinfo;
+				$fromuserinfo =& $vbulletin->userinfo;
+
+
+				eval(fetch_email_phrases('friendship_request_email', $touserinfo['languageid']));
+				require_once(DIR . '/includes/class_bbcode_alt.php');
+				$plaintext_parser =& new vB_BbCodeParser_PlainText($vbulletin, fetch_tag_list());
+				$plaintext_parser->set_parsing_language($touserinfo['languageid']);
+				$message = $plaintext_parser->parse($message, 'privatemessage');
+				vbmail($touserinfo['email'], $subject, $message);
+			}
+
+			$db->query_write("
+				UPDATE " . TABLE_PREFIX . "user
+				SET friendreqcount = friendreqcount + 1
+				WHERE userid = " . $userinfo['userid']
+			);
+
+			$users[] = $vbulletin->userinfo['userid'];
+			$redirect_phrase = 'redirect_friendrequested';
+		}
+	}
+
+	require_once(DIR . '/includes/functions_databuild.php');
+	foreach($users AS $userid)
+	{
+		build_userlist($userid);
+	}
+
+	($hook = vBulletinHook::fetch_hook('profile_doaddlist_complete')) ? eval($hook) : false;
+
+	eval(print_standard_redirect($redirect_phrase, true, true));
+}
+
+if ($_POST['do'] == 'doremovelist')
+{
+	$vbulletin->input->clean_array_gpc('p', array(
+		'userid'   => TYPE_UINT,
+		'userlist' => TYPE_NOHTML,
+		'friend'   => TYPE_BOOL,
+		'deny'     => TYPE_NOHTML,
+	));
+
+	$userinfo = verify_id('user', $vbulletin->GPC['userid'], true, true);
+	cache_permissions($userinfo);
+
+	($hook = vBulletinHook::fetch_hook('profile_doremovelist_start')) ? eval($hook) : false;
+
+	// no referring URL, send them back to the profile page
+	if ($vbulletin->url == $vbulletin->options['forumhome'] . '.php')
+	{
+		$vbulletin->url = 'member.php?' . $vbulletin->session->vars['sessionurl'] . "u=$userinfo[userid]";
+	}
+
+	// No was clicked
+	if ($vbulletin->GPC['deny'])
+	{
+		eval(print_standard_redirect('action_cancelled'));
+	}
+
+	$users = array();
+	switch ($vbulletin->GPC['userlist'])
+	{
+		case 'friend':
+			$db->query_write("
+				UPDATE " . TABLE_PREFIX . "userlist
+				SET friend = 'no'
+				WHERE userid = " . $vbulletin->userinfo['userid'] . "
+					AND relationid = $userinfo[userid]
+					AND type = 'buddy'
+					AND friend = 'yes'
+			");
+			if ($db->affected_rows())
+			{
+				$users[] = $vbulletin->userinfo['userid'];
+				$db->query_write("
+					UPDATE " . TABLE_PREFIX . "userlist
+					SET friend = 'no'
+					WHERE relationid = " . $vbulletin->userinfo['userid'] . "
+						AND userid = $userinfo[userid]
+						AND type = 'buddy'
+						AND friend = 'yes'
+				");
+				if ($db->affected_rows())
+				{
+					$users[] = $userinfo['userid'];
+				}
+				$db->query_write("
+					UPDATE " . TABLE_PREFIX . "user
+					SET friendcount = IF(friendcount >= 1, friendcount - 1, 0)
+					WHERE userid IN(" . implode(", ", $users) . ")
+						AND friendcount <> 0
+				");
+			}
+			// this option actually means remove buddy in this case, do don't break so we fall through.
+			if (!$vbulletin->GPC['friend'])
+			{
+				break;
+			}
+		case 'buddy':
+			$db->query_write("
+				DELETE FROM " . TABLE_PREFIX . "userlist
+				WHERE userid = " . $vbulletin->userinfo['userid'] . "
+					AND relationid = $userinfo[userid]
+					AND type = 'buddy'
+			");
+			if ($db->affected_rows())
+			{
+				$users[] = $vbulletin->userinfo['userid'];
+
+				// The user could have been a friend too
+				list($pendingcount) = $db->query_first("
+					SELECT COUNT(*)
+					FROM " . TABLE_PREFIX . "userlist AS userlist
+					LEFT JOIN " . TABLE_PREFIX . "userlist AS userlist_ignore ON(userlist_ignore.userid = " . $userinfo['userid'] . " AND userlist_ignore.relationid = userlist.userid AND userlist_ignore.type = 'ignore')
+					WHERE userlist.relationid = " . $userinfo['userid'] . "
+						AND userlist.type = 'buddy'
+						AND userlist.friend = 'pending'
+						AND userlist_ignore.type IS NULL", DBARRAY_NUM
+				);
+
+				$db->query_write("
+					UPDATE " . TABLE_PREFIX . "user
+					SET friendreqcount = $pendingcount
+					WHERE userid = " . $userinfo['userid']
+				);
+			}
+		break;
+		case 'ignore':
+			$db->query_write("
+				DELETE FROM " . TABLE_PREFIX . "userlist
+				WHERE userid = " . $vbulletin->userinfo['userid'] . "
+					AND relationid = $userinfo[userid]
+					AND type = 'ignore'
+			");
+			if ($db->affected_rows())
+			{
+				$users[] = $vbulletin->userinfo['userid'];
+			}
+		break;
+		default:
+			standard_error(fetch_error('invalidid', 'list', $vbulletin->options['contactuslink']));
+	}
+
+	require_once(DIR . '/includes/functions_databuild.php');
+	foreach($users AS $userid)
+	{
+		build_userlist($userid);
+	}
+
+	($hook = vBulletinHook::fetch_hook('profile_doremovelist_complete')) ? eval($hook) : false;
+
+	eval(print_standard_redirect('redirect_removelist_' . $vbulletin->GPC['userlist'], true, true));
 }
 
 // ############################### start update list ###############################
 if ($_POST['do'] == 'updatelist')
 {
 	$vbulletin->input->clean_array_gpc('p', array(
-		'userlist' => TYPE_NOHTML,
-		'listbits' => TYPE_ARRAY_NOHTML,
-		'ajax'     => TYPE_BOOL,
+		'userlist'       => TYPE_NOHTML,
+		'listbits'       => TYPE_ARRAY_ARRAY,
+		'username'       => TYPE_NOHTML,
+		'ajax'           => TYPE_BOOL,
+		'makefriends'    => TYPE_BOOL, // value doesn't matter since we're using GPC_exists
+		'incomingaction' => TYPE_NOHTML,
 	));
 
-	if ($vbulletin->GPC['userlist'] != 'buddy')
+	$list_types = array('buddy', 'ignore');
+
+	$clean_lists = array();
+
+	foreach ($vbulletin->GPC['listbits'] AS $type => $val)
 	{
-		$vbulletin->GPC['userlist'] = 'ignore';
+		$clean_lists["$type"] = array_map('intval', array_keys($vbulletin->GPC['listbits']["$type"]));
 	}
-	$var = $vbulletin->GPC['userlist'] . 'list';
+
+	$remove = $add = array();
+	$remove['friend'] = $remove['buddy'] = $remove['ignore'] = $remove['approvals'] = array();
 
 	($hook = vBulletinHook::fetch_hook('profile_updatelist_start')) ? eval($hook) : false;
 
-	// cache exiting list user ids
-	unset($useridcache);
-	$ids = str_replace(' ', ',', trim($vbulletin->userinfo["$var"]));
-	if ($ids != '')
-	{
-		$users = $db->query_read("
-			SELECT username, usergroupid, user.userid, moderator.userid as moduserid
-			FROM " . TABLE_PREFIX . "user AS user
-			LEFT JOIN " . TABLE_PREFIX . "moderator AS moderator ON(user.userid = moderator.userid)
-			WHERE user.userid IN($ids)
-		");
-		while ($user = $db->fetch_array($users))
+	if ($vbulletin->GPC['userlist'] == 'buddy')
+	{ // FRIENDS LIST, BUDDY LIST or PENDING FRIENDS
+		foreach ($clean_lists AS $type => $val)
 		{
-			$user['username'] = strtolower($user['username']);
-			$useridcache["{$user['username']}"] = $user;
-		}
-	}
-
-	if (sizeof($vbulletin->GPC['listbits']) > 1000)
-	{
-		eval(standard_error(fetch_error('listlimit')));
-	}
-
-	$listids = '';
-	foreach ($vbulletin->GPC['listbits'] AS $key => $val)
-	{
-		if ($vbulletin->GPC['ajax'])
-		{
-			$val = convert_urlencoded_unicode($val);
-		}
-
-		$val = $db->escape_string(strtolower($val));
-
-		if (!empty($val))
-		{
-			($hook = vBulletinHook::fetch_hook('profile_updatelist_user')) ? eval($hook) : false;
-
-			if (!is_array($useridcache["$val"]))
+			switch ($type)
 			{
-				if ($userid = $db->query_first("
-					SELECT userid, username, usergroupid, membergroupids
-					FROM " . TABLE_PREFIX . "user AS user
-					WHERE username = '$val'
-				"))
-				{
-					$useridcache["$val"] = $userid;
+				case 'friend_original':
+				{ // someone who is currently my friend, if they are missing then I dont want to be their friend
+					if (sizeof($clean_lists['friend_original']) != sizeof($clean_lists['friend']))
+					{
+						$remove['friend'] = array_merge($remove['friend'], array_diff($clean_lists['friend_original'], (is_array($clean_lists['friend']) ? $clean_lists['friend'] : array())));
+					}
 				}
+				break;
+
+				case 'buddy_original':
+				{ // someone who is simply just a buddy or has denied me friend access, if they are missing from the buddy then they were deleted
+					if (sizeof($clean_lists['buddy_original']) != sizeof($clean_lists['buddy']))
+					{
+						$remove['buddy'] = array_merge($remove['buddy'], array_diff($clean_lists['buddy_original'], (is_array($clean_lists['buddy']) ? $clean_lists['buddy'] : array())));
+					}
+				}
+				break;
+
+				default:
+					($hook = vBulletinHook::fetch_hook('profile_updatelist_listtype')) ? eval($hook) : false;
+				break;
+			}
+		}
+
+		if (!empty($vbulletin->GPC['username']))
+		{ // friend request
+			if ($vbulletin->GPC['ajax'])
+			{
+				$vbulletin->GPC['username'] = convert_urlencoded_unicode($vbulletin->GPC['username']);
+			}
+
+			if ($userinfo = $db->query_first("
+				SELECT user.userid, userlist.friend, user.options, user.username, user.membergroupids, user.usergroupid, user.email, user.languageid
+				FROM " . TABLE_PREFIX . "user AS user
+				LEFT JOIN " . TABLE_PREFIX . "userlist AS userlist ON (userlist.relationid = user.userid AND userlist.userid = " . $vbulletin->userinfo['userid'] . " AND type = 'buddy')
+				WHERE username = '" . $db->escape_string(vbstrtolower($vbulletin->GPC['username'])) . "'
+			") AND (!$vbulletin->GPC_exists['makefriends'] OR $userinfo['userid'] != $vbulletin->userinfo['userid']))
+			{ // user exists and its either not making friends or the user id is different
+				$userinfo = array_merge($userinfo , convert_bits_to_array($userinfo['options'] , $vbulletin->bf_misc_useroptions));
+				$cansendemail = (($userinfo['adminemail'] OR $userinfo['showemail']) AND $vbulletin->options['enableemail'] AND $vbulletin->userinfo['permissions']['genericpermissions'] & $vbulletin->bf_ugp_genericpermissions['canemailmember']);
+
+				cache_permissions($userinfo);
+
+				if
+				(
+					$vbulletin->GPC_exists['makefriends']
+					AND $vbulletin->options['socnet'] & $vbulletin->bf_misc_socnet['enable_friends']
+					AND $vbulletin->userinfo['permissions']['genericpermissions2'] & $vbulletin->bf_ugp_genericpermissions2['canusefriends']
+					AND $userinfo['permissions']['genericpermissions2'] & $vbulletin->bf_ugp_genericpermissions2['canusefriends']
+				)
+				{ // Only add the request if its not there
+					if (empty($userinfo['friend']) OR $userinfo['friend'] == 'no')
+					{
+						$add['friend']["$userinfo[userid]"] = $userinfo;
+						$show['pending'] = true;
+					}
+				}
+				else
+				{ // regular buddy
+					if (empty($userinfo['friend']))
+					{ // we're not already a buddy so re-add it
+						$add['buddy']["$userinfo[userid]"] = $userinfo;
+					}
+				}
+			}
+			else if ($userinfo['userid'] == $vbulletin->userinfo['userid'])
+			{
+				eval(standard_error(fetch_error('friendswithself')));
 			}
 			else
 			{
-				$userid = $useridcache["$val"];
+				eval(standard_error(fetch_error('listbaduser', $vbulletin->GPC['username'], $vbulletin->session->vars['sessionurl_q'])));
 			}
-			if ($userid['userid'])
+		}
+
+		// Friends we've checked through this method will already be on the buddy list, since you can't have a friend without a buddy.
+		if (is_array($clean_lists['friend']))
+		{
+			$newuser = array();
+			foreach ($clean_lists['friend'] AS $userid)
 			{
-				$uglist = $userid['usergroupid'] . iif(trim($userid['membergroupids']), ",$userid[membergroupids]");
-				if ($var == 'ignorelist' AND !$vbulletin->options['ignoremods'] AND can_moderate(0, '', $userid['userid'], $uglist) AND !($permissions['adminpermissions'] & $vbulletin->bf_ugp_adminpermissions['cancontrolpanel']))
+				if (!isset($clean_lists['friend_original']["$userid"]))
 				{
-					eval(standard_error(fetch_error('listignoreuser', $userid['username'])));
+					$newuser[] = $userid;
 				}
-				else if ($vbulletin->GPC['userlist'] == 'ignore' AND $vbulletin->userinfo['userid'] == $userid['userid']) // this code only prevents users from adding themselves to their ignore list
-				// else if ($vbulletin->userinfo['userid'] == $userid['userid']) // this code prevents users from adding themselves to their ignore AND buddy lists
+			}
+
+			if (!empty($newuser))
+			{
+				$userdata = $db->query_read("
+					SELECT user.userid, userlist.friend, user.options, user.username, user.membergroupids, user.usergroupid, user.email, user.languageid
+					FROM " . TABLE_PREFIX . "user AS user
+					LEFT JOIN " . TABLE_PREFIX . "userlist AS userlist ON (userlist.relationid = user.userid AND userlist.userid = " . $vbulletin->userinfo['userid'] . " AND type = 'buddy')
+					WHERE user.userid IN (" . implode(',', $newuser) . ")
+				");
+				while ($userinfo = $db->fetch_array($userdata))
 				{
-					eval(standard_error(fetch_error('cantlistself_' . $vbulletin->GPC['userlist'])));
+					cache_permissions($userinfo);
+					if
+					(
+					!($vbulletin->options['socnet'] & $vbulletin->bf_misc_socnet['enable_friends'])
+					OR !($vbulletin->userinfo['permissions']['genericpermissions2'] & $vbulletin->bf_ugp_genericpermissions2['canusefriends'])
+					OR !($userinfo['permissions']['genericpermissions2'] & $vbulletin->bf_ugp_genericpermissions2['canusefriends'])
+					OR $vbulletin->userinfo['userid'] == $userinfo['userid']
+					)
+					{
+						continue;
+					}
+
+					if (empty($userinfo['friend']) OR $userinfo['friend'] == 'no')
+					{
+						$add['friend']["$userinfo[userid]"] = $userinfo;
+						$show['pending'] = true;
+					}
+				}
+			}
+		}
+	}
+	else if ($vbulletin->GPC['userlist'] == 'incoming')
+	{ // APPROVAL OF NEW FRIENDS
+		if (is_array($clean_lists['incoming']))
+		{
+			foreach ($clean_lists['incoming'] AS $userid)
+			{
+				if ($vbulletin->GPC['incomingaction'] == 'accept')
+				{
+					$add['approvals']["$userid"] = $userid;
 				}
 				else
 				{
-					if (empty($done["{$userid['userid']}"]))
+					$remove['approvals']["$userid"] = $userid;
+				}
+			}
+		}
+	}
+	else
+	{ // IGNORE LIST
+		$vbulletin->GPC['userlist'] = 'ignore';
+		if (!empty($clean_lists['ignore_original']))
+		{
+			$remove['ignore'] = array_merge($remove['ignore'], array_diff($clean_lists['ignore_original'], (is_array($clean_lists['ignore']) ? $clean_lists['ignore'] : array())));
+		}
+
+		if (!empty($vbulletin->GPC['username']))
+		{
+			if ($vbulletin->GPC['ajax'])
+			{
+				$vbulletin->GPC['username'] = convert_urlencoded_unicode($vbulletin->GPC['username']);
+			}
+
+			if ($userinfo = $db->query_first("
+				SELECT userid, username, usergroupid, membergroupids
+				FROM " . TABLE_PREFIX . "user AS user
+				WHERE username = '" . $db->escape_string(vbstrtolower($vbulletin->GPC['username'])) . "'
+			"))
+			{
+				$uglist = $userinfo['usergroupid'] . iif(trim($userinfo['membergroupids']), ",$userinfo[membergroupids]");
+				if (!$vbulletin->options['ignoremods'] AND can_moderate(0, '', $userinfo['userid'], $uglist) AND !($permissions['adminpermissions'] & $vbulletin->bf_ugp_adminpermissions['cancontrolpanel']))
+				{
+					eval(standard_error(fetch_error('listignoreuser', $userinfo['username'])));
+				}
+				else if ($vbulletin->userinfo['userid'] == $userinfo['userid'])
+				{
+					eval(standard_error(fetch_error('cantlistself_ignore')));
+				}
+				$add['ignore']["$userinfo[userid]"] = $userinfo;
+			}
+			else
+			{
+				eval(standard_error(fetch_error('listbaduser', $vbulletin->GPC['username'], $vbulletin->session->vars['sessionurl_q'])));
+			}
+		}
+	}
+
+	/*
+		$remove['buddy'] contains records of people to delete entries on our side for
+		$remove['ignore'] contains people we want to take off of our list
+	*/
+	$rebuild_friendreqcount = array();
+
+	($hook = vBulletinHook::fetch_hook('profile_updatelist_process')) ? eval($hook) : false;
+
+	if (!empty($remove['approvals']))
+	{
+		$db->query_write("
+			UPDATE " . TABLE_PREFIX . "userlist
+			SET friend = 'denied'
+			WHERE type = 'buddy'
+				AND friend = 'pending'
+				AND relationid = " . $vbulletin->userinfo['userid']  . "
+				AND userid IN (" . implode(',', $remove['approvals']) . ")
+		");
+		$rebuild_friendreqcount[$vbulletin->userinfo['userid']] = true;
+	}
+
+	if (!empty($remove['buddy']) OR !empty($remove['ignore']) OR !empty($remove['friend']))
+	{
+		if (!empty($remove['buddy']))
+		{
+			/* Deal with friend request count */
+			$decrement_friends = array();
+			$friends = $db->query_read("
+				SELECT *
+				FROM " . TABLE_PREFIX . "userlist
+				WHERE userid = " . $vbulletin->userinfo['userid'] . "
+					AND type = 'buddy'
+					AND friend = 'yes'
+					AND relationid IN (" . implode($remove['buddy'], ', ') . ")
+			");
+			while ($friend = $db->fetch_array($friends))
+			{
+				$decrement_friends[] = $friend['relationid'];
+			}
+
+			if (!empty($decrement_friends))
+			{
+				$rebuild_my_friendcount = true;
+				$db->query_write("
+					UPDATE " . TABLE_PREFIX . "user
+					SET friendcount = IF(friendcount >= 1, friendcount - 1, 0)
+					WHERE userid IN (" . implode($decrement_friends, ', ') . ")
+				");
+			}
+
+			/* Deal with pending friend request count */
+			$decrement_pending = array();
+			$pendingsreqs = $db->query_read("
+				SELECT *
+				FROM " . TABLE_PREFIX . "userlist
+				WHERE userid = " . $vbulletin->userinfo['userid'] . "
+					AND type = 'buddy'
+					AND friend = 'pending'
+					AND relationid IN (" . implode($remove['buddy'], ', ') . ")
+			");
+			while ($pendingreq = $db->fetch_array($pendingsreqs))
+			{
+				$decrement_pending[] = $pendingreq['relationid'];
+			}
+
+			if (!empty($decrement_pending))
+			{
+				$db->query_write("
+					UPDATE " . TABLE_PREFIX . "user
+					SET friendreqcount = IF(friendreqcount >= 1, friendreqcount - 1, 0)
+					WHERE userid IN (" . implode($decrement_pending, ', ') . ")
+				");
+			}
+
+			/* Perform the actual delete */
+			$db->query_write("
+				DELETE FROM " . TABLE_PREFIX . "userlist
+				WHERE userid = " . $vbulletin->userinfo['userid'] . "
+					AND type = 'buddy'
+					AND relationid IN (" . implode($remove['buddy'], ', ') . ")
+			");
+			# remove friendships that already exist
+			$db->query_write("
+				UPDATE " . TABLE_PREFIX . "userlist
+				SET friend = 'no'
+				WHERE type='buddy'
+					AND friend <> 'no'
+					AND relationid = " . $vbulletin->userinfo['userid'] . "
+					AND userid IN (" . implode($remove['buddy'], ', ') . ")
+			");
+		}
+
+		if (!empty($remove['friend']))
+		{
+			// Remove my friends
+			$db->query_write("
+				UPDATE " . TABLE_PREFIX . "userlist
+				SET friend = 'no'
+				WHERE type = 'buddy'
+					AND friend <> 'no'
+					AND userid = " . $vbulletin->userinfo['userid'] . "
+					AND relationid IN (" . implode($remove['friend'], ', ') . ")
+			");
+
+			$updatecount_sql = $db->query_read("
+				SELECT userid
+				FROM " . TABLE_PREFIX . "userlist
+				WHERE type = 'buddy'
+					AND friend <> 'no'
+					AND relationid = " . $vbulletin->userinfo['userid'] . "
+					AND userid IN (" . implode($remove['friend'], ', ') . ")
+			");
+
+			$updatecount_userids = array();
+			while ($updatecount = $db->fetch_array($updatecount_sql))
+			{
+				$updatecount_userids[] = $updatecount['userid'];
+			}
+
+			if ($updatecount_userids)
+			{
+				$db->query_write("
+					UPDATE " . TABLE_PREFIX . "user
+					SET friendcount = IF(friendcount >= 1, friendcount - 1, 0)
+					WHERE userid IN (" . implode($updatecount_userids, ', ') . ")
+				");
+			}
+
+			// Remove their reference too
+			$db->query_write("
+				UPDATE " . TABLE_PREFIX . "userlist
+				SET friend = 'no'
+				WHERE type = 'buddy'
+					AND friend <> 'no'
+					AND relationid = " . $vbulletin->userinfo['userid'] . "
+					AND userid IN (" . implode($remove['friend'], ', ') . ")
+			");
+
+			$rebuild_my_friendcount = true;
+		}
+
+		if (!empty($remove['ignore']))
+		{
+			$db->query_write("
+				DELETE FROM " . TABLE_PREFIX . "userlist
+				WHERE userid = " . $vbulletin->userinfo['userid'] . "
+					AND type = 'ignore'
+					AND relationid IN (" . implode($remove['ignore'], ', ') . ")
+			");
+			$rebuild_friendreqcount[$vbulletin->userinfo['userid']] = true;
+		}
+	}
+
+	if (!empty($add))
+	{ // It is possible to have multiple ADD calls when you're approving people. Just in case you think it should be only one value.
+		$addvalues = array();
+		foreach ($add AS $value)
+		{
+			if (is_array($value))
+			{
+				foreach ($value AS $userinfo)
+				{
+					if (!empty($userinfo['userid']))
 					{
-						$listids .= " $userid[userid]";
-						$done["{$userid['userid']}"] = 1;
+						$addvalues[] = $userinfo['userid'];
 					}
 				}
 			}
 			else
 			{
-				eval(standard_error(fetch_error('listbaduser', $val, $vbulletin->session->vars['sessionurl_q'])));
+				$addvalues[] = !empty($value['userid']) ? $value['userid'] : intval($value);
 			}
 		}
-	}
 
-	$listids = trim($listids);
+		if (empty($add['approvals']))
+		{ // We need to know a previous state.
+			$current_statuses = $db->query_read("
+				SELECT *
+				FROM " . TABLE_PREFIX . "userlist
+				WHERE userid = " . $vbulletin->userinfo['userid'] . "
+					AND relationid IN (" . implode($addvalues, ', ') . ")
+			");
+			$usercache = array();
+			while ($current_status = $db->fetch_array($current_statuses))
+			{
+				$usercache["$current_status[type]"]["$current_status[relationid]"] = $current_status;
+			}
 
-	require_once(DIR . '/includes/functions_databuild.php');
-	build_usertextfields($var, $listids);
-	$vbulletin->userinfo["$var"] = $listids;
+			if (!empty($add['friend']))
+			{
+				// Another query to fill the cache, this is looking on the other site of the arrangement to see if they're waiting on pending too. We should instantly just upgrade this to friend.
+				$pending_checks = $db->query_read("
+					SELECT *
+					FROM " . TABLE_PREFIX . "userlist
+					WHERE relationid = " . $vbulletin->userinfo['userid'] . "
+						AND userid IN (" . implode(array_keys($add['friend']), ', ') . ")
+				");
+				$pendingcache = array();
+				while ($pending_check = $db->fetch_array($pending_checks))
+				{
+					$pendingcache["$pending_check[type]"]["$pending_check[userid]"] = $pending_check;
+				}
 
-	if (is_array($printdebug))
-	{
-		foreach ($printdebug AS $line => $text)
-		{
-			$out .= $text;
+				foreach ($add['friend'] AS $userid => $userinfo)
+				{
+					if (isset($usercache['buddy']["$userid"]) AND $usercache['buddy']["$userid"]['friend'] == 'yes')
+					{
+						continue;
+					}
+
+					if (isset($pendingcache['buddy']["$userid"]) AND $pendingcache['buddy']["$userid"]['friend'] == 'pending')
+					{
+						$add['approvals'][] = $userid;
+						continue;
+					}
+
+					if (isset($pendingcache['buddy']["$userid"]) AND $pendingcache['buddy']["$userid"]['friend'] == 'denied')
+					{ // If they were denied last time you must have changed your mind, remove the block so its just a buddy
+						$db->query_write("UPDATE " . TABLE_PREFIX . "userlist set friend = 'no' WHERE userid = $userid AND relationid = " . $vbulletin->userinfo['userid']);
+					}
+
+					$db->query_write("
+						REPLACE INTO " . TABLE_PREFIX . "userlist
+						(userid, relationid, type, friend)
+							VALUES
+						(" . $vbulletin->userinfo['userid'] . ", " . intval($userinfo['userid']) . ", 'buddy', 'pending')
+					");
+
+					($hook = vBulletinHook::fetch_hook('profile_updatelist_addfriend')) ? eval($hook) : false;
+					// Send notification to user that a friend request has been made for them
+					if ($cansendemail AND $userinfo['options'] & $vbulletin->bf_misc_useroptions['receivefriendemailrequest'] AND !isset($usercache['ignore']["$userid"]))
+					{
+						$fromuserinfo =& $vbulletin->userinfo;
+						$touserinfo =& $userinfo;
+
+						eval(fetch_email_phrases('friendship_request_email', $touserinfo['languageid']));
+						require_once(DIR . '/includes/class_bbcode_alt.php');
+						$plaintext_parser =& new vB_BbCodeParser_PlainText($vbulletin, fetch_tag_list());
+						$plaintext_parser->set_parsing_language($touserinfo['languageid']);
+						$message = $plaintext_parser->parse($message, 'privatemessage');
+						vbmail($touserinfo['email'], $subject, $message);
+					}
+
+					$rebuild_friendreqcount[$userid] = true;
+
+				}
+			}
+			else if (!empty($add['buddy']))
+			{ // We only want a record if one doesn't exist
+				foreach($add['buddy'] AS $userid => $touserinfo)
+				{
+					if (isset($usercache['buddy']["$userid"]))
+					{
+						continue;
+					}
+					$db->query_write("
+						INSERT IGNORE INTO " . TABLE_PREFIX . "userlist
+							(userid, relationid, type, friend)
+						VALUES
+							(" . $vbulletin->userinfo['userid'] . ", " . intval($userid) . ", 'buddy', 'no')
+					");
+				}
+			}
+			else if (!empty($add['ignore']))
+			{ // Adding someone to the ignore again is fine
+				foreach($add['ignore'] AS $userid => $touserinfo)
+				{
+					$db->query_write("
+						INSERT IGNORE INTO " . TABLE_PREFIX . "userlist
+						(userid, relationid, type, friend)
+							VALUES
+						(" . $vbulletin->userinfo['userid'] . ", " . intval($userid) . ", 'ignore', 'no')
+					");
+				}
+				$rebuild_friendreqcount[$vbulletin->userinfo['userid']] = true;
+			}
+		}
+
+		// This may look "special" compared to above, but it shouldn't be an else. The condition block above can add an entry to $add[approvals]
+		if (!empty($add['approvals']))
+		{ // Approving a bunch of users, make sure we get an entry too
+			$updatecount_sql = $db->query_read("
+				SELECT userid
+				FROM " . TABLE_PREFIX . "userlist
+				WHERE type = 'buddy'
+					AND friend = 'pending'
+					AND relationid = " . $vbulletin->userinfo['userid']  . "
+					AND userid IN (" . implode(',', $add['approvals']) . ")
+			");
+
+			$updatecount_userids = array();
+			while ($updatecount = $db->fetch_array($updatecount_sql))
+			{
+				$updatecount_userids[] = $updatecount['userid'];
+			}
+
+			if ($updatecount_userids)
+			{
+				$db->query_write("
+					UPDATE " . TABLE_PREFIX . "user
+					SET friendcount = friendcount + 1
+					WHERE userid IN (" . implode(',', $updatecount_userids) . ")
+				");
+			}
+
+			$db->query_write("
+				UPDATE " . TABLE_PREFIX . "userlist
+				SET friend = 'yes'
+				WHERE type = 'buddy'
+					AND friend = 'pending'
+					AND relationid = " . $vbulletin->userinfo['userid']  . "
+					AND userid IN (" . implode(',', $add['approvals']) . ")
+			");
+
+			$replacesql = array();
+			foreach ($add['approvals'] AS $userid)
+			{
+				$replacesql[] = "(" . $vbulletin->userinfo['userid'] . ", $userid, 'buddy', 'yes')";
+			}
+			$db->query_write("
+				REPLACE INTO " . TABLE_PREFIX . "userlist
+					(userid, relationid, type, friend)
+				VALUES
+					" . implode(", ", $replacesql) . "
+			");
+
+			$rebuild_my_friendcount = true;
+			$rebuild_friendreqcount[$vbulletin->userinfo['userid']] = true;
 		}
 	}
+
+	if (!empty($rebuild_friendreqcount))
+	{
+		foreach (array_keys($rebuild_friendreqcount) AS $userid)
+		{
+			// The user could have been a friend too
+			list($pendingcount) = $db->query_first("
+				SELECT COUNT(*)
+				FROM " . TABLE_PREFIX . "userlist AS userlist
+				LEFT JOIN " . TABLE_PREFIX . "userlist AS userlist_ignore ON(userlist_ignore.userid = " . $userid . " AND userlist_ignore.relationid = userlist.userid AND userlist_ignore.type = 'ignore')
+				WHERE userlist.relationid = " . $userid . "
+					AND userlist.type = 'buddy'
+					AND userlist.friend = 'pending'
+					AND userlist_ignore.type IS NULL", DBARRAY_NUM
+			);
+
+			$db->query_write("
+				UPDATE " . TABLE_PREFIX . "user
+				SET friendreqcount = $pendingcount
+				WHERE userid = " . $userid
+			);
+		}
+	}
+
+	if ($rebuild_my_friendcount)
+	{
+		list($myfriendcount) = $db->query_first("
+			SELECT COUNT(*) FROM " . TABLE_PREFIX . "userlist
+			WHERE userid = " . $vbulletin->userinfo['userid'] . "
+				AND type = 'buddy'
+				AND friend = 'yes'", DBARRAY_NUM
+		);
+
+		$db->query_write("
+			UPDATE " . TABLE_PREFIX . "user
+			SET friendcount = $myfriendcount
+			WHERE userid = " . $vbulletin->userinfo['userid']
+		);
+	}
+
+	/* Todo, force the cache variable (if we can) */
+	require_once(DIR . '/includes/functions_databuild.php');
+	build_userlist($vbulletin->userinfo['userid']);
+	$show["{$vbulletin->GPC['userlist']}"] = true;
 
 	($hook = vBulletinHook::fetch_hook('profile_updatelist_complete')) ? eval($hook) : false;
 
 	if ($vbulletin->GPC['ajax'])
 	{
 		$ajax = true;
-		$_REQUEST['do'] = 'editlist';
+		$_REQUEST['do'] = ($vbulletin->GPC['userlist'] == 'ignore' ? 'ignorelist' : 'buddylist');
 	}
 	else
 	{
@@ -563,126 +1464,182 @@ if ($_POST['do'] == 'updatelist')
 	}
 }
 
-// ################# start edit buddy / ignore lists ###############
-if ($_REQUEST['do'] == 'editlist')
+// ################# start edit buddy list ###############
+if ($_REQUEST['do'] == 'buddylist')
 {
-	$list_types = array('buddylist', 'ignorelist');
+	$buddylist = '';
+	$incominglist = '';
+	$friend_list = array();
 
-	// extract the user ids for each list type
-	foreach ($list_types AS $list_type)
+	$show['friend_controls'] = ($vbulletin->options['socnet'] & $vbulletin->bf_misc_socnet['enable_friends'] AND $vbulletin->userinfo['permissions']['genericpermissions2'] & $vbulletin->bf_ugp_genericpermissions2['canusefriends']);
+
+	$users_result = $db->query_read_slave("
+		SELECT user.*, userlist.type, userlist.friend
+		" . ($vbulletin->options['avatarenabled'] ? ', avatar.avatarpath, NOT ISNULL(customavatar.userid) AS hascustomavatar, customavatar.dateline AS avatardateline, customavatar.width_thumb AS avwidth_thumb, customavatar.height_thumb AS avheight_thumb, customavatar.width as avwidth, customavatar.height as avheight, customavatar.filedata_thumb' : '') . "
+		FROM " . TABLE_PREFIX . "userlist AS userlist
+		INNER JOIN " . TABLE_PREFIX . "user AS user ON (user.userid = userlist.relationid)
+		" . ($vbulletin->options['avatarenabled'] ? "LEFT JOIN " . TABLE_PREFIX . "avatar AS avatar ON (avatar.avatarid = user.avatarid) LEFT JOIN " . TABLE_PREFIX . "customavatar AS customavatar ON (customavatar.userid = user.userid) " : '') . "
+		WHERE userlist.userid = " . $vbulletin->userinfo['userid'] . " AND userlist.type = 'buddy'
+		ORDER BY user.username
+	");
+	while ($user = $db->fetch_array($users_result))
 	{
-		$user_ids["$list_type"] = array();
-
-		$show["$list_type"] = (empty($userlist) OR $userlist == $list_type);
-
-		if ($show["$list_type"] AND $vbulletin->userinfo["$list_type"])
+		$user['extended_type'] = $user['type'];
+		if ($vbulletin->options['socnet'] & $vbulletin->bf_misc_socnet['enable_friends'])
 		{
-			$user_ids["$list_type"] = preg_split('#\s+#si', trim($vbulletin->userinfo["$list_type"]), -1, PREG_SPLIT_NO_EMPTY);
-		}
-	}
-
-	// array to hold userid/username array for each list type
-	$list_users = array('buddylist' => array(), 'ignorelist' => array());
-	$remove_ignore = array();
-
-	// query list users from the database
-	if (!empty($user_ids['buddylist']) OR !empty($user_ids['ignorelist']))
-	{
-		$users_result = $db->query_read_slave("
-			SELECT userid, username FROM " . TABLE_PREFIX . "user
-			WHERE userid IN (" . implode(', ', array_merge($user_ids['buddylist'], $user_ids['ignorelist'])) . ")
-			ORDER BY username
-		");
-		while ($user = $db->fetch_array($users_result))
-		{
-			if ($user['userid'] != 0)
+			switch ($user['friend'])
 			{
-				$uglist = $user['usergroupid'] . iif(trim($user['membergroupids']), ",$user[membergroupids]");
-				if (in_array($user['userid'], $user_ids['ignorelist']) AND !$vbulletin->options['ignoremods'] AND can_moderate(0, '', $user['userid'], $uglist) AND !($permissions['adminpermissions'] & $vbulletin->bf_ugp_adminpermissions['cancontrolpanel']))
-				{
-					$remove_ignore[] = $user['userid'];
-					continue;
-				}
-				// add found user info to relevant $list_users storage
-				foreach ($list_types AS $list_type)
-				{
-					if (in_array($user['userid'], $user_ids["$list_type"]))
-					{
-						$list_users["$list_type"]["$user[userid]"] = $user['username'];
-					}
-				}
+				case 'yes':
+					$user['extended_type'] = 'friend';
+				break;
+				case 'pending':
+				case 'denied':
+					$user['extended_type'] = 'outgoing';
+				break;
+				default:
+					($hook = vBulletinHook::fetch_hook('profile_contactlist_listtype')) ? eval($hook) : false;
 			}
 		}
+		fetch_avatar_from_userinfo($user, true);
+		cache_permissions($user);
+
+		$container = 'buddylist';
+		$show['incomingrequest'] = false;
+		$show['outgoingrequest'] = ($user['extended_type'] == 'outgoing');
+		$friendcheck_checked = ($user['extended_type'] == 'friend' ? ' checked="checked"' : '');
+		$user['checked'] = ' checked="checked"';
+		$friend_list["$user[userid]"] = $user['friend'];
+
+		$show['friend_checkbox'] = (($show['friend_controls'] AND ($user['permissions']['genericpermissions2'] & $vbulletin->bf_ugp_genericpermissions2['canusefriends']) AND $vbulletin->userinfo['userid'] != $user['userid']) OR (!empty($friendcheck_checked) AND $vbulletin->options['socnet'] & $vbulletin->bf_misc_socnet['enable_friends']));
+		eval('$buddylist .= "' . fetch_template('modifybuddylist_user') . '";');
 	}
 
-	if (!empty($remove_ignore))
-	{
-		$listids = implode(' ', array_keys($list_users['ignorelist']));
-		require_once(DIR . '/includes/functions_databuild.php');
-		build_usertextfields('ignorelist', $listids);
-		$vbulletin->userinfo['ignorelist'] = $listids;
-	}
+	$buddycount = $db->num_rows($users_result);
 
-	// generate templates for buddy and ignore lists
-	foreach ($list_types AS $list_type)
+	$incomingcount = 0;
+	$users_result = $db->query_read_slave("
+		SELECT user.*, userlist.type, userlist.friend
+		" . ($vbulletin->options['avatarenabled'] ? ', avatar.avatarpath, NOT ISNULL(customavatar.userid) AS hascustomavatar, customavatar.dateline AS avatardateline, customavatar.width_thumb AS avwidth_thumb, customavatar.height_thumb AS avheight_thumb, customavatar.width as avwidth, customavatar.height as avheight, customavatar.filedata_thumb' : '') . "
+		FROM " . TABLE_PREFIX . "userlist AS userlist
+		LEFT JOIN " . TABLE_PREFIX . "userlist AS userlist_ignore ON (userlist_ignore.userid = " . $vbulletin->userinfo['userid'] . " AND userlist_ignore.relationid = userlist.userid AND userlist_ignore.type = 'ignore')
+		INNER JOIN " . TABLE_PREFIX . "user AS user ON (user.userid = userlist.userid)
+		" . ($vbulletin->options['avatarenabled'] ? "LEFT JOIN " . TABLE_PREFIX . "avatar AS avatar ON (avatar.avatarid = user.avatarid) LEFT JOIN " . TABLE_PREFIX . "customavatar AS customavatar ON (customavatar.userid = user.userid) " : '') . "
+		WHERE userlist.relationid = " . $vbulletin->userinfo['userid'] . " AND userlist.type = 'buddy' AND userlist.friend = 'pending' AND userlist_ignore.type IS NULL
+		ORDER BY user.username
+	");
+	while ($user = $db->fetch_array($users_result))
 	{
-		if ($show["$list_type"])
+		// User is a friend already, the other side must have a broken relationship. update theirs
+		if ($friend_list["$user[userid]"] == 'yes')
 		{
-			${$list_type . 'bits1'} = '';
-			${$list_type . 'bits2'} = '';
-
-			if (!empty($list_users["$list_type"]))
-			{
-				$total_users = sizeof($list_users["$list_type"]);
-				$user_count = 0;
-
-				foreach ($list_users["$list_type"] AS $userid => $username)
-				{
-					if ($userid != $vbulletin->GPC['userid'])
-					{
-						$checked["$userid"] = 'checked="checked"';
-					}
-
-					if ($user_count++ >= ($total_users / 2))
-					{
-						eval('$' . $list_type . 'bits2 .= "' . fetch_template('modifylistbit') . '";');
-					}
-					else
-					{
-						eval('$' . $list_type . 'bits1 .= "' . fetch_template('modifylistbit') . '";');
-					}
-				}
-			}
+			$db->query_write("
+				UPDATE " . TABLE_PREFIX . "userlist
+				SET friend = 'yes'
+				WHERE relationid = " . $vbulletin->userinfo['userid'] . "
+					AND userid = " . $user['userid'] . "
+					AND type = 'buddy'
+			");
+			continue;
 		}
+
+		$user['extended_type'] = $user['type'] = 'incoming';
+		fetch_avatar_from_userinfo($user, true);
+
+		$container = 'incomingreqs';
+		$show['incomingrequest'] = true;
+		$show['outgoingrequest'] = false;
+		$friendcheck_checked = '';
+		$show['friend_checkbox'] = false;
+		$incomingcount++;
+
+		eval('$incominglist .= "' . fetch_template('modifybuddylist_user') . '";');
 	}
 
-	($hook = vBulletinHook::fetch_hook('profile_editlist')) ? eval($hook) : false;
+	$show['incominglist'] = !empty($incominglist);
+	$show['buddylist'] = !empty($buddylist);
+
+	// Adjust the friend req count if it doesn't match what we really have
+	if ($_GET['do'] == 'buddylist' AND $vbulletin->userinfo['friendreqcount'] != $incomingcount)
+	{
+		$userdata =& datamanager_init('User', $vbulletin, ERRTYPE_SILENT);
+		$userdata->set_condition("userid = " . $vbulletin->userinfo['userid'] . " AND friendreqcount = " . $vbulletin->userinfo['friendreqcount']);
+		$userdata->set('friendreqcount', $incomingcount);
+		$userdata->save();
+	}
 
 	if ($ajax)
 	{
-		$userlist1 = ${$vbulletin->GPC['userlist'] . 'listbits1'};
-		$userlist2 = ${$vbulletin->GPC['userlist'] . 'listbits2'};
 		require_once(DIR . '/includes/class_xml.php');
 		$xml = new vB_AJAX_XML_Builder($vbulletin, 'text/xml');
-		$xml->add_group('userlist');
-		if ($userlist1)
-		{
-			$xml->add_tag('listbit1', $userlist1);
-			if ($userlist2)
-			{
-				$xml->add_tag('listbit2', $userlist2);
-			}
-		}
+		$xml->add_group('userlists');
+		$xml->add_tag('userlist', process_replacement_vars($buddylist), array('type' => 'buddylist'));
+		$xml->add_tag('userlist', process_replacement_vars($incominglist), array('type' => 'incomingreqs'));
+		$xml->add_group('counts');
+		$xml->add_tag('buddycount', $buddycount);
+		$xml->close_group();
 		$xml->close_group();
 		$xml->print_xml();
+		exit;
 	}
 	else
 	{
 		// draw cp nav bar
 		construct_usercp_nav('buddylist');
 
-		$navbits[''] = $vbphrase['buddy_ignore_lists'];
-		$templatename = 'modifylist';
+		eval('$headinclude .= "' . fetch_template('modifyuserlist_headinclude') . '";');
+		if ($show['friend_controls'])
+		{
+			$navbits[''] = $vbphrase['contacts_and_friends'];
+		}
+		else
+		{
+			$navbits[''] = $vbphrase['contacts'];
+		}
+
+		$showavatarchecked = ($vbulletin->userinfo['showavatars'] ? ' checked="checked"' : '');
+		$show['avatars'] = $vbulletin->userinfo['showavatars'];
+
+		$templatename = 'modifybuddylist';
+	}
+}
+
+// ################# start edit ignore list ###############
+if ($_REQUEST['do'] == 'ignorelist')
+{
+	$ignorelist = '';
+	$users_result = $db->query_read_slave("
+		SELECT user.*, userlist.type
+		FROM " . TABLE_PREFIX . "userlist AS userlist
+		INNER JOIN " . TABLE_PREFIX . "user AS user ON (user.userid = userlist.relationid)
+		WHERE userlist.userid = " . $vbulletin->userinfo['userid'] . " AND userlist.type = 'ignore'
+		ORDER BY user.username
+	");
+	while ($user = $db->fetch_array($users_result))
+	{
+		eval('$ignorelist .= "' . fetch_template('modifyignorelist_user') . '";');
+	}
+
+	$show['ignorelist'] = !empty($ignorelist);
+
+	if ($ajax)
+	{
+		require_once(DIR . '/includes/class_xml.php');
+		$xml = new vB_AJAX_XML_Builder($vbulletin, 'text/xml');
+		$xml->add_group('userlists');
+		$xml->add_tag('userlist', process_replacement_vars($ignorelist), array('type' => 'ignorelist'));
+		$xml->close_group();
+		$xml->print_xml();
+		exit;
+	}
+	else
+	{
+		// draw cp nav bar
+		construct_usercp_nav('ignorelist');
+
+		eval('$headinclude .= "' . fetch_template('modifyuserlist_headinclude') . '";');
+
+		$navbits[''] = $vbphrase['edit_ignore_list'];
+		$templatename = 'modifyignorelist';
 	}
 }
 
@@ -775,7 +1732,7 @@ if ($_REQUEST['do'] == 'editprofile')
 	construct_usercp_nav('profile');
 
 	eval('$birthdaybit = "' . fetch_template('modifyprofile_birthday') . '";');
-	$navbits[''] = $vbphrase['edit_profile'];
+	$navbits[''] = $vbphrase['edit_your_details'];
 	$templatename = 'modifyprofile';
 }
 
@@ -914,7 +1871,15 @@ if ($_REQUEST['do'] == 'editoptions')
 	}
 
 	// PM options
-	$show['pmoptions'] = iif($vbulletin->options['enablepms'] AND $permissions['pmquota'] > 0, true, false);
+	$show['pmoptions'] = ($vbulletin->options['enablepms'] AND $permissions['pmquota'] > 0) ? true : false;
+	$show['friend_email_request'] = ($vbulletin->options['socnet'] & $vbulletin->bf_misc_socnet['enable_friends'] ? true : false);
+
+	// VM Options
+	$show['vmoptions'] = (
+		$vbulletin->options['socnet'] & $vbulletin->bf_misc_socnet['enable_visitor_messaging']
+			AND
+		$vbulletin->userinfo['permissions']['genericpermissions'] & $vbulletin->bf_ugp_genericpermissions['canviewmembers']
+	) ? true : false;
 
 	// autosubscribe selected option
 	$vbulletin->userinfo['autosubscribe'] = verify_subscription_choice($vbulletin->userinfo['autosubscribe'], $vbulletin->userinfo, 9999);
@@ -1062,6 +2027,10 @@ if ($_REQUEST['do'] == 'editoptions')
 	$bgclass4 = 'alt1'; // Date/Time Section
 	$bgclass5 = 'alt1'; // Other Section
 
+	// Social Networking Stuff
+	// TODO: needs to check option to see if its enabled
+	$show['usercssoption'] = false;
+
 	// Get custom otions
 	$customfields = array();
 	fetch_profilefields(1);
@@ -1158,8 +2127,38 @@ if ($_POST['do'] == 'updateoptions')
 		$vbulletin->url = 'usercp.php' . $vbulletin->session->vars['sessionurl_q'];
 	}
 
-	eval(print_standard_redirect('redirect_updatethanks'));
+	// recache the global group to get the stuff from the new language
+	$globalgroup = $db->query_first_slave("
+		SELECT phrasegroup_global, languagecode, charset
+		FROM " . TABLE_PREFIX . "language
+		WHERE languageid = " . intval($userdata->fetch_field('languageid') ? $userdata->fetch_field('languageid') : $vbulletin->options['languageid'])
+	);
+	if ($globalgroup)
+	{
+		$vbphrase = array_merge($vbphrase, unserialize($globalgroup['phrasegroup_global']));
 
+		global $stylevar;
+		if ($stylevar['charset'] != $globalgroup['charset'])
+		{
+			// change the character set in a bunch of places - a total hack
+			global $headinclude;
+
+			$headinclude = str_replace(
+				"content=\"text/html; charset=$stylevar[charset]\"",
+				"content=\"text/html; charset=$globalgroup[charset]\"",
+				$headinclude
+			);
+
+			$stylevar['charset'] = $globalgroup['charset'];
+			$vbulletin->userinfo['lang_charset'] = $globalgroup['charset'];
+
+			exec_headers();
+		}
+
+		$stylevar['languagecode'] = $globalgroup['languagecode'];
+	}
+
+	eval(print_standard_redirect('redirect_updatethanks', true, false, $userdata->fetch_field('languageid')));
 }
 
 // ############################################################################
@@ -1200,7 +2199,7 @@ if ($_POST['do'] == 'updatesignature')
 	{
 		require_once(DIR . '/includes/functions_wysiwyg.php');
 
-		$signature = convert_wysiwyg_html_to_bbcode($vbulletin->GPC['message'], $permissions['signaturepermissions']['allowhtml']);
+		$signature = convert_wysiwyg_html_to_bbcode($vbulletin->GPC['message'], $permissions['signaturepermissions'] & $vbulletin->bf_ugp_signaturepermissions['allowhtml']);
 	}
 	else
 	{
@@ -1246,7 +2245,7 @@ if ($_POST['do'] == 'updatesignature')
 		$vbulletin->userinfo['sigpicrevision']++;
 	}
 
-	$userinfo_sigpic = fetch_userinfo($vbulletin->userinfo['userid'], 32);
+	$userinfo_sigpic = fetch_userinfo($vbulletin->userinfo['userid'], FETCH_USERINFO_SIGPIC);
 
 	// Censored Words
 	$censor_signature = fetch_censored_text($signature);
@@ -1465,7 +2464,15 @@ if ($_REQUEST['do'] == 'editsignature')
 	// Build $show variables for each signature bitfield permission
 	foreach ($vbulletin->bf_ugp_signaturepermissions AS $bit_name => $bit_value)
 	{
-		$show["$bit_name"] = ($permissions['signaturepermissions'] & $bit_value ? true : false);
+		if ($bbcode = preg_match('#canbbcode(\w+)#i', $bit_name, $matches) AND $matches[1])
+		{
+			$term = $matches[1] == 'link' ? 'URL' : strtoupper($matches[1]);
+			$show["$bit_name"] = ($permissions['signaturepermissions'] & $bit_value AND $vbulletin->options['allowedbbcodes'] & @constant('ALLOW_BBCODE_' . $term))  ? true : false;
+		}
+		else
+		{
+			$show["$bit_name"] = ($permissions['signaturepermissions'] & $bit_value ? true : false);
+		}
 	}
 
 	// Build variables for the remaining signature permissions
@@ -1498,7 +2505,7 @@ if ($_REQUEST['do'] == 'editsignature')
 		{
 			require_once(DIR . '/includes/class_bbcode.php');
 			$bbcode_parser =& new vB_BbCodeParser($vbulletin, fetch_tag_list());
-			$bbcode_parser->set_parse_userinfo(fetch_userinfo($vbulletin->userinfo['userid'], 32), $vbulletin->userinfo['permissions']);
+			$bbcode_parser->set_parse_userinfo(fetch_userinfo($vbulletin->userinfo['userid'], FETCH_USERINFO_SIGPIC), $vbulletin->userinfo['permissions']);
 			$previewmessage = $bbcode_parser->parse($signature, 'signature');
 		}
 
@@ -1679,7 +2686,7 @@ if ($_REQUEST['do'] == 'editavatar')
 		foreach ($categorycache AS $category)
 		{
 			$thiscategoryid = $category['imagecategoryid'];
-			$selected = iif($thiscategoryid == $vbulletin->GPC['categoryid'], 'selected="selected"', '');
+			$selected = iif($thiscategoryid == $vbulletin->GPC['categoryid'], ' selected="selected"', '');
 			eval('$categorybits .= "' . fetch_template('modifyavatar_category') . '";');
 		}
 	}
@@ -1888,7 +2895,7 @@ if ($_POST['do'] == 'updateavatar')
 
 	if ($useavatar)
 	{
-		if ($vbulletin->GPC['avatarid'] == 0)
+		if ($vbulletin->GPC['avatarid'] == 0 AND ($vbulletin->userinfo['permissions']['genericpermissions'] & $vbulletin->bf_ugp_genericpermissions['canuseavatar']))
 		{
 			$vbulletin->input->clean_gpc('f', 'upload', TYPE_FILE);
 
@@ -2064,13 +3071,16 @@ if ($_POST['do'] == 'updatedisplaygroup')
 
 			$userdata->set('displaygroupid', $vbulletin->GPC['usergroupid']);
 
-			$userdata->set_usertitle(
-				$vbulletin->userinfo['customtitle'] ? $vbulletin->userinfo['usertitle'] : '',
-				false,
-				$display_usergroup,
-				($permissions['genericpermissions'] & $vbulletin->bf_ugp_genericpermissions['canusecustomtitle']) ? true : false,
-				($permissions['genericpermissions'] & $vbulletin->bf_ugp_genericpermissions['cancontrolpanel']) ? true : false
-			);
+			if (!$vbulletin->userinfo['customtitle'])
+			{
+				$userdata->set_usertitle(
+					$vbulletin->userinfo['customtitle'] ? $vbulletin->userinfo['usertitle'] : '',
+					false,
+					$display_usergroup,
+					($permissions['genericpermissions'] & $vbulletin->bf_ugp_genericpermissions['canusecustomtitle']) ? true : false,
+					($permissions['genericpermissions'] & $vbulletin->bf_ugp_genericpermissions['cancontrolpanel']) ? true : false
+				);
+			}
 
 			($hook = vBulletinHook::fetch_hook('profile_updatedisplaygroup')) ? eval($hook) : false;
 
@@ -2502,7 +3512,7 @@ if ($_POST['do'] == 'deleteusergroups')
 			}
 
 			$users = $db->query_read_slave("
-				SELECT u.userid, u.membergroupids, u.usergroupid, u.displaygroupid
+				SELECT u.*
 				FROM " . TABLE_PREFIX . "user AS u
 				LEFT JOIN " . TABLE_PREFIX . "usergroupleader AS ugl ON (u.userid = ugl.userid AND ugl.usergroupid = " . $vbulletin->GPC['usergroupid'] . ")
 				WHERE u.userid IN (0$userids) AND ugl.usergroupleaderid IS NULL
@@ -2854,6 +3864,8 @@ if ($_REQUEST['do'] == 'editattachments')
 		$show['thumbnails'] = $showthumbs;
 	}
 
+	$show['lightbox'] = ($vbulletin->options['lightboxenabled'] AND $vbulletin->options['usepopups'] AND $showthumbs);
+
 	($hook = vBulletinHook::fetch_hook('profile_editattachments_complete')) ? eval($hook) : false;
 
 	if ($userid == $vbulletin->userinfo['userid'])
@@ -2876,6 +3888,394 @@ if ($_REQUEST['do'] == 'editattachments')
 	}
 }
 
+// #######################################################################
+if ($_REQUEST['do'] == 'customize' OR $_POST['do'] == 'docustomize')
+{
+	if (!($vbulletin->options['socnet'] & $vbulletin->bf_misc_socnet['enable_profile_styling']))
+	{
+		print_no_permission();
+	}
+
+	require_once(DIR . '/includes/class_usercss.php');
+
+	$selector_base = array(
+		'font_family'       => '',
+		'font_size'         => '',
+		'color'             => '',
+		'background_color'  => '',
+ 		'background_image'  => '',
+		'border_style'      => '',
+		'border_color'      => '',
+		'border_width'      => '',
+		'linkcolor'         => '',
+		'shadecolor'        => '',
+		'padding'           => '',
+		'background_repeat' => ''
+	);
+
+	$usercsspermissions = array(
+		'caneditfontfamily' => $vbulletin->userinfo['permissions']['usercsspermissions'] & $vbulletin->bf_ugp_usercsspermissions['caneditfontfamily'] ? true  : false,
+		'caneditfontsize'   => $vbulletin->userinfo['permissions']['usercsspermissions'] & $vbulletin->bf_ugp_usercsspermissions['caneditfontsize'] ? true : false,
+		'caneditcolors'     => $vbulletin->userinfo['permissions']['usercsspermissions'] & $vbulletin->bf_ugp_usercsspermissions['caneditcolors'] ? true : false,
+		'caneditbgimage'    => ($vbulletin->options['socnet'] & $vbulletin->bf_misc_socnet['enable_albums'] AND $vbulletin->userinfo['permissions']['usercsspermissions'] & $vbulletin->bf_ugp_usercsspermissions['caneditbgimage']) ? true : false,
+		'caneditborders'    => $vbulletin->userinfo['permissions']['usercsspermissions'] & $vbulletin->bf_ugp_usercsspermissions['caneditborders'] ? true : false
+	);
+
+	$usercss = new vB_UserCSS($vbulletin, $vbulletin->userinfo['userid']);
+
+	$allowedfonts = $usercss->build_select_option($vbulletin->options['usercss_allowed_fonts']);
+	$allowedfontsizes = $usercss->build_select_option($vbulletin->options['usercss_allowed_font_sizes']);
+	$allowedborderwidths = $usercss->build_select_option($vbulletin->options['usercss_allowed_border_widths']);
+	$allowedpaddings = $usercss->build_select_option($vbulletin->options['usercss_allowed_padding']);
+}
+
+// #######################################################################
+if ($_POST['do'] == 'docustomize')
+{
+	$vbulletin->input->clean_array_gpc('p', array(
+		'usercss' => TYPE_ARRAY,
+		'ajax'    => TYPE_BOOL // means preview
+	));
+
+	($hook = vBulletinHook::fetch_hook('profile_docustomize_start')) ? eval($hook) : false;
+
+	foreach ($vbulletin->GPC['usercss'] AS $selectorname => $selector)
+	{
+		if (!isset($usercss->cssedit["$selectorname"]) OR !empty($usercss->cssedit["$selectorname"]['noinputset']))
+		{
+			$usercss->error[] = fetch_error('invalid_selector_name_x', $selectorname);
+			continue;
+		}
+
+		if (!is_array($selector))
+		{
+			continue;
+		}
+
+		foreach ($selector AS $property => $value)
+		{
+			$prop_perms = $usercss->properties["$property"]['permission'];
+
+			if (empty($usercsspermissions["$prop_perms"]) OR !in_array($property, $usercss->cssedit["$selectorname"]['properties']))
+			{
+				$usercss->error[] = fetch_error('no_permission_edit_selector_x_property_y', $selectorname, $property);
+				continue;
+			}
+
+			unset($allowedlist);
+			switch ($property)
+			{
+				case 'font_size':    $allowedlist = $allowedfontsizes; break;
+				case 'font_family':  $allowedlist = $allowedfonts; break;
+				case 'border_width': $allowedlist = $allowedborderwidths; break;
+				case 'padding':      $allowedlist = $allowedpaddings; break;
+			}
+
+			if (isset($allowedlist))
+			{
+				if (!in_array($value, $allowedlist) AND $value != '')
+				{
+					$usercss->invalid["$selectorname"]["$property"] = ' usercsserror ';
+					continue;
+				}
+			}
+
+			$usercss->parse($selectorname, $property, $value);
+		}
+	}
+
+	($hook = vBulletinHook::fetch_hook('profile_docustomize_process')) ? eval($hook) : false;
+
+	if ($vbulletin->GPC['ajax'])
+	{
+		// AJAX means get the preview
+		$effective_css = $usercss->build_css($usercss->fetch_effective());
+		$effective_css = str_replace('/*sessionurl*/', $vbulletin->session->vars['sessionurl_js'], $effective_css);
+
+		require_once(DIR . '/includes/class_xml.php');
+		$xml = new vB_AJAX_XML_Builder($vbulletin, 'text/xml');
+		$xml->add_group('preview');
+			$xml->add_tag('css', process_replacement_vars($effective_css));
+		$xml->close_group();
+		$xml->print_xml();
+	}
+
+	if (empty($usercss->error) AND empty($usercss->invalid))
+	{
+		$usercss->save();
+		$vbulletin->url = "profile.php?"  . $vbulletin->session->vars['sessionurl'] . "do=customize";
+		eval(print_standard_redirect('usercss_saved'));
+	}
+	else if (!empty($usercss->error))
+	{
+		standard_error(implode("<br />", $usercss->error));
+	}
+	else
+	{
+		// have invalid, no errors
+		$_REQUEST['do'] = 'customize';
+		define('HAVE_ERRORS', true);
+	}
+}
+
+// #######################################################################
+if ($_REQUEST['do'] == 'customize')
+{
+	$cssdisplayinfo = $usercss->build_display_array();
+	$errors = '';
+
+	// if we don't have errors, the displayed values are the existing ones
+	// otherwise, use the form submission
+	if (!defined('HAVE_ERRORS'))
+	{
+		$selectors_saved = $usercss->existing;
+	}
+
+	($hook = vBulletinHook::fetch_hook('profile_customize_start')) ? eval($hook) : false;
+
+	$usercssbits = '';
+	foreach ($cssdisplayinfo AS $selectorname => $selectorinfo)
+	{
+		$selector = $selector_base;
+
+		$selectorinvalid = array();
+		$field_names = array();
+
+		$invalidpropertyphrases = array();
+
+		if (empty($selectorinfo['properties']))
+		{
+			$selectorinfo['properties'] = $usercss->cssedit["$selectorname"]['properties'];
+		}
+
+		if (!is_array($selectorinfo['properties']))
+		{
+			continue;
+		}
+
+		$selector['phrase'] = $vbphrase["$selectorinfo[phrasename]"];
+
+		foreach ($selectorinfo['properties'] AS $key => $value)
+		{
+			if (is_numeric($key))
+			{
+				$this_property = $value;
+				$this_selector = $selectorname;
+			}
+			else
+			{
+				$this_property = $key;
+				$this_selector = $value;
+			}
+
+			if (!$usercsspermissions[$usercss->properties["$this_property"]['permission']])
+			{
+				continue;
+			}
+
+			$field_names["$this_property"] = "usercss[$this_selector][$this_property]";
+
+			if (defined('HAVE_ERRORS'))
+			{
+				if (isset($vbulletin->GPC['usercss']["$this_selector"]["$this_property"]))
+				{
+					$selector["$this_property"] = $vbulletin->GPC['usercss']["$this_selector"]["$this_property"];
+				}
+
+				if (isset($usercss->invalid["$this_selector"]["$this_property"]))
+				{
+					$selectorinvalid["$this_property"] = $usercss->invalid["$this_selector"]["$this_property"];
+
+					$error_link_phrase = $vbphrase["usercss_$this_property"];
+					eval('$invalidpropertyphrases[] = "' . fetch_template("modifyusercss_error_link") . '";');
+				}
+			}
+			else if (isset($selectors_saved["$this_selector"]["$this_property"]))
+			{
+				$selector["$this_property"] = $selectors_saved["$this_selector"]["$this_property"];
+			}
+		}
+
+		if ($invalidpropertyphrases)
+		{
+			$invalid_properties_string = implode(", ", $invalidpropertyphrases);
+			eval('$errors .= "' . fetch_template('modifyusercss_error') . '";');
+		}
+
+		$show['textcolor'] = ($field_names['color'] OR $field_names['linkcolor'] OR $field_names['shadecolor']);
+		$show['background'] = ($field_names['background_color'] OR $field_names['background_image']);
+		$show['font'] = ($field_names['font_family'] OR $field_names['font_size']);
+		$show['border'] = ($field_names['border_style'] OR $field_names['border_color'] OR $field_names['border_width'] OR $field_names['padding']);
+
+		if ($field_names['font_family'])
+		{
+			$fontselect = '';
+			foreach ($allowedfonts AS $key => $font)
+			{
+				$optionvalue = htmlspecialchars_uni($font);
+				$optionclass = '';
+				$optionselected = ($font == $selector['font_family'] ? ' selected="selected"' : '');
+				$optiontitle = !empty($vbphrase["usercss_font_$key"]) ? $vbphrase["usercss_font_$key"] : $key;
+
+				eval('$fontselect .= "' . fetch_template('option') . '";');
+			}
+		}
+
+		if ($field_names['font_size'])
+		{
+			$fontsizeselect = '';
+			foreach ($allowedfontsizes AS $key => $fontsize)
+			{
+				$optionvalue = htmlspecialchars_uni($fontsize);
+				$optionclass = '';
+				$optionselected = ($fontsize == $selector['font_size'] ? ' selected="selected"' : '');
+				$optiontitle = !empty($vbphrase["usercss_fontsize_$key"]) ? $vbphrase["usercss_fontsize_$key"] : $key;
+
+				eval('$fontsizeselect .= "' . fetch_template('option') . '";');
+			}
+		}
+
+		if ($field_names['border_width'])
+		{
+			$borderwidthselect = '';
+			foreach ($allowedborderwidths AS $key => $borderwidth)
+			{
+				$optionvalue = htmlspecialchars_uni($borderwidth);
+				$optionclass = '';
+				$optionselected = ($borderwidth == $selector["border_width"] ? ' selected="selected"' : '');
+				$optiontitle = !empty($vbphrase["usercss_borderwidth_$key"]) ? $vbphrase["usercss_borderwidth_$key"] : $key;
+
+				eval('$borderwidthselect .= "' . fetch_template('option') . '";');
+			}
+		}
+
+		if ($field_names['background_image'])
+		{
+			if (!empty($selector['background_image']))
+			{
+				if (preg_match("/^([0-9]+),([0-9]+)$/", $selector['background_image'], $picture))
+				{
+					$selector['background_image'] = create_full_url("picture.php?albumid=" . $picture[1] . "&pictureid=" . $picture[2]);
+				}
+			}
+		}
+
+		if ($field_names['padding'])
+		{
+			$paddingselect = '';
+
+			foreach ($allowedpaddings AS $key => $padding)
+			{
+				$optionvalue = htmlspecialchars_uni($padding);
+				$optionclass = '';
+				$optionselected = ($padding == $selector['padding'] ? ' selected="selected"' : '');
+				$optiontitle = !empty($vbphrase["usercss_padding_$key"]) ? $vbphrase["usercss_padding_$key"] : $key;
+
+				eval('$paddingselect .= "' . fetch_template('option') . '";');
+			}
+		}
+
+		if ($field_names)
+		{
+			$border_style_selected = array(
+				$selector['border_style'] => ' selected="selected"'
+			);
+
+			$repeat_selected = array(
+				str_replace('-', '_', $selector['background_repeat']) => ' selected="selected"'
+			);
+
+			// make safe for display
+			foreach ($selector AS $property => $selvalue)
+			{
+				$selector["$property"] = htmlspecialchars_uni($selvalue);
+			}
+
+			$selector['phrase'] = $vbphrase["$selectorinfo[phrasename]"];
+			$selector['description'] = (isset($vbphrase["$selectorinfo[phrasename]_desc"]) ? $vbphrase["$selectorinfo[phrasename]_desc"] : '');
+
+			($hook = vBulletinHook::fetch_hook('profile_customize_bit')) ? eval($hook) : false;
+
+			eval('$usercssbits .= "' . fetch_template('modifyusercss_bit') . '";');
+		}
+	}
+
+	if (!$usercssbits)
+	{
+		print_no_permission();
+	}
+
+	$albumbits = '';
+	$picturerowbits = '';
+	$count = 0;
+	$albums = array();
+	$profilealbums = $db->query_read("
+		SELECT
+			album.title, album.albumid,
+			albumpicture.dateline, albumpicture.pictureid, picture.caption, picture.extension, picture.filesize, picture.idhash,
+			picture.thumbnail_filesize, picture.thumbnail_dateline, picture.thumbnail_width, picture.thumbnail_height
+		FROM " . TABLE_PREFIX . "album AS album
+		INNER JOIN " . TABLE_PREFIX . "albumpicture AS albumpicture ON (album.albumid = albumpicture.albumid)
+		INNER JOIN " . TABLE_PREFIX . "picture AS picture ON (albumpicture.pictureid = picture.pictureid)
+		WHERE album.state = 'profile'
+			AND album.userid = " . $vbulletin->userinfo['userid'] . "
+			AND picture.state = 'visible'
+		ORDER BY album.albumid, picture.pictureid
+	");
+	while ($album = $db->fetch_array($profilealbums))
+	{
+		$albums[$album['albumid']]['title'] = $album['title'];
+		$albums[$album['albumid']]['pictures'][] = $album;
+	}
+
+	require_once(DIR . '/includes/functions_album.php');
+	foreach ($albums AS $albumid => $info)
+	{
+		$picturebits = '';
+		$show['backgroundpicker'] = true;
+		$optionvalue = $albumid;
+
+		// Need to shorten album titles here
+		$optiontitle = "{$info['title']} (" . count($info['pictures']) . ")";
+		$optionselected = empty($albumbits) ? 'selected="selected"' : '';
+		eval('$albumbits .= "' . fetch_template('option') . '";');
+		$show['hidediv'] = empty($picturerowbits) ? false : true;
+		foreach($info['pictures'] AS $picture)
+		{
+			$picture['caption_preview'] = fetch_censored_text(fetch_trimmed_title(
+				$picture['caption'],
+				$vbulletin->options['album_captionpreviewlen']
+			));
+			$picture['thumburl'] = ($picture['thumbnail_filesize'] ? fetch_picture_url($picture, $picture, true) : '');
+			$picture['dimensions'] = ($picture['thumbnail_width'] ? "width=\"$picture[thumbnail_width]\" height=\"$picture[thumbnail_height]\"" : '');
+			eval('$picturebits .= "' . fetch_template('modifyusercss_backgroundbit') . '";');
+		}
+
+		eval('$picturerowbits .= "' . fetch_template('modifyusercss_backgroundrow') . '";');
+	}
+
+	$show['albumselect'] = (count($albums) == 1) ? false : true;
+
+	$vbulletin->userinfo['cachedcss'] = $usercss->build_css($usercss->fetch_effective());
+	$vbulletin->userinfo['cachedcss'] = str_replace('/*sessionurl*/', $vbulletin->session->vars['sessionurl_js'], $vbulletin->userinfo['cachedcss']);
+	if ($vbulletin->userinfo['cachedcss'])
+	{
+		$userinfo = $vbulletin->userinfo;
+		eval('$usercss_string = "' . fetch_template('memberinfo_usercss') . '";');
+	}
+	else
+	{
+		$usercss_string = '';
+	}
+
+	eval('$headinclude .= "' . fetch_template('modifyusercss_headinclude') . '";');
+
+	$navbits[''] = $vbphrase['customize_profile'];
+
+	construct_usercp_nav('customize');
+	$templatename = 'modifyusercss';
+}
+
 // #############################################################################
 // spit out final HTML if we have got this far
 
@@ -2894,8 +4294,8 @@ if ($templatename != '')
 
 /*======================================================================*\
 || ####################################################################
-|| # Downloaded: 18:52, Sat Jul 14th 2007
-|| # CVS: $RCSfile$ - $Revision: 16950 $
+|| # Downloaded: 16:21, Sat Apr 6th 2013
+|| # CVS: $RCSfile$ - $Revision: 26937 $
 || ####################################################################
 \*======================================================================*/
 ?>

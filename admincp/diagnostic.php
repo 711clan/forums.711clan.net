@@ -1,9 +1,9 @@
 <?php
 /*======================================================================*\
 || #################################################################### ||
-|| # vBulletin 3.6.7 PL1 - Licence Number VBF2470E4F
+|| # vBulletin 3.7.2 Patch Level 2 - Licence Number VBF2470E4F
 || # ---------------------------------------------------------------- # ||
-|| # Copyright ©2000-2007 Jelsoft Enterprises Ltd. All Rights Reserved. ||
+|| # Copyright ©2000-2013 Jelsoft Enterprises Ltd. All Rights Reserved. ||
 || # This file may not be redistributed in whole or significant part. # ||
 || # ---------------- VBULLETIN IS NOT FREE SOFTWARE ---------------- # ||
 || # http://www.vbulletin.com | http://www.vbulletin.com/license.html # ||
@@ -14,7 +14,7 @@
 error_reporting(E_ALL & ~E_NOTICE);
 
 // ##################### DEFINE IMPORTANT CONSTANTS #######################
-define('CVS_REVISION', '$RCSfile$ - $Revision: 16762 $');
+define('CVS_REVISION', '$RCSfile$ - $Revision: 26026 $');
 define('NOZIP', 1);
 
 // #################### PRE-CACHE TEMPLATES AND DATA ######################
@@ -303,7 +303,7 @@ if ($_POST['do'] == 'dosysinfo')
 			}
 			else if ($vbulletin->GPC['type'] == 'mysql_status')
 			{
-				$result = $db->query_write('SHOW STATUS');
+				$result = $db->query_write('SHOW /*!50002 GLOBAL */ STATUS');
 			}
 
 			$colcount = $db->num_fields($result);
@@ -364,6 +364,8 @@ if ($_POST['do'] == 'doversion')
 	if ($handle)
 	{
 		$md5_sums_array = array();
+		$md5_sum_versions = array('vbulletin' => '3.7.2 Patch Level 2');
+		$file_software_assoc = array();
 		$scanned_md5_files = array();
 		$ignored_files = array('/includes/config.php', '/includes/config.php.new', '/install/install.php', '/includes/version_vbulletin.php');
 		$ignored_dirs = array('/cpstyles/', '/includes/datastore');
@@ -372,8 +374,14 @@ if ($_POST['do'] == 'doversion')
 		{
 			if (preg_match('#^md5_sums_.+$#siU', $file, $match))
 			{
+				unset($md5_sum_softwareid);
 				include(DIR . "/includes/$match[0]");
 				$relative_md5_sums = array();
+
+				if (empty($md5_sum_softwareid))
+				{
+					$md5_sum_softwareid = 'vbulletin';
+				}
 
 				if ($vbulletin->options['forumhome'] != 'index' AND !empty($md5_sums['/']['index.php']))
 				{
@@ -398,6 +406,11 @@ if ($_POST['do'] == 'doversion')
 					}
 
 					$relative_md5_sums["$key"] = $val;
+
+					foreach (array_keys($val) AS $file)
+					{
+						$file_software_assoc["$key/$file"] = $md5_sum_softwareid;
+					}
 				}
 
 				$scanned_md5_files[] = $match[0];
@@ -433,6 +446,11 @@ if ($_POST['do'] == 'doversion')
 
 				while ($file = readdir($handle))
 				{
+					if ($file == '.' OR $file == '..')
+					{
+						continue;
+					}
+
 					if (is_file(DIR . "$directory/$file") AND !in_array("$directory/$file", $ignored_files) AND substr($file, 0, 1) != '.' AND in_array($ext = '.' . file_extension($file), $extensions))
 					{
 						$file_count["$directory"]++;
@@ -458,11 +476,11 @@ if ($_POST['do'] == 'doversion')
 
 									while ($line = fgets($fp, 4096) AND $linenumber <= 10)
 									{
-										if ($ext == '.php' AND preg_match('#\|\| \# vBulletin (.*?) -#si', $line, $matches))
+										if ($ext == '.php' AND preg_match('#\|\| \# vBulletin[^0-9]* (\d.*?) -#si', $line, $matches))
 										{
 											$finished = true;
 										}
-										else if (preg_match('#^\|\| \# vBulletin (.*)$#si', $line, $matches))
+										else if (preg_match('#^\|\| \# vBulletin[^0-9]* (\d.*)$#si', $line, $matches))
 										{
 											$finished = true;
 										}
@@ -471,10 +489,19 @@ if ($_POST['do'] == 'doversion')
 
 										if ($finished)
 										{
-											if (!in_array(trim($matches[1]), array($vbulletin->options['templateversion'], '3.6.7 PL1')))
+											if (!empty($file_software_assoc["$directory/$file"]))
+											{
+												$version_check = $md5_sum_versions[$file_software_assoc["$directory/$file"]];
+											}
+											else
+											{
+												$version_check = $md5_sum_versions['vbulletin'];
+											}
+
+											if (strtolower(trim($matches[1])) != strtolower($version_check))
 											{
 												$check_md5 = false;
-												$errors["$directory"]["$file"][] = construct_phrase($vbphrase['file_version_mismatch_x_expected_y'], $matches[1], $vbulletin->options['templateversion']);
+												$errors["$directory"]["$file"][] = construct_phrase($vbphrase['file_version_mismatch_x_expected_y'], htmlspecialchars_uni($matches[1]), htmlspecialchars_uni($version_check));
 											}
 											break;
 										}
@@ -584,6 +611,33 @@ if ($_GET['do'] == 'payments')
 	print_table_footer(2);
 }
 
+if ($_REQUEST['do'] == 'server_modules')
+{
+	print_form_header('', '');
+	print_table_header('Suhosin');
+
+	$suhosin_loaded = extension_loaded('suhosin');
+	print_label_row($vbphrase['module_loaded'], ($suhosin_loaded ? $vbphrase['yes'] : $vbphrase['no']));
+	if ($suhosin_loaded)
+	{
+		print_diagnostic_test_result(0, $vbphrase['suhosin_problem_desc'], 0);
+	}
+	print_table_footer();
+
+	print_form_header('', '');
+	print_table_header('mod_security');
+
+	print_label_row($vbphrase['mod_security_ajax_issue'], "<span id=\"mod_security_test_result\">$vbphrase[no]</span><img src=\"clear.gif?test=%u0067\" id=\"mod_security_test\" alt=\"\" />");
+	print_diagnostic_test_result(-1, $vbphrase['mod_security_problem_desc'], 0);
+	print_table_footer();
+	?>
+	<script type="text/javascript">
+	YAHOO.util.Event.addListener("mod_security_test", "error", function(e) { YAHOO.util.Dom.get('mod_security_test_result').innerHTML = '<?php echo $vbphrase['yes']; ?>'; YAHOO.util.Dom.setStyle('mod_security_test', 'display', 'none'); });
+	YAHOO.util.Event.addListener("mod_security_test", "load", function(e) { YAHOO.util.Dom.setStyle('mod_security_test', 'display', 'none'); });
+	</script>
+	<?php
+}
+
 // ###################### Start options list #######################
 if ($_REQUEST['do'] == 'list')
 {
@@ -603,6 +657,11 @@ if ($_REQUEST['do'] == 'list')
 	print_table_header($vbphrase['suspect_file_versions']);
 	print_description_row(construct_phrase($vbphrase['file_versions_explained'], $vbulletin->options['templateversion']));
 	print_submit_row($vbphrase['submit'], 0);
+
+	print_form_header('diagnostic', 'server_modules');
+	print_table_header($vbphrase['problematic_server_modules']);
+	print_description_row($vbphrase['problematic_server_modules_explained']);
+	print_submit_row($vbphrase['submit']);
 
 	print_form_header('diagnostic', 'dosysinfo');
 	print_table_header($vbphrase['system_information']);
@@ -625,8 +684,8 @@ print_cp_footer();
 
 /*======================================================================*\
 || ####################################################################
-|| # Downloaded: 18:52, Sat Jul 14th 2007
-|| # CVS: $RCSfile$ - $Revision: 16762 $
+|| # Downloaded: 16:21, Sat Apr 6th 2013
+|| # CVS: $RCSfile$ - $Revision: 26026 $
 || ####################################################################
 \*======================================================================*/
 ?>

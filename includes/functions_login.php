@@ -1,9 +1,9 @@
 <?php
 /*======================================================================*\
 || #################################################################### ||
-|| # vBulletin 3.6.7 PL1 - Licence Number VBF2470E4F
+|| # vBulletin 3.7.2 Patch Level 2 - Licence Number VBF2470E4F
 || # ---------------------------------------------------------------- # ||
-|| # Copyright ©2000-2007 Jelsoft Enterprises Ltd. All Rights Reserved. ||
+|| # Copyright ©2000-2013 Jelsoft Enterprises Ltd. All Rights Reserved. ||
 || # This file may not be redistributed in whole or significant part. # ||
 || # ---------------- VBULLETIN IS NOT FREE SOFTWARE ---------------- # ||
 || # http://www.vbulletin.com | http://www.vbulletin.com/license.html # ||
@@ -57,28 +57,9 @@ function verify_strike_status($username = '', $supress_error = false)
 		FROM " . TABLE_PREFIX . "strikes
 		WHERE strikeip = '" . $vbulletin->db->escape_string(IPADDRESS) . "'
 	");
-	if (!empty($username))
-	{
-		$strikes_user = $vbulletin->db->query_first("
-			SELECT COUNT(*) AS strikes
-			FROM " . TABLE_PREFIX . "strikes
-			WHERE strikeip = '" . $vbulletin->db->escape_string(IPADDRESS) . "'
-				AND username = '" . $vbulletin->db->escape_string(htmlspecialchars_uni($username)) . "'
-		");
-	}
-	if ($strikes['strikes'] == 0)
-	{
-		$strikes_user['strikes'] = 1;
-	}
+
 	if ($strikes['strikes'] >= 5 AND $strikes['lasttime'] > TIMENOW - 900)
 	{ //they've got it wrong 5 times or greater for any username at the moment
-
-		if (($strikes_user['strikes'] % 5 == 0) AND $user = $vbulletin->db->query_first("SELECT userid, username, email, languageid FROM " . TABLE_PREFIX . "user WHERE username = '" . $vbulletin->db->escape_string($username) . "' AND usergroupid <> 3"))
-		{ // they've got it wrong 5 times for this user lets email them
-			$ip = IPADDRESS;
-			eval(fetch_email_phrases('accountlocked', $user['languageid']));
-			vbmail($user['email'], $subject, $message, true);
-		}
 
 		// the user is still not giving up so lets keep increasing this marker
 		exec_strike_user($username);
@@ -101,13 +82,33 @@ function verify_strike_status($username = '', $supress_error = false)
 }
 
 // ###################### Start exec_strike_user #######################
-function exec_strike_user($username = '', $strikes = 0)
+function exec_strike_user($username = '')
 {
 	global $vbulletin, $strikes;
 
 	if (!$vbulletin->options['usestrikesystem'])
 	{
 		return 0;
+	}
+
+	if (!empty($username))
+	{
+		$strikes_user = $vbulletin->db->query_first("
+			SELECT COUNT(*) AS strikes
+			FROM " . TABLE_PREFIX . "strikes
+			WHERE strikeip = '" . $vbulletin->db->escape_string(IPADDRESS) . "'
+				AND username = '" . $vbulletin->db->escape_string(htmlspecialchars_uni($username)) . "'
+		");
+
+		if ($strikes_user['strikes'] == 4)		// We're about to add the 5th Strike for a user
+		{
+			if ($user = $vbulletin->db->query_first("SELECT userid, username, email, languageid FROM " . TABLE_PREFIX . "user WHERE username = '" . $vbulletin->db->escape_string($username) . "' AND usergroupid <> 3"))
+			{
+				$ip = IPADDRESS;
+				eval(fetch_email_phrases('accountlocked', $user['languageid']));
+				vbmail($user['email'], $subject, $message, true);
+			}
+		}
 	}
 
 	/*insert query*/
@@ -197,6 +198,11 @@ function process_new_login($logintype, $cookieuser, $cssprefs)
 {
 	global $vbulletin;
 
+	$lang_info = array(
+		'lang_locale' => $vbulletin->userinfo['lang_locale'],
+		'lang_charset' => $vbulletin->userinfo['lang_charset']
+	);
+
 	$vbulletin->db->query_write("DELETE FROM " . TABLE_PREFIX . "session WHERE sessionhash = '" . $vbulletin->db->escape_string($vbulletin->session->vars['dbsessionhash']) . "'");
 
 	if ($vbulletin->session->created == true AND $vbulletin->session->vars['userid'] == 0)
@@ -206,7 +212,7 @@ function process_new_login($logintype, $cookieuser, $cssprefs)
 	}
 	else
 	{
-		$newsession =& new vB_Session($vbulletin, '', $vbulletin->userinfo['userid'], '', $vbulletin->session->vars['styleid']);
+		$newsession =& new vB_Session($vbulletin, '', $vbulletin->userinfo['userid'], '', $vbulletin->session->vars['styleid'], $vbulletin->session->vars['languageid']);
 	}
 	$newsession->set('userid', $vbulletin->userinfo['userid']);
 	$newsession->set('loggedin', 1);
@@ -219,7 +225,11 @@ function process_new_login($logintype, $cookieuser, $cssprefs)
 		$newsession->set('bypass', 0);
 	}
 	$newsession->set_session_visibility(($vbulletin->superglobal_size['_COOKIE'] > 0));
+	$newsession->fetch_userinfo();
 	$vbulletin->session =& $newsession;
+	$vbulletin->userinfo = $newsession->userinfo;
+	$vbulletin->userinfo['lang_locale'] = $lang_info['lang_locale'];
+	$vbulletin->userinfo['lang_charset'] = $lang_info['lang_charset'];
 
 	// admin control panel or upgrade script login
 	if ($logintype === 'cplogin')
@@ -281,7 +291,7 @@ function process_new_login($logintype, $cookieuser, $cssprefs)
 // ###################### Start do login redirect #######################
 function do_login_redirect()
 {
-	global $vbulletin;
+	global $vbulletin, $vbphrase;
 
 	if (
 		$vbulletin->url == 'login.php'
@@ -311,7 +321,38 @@ function do_login_redirect()
 
 	($hook = vBulletinHook::fetch_hook('login_redirect')) ? eval($hook) : false;
 
-	eval(print_standard_redirect('redirect_login', true, true));
+	// recache the global group to get the stuff from the new language
+	$globalgroup = $vbulletin->db->query_first_slave("
+		SELECT phrasegroup_global, languagecode, charset
+		FROM " . TABLE_PREFIX . "language
+		WHERE languageid = " . intval($vbulletin->userinfo['languageid'] ? $vbulletin->userinfo['languageid'] : $vbulletin->options['languageid'])
+	);
+	if ($globalgroup)
+	{
+		$vbphrase = array_merge($vbphrase, unserialize($globalgroup['phrasegroup_global']));
+
+		global $stylevar;
+		if ($stylevar['charset'] != $globalgroup['charset'])
+		{
+			// change the character set in a bunch of places - a total hack
+			global $headinclude;
+
+			$headinclude = str_replace(
+				"content=\"text/html; charset=$stylevar[charset]\"",
+				"content=\"text/html; charset=$globalgroup[charset]\"",
+				$headinclude
+			);
+
+			$stylevar['charset'] = $globalgroup['charset'];
+			$vbulletin->userinfo['lang_charset'] = $globalgroup['charset'];
+
+			exec_headers();
+		}
+
+		$stylevar['languagecode'] = $globalgroup['languagecode'];
+	}
+
+	eval(print_standard_redirect('redirect_login', true, true, $vbulletin->userinfo['languageid']));
 }
 
 // ###################### Start process logout #######################
@@ -331,6 +372,7 @@ function process_logout()
 			{
 				continue;
 			}
+			// vbsetcookie will add the cookie prefix
 			vbsetcookie($key, '', 1);
 		}
 	}
@@ -368,8 +410,8 @@ function process_logout()
 }
 /*======================================================================*\
 || ####################################################################
-|| # Downloaded: 18:52, Sat Jul 14th 2007
-|| # CVS: $RCSfile$ - $Revision: 16358 $
+|| # Downloaded: 16:21, Sat Apr 6th 2013
+|| # CVS: $RCSfile$ - $Revision: 26702 $
 || ####################################################################
 \*======================================================================*/
 ?>

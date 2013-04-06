@@ -1,9 +1,9 @@
 <?php
 /*======================================================================*\
 || #################################################################### ||
-|| # vBulletin 3.6.7 PL1 - Licence Number VBF2470E4F
+|| # vBulletin 3.7.2 Patch Level 2 - Licence Number VBF2470E4F
 || # ---------------------------------------------------------------- # ||
-|| # Copyright ©2000-2007 Jelsoft Enterprises Ltd. All Rights Reserved. ||
+|| # Copyright ©2000-2013 Jelsoft Enterprises Ltd. All Rights Reserved. ||
 || # This file may not be redistributed in whole or significant part. # ||
 || # ---------------- VBULLETIN IS NOT FREE SOFTWARE ---------------- # ||
 || # http://www.vbulletin.com | http://www.vbulletin.com/license.html # ||
@@ -15,12 +15,20 @@ error_reporting(E_ALL & ~E_NOTICE);
 
 // #################### DEFINE IMPORTANT CONSTANTS #######################
 define('THIS_SCRIPT', 'ajax');
+define('CSRF_PROTECTION', true);
 define('LOCATION_BYPASS', 1);
 define('NOPMPOPUP', 1);
 
 // ################### PRE-CACHE TEMPLATES AND DATA ######################
 // get special phrase groups
 $phrasegroups = array('posting');
+switch ($_POST['do'])
+{
+	case 'fetchuserfield':
+	case 'saveuserfield':
+		$phrasegroups[] = 'cprofilefield';
+		$phrasegroups[] = 'user';
+}
 
 // get special data templates from the datastore
 $specialtemplates = array('bbcodecache');
@@ -29,7 +37,20 @@ $specialtemplates = array('bbcodecache');
 $globaltemplates = array();
 
 // pre-cache templates used by specific actions
-$actiontemplates = array();
+$actiontemplates = array(
+	'fetchuserfield' => array(
+		'memberinfo_customfield_edit',
+		'userfield_checkbox_option',
+		'userfield_optional_input',
+		'userfield_radio',
+		'userfield_radio_option',
+		'userfield_select',
+		'userfield_select_option',
+		'userfield_select_multiple',
+		'userfield_textarea',
+		'userfield_textbox',
+	)
+);
 
 $_POST['ajax'] = 1;
 
@@ -83,11 +104,54 @@ if ($_POST['do'] == 'usersearch')
 }
 
 // #############################################################################
+// tag search
+
+if ($_POST['do'] == 'tagsearch')
+{
+	$vbulletin->input->clean_array_gpc('p', array('fragment' => TYPE_STR));
+
+	$vbulletin->GPC['fragment'] = convert_urlencoded_unicode($vbulletin->GPC['fragment']);
+
+	if ($vbulletin->GPC['fragment'] != '' AND strlen($vbulletin->GPC['fragment']) >= 3)
+	{
+		$fragment = htmlspecialchars_uni($vbulletin->GPC['fragment']);
+	}
+	else
+	{
+		$fragment = '';
+	}
+
+	$xml = new vB_AJAX_XML_Builder($vbulletin, 'text/xml');
+	$xml->add_group('tags');
+
+	if ($fragment != '')
+	{
+		$tags = $db->query_read_slave("
+			SELECT tagtext
+			FROM " . TABLE_PREFIX . "tag
+			WHERE tagtext LIKE '" . $db->escape_string_like($fragment) . "%'
+			ORDER BY tagtext
+			LIMIT 15
+		");
+		while ($tag = $db->fetch_array($tags))
+		{
+			$xml->add_tag('tag', $tag['tagtext']);
+		}
+	}
+
+	$xml->close_group();
+	$xml->print_xml();
+}
+
+// #############################################################################
 // update thread title
 
 if ($_POST['do'] == 'updatethreadtitle')
 {
-	$vbulletin->input->clean_array_gpc('p', array('threadid' => TYPE_UINT, 'title' => TYPE_STR));
+	$vbulletin->input->clean_array_gpc('p', array(
+		'threadid' => TYPE_UINT,
+		'title'    => TYPE_STR
+	));
 
 	// allow edit if...
 	if (
@@ -109,7 +173,13 @@ if ($_POST['do'] == 'updatethreadtitle')
 		$threadtitle = convert_urlencoded_unicode($vbulletin->GPC['title']);
 		$threaddata =& datamanager_init('Thread', $vbulletin, ERRTYPE_SILENT, 'threadpost');
 		$threaddata->set_existing($threadinfo);
+		if (!can_moderate($threadinfo['forumid']))
+		{
+			$threaddata->set_info('skip_moderator_log', true);
+		}
+
 		$threaddata->set('title', $threadtitle);
+
 		if ($vbulletin->options['similarthreadsearch'])
 		{
 			require_once(DIR . '/includes/functions_search.php');
@@ -161,7 +231,7 @@ if ($_POST['do'] == 'updatethreadopen')
 {
 	$vbulletin->input->clean_array_gpc('p', array(
 		'threadid' => TYPE_UINT,
-		'src' => TYPE_NOHTML
+		'src'      => TYPE_NOHTML
 	));
 
 	if ($threadinfo['open'] == 10)
@@ -216,7 +286,7 @@ if ($_POST['do'] == 'updatethreadopen')
 if ($_POST['do'] == 'quickedit')
 {
 	$vbulletin->input->clean_array_gpc('p', array(
-		'postid' => TYPE_UINT,
+		'postid'   => TYPE_UINT,
 		'editorid' => TYPE_STR
 	));
 
@@ -304,6 +374,7 @@ if ($_POST['do'] == 'quickedit')
 			$show['deletepostoption'] = false;
 		}
 
+		$show['softdeleteoption'] = true;
 		$show['physicaldeleteoption'] = iif (can_moderate($threadinfo['forumid'], 'canremoveposts'), true, false);
 		$show['keepattachmentsoption'] = iif ($postinfo['attach'], true, false);
 		$show['firstpostnote'] = $isfirstpost;
@@ -321,11 +392,11 @@ if ($_POST['do'] == 'quickedit')
 		construct_edit_toolbar(htmlspecialchars_uni($postinfo['pagetext']), 0, $foruminfo['forumid'], $forum_allowsmilies, $postinfo['allowsmilie'], false, 'qe', $vbulletin->GPC['editorid']);
 
 		$xml->add_group('quickedit');
-		$xml->add_tag('editor', $messagearea, array(
-			'reason' => $postinfo['edit_reason'],
-			'parsetype' => $foruminfo['forumid'],
+		$xml->add_tag('editor', process_replacement_vars($messagearea), array(
+			'reason'       => $postinfo['edit_reason'],
+			'parsetype'    => $foruminfo['forumid'],
 			'parsesmilies' => $editor_parsesmilies,
-			'mode' => $show['is_wysiwyg_editor']
+			'mode'         => $show['is_wysiwyg_editor']
 		));
 		$xml->close_group();
 		$xml->print_xml();
@@ -338,10 +409,11 @@ if ($_POST['do'] == 'quickedit')
 if ($_POST['do'] == 'editorswitch')
 {
 	$vbulletin->input->clean_array_gpc('p', array(
-		'towysiwyg' => TYPE_BOOL,
-		'message' => TYPE_STR,
-		'parsetype' => TYPE_STR, // string to support non-forum options
-		'allowsmilie' => TYPE_BOOL
+		'towysiwyg'    => TYPE_BOOL,
+		'message'      => TYPE_STR,
+		'parsetype'    => TYPE_STR, // string to support non-forum options
+		'allowsmilie'  => TYPE_BOOL,
+		'allowbbcode'  => TYPE_BOOL, // run time editor option for announcements
 	));
 
 	$vbulletin->GPC['message'] = convert_urlencoded_unicode($vbulletin->GPC['message']);
@@ -362,11 +434,17 @@ if ($_POST['do'] == 'editorswitch')
 			$calendarinfo = array_merge($calendarinfo, $getoptions, $geteaster);
 		}
 	}
+	if ($vbulletin->GPC['parsetype'] == 'announcement')
+	{	// oh this is a kludge but there is no simple way to changing the bbcode parser from using global $post with announcements without changing function arguments
+		$post = array(
+			'announcementoptions' => $vbulletin->GPC['allowbbcode'] ? $vbulletin->bf_misc_announcementoptions['allowbbcode'] : 0
+		);
+	}
 
 	if ($vbulletin->GPC['towysiwyg'])
 	{
 		// from standard to wysiwyg
-		$xml->add_tag('message', parse_wysiwyg_html($vbulletin->GPC['message'], false, $vbulletin->GPC['parsetype'], $vbulletin->GPC['allowsmilie']));
+		$xml->add_tag('message', process_replacement_vars(parse_wysiwyg_html(htmlspecialchars_uni($vbulletin->GPC['message']), false, $vbulletin->GPC['parsetype'], $vbulletin->GPC['allowsmilie'])));
 	}
 	else
 	{
@@ -403,7 +481,7 @@ if ($_POST['do'] == 'editorswitch')
 				($hook = vBulletinHook::fetch_hook('editor_switch_wysiwyg_to_standard')) ? eval($hook) : false;
 		}
 
-		$xml->add_tag('message', convert_wysiwyg_html_to_bbcode($vbulletin->GPC['message'], $dohtml));
+		$xml->add_tag('message', process_replacement_vars(convert_wysiwyg_html_to_bbcode($vbulletin->GPC['message'], $dohtml)));
 	}
 
 	$xml->print_xml();
@@ -444,39 +522,161 @@ if ($_POST['do'] == 'markread')
 
 if ($_POST['do'] == 'imagereg')
 {
-	$vbulletin->input->clean_gpc('p', 'imagehash', TYPE_STR);
+	$vbulletin->input->clean_gpc('p', 'hash', TYPE_STR);
 
 	$xml = new vB_AJAX_XML_Builder($vbulletin, 'text/xml');
 
-	if ($vbulletin->options['regimagetype'])
+	if ($vbulletin->options['hv_type'] == 'Image')
 	{
-		require_once(DIR . '/includes/functions_regimage.php');
-		$db->query_write("
-			DELETE FROM " . TABLE_PREFIX . "regimage
-			WHERE regimagehash = '" . $db->escape_string($vbulletin->GPC['imagehash']) . "'
-		");
-		if ($db->affected_rows())
+		require_once(DIR . '/includes/class_humanverify.php');
+		$verify =& vB_HumanVerify::fetch_library($vbulletin);
+		$verify->delete_token($vbulletin->GPC['hash']);
+		$output = $verify->generate_token();
+		$xml->add_tag('hash', $output['hash']);
+	}
+	else
+	{
+		$xml->add_tag('error', fetch_error('humanverify_image_wronganswer'));
+	}
+	$xml->print_xml();
+}
+
+// ###########################################################################
+// New Securitytoken
+
+if ($_POST['do'] == 'securitytoken')
+{
+	$xml = new vB_AJAX_XML_Builder($vbulletin, 'text/xml');
+
+	$xml->add_tag('securitytoken', $vbulletin->userinfo['securitytoken']);
+
+	$xml->print_xml();
+}
+
+// #############################################################################
+// fetch a profile field editor
+if ($_POST['do'] == 'fetchuserfield')
+{
+	require_once(DIR . '/includes/functions_user.php');
+
+	$vbulletin->input->clean_array_gpc('p', array(
+		'fieldid' => TYPE_UINT
+	));
+
+	if (!$vbulletin->userinfo['userid'])
+	{
+		print_no_permission();
+	}
+
+	$xml = new vB_AJAX_XML_Builder($vbulletin, 'text/xml');
+	$xml->add_group('response');
+
+	if ($profilefield = $db->query_first("SELECT * FROM " . TABLE_PREFIX . "profilefield WHERE profilefieldid = " . $vbulletin->GPC['fieldid']))
+	{
+		if ($profilefield['editable'] == 1 OR ($profilefield['editable'] == 2 AND empty($vbulletin->userinfo["field$profilefield[profilefieldid]"])))
 		{
-			$xml->add_tag('imagehash', fetch_regimage_hash());
+			$profilefield_template = fetch_profilefield($profilefield, 'memberinfo_customfield_edit');
+			$xml->add_tag('template', process_replacement_vars($profilefield_template));
 		}
 		else
 		{
-			$xml->add_tag('error', fetch_error('register_imagecheck'));
+			$xml->add_tag('error', fetch_error('profile_field_uneditable'));
+			$xml->add_tag('uneditable', '1');
 		}
 	}
 	else
 	{
-		$xml->add_tag('error', fetch_error('register_imagecheck'));
+		// we want this person to refresh the page, so just throw a no perm error
+		print_no_permission();
 	}
+
+	$xml->close_group();
 	$xml->print_xml();
 }
+
+// #############################################################################
+// save a profile field
+if ($_POST['do'] == 'saveuserfield')
+{
+	$vbulletin->input->clean_array_gpc('p', array(
+		'fieldid'   => TYPE_UINT,
+		'userfield' => TYPE_ARRAY
+	));
+
+	if (!$vbulletin->userinfo['userid'])
+	{
+		print_no_permission();
+	}
+
+	/**
+	* Recursively converts unicode entities for AJAX saving
+	*
+	* @param	mixed	Item to be converted
+	*
+	* @return	mixed	Converted item
+	*/
+	function convert_urlencoded_unicode_recursive($item)
+	{
+		if (is_array($item))
+		{
+			foreach ($item AS $key => $value)
+			{
+				$item["$key"] = convert_urlencoded_unicode_recursive($value);
+			}
+		}
+		else
+		{
+			$item = convert_urlencoded_unicode(trim($item));
+		}
+
+		return $item;
+	}
+
+	// handle AJAX posting of %u00000 entries
+	$vbulletin->GPC['userfield'] = convert_urlencoded_unicode_recursive($vbulletin->GPC['userfield']);
+
+	// init user datamanager
+	$userdata =& datamanager_init('User', $vbulletin, ERRTYPE_STANDARD);
+	$userdata->set_existing($vbulletin->userinfo);
+	$userdata->set_userfields($vbulletin->GPC['userfield']);
+	$userdata->save();
+
+	// fetch profilefield data
+	$profilefield = $db->query_first("
+		SELECT * FROM " . TABLE_PREFIX . "profilefield
+		WHERE profilefieldid = " . $vbulletin->GPC['fieldid']
+	);
+
+	// get displayable profilefield value
+	$new_value = (isset($userdata->userfield['field' . $vbulletin->GPC['fieldid']]) ?
+		$userdata->userfield['field' . $vbulletin->GPC['fieldid']] :
+		$vbulletin->userinfo['field' . $vbulletin->GPC['fieldid']]
+	);
+	fetch_profilefield_display($profilefield, $new_value);
+
+	// output XML
+	$xml = new vB_AJAX_XML_Builder($vbulletin, 'text/xml');
+	$xml->add_group('response');
+
+	$returnvalue = $profilefield['value'] == '' ? $vbphrase['n_a'] : $profilefield['value'];
+	$xml->add_tag('value', process_replacement_vars($returnvalue));
+	if ($profilefield['editable'] == 2 AND !empty($new_value))
+	{
+		// this field is no longer editable
+		$xml->add_tag('uneditable', '1');
+	}
+
+	$xml->close_group();
+	$xml->print_xml();
+}
+
 
 ($hook = vBulletinHook::fetch_hook('ajax_complete')) ? eval($hook) : false;
 
 /*======================================================================*\
 || ####################################################################
-|| # Downloaded: 18:52, Sat Jul 14th 2007
-|| # CVS: $RCSfile$ - $Revision: 16857 $
+|| # Downloaded: 16:21, Sat Apr 6th 2013
+|| # CVS: $RCSfile$ - $Revision: 26606 $
 || ####################################################################
 \*======================================================================*/
 ?>

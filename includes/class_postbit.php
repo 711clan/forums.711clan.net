@@ -1,9 +1,9 @@
 <?php
 /*======================================================================*\
 || #################################################################### ||
-|| # vBulletin 3.6.7 PL1 - Licence Number VBF2470E4F
+|| # vBulletin 3.7.2 Patch Level 2 - Licence Number VBF2470E4F
 || # ---------------------------------------------------------------- # ||
-|| # Copyright ©2000-2007 Jelsoft Enterprises Ltd. All Rights Reserved. ||
+|| # Copyright ©2000-2013 Jelsoft Enterprises Ltd. All Rights Reserved. ||
 || # This file may not be redistributed in whole or significant part. # ||
 || # ---------------- VBULLETIN IS NOT FREE SOFTWARE ---------------- # ||
 || # http://www.vbulletin.com | http://www.vbulletin.com/license.html # ||
@@ -14,14 +14,6 @@ if (!isset($GLOBALS['vbulletin']->db))
 {
 	exit;
 }
-
-/**
-* Bitfield values for the inline moderation javascript selector which should be self-explanitory
-*/
-define('POST_FLAG_INVISIBLE', 1);
-define('POST_FLAG_DELETED',   2);
-define('POST_FLAG_ATTACH',    4);
-define('POST_FLAG_GUEST',     8);
 
 /**
 * Require additional library files
@@ -48,8 +40,8 @@ define('POST_SHOW_INFRACTION', 4);
 * Postbit factory object
 *
 * @package 		vBulletin
-* @version		$Revision: 16976 $
-* @date 		$Date: 2007-05-11 11:07:51 -0500 (Fri, 11 May 2007) $
+* @version		$Revision: 26661 $
+* @date 		$Date: 2008-05-21 04:46:39 -0500 (Wed, 21 May 2008) $
 *
 */
 class vB_Postbit_Factory
@@ -99,7 +91,7 @@ class vB_Postbit_Factory
 	function &fetch_postbit($postbit_type)
 	{
 		$handled_type = false;
-		($hook =& vBulletinHook::fetch_hook('postbit_factory')) ? eval($hook) : false;
+		($hook = vBulletinHook::fetch_hook('postbit_factory')) ? eval($hook) : false;
 
 		if (!$handled_type)
 		{
@@ -148,6 +140,11 @@ class vB_Postbit_Factory
 					$out =& new vB_Postbit_Post_Deleted();
 					break;
 
+				case 'auto_moderated':
+					require_once(DIR . '/includes/class_postbit_alt.php');
+					$out =& new vB_Postbit_Post_AutoModerated();
+					break;
+
 				default:
 					trigger_error('vB_Postbit_Factory::fetch_postbit(): Invalid postbit type.', E_USER_ERROR);
 			}
@@ -167,8 +164,8 @@ class vB_Postbit_Factory
 * Generic Postbit object. This is abstract. You may not instantiate it directly.
 *
 * @package 		vBulletin
-* @version		$Revision: 16976 $
-* @date 		$Date: 2007-05-11 11:07:51 -0500 (Fri, 11 May 2007) $
+* @version		$Revision: 26661 $
+* @date 		$Date: 2008-05-21 04:46:39 -0500 (Wed, 21 May 2008) $
 *
 */
 class vB_Postbit
@@ -259,13 +256,13 @@ class vB_Postbit
 			return '';
 		}
 
-		global $show, $vbphrase, $stylevar, $template_hook;
+		global $show, $vbphrase, $stylevar;
 		global $spacer_open, $spacer_close;
 
 		global $bgclass, $altbgclass;
 		exec_switch_bg();
 
-		($hook =& vBulletinHook::fetch_hook('postbit_display_start')) ? eval($hook) : false;
+		($hook = vBulletinHook::fetch_hook('postbit_display_start')) ? eval($hook) : false;
 
 		// put together each part of the post
 		$this->prep_post_start();
@@ -293,7 +290,7 @@ class vB_Postbit
 		$this->prep_post_end();
 
 		// execute hook
-		($hook =& vBulletinHook::fetch_hook('postbit_display_complete')) ? eval($hook) : false;
+		($hook = vBulletinHook::fetch_hook('postbit_display_complete')) ? eval($hook) : false;
 
 		// evaluate template
 		$postid =& $post['postid'];
@@ -450,8 +447,17 @@ class vB_Postbit
 						case 'pdf':
 							if (!$this->registry->userinfo['showimages'])
 							{
-								eval('$this->post[\'imageattachmentlinks\'] .= "' . fetch_template('postbit_attachment') . '";');
-								$show['imageattachmentlink'] = true;
+								// Special case for PDF - don't list it as an 'image'
+								if ($attachment['attachmentextension'] == 'pdf')
+								{
+									eval('$this->post[\'otherattachments\'] .= "' . fetch_template('postbit_attachment') . '";');
+									$show['otherattachment'] = true;
+								}
+								else
+								{
+									eval('$this->post[\'imageattachmentlinks\'] .= "' . fetch_template('postbit_attachment') . '";');
+									$show['imageattachmentlink'] = true;
+								}
 							}
 							else if ($this->registry->options['attachthumbs'])
 							{
@@ -535,10 +541,32 @@ class vB_Postbit
 			$this->post['edit_date'] = vbdate($this->registry->options['dateformat'], $this->post['edit_dateline'], true);
 			$this->post['edit_time'] = vbdate($this->registry->options['timeformat'], $this->post['edit_dateline']);
 			$show['postedited'] = true;
+
+			if ($this->post['hashistory'] AND $this->registry->options['postedithistory'])
+			{
+				// people who can edit the post can see the history... we also assume that you
+				// can see the full version of the post, meaning the deleted checks are uneeded
+				$owner_edit = (
+					$this->thread['open']
+					AND $this->post['userid'] == $this->registry->userinfo['userid']
+					AND fetch_permissions($this->thread['forumid']) & $this->registry->bf_ugp_forumpermissions['caneditpost']
+					AND (
+						$this->registry->options['edittimelimit'] == 0
+						OR $this->post['dateline'] >= (TIMENOW - ($this->registry->options['edittimelimit'] * 60))
+					)
+				);
+
+				$show['postedithistory'] = ($owner_edit OR can_moderate($this->thread['forumid'], 'caneditposts'));
+			}
+			else
+			{
+				$show['postedithistory'] = false;
+			}
 		}
 		else
 		{
 			$show['postedited'] = false;
+			$show['postedithistory'] = false;
 		}
 	}
 
@@ -765,7 +793,7 @@ class vB_Postbit
 					true
 				);
 				$this->bbcode_parser->set_parse_userinfo(array());
-				if ($this->post['signatureparsed'] == '')
+				if ($this->post['signatureparsed'] === null)
 				{
 					$this->sig_cache = $this->bbcode_parser->cached;
 				}
@@ -789,10 +817,10 @@ class vB_Postbit
 		$this->post['rank'] = '';
 		$this->post['postsperday'] = 0;
 		$this->post['displaygroupid'] = 1;
-		$this->post['musername'] = $this->post['username'] = $this->post['postusername'];
+		$this->post['username'] = $this->post['postusername'];
 		fetch_musername($this->post);
 		//$this->post['usertitle'] = $vbphrase['guest'];
-		$this->post['usertitle'] =& $this->registry->usergroupcache["0"]['usertitle'];
+		$this->post['usertitle'] = $this->registry->usergroupcache['1']['usertitle'];
 		$this->post['joindate'] = '';
 		$this->post['posts'] = 'n/a';
 		$this->post['avatar'] = '';
@@ -893,8 +921,8 @@ class vB_Postbit
 * Postbit optimized for regular posts
 *
 * @package 		vBulletin
-* @version		$Revision: 16976 $
-* @date 		$Date: 2007-05-11 11:07:51 -0500 (Fri, 11 May 2007) $
+* @version		$Revision: 26661 $
+* @date 		$Date: 2008-05-21 04:46:39 -0500 (Wed, 21 May 2008) $
 *
 */
 class vB_Postbit_Post extends vB_Postbit
@@ -946,7 +974,7 @@ class vB_Postbit_Post extends vB_Postbit
 			$this->post['scrolltothis'] = ' id="currentPost"';
 			if ($threadedmode == 0)
 			{
-				$onload = "if (is_ie || is_moz) { fetch_object('currentPost').scrollIntoView(true); }";
+				$onload = htmlspecialchars_uni("if (document.body.scrollIntoView && (window.location.href.indexOf('#') == -1 || window.location.href.indexOf('#post') > -1)) { fetch_object('currentPost').scrollIntoView(true); }");
 			}
 		}
 		else
@@ -1011,6 +1039,11 @@ class vB_Postbit_Post extends vB_Postbit
 			$show['multiquote_post'] = false;
 		}
 
+		if (!empty($this->post['del_reason']))
+		{
+			$this->post['del_reason'] = fetch_censored_text($this->post['del_reason']);
+		}
+
 		$this->post['forwardlink'] = '';
 
 		$show['reportlink'] = (
@@ -1057,6 +1090,7 @@ class vB_Postbit_Post extends vB_Postbit
 		$show['redcard'] = ($this->post['infraction'] == 2 AND $canseeinfraction);
 		$show['yellowcard'] = ($this->post['infraction'] == 1 AND $canseeinfraction);
 		$show['moderated'] = (!$this->post['visible'] OR (!$this->thread['visible'] AND $this->post['postcount'] == 1)) ? true : false;
+		$show['spam'] = ($show['moderated'] AND $this->post['spamlog_postid']) ? true : false;
 		$show['deletedpost'] = ($this->post['visible'] == 2 OR ($this->thread['visible'] == 2 AND $this->post['postcount'] == 1)) ? true : false;
 
 		parent::prep_post_end();
@@ -1096,7 +1130,7 @@ class vB_Postbit_Post extends vB_Postbit
 		$text = str_replace('\"', '"', $text);
 		foreach ($words AS $replaceword)
 		{
-			$text = preg_replace('#(?<=[\s"\]>()]|^)(' . $replaceword . ')(([.,:;-?!()\s"<\[]|$))#siU', '<vb_highlight>\\1</vb_highlight>\\2', $text);
+			$text = preg_replace('#(?<=[\s"\]>()\',;]|^)(' . $replaceword . ')(([&\'.,:;-?!()\s"<\[]|$))#siU', '<vb_highlight>\\1</vb_highlight>\\2', $text);
 			//$text = preg_replace('#(?<=[^\w=])(' . $replaceword . ')(?=[^\w=])#siU', '<span class="highlight">\\1</span>', $text);
 		}
 
@@ -1163,6 +1197,7 @@ function construct_im_icons(&$userinfo, $ignore_off_setting = false)
 
 		if ($userinfo['skype'] != '' AND ($vbulletin->options['showimicons'] OR $ignore_off_setting))
 		{
+			$userinfo['skypeencoded'] = urlencode($userinfo['skype']);
 			eval('$userinfo[\'skypeicon\'] = "' . fetch_template('im_skype') . '";');
 			$userinfo['showskype'] = true;
 			$show['hasimicons'] = true;
@@ -1174,8 +1209,8 @@ function construct_im_icons(&$userinfo, $ignore_off_setting = false)
 
 /*======================================================================*\
 || ####################################################################
-|| # Downloaded: 18:52, Sat Jul 14th 2007
-|| # CVS: $RCSfile$ - $Revision: 16976 $
+|| # Downloaded: 16:21, Sat Apr 6th 2013
+|| # CVS: $RCSfile$ - $Revision: 26661 $
 || ####################################################################
 \*======================================================================*/
 ?>

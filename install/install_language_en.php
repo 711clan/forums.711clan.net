@@ -1,9 +1,9 @@
 <?php
 /*======================================================================*\
 || #################################################################### ||
-|| # vBulletin 3.6.7 PL1 - Licence Number VBF2470E4F
+|| # vBulletin 3.7.2 Patch Level 2 - Licence Number VBF2470E4F
 || # ---------------------------------------------------------------- # ||
-|| # Copyright ©2000-2007 Jelsoft Enterprises Ltd. All Rights Reserved. ||
+|| # Copyright ©2000-2013 Jelsoft Enterprises Ltd. All Rights Reserved. ||
 || # This file may not be redistributed in whole or significant part. # ||
 || # ---------------- VBULLETIN IS NOT FREE SOFTWARE ---------------- # ||
 || # http://www.vbulletin.com | http://www.vbulletin.com/license.html # ||
@@ -89,6 +89,12 @@ $phrasetype['stop_message'] = 'Control Panel Stop Message';
 $phrasetype['reputationlevel'] = 'Reputation Levels';
 $phrasetype['infraction'] = 'User Infractions';
 $phrasetype['infractionlevel'] = 'User Infraction Levels';
+$phrasetype['notice'] = 'Notices';
+$phrasetype['prefix'] = 'Thread Prefixes';
+$phrasetype['prefixadmin'] = 'Thread Prefixes (Admin)';
+$phrasetype['album'] = 'Albums';
+$phrasetype['hvquestion'] = 'Human Verification Questions';
+$phrasetype['socialgroups'] = 'Social Groups';
 
 #####################################
 # custom phrases
@@ -170,7 +176,7 @@ $vbphrase['query_took'] = 'Query took %1$s seconds to execute.';
 $vbphrase['done'] = 'Done';
 $vbphrase['proceed'] = 'Proceed';
 $vbphrase['reset'] = 'Reset';
-$vbphrase['vbulletin_copyright'] = 'vBulletin v' . VERSION . ', Copyright &copy;2000 - 2007, Jelsoft Enterprises Ltd.';
+$vbphrase['vbulletin_copyright'] = 'vBulletin v' . VERSION . ', Copyright &copy;2000 - 2013, Jelsoft Enterprises Ltd.';
 $vbphrase['vbulletin_copyright_orig'] = $vbphrase['vbulletin_copyright'];
 $vbphrase['xml_error_x_at_line_y'] = 'XML Error: %1$s at Line %2$s';
 $vbphrase['default_data_type'] = 'Inserting default data into %1$s';
@@ -196,6 +202,7 @@ $installcore_phrases['page_x_of_y'] = 'Page %1$d of %2$d';
 $installcore_phrases['eaccelerator_too_old'] = 'eAccelerator for PHP must be upgraded to 0.9.3 or newer. Please view this <a href="http://www.vbulletin.com/forum/showthread.p' . 'hp?p=979044#post979044">Post</a> for more information.';
 $upgradecore_phrases['apc_too_old'] = 'Your server is running a version of the <a href="http://pecl.p' . 'hp.net/package/APC/">Alternative PHP Cache</a> (APC) that is incompatible with vBulletin. Please upgrade APC to version 3.0.0 or newer.';
 $installcore_phrases['mmcache_not_supported'] = 'Turck MMCache has been made obsolete by eAccelerator and does not function properly with vBulletin. Please view this <a href="http://www.vbulletin.com/forum/showthread.p' . 'hp?p=979044#post979044">Post</a> for more information.';
+$installcore_phrases['dbname_is_mysql'] = 'The database name specified in <em>includes/config.php</em> as <code>$config[\'Database\'][\'dbname\']</code> must not be <strong>mysql</strong> as this is a reserved database name.<br />Execution has been halted to prevent possible damage.';
 
 #####################################
 # install.php phrases
@@ -215,7 +222,7 @@ $install_phrases['steps'] = array(
 	12 => 'Setup Default Data',
 	13 => 'Install Complete'
 );
-$install_phrases['welcome'] = '<p style="font-size:10pt"><b>Welcome to vBulletin version 3.6</b></p>
+$install_phrases['welcome'] = '<p style="font-size:10pt"><b>Welcome to vBulletin version 3.7</b></p>
 	<p>You are about to perform an install.</p>
 	<p>Clicking the <b>[Next Step]</b> button will begin the installation process on your database.</p>
 	<p>In order to prevent possible browser crashes during this script, we strongly recommend that you disable any additional toolbars you may be using on your browser, such as the <b>Google</b> toolbar etc.</p>';
@@ -256,8 +263,8 @@ $install_phrases['hometitle'] = '<b>Homepage Title</b> <dfn>Name of your homepag
 $install_phrases['bburl'] = '<b>BB URL</b> <dfn>URL (with no final "/") of the BB. For example, <em>http://www.example.com/forums</em></dfn>';
 $install_phrases['homeurl'] = '<b>Home URL</b> <dfn>URL of your home page. Appears at the bottom of every page.</dfn>';
 $install_phrases['webmasteremail'] = '<b>Webmaster email address</b> <dfn>Email address of the webmaster.</dfn>';
-$install_phrases['cookiepath'] = '<b>Cookie Path</b> <dfn>The path to which the cookie is saved. If you run more than one forum on the same domain, it will be necessary to set this to the individual directories of the forums. Otherwise, just leave it as / .<br /><br />Suggested valid values for Cookie Path are available in the drop-down menu opposite. If you have a good reason to want a different setting, tick the checkbox and enter the desired value in the box provided.<br /><br />Please note that your path should <b>always</b> end in a forward-slash; for example \'/forums/\', \'/vbulletin/\' etc.<br /><br /><span class="col-c">Entering an invalid setting can leave you unable to login to your forum.</span></dfn>';
-$install_phrases['cookiedomain'] = '<b>Cookie Domain</b> <dfn>This option sets the domain on which the cookie is active. The most common reason to change this setting is that you have two different urls to your forum, i.e. example.com and forums.example.com.  To allow users to stay logged into the forum if they visit via either url, you would set this to <b>.example.com</b> (note the domain begins with a <b>dot</b>.<br /><br />Suggested valid values for Cookie Path are available in the drop-down menu opposite. If you have a good reason to want a different setting, tick the checkbox and enter the desired value in the box provided.<br /><br /><span class="col-c">You most likely want to leave this setting blank as entering an invalid setting can leave you unable to login to your forum.</span></dfn>';
+$install_phrases['cookiepath'] = '<b>Cookie Path</b> <dfn>The path to which the cookie is saved. If you run more than one forum on the same domain, it will be necessary to set this to the individual directories of the forums. Otherwise, just leave it as / .<br /><br />Suggested valid values for Cookie Path are available in the drop-down menu opposite. If you have a good reason to want a different setting, tick the checkbox and enter the desired value in the box provided.<br /><br />Please note that your path should <b>always</b> end in a forward-slash; for example \'/forums/\', \'/vbulletin/\' etc.<br /><br /><span class="modlasttendays">Entering an invalid setting can leave you unable to login to your forum.</span></dfn>';
+$install_phrases['cookiedomain'] = '<b>Cookie Domain</b> <dfn>This option sets the domain on which the cookie is active. The most common reason to change this setting is that you have two different urls to your forum, i.e. example.com and forums.example.com.  To allow users to stay logged into the forum if they visit via either url, you would set this to <b>.example.com</b> (note the domain begins with a <b>dot</b>.<br /><br />Suggested valid values for Cookie Path are available in the drop-down menu opposite. If you have a good reason to want a different setting, tick the checkbox and enter the desired value in the box provided.<br /><br /><span class="modlasttendays">You most likely want to leave this setting blank as entering an invalid setting can leave you unable to login to your forum.</span></dfn>';
 $install_phrases['suggested_settings'] = 'Suggested Settings';
 $install_phrases['custom_setting'] = 'Custom Setting';
 $install_phrases['use_custom_setting'] = 'Use Custom Setting (Specify Below)';
@@ -339,8 +346,8 @@ $install_phrases['usertitle_snr'] = 'Senior Member';
 
 /*======================================================================*\
 || ####################################################################
-|| # Downloaded: 18:52, Sat Jul 14th 2007
-|| # CVS: $RCSfile$ - $Revision: 17003 $
+|| # Downloaded: 16:21, Sat Apr 6th 2013
+|| # CVS: $RCSfile$ - $Revision: 24780 $
 || ####################################################################
 \*======================================================================*/
 ?>

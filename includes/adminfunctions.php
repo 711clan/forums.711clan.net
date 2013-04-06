@@ -1,9 +1,9 @@
 <?php
 /*======================================================================*\
 || #################################################################### ||
-|| # vBulletin 3.6.7 PL1 - Licence Number VBF2470E4F
+|| # vBulletin 3.7.2 Patch Level 2 - Licence Number VBF2470E4F
 || # ---------------------------------------------------------------- # ||
-|| # Copyright ©2000-2007 Jelsoft Enterprises Ltd. All Rights Reserved. ||
+|| # Copyright ©2000-2013 Jelsoft Enterprises Ltd. All Rights Reserved. ||
 || # This file may not be redistributed in whole or significant part. # ||
 || # ---------------- VBULLETIN IS NOT FREE SOFTWARE ---------------- # ||
 || # http://www.vbulletin.com | http://www.vbulletin.com/license.html # ||
@@ -24,45 +24,37 @@ function print_cp_login($mismatch = false)
 	global $vbulletin, $vbphrase, $stylevar;
 
 	$focusfield = iif($vbulletin->userinfo['userid'] == 0, 'username', 'password');
+
 	$vbulletin->input->clean_array_gpc('r', array(
 		'vb_login_username' => TYPE_NOHTML
 	));
+
 	$printusername = iif(!empty($vbulletin->GPC['vb_login_username']), $vbulletin->GPC['vb_login_username'], $vbulletin->userinfo['username']);
+	$vbulletin->userinfo['badlocation'] = 1;
 
 	switch(VB_AREA)
 	{
 		case 'AdminCP':
-		$pagetitle = $vbphrase['admin_control_panel'];
-		$getcssoptions = fetch_cpcss_options();
-		$cssoptions = array();
-		foreach ($getcssoptions AS $folder => $foldername)
-		{
-			$key = iif($folder == $vbulletin->options['cpstylefolder'], '', $folder);
-			$cssoptions["$key"] = $foldername;
-		}
-		$showoptions = true;
-		$logintype = 'cplogin';
+			$pagetitle = $vbphrase['admin_control_panel'];
+			$getcssoptions = fetch_cpcss_options();
+			$cssoptions = array();
+			foreach ($getcssoptions AS $folder => $foldername)
+			{
+				$key = iif($folder == $vbulletin->options['cpstylefolder'], '', $folder);
+				$cssoptions["$key"] = $foldername;
+			}
+			$showoptions = true;
+			$logintype = 'cplogin';
 		break;
 
 		case 'ModCP':
-		$pagetitle = $vbphrase['moderator_control_panel'];
-		$showoptions = false;
-		$logintype = 'modcplogin';
+			$pagetitle = $vbphrase['moderator_control_panel'];
+			$showoptions = false;
+			$logintype = 'modcplogin';
 		break;
 
-		/*
-		case 'Upgrade':
-		$pagetitle = 'Upgrade System';
-		$showoptions = false;
-		$logintype = 'cplogin';
-		break;
-
-		case 'Install':
-		$pagetitle = 'Installer';
-		$showoptions = false;
-		$logintype = 'cplogin';
-		break;
-		*/
+		default:
+			($hook = vBulletinHook::fetch_hook('admin_login_area_switch')) ? eval($hook) : false;
 	}
 
 	define('NO_PAGE_TITLE', true);
@@ -104,6 +96,7 @@ function print_cp_login($mismatch = false)
 	<form action="../login.php?do=login" method="post" name="loginform" onsubmit="md5hash(vb_login_password, vb_login_md5password, vb_login_md5password_utf); js_do_options(this)">
 	<input type="hidden" name="url" value="<?php echo $vbulletin->scriptpath; ?>" />
 	<input type="hidden" name="s" value="<?php echo $vbulletin->session->vars['dbsessionhash']; ?>" />
+	<input type="hidden" name="securitytoken" value="<?php echo $vbulletin->userinfo['securitytoken']; ?>" />
 	<input type="hidden" name="logintype" value="<?php echo $logintype; ?>" />
 	<input type="hidden" name="do" value="login" />
 	<input type="hidden" name="vb_login_md5password" value="" />
@@ -149,12 +142,12 @@ function print_cp_login($mismatch = false)
 		<!-- login fields -->
 		<tr>
 			<td><?php echo $vbphrase['username']; ?></td>
-			<td><input type="text" style="padding-left:5px; font-weight:bold; width:250px" name="vb_login_username" value="<?php echo $printusername; ?>" accesskey="u" tabindex="1" id="vb_login_username" /></td>
+			<td><input type="text" style="padding-<?php echo $stylevar['left']; ?>:5px; font-weight:bold; width:250px" name="vb_login_username" value="<?php echo $printusername; ?>" accesskey="u" tabindex="1" id="vb_login_username" /></td>
 			<td>&nbsp;</td>
 		</tr>
 		<tr>
 			<td><?php echo $vbphrase['password']; ?></td>
-			<td><input type="password" style="padding-left:5px; font-weight:bold; width:250px" name="vb_login_password" accesskey="p" tabindex="2" id="vb_login_password" /></td>
+			<td><input type="password" style="padding-<?php echo $stylevar['left']; ?>:5px; font-weight:bold; width:250px" name="vb_login_password" accesskey="p" tabindex="2" id="vb_login_password" /></td>
 			<td>&nbsp;</td>
 		</tr>
 		<tr style="display: none" id="cap_lock_alert">
@@ -169,7 +162,7 @@ function print_cp_login($mismatch = false)
 		<tbody id="loginoptions" style="display:none">
 		<tr>
 			<td><?php echo $vbphrase['style']; ?></td>
-			<td><select name="cssprefs" class="login" style="padding-left:5px; font-weight:normal; width:250px" tabindex="5"><?php echo construct_select_options($cssoptions, $csschoice); ?></select></td>
+			<td><select name="cssprefs" class="login" style="padding-<?php echo $stylevar['left']; ?>:5px; font-weight:normal; width:250px" tabindex="5"><?php echo construct_select_options($cssoptions, $csschoice); ?></select></td>
 			<td>&nbsp;</td>
 		</tr>
 		<tr>
@@ -281,7 +274,7 @@ function print_cp_header($title = '', $onload = '', $headinsert = '', $marginwid
 
 	// print out the page header
 	echo '<!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Transitional//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-transitional.dtd">' . "\r\n";
-	echo "<html dir=\"$stylevar[textdirection]\" lang=\"$stylevar[languagecode]\"$htmlattributes>\r\n";
+	echo "<html xmlns=\"http://www.w3.org/1999/xhtml\" dir=\"$stylevar[textdirection]\" lang=\"$stylevar[languagecode]\"$htmlattributes>\r\n";
 	echo "<head>
 	<title>$titlestring</title>
 	<meta http-equiv=\"Content-Type\" content=\"text/html; charset=$stylevar[charset]\" />
@@ -305,8 +298,8 @@ function print_cp_header($title = '', $onload = '', $headinsert = '', $marginwid
 	}
 	//-->
 	</script>
-	<script type=\"text/javascript\" src=\"../clientscript/yui/yahoo-dom-event.js\"></script>
-	<script type=\"text/javascript\" src=\"../clientscript/yui/connection.js\"></script>
+	<script type=\"text/javascript\" src=\"../clientscript/yui/yahoo-dom-event/yahoo-dom-event.js\"></script>
+	<script type=\"text/javascript\" src=\"../clientscript/yui/connection/connection-min.js\"></script>
 	<script type=\"text/javascript\" src=\"../clientscript/vbulletin_global.js\"></script>\n\r";
 	echo "</head>\r\n";
 	echo "<body style=\"margin:{$marginwidth}px\" onload=\"set_cp_title();$onload\"$bodyattributes>\r\n";
@@ -376,19 +369,25 @@ function print_cp_footer()
 		else
 		{
 			echo "<p align=\"center\" class=\"smallfont\">SQL Queries (" . $vbulletin->db->querycount . ") | " . (!empty($cvsversion) ? "$cvsversion | " : '') . "<a href=\"" . $vbulletin->scriptpath . iif(strpos($vbulletin->scriptpath, '?') > 0, '&amp;', '?') . "explain=1\">Explain</a></p>";
+			if (function_exists('memory_get_usage'))
+			{
+				echo "<p align=\"center\" class=\"smallfont\">Memory Usage: " . vb_number_format(round(memory_get_usage() / 1024, 2)) . " KiB</p>";
+			}
 		}
+
+		$_REQUEST['do'] = htmlspecialchars_uni($_REQUEST['do']);
 
 		echo "<script type=\"text/javascript\">window.status = \"" . construct_phrase($vbphrase['logged_in_user_x_executed_y_queries'], $vbulletin->userinfo['username'], $vbulletin->db->querycount) . " \$_REQUEST[do] = '$_REQUEST[do]'\";</script>";
 	}
 
 	if (!defined('NO_CP_COPYRIGHT'))
 	{
-		$output_version = defined('FILE_VERSION_VBULLETIN') ? FILE_VERSION_VBULLETIN : $vbulletin->options['templateversion'];
+		$output_version = defined('ADMIN_VERSION_VBULLETIN') ? ADMIN_VERSION_VBULLETIN : $vbulletin->options['templateversion'];
 		echo '<p align="center"><a href="http://www.vbulletin.com/" target="_blank" class="copyright">' .
 			construct_phrase($vbphrase['vbulletin_copyright_orig'], $output_version, date('Y')) .
 			'</a></p>';
 	}
-	if (!defined('IS_NAV_PANEL') AND !defined('NO_PAGE_TITLE'))
+	if (!defined('IS_NAV_PANEL') AND !defined('NO_PAGE_TITLE') AND VB_AREA != 'Upgrade' AND VB_AREA != 'Install')
 	{
 		echo "\n</div>";
 	}
@@ -464,8 +463,17 @@ function print_form_header($phpscript = '', $do = '', $uploadform = false, $addt
 {
 	global $vbulletin, $tableadded;
 
+	if (($quote_pos = strpos($name, '"')) !== false)
+	{
+		$clean_name = substr($name, 0, $quote_pos);
+	}
+	else
+	{
+		$clean_name = $name;
+	}
+
 	echo "\n<!-- form started:" . $vbulletin->db->querycount . " queries executed -->\n";
-	echo "<form action=\"$phpscript.php?do=$do\"" . iif($uploadform, ' enctype="multipart/form-data"') . " method=\"$method\"" . iif($target, " target=\"$target\"") . " name=\"$name\" id=\"$name\">\n";
+	echo "<form action=\"$phpscript.php?do=$do\"" . iif($uploadform, ' enctype="multipart/form-data"') . " method=\"$method\"" . iif($target, " target=\"$target\"") . " name=\"$clean_name\" id=\"$name\">\n";
 
 	if (!empty($vbulletin->session->vars['sessionhash']))
 	{
@@ -474,14 +482,15 @@ function print_form_header($phpscript = '', $do = '', $uploadform = false, $addt
 	}
 	//construct_hidden_code('do', $do);
 	echo "<input type=\"hidden\" name=\"do\" value=\"" . htmlspecialchars_uni($do) . "\" />\n";
-	if ($method == 'post')
+	if (strtolower(substr($method, 0, 4)) == 'post') // do this because we now do things like 'post" onsubmit="bla()' and we need to just know if the string BEGINS with POST
 	{
 		echo "<input type=\"hidden\" name=\"adminhash\" value=\"" . ADMINHASH . "\" />\n";
+		echo "<input type=\"hidden\" name=\"securitytoken\" value=\"" . $vbulletin->userinfo['securitytoken'] . "\" />\n";
 	}
 
 	if ($addtable)
 	{
-		print_table_start($echobr, $width, $cellspacing, $name . '_table');
+		print_table_start($echobr, $width, $cellspacing, $clean_name . '_table');
 	}
 	else
 	{
@@ -527,6 +536,7 @@ function print_table_start($echobr = true, $width = '90%', $cellspacing = 0, $id
 function print_submit_row($submitname = '', $resetname = '_default_', $colspan = 2, $goback = '', $extra = '', $alt = false)
 {
 	global $vbphrase, $vbulletin;
+	static $count = 0;
 
 	// do submit button
 	if ($submitname === '_default_' OR $submitname === '')
@@ -534,7 +544,7 @@ function print_submit_row($submitname = '', $resetname = '_default_', $colspan =
 		$submitname = $vbphrase['save'];
 	}
 
-	$button1 = "\t<input type=\"submit\" class=\"button\" tabindex=\"1\" value=\"" . str_pad($submitname, 8, ' ', STR_PAD_BOTH) . "\" accesskey=\"s\" />\n";
+	$button1 = "\t<input type=\"submit\" id=\"submit$count\" class=\"button\" tabindex=\"1\" value=\"" . str_pad($submitname, 8, ' ', STR_PAD_BOTH) . "\" accesskey=\"s\" />\n";
 
 	// do extra stuff
 	if ($extra)
@@ -550,13 +560,23 @@ function print_submit_row($submitname = '', $resetname = '_default_', $colspan =
 			$resetname = $vbphrase['reset'];
 		}
 
-		$resetbutton .= "\t<input type=\"reset\" class=\"button\" tabindex=\"1\" value=\"" . str_pad($resetname, 8, ' ', STR_PAD_BOTH) . "\" accesskey=\"r\" />\n";
+		$resetbutton .= "\t<input type=\"reset\" id=\"reset$count\" class=\"button\" tabindex=\"1\" value=\"" . str_pad($resetname, 8, ' ', STR_PAD_BOTH) . "\" accesskey=\"r\" />\n";
 	}
 
 	// do goback button
 	if ($goback)
 	{
-		$button2 .= "\t<input type=\"button\" class=\"button\" value=\"" . str_pad($goback, 8, ' ', STR_PAD_BOTH) . "\" tabindex=\"1\" onclick=\"history.back(1);\" />\n";
+		$button2 = "\t<input type=\"button\" id=\"goback$count\" class=\"button\" value=\"" . str_pad($goback, 8, ' ', STR_PAD_BOTH) . "\" tabindex=\"1\"
+			onclick=\"if (history.length) { history.back(1); } else { self.close(); }\"
+			/>
+			<script type=\"text/javascript\">
+			<!--
+			if (history.length < 1 || (is_saf && history.length <= 1)) // safari seems to bypass a 0 history length
+			{
+				document.getElementById('goback$count').parentNode.removeChild(document.getElementById('goback$count'));
+			}
+			//-->
+			</script>\n";
 	}
 
 	if ($alt)
@@ -581,6 +601,8 @@ function print_submit_row($submitname = '', $resetname = '_default_', $colspan =
 	{
 		$tooltip = '';
 	}
+
+	$count++;
 
 	print_table_footer($colspan, $tfoot, $tooltip);
 }
@@ -893,14 +915,17 @@ function print_textarea_row($title, $name, $value = '', $rows = 4, $cols = 40, $
 	}
 	else
 	{
-		$openwindowbutton = '<p><input type="button" unselectable="on" value="' . $vbphrase['large_edit_box'] . '" class="button" style="font-weight:normal" onclick="window.open(\'textarea.php?dir=' . $direction . '&name=' . $name. '\',\'textpopup\',\'resizable=yes,width=\' + (screen.width - (screen.width/10)) + \',height=600\');" /></p>';
+		$openwindowbutton = '<p><input type="button" unselectable="on" value="' . $vbphrase['large_edit_box'] . '" class="button" style="font-weight:normal" onclick="window.open(\'textarea.php?dir=' . $direction . '&name=' . $name. '\',\'textpopup\',\'resizable=yes,scrollbars=yes,width=\' + (screen.width - (screen.width/10)) + \',height=600\');" /></p>';
 	}
 
 	$vbulletin->textarea_id = 'ta_' . $name . '_' . fetch_uniqueid_counter();
 
 	//$resizer = "<p><input type=\"button\" class=\"button\" onclick=\"return resize_textarea(1, '{$vbulletin->textarea_id}')\" value=\"$vbphrase[increase_size]\" style=\"font-size:10px; font-weight:normal; width:85px\" /><br /><input type=\"button\" class=\"button\" onclick=\"return resize_textarea(-1, '{$vbulletin->textarea_id}')\" value=\"$vbphrase[decrease_size]\" style=\"font-size:10px; font-weight:normal; width:85px\" /></p>";
 
-	$resizer = "<div class=\"smallfont\"><a href=\"#\" onclick=\"return resize_textarea(1, '{$vbulletin->textarea_id}')\">$vbphrase[increase_size]</a> <a href=\"#\" onclick=\"return resize_textarea(-1, '{$vbulletin->textarea_id}')\">$vbphrase[decrease_size]</a></div>";
+	// trigger hasLayout for IE to prevent template box from jumping (#22761)
+	$ie_reflow_css = (is_browser('ie') ? 'style="zoom:1"' : '');
+
+	$resizer = "<div class=\"smallfont\"><a href=\"#\" $ie_reflow_css onclick=\"return resize_textarea(1, '{$vbulletin->textarea_id}')\">$vbphrase[increase_size]</a> <a href=\"#\" $ie_reflow_css onclick=\"return resize_textarea(-1, '{$vbulletin->textarea_id}')\">$vbphrase[decrease_size]</a></div>";
 
 	print_label_row(
 		$title . $openwindowbutton,
@@ -1060,9 +1085,12 @@ function print_upload_row($title, $name, $maxfilesize = 1000000, $size = 35)
 
 	construct_hidden_code('MAX_FILE_SIZE', $maxfilesize);
 
+	// Don't style the file input for Opera or Firefox 3. #25838
+	$use_bginput = (is_browser('opera') OR is_browser('firefox', 3) ? false : true);
+
 	print_label_row(
 		$title,
-		"<div id=\"ctrl_$name\"><input type=\"file\"" . iif(is_browser('opera'), '', ' class="bginput"') . " name=\"$name\" size=\"$size\" tabindex=\"1\"" . iif($vbulletin->debug, " title=\"name=&quot;$name&quot;\"") . " /></div>",
+		"<div id=\"ctrl_$name\"><input type=\"file\"" . ($use_bginput ? ' class="bginput"' : '') . " name=\"$name\" size=\"$size\" tabindex=\"1\"" . iif($vbulletin->debug, " title=\"name=&quot;$name&quot;\"") . " /></div>",
 		'', 'top', $name
 	);
 }
@@ -1171,14 +1199,27 @@ function print_time_row($title, $name = 'date', $unixtime = '', $showtime = true
 {
 	global $vbphrase, $vbulletin, $stylevar;
 	static $datepicker_output = false;
-	
+
 	if (!$datepicker_output)
 	{
-		echo '<script type="text/javascript" src="../clientscript/vbulletin_date_picker.js"></script>';
+		echo '
+			<script type="text/javascript" src="../clientscript/vbulletin_date_picker.js"></script>
+			<script type="text/javascript">
+			<!--
+				vbphrase["sunday"]    = "' . $vbphrase['sunday'] . '";
+				vbphrase["monday"]    = "' . $vbphrase['monday'] . '";
+				vbphrase["tuesday"]   = "' . $vbphrase['tuesday'] . '";
+				vbphrase["wednesday"] = "' . $vbphrase['wednesday'] . '";
+				vbphrase["thursday"]  = "' . $vbphrase['thursday'] . '";
+				vbphrase["friday"]    = "' . $vbphrase['friday'] . '";
+				vbphrase["saturday"]  = "' . $vbphrase['saturday'] . '";
+			-->
+			</script>
+		';
 		$datepicker_output = true;
 	}
 
-	$monthnames = array(		
+	$monthnames = array(
 		0  => '- - - -',
 		1  => $vbphrase['january'],
 		2  => $vbphrase['february'],
@@ -1237,8 +1278,8 @@ function print_time_row($title, $name = 'date', $unixtime = '', $showtime = true
 
 	$cell = array();
 	$cell[] = "<label for=\"{$name}_month\">$vbphrase[month]</label><br /><select name=\"{$name}[month]\" id=\"{$name}_month\" tabindex=\"1\" class=\"bginput\"" . iif($vbulletin->debug, " title=\"name=&quot;$name" . "[month]&quot;\"") . ">\n" . construct_select_options($monthnames, $month) . "\t\t</select>";
-	$cell[] = "<label for=\"{$name}_day\">$vbphrase[day]</label><br /><input type=\"text\" class=\"bginput\" name=\"{$name}[day]\" id=\"{$name}_date\" value=\"$day\" size=\"4\" maxlength=\"2\" tabindex=\"1\"" . iif($vbulletin->debug, " title=\"name=&quot;$name" . "[day]&quot;\"") . ' />';
-	$cell[] = "<label for=\"{$name}_year\">$vbphrase[year]</label><br /><input type=\"text\" class=\"bginput\" name=\"{$name}[year]\" id=\"{$name}_year\" value=\"$year\" size=\"4\" maxlength=\"4\" tabindex=\"1\"" . iif($vbulletin->debug, " title=\"name=&quot;$name" . "[year]&quot;\"") . ' />';	
+	$cell[] = "<label for=\"{$name}_date\">$vbphrase[day]</label><br /><input type=\"text\" class=\"bginput\" name=\"{$name}[day]\" id=\"{$name}_date\" value=\"$day\" size=\"4\" maxlength=\"2\" tabindex=\"1\"" . iif($vbulletin->debug, " title=\"name=&quot;$name" . "[day]&quot;\"") . ' />';
+	$cell[] = "<label for=\"{$name}_year\">$vbphrase[year]</label><br /><input type=\"text\" class=\"bginput\" name=\"{$name}[year]\" id=\"{$name}_year\" value=\"$year\" size=\"4\" maxlength=\"4\" tabindex=\"1\"" . iif($vbulletin->debug, " title=\"name=&quot;$name" . "[year]&quot;\"") . ' />';
 	if ($showtime)
 	{
 		$cell[] = $vbphrase['hour'] . '<br /><input type="text" tabindex="1" class="bginput" name="' . $name . '[hour]" value="' . $hour . '" size="4"' . iif($vbulletin->debug, " title=\"name=&quot;$name" . "[hour]&quot;\"") . ' />';
@@ -1255,8 +1296,8 @@ function print_time_row($title, $name = 'date', $unixtime = '', $showtime = true
 		"<div id=\"ctrl_$name\"><table cellpadding=\"0\" cellspacing=\"2\" border=\"0\"><tr>\n$inputs\t\n</tr></table></div>",
 		'', 'top', $name
 	);
-	
-	echo "<script type=\"text/javascript\">new vB_DatePicker(\"{$name}_year\", \"0,{$name}_\");</script>";
+
+	echo "<script type=\"text/javascript\"> new vB_DatePicker(\"{$name}_year\", \"{$name}_\", \"" . $vbulletin->userinfo['startofweek']  . "\"); </script>\r\n";
 }
 
 // #############################################################################
@@ -1853,6 +1894,8 @@ function construct_help_button($option = '', $action = NULL, $script = '', $help
 			// parse out array notation, to just get index
 			$option = $matches[2];
 		}
+
+		$option = str_replace('[]', '', $option);
 	}
 
 	if (!$option)
@@ -1904,10 +1947,11 @@ function construct_link_code($text, $url, $newwin = false, $tooltip = '', $small
 {
 	global $stylevar;
 
-	if ($newwin)
+	if ($newwin === true OR $newwin === 1)
 	{
 		$newwin = '_blank';
 	}
+
 	return ($smallfont ? '<span class="smallfont">' : '') . " <a href=\"$url\"" . ($newwin ? " target=\"$newwin\"" : '') . (!empty($tooltip) ? " title=\"$tooltip\"" : '') . '>' . ($stylevar['textdirection'] == 'rtl' ? "[$text&lrm;]</a>&rlm; " : "[$text]</a> ") . ($smallfont ? '</span>' : '');
 }
 
@@ -2104,6 +2148,8 @@ function print_cp_redirect($gotopage, $timeout = 0)
 	global $vbphrase;
 
 	$gotopage = str_replace('&amp;', '&', $gotopage);
+	$gotopage = create_full_url($gotopage);
+	$gotopage = str_replace('"', '', $gotopage);
 
 	if ($timeout == 0)
 	{
@@ -2148,7 +2194,7 @@ function print_dots_start($text, $dotschar = ':', $elementid = 'dotsarea')
 	}
 
 	vbflush(); ?>
-	<p align="center"><?php echo $text; ?><br /><br />[<span style="color:yellow; font-weight:bold" id="<?php echo $elementid; ?>"><?php echo $dotschar; ?></span>]</p>
+	<p align="center"><?php echo $text; ?><br /><br />[<span class="progress_dots" id="<?php echo $elementid; ?>"><?php echo $dotschar; ?></span>]</p>
 	<script type="text/javascript"><!--
 	function js_dots()
 	{
@@ -2383,7 +2429,7 @@ function log_admin_action($extrainfo = '', $userid = -1, $script = '', $scriptac
 	}
 	if (empty($script))
 	{
-		$script = basename($_SERVER['PHP_SELF']);
+		$script = !empty($_SERVER['SCRIPT_NAME']) ? basename($_SERVER['SCRIPT_NAME']) : basename($_SERVER['PHP_SELF']);
 	}
 	if (empty($scriptaction))
 	{
@@ -2452,6 +2498,8 @@ function print_delete_confirmation($table, $itemid, $phpscript, $do, $itemname =
 
 	$idfield = $table . 'id';
 	$itemname = iif($itemname, $itemname, $table);
+	$deleteword = 'delete';
+	$encodehtml = true;
 
 	switch($table)
 	{
@@ -2487,6 +2535,7 @@ function print_delete_confirmation($table, $itemid, $phpscript, $do, $itemname =
 				moderatorid = $itemid
 			");
 			$item['title'] = construct_phrase($vbphrase['x_from_the_forum_y'], $item['username'], $item['title']);
+			$encodehtml = false;
 			break;
 		case 'calendarmoderator':
 			$item = $vbulletin->db->query_first("
@@ -2499,6 +2548,7 @@ function print_delete_confirmation($table, $itemid, $phpscript, $do, $itemname =
 				calendarmoderatorid = $itemid
 			");
 			$item['title'] = construct_phrase($vbphrase['x_from_the_calendar_y'], $item['username'], $item['title']);
+			$encodehtml = false;
 			break;
 		case 'phrase':
 			$item = $vbulletin->db->query_first("
@@ -2550,9 +2600,9 @@ function print_delete_confirmation($table, $itemid, $phpscript, $do, $itemname =
 			break;
 		case 'faq':
 			$item = $vbulletin->db->query_first("
-				SELECT faqname, text AS title
+				SELECT faqname, IF(phrase.text IS NOT NULL, phrase.text, faq.faqname) AS title
 				FROM " . TABLE_PREFIX . "faq AS faq
-				INNER JOIN " . TABLE_PREFIX . "phrase AS phrase ON (phrase.varname = faq.faqname AND phrase.fieldname = 'faqtitle' AND phrase.languageid IN(-1, 0))
+				LEFT JOIN " . TABLE_PREFIX . "phrase AS phrase ON (phrase.varname = faq.faqname AND phrase.fieldname = 'faqtitle' AND phrase.languageid IN(-1, 0))
 				WHERE faqname = '" . $vbulletin->db->escape_string($itemid) . "'
 			");
 			$idfield = 'faqname';
@@ -2563,6 +2613,22 @@ function print_delete_confirmation($table, $itemid, $phpscript, $do, $itemname =
 				FROM " . TABLE_PREFIX . "product
 				WHERE productid = '" . $vbulletin->db->escape_string($itemid) . "'
 			");
+			break;
+		case 'prefix':
+			$item = $vbulletin->db->query_first("
+				SELECT prefixid
+				FROM " . TABLE_PREFIX . "prefix
+				WHERE prefixid = '" . $vbulletin->db->escape_string($itemid) . "'
+			");
+			$item['title'] = $vbphrase["prefix_$item[prefixid]_title_plain"];
+			break;
+		case 'prefixset':
+			$item = $vbulletin->db->query_first("
+				SELECT prefixsetid
+				FROM " . TABLE_PREFIX . "prefixset
+				WHERE prefixsetid = '" . $vbulletin->db->escape_string($itemid) . "'
+			");
+			$item['title'] = $vbphrase["prefixset_$item[prefixsetid]_title"];
 			break;
 		default:
 			$handled = false;
@@ -2578,12 +2644,9 @@ function print_delete_confirmation($table, $itemid, $phpscript, $do, $itemname =
 			break;
 	}
 
-	$deleteword = 'delete';
-
 	switch($table)
 	{
 		case 'template':
-			$item['title'] = htmlspecialchars_uni($item['title']);
 			if ($itemname == 'replacement_variable')
 			{
 				$deleteword = 'delete';
@@ -2601,13 +2664,19 @@ function print_delete_confirmation($table, $itemid, $phpscript, $do, $itemname =
 			}
 		break;
 
-		case 'announcement':
-			$item['title'] = htmlspecialchars_uni($item['title']);
-		break;
-
 		case 'subscription':
-			$item['title'] = htmlspecialchars_uni($vbphrase['sub' . $item['subscriptionid'] . '_title']);
+			$item['title'] = $vbphrase['sub' . $item['subscriptionid'] . '_title'];
 		break;
+	}
+
+	if ($encodehtml
+		AND (strcspn($item['title'], '<>"') < strlen($item['title'])
+			OR (strpos($item['title'], '&') !== false AND !preg_match('/&(#[0-9]+|amp|lt|gt|quot);/si', $item['title']))
+		)
+	)
+	{
+		// title contains html entities that should be encoded
+		$item['title'] = htmlspecialchars_uni($item['title']);
 	}
 
 	if ($item["$idfield"] == $itemid AND !empty($itemid))
@@ -2721,12 +2790,16 @@ function print_cp_message($text = '', $redirect = NULL, $delay = 1, $backurl = N
 		if ($continue)
 		{
 			$continueurl = str_replace('&amp;', '&', $redirect);
-			print_table_footer(2, construct_button_code($vbphrase['continue'], $continueurl));
+			print_table_footer(2, construct_button_code($vbphrase['continue'], create_full_url($continueurl)));
 		}
 		else
 		{
 			print_table_footer();
-			echo '<p align="center" class="smallfont">' . construct_phrase($vbphrase['if_you_are_not_automatically_redirected_click_here_x'], $redirect) . "</p>\n";
+
+			$redirect_click = create_full_url($redirect);
+			$redirect_click = str_replace('"', '', $redirect_click);
+
+			echo '<p align="center" class="smallfont">' . construct_phrase($vbphrase['if_you_are_not_automatically_redirected_click_here_x'], $redirect_click) . "</p>\n";
 			print_cp_redirect($redirect, $delay);
 		}
 	}
@@ -2744,7 +2817,35 @@ function print_cp_message($text = '', $redirect = NULL, $delay = 1, $backurl = N
 				$backurl = '';
 			}
 		}
-		print_table_footer(2, iif($backurl, construct_button_code($vbphrase['go_back'], $backurl)));
+
+		if (strpos($backurl, 'history.back(') !== false)
+		{
+			//if we are attempting to run a history.back(1), check we have a history to go back to, otherwise attempt to close the window.
+			$back_button = '&nbsp;
+				<input type="button" id="backbutton" class="button" value="' . $vbphrase['go_back'] . '" title="" tabindex="1" onclick="if (history.length) { history.back(1); } else { self.close(); }"/>
+				&nbsp;
+				<script type="text/javascript">
+				<!--
+				if (history.length < 1 || (is_saf && history.length <= 1)) // safari seems to bypass a 0 history length
+				{
+					document.getElementById("backbutton").parentNode.removeChild(document.getElementById("backbutton"));
+				}
+				//-->
+				</script>';
+		}
+		else if ($backurl !== '')
+		{
+			// regular window.location=url call
+			$backurl = create_full_url($backurl);
+			$backurl = str_replace(array('"', "'"), '', $backurl);
+			$back_button = '<input type="button" class="button" value="' . $vbphrase['go_back'] . '" title="" tabindex="1" onclick="window.location=\'' . $backurl . '\';"/>';
+		}
+		else
+		{
+			$back_button = '';
+		}
+
+		print_table_footer(2, $back_button);
 	}
 
 	// and now terminate the script
@@ -2805,6 +2906,7 @@ function fetch_timezones_array()
 		'-7'   => $vbphrase['timezone_gmt_minus_0700'],
 		'-6'   => $vbphrase['timezone_gmt_minus_0600'],
 		'-5'   => $vbphrase['timezone_gmt_minus_0500'],
+		'-4.5' => $vbphrase['timezone_gmt_minus_0430'],
 		'-4'   => $vbphrase['timezone_gmt_minus_0400'],
 		'-3.5' => $vbphrase['timezone_gmt_minus_0330'],
 		'-3'   => $vbphrase['timezone_gmt_minus_0300'],
@@ -2819,7 +2921,9 @@ function fetch_timezones_array()
 		'4.5'  => $vbphrase['timezone_gmt_plus_0430'],
 		'5'    => $vbphrase['timezone_gmt_plus_0500'],
 		'5.5'  => $vbphrase['timezone_gmt_plus_0530'],
+		'5.75' => $vbphrase['timezone_gmt_plus_0545'],
 		'6'    => $vbphrase['timezone_gmt_plus_0600'],
+		'6.5'  => $vbphrase['timezone_gmt_plus_0630'],
 		'7'    => $vbphrase['timezone_gmt_plus_0700'],
 		'8'    => $vbphrase['timezone_gmt_plus_0800'],
 		'9'    => $vbphrase['timezone_gmt_plus_0900'],
@@ -2884,6 +2988,8 @@ function build_image_cache($table)
 			$vbulletin->db->query_write("TRUNCATE TABLE " . TABLE_PREFIX . "sigparsed");
 		}
 	}
+
+	($hook = vBulletinHook::fetch_hook('admin_cache_smilies')) ? eval($hook) : false;
 }
 
 // #############################################################################
@@ -2907,8 +3013,14 @@ function build_bbcode_cache()
 			if (!is_numeric($field))
 			{
 				$bbcodearray["$bbcode[bbcodeid]"]["$field"] = $value;
+
 			}
 		}
+
+		$bbcodearray["$bbcode[bbcodeid]"]['strip_empty'] = (intval($bbcode['options']) & $vbulletin->bf_misc['bbcodeoptions']['strip_empty']) ? 1 : 0 ;
+		$bbcodearray["$bbcode[bbcodeid]"]['stop_parse'] = (intval($bbcode['options']) & $vbulletin->bf_misc['bbcodeoptions']['stop_parse']) ? 1 : 0 ;
+		$bbcodearray["$bbcode[bbcodeid]"]['disable_smilies'] = (intval($bbcode['options']) & $vbulletin->bf_misc['bbcodeoptions']['disable_smilies']) ? 1 : 0 ;
+		$bbcodearray["$bbcode[bbcodeid]"]['disable_wordwrap'] = (intval($bbcode['options']) & $vbulletin->bf_misc['bbcodeoptions']['disable_wordwrap']) ? 1 : 0 ;
 	}
 
 	build_datastore('bbcodecache', serialize($bbcodearray), 1);
@@ -2918,6 +3030,8 @@ function build_bbcode_cache()
 	{
 		$vbulletin->db->query_write("TRUNCATE TABLE " . TABLE_PREFIX . "sigparsed");
 	}
+
+	($hook = vBulletinHook::fetch_hook('admin_cache_bbcode')) ? eval($hook) : false;
 }
 
 // #############################################################################
@@ -3031,7 +3145,8 @@ function build_forum_permissions($rebuild_genealogy = true)
 	{
 		foreach ($newforum AS $key => $val)
 		{
-			if (is_numeric($val))
+			/* values which begin with 0 and are greater than 1 character are strings, since 01 would be an octal number in PHP */
+			if (is_numeric($val) AND !(substr($val, 0, 1) == '0' AND strlen($val) > 1))
 			{
 				$newforum["$key"] += 0;
 			}
@@ -3083,6 +3198,7 @@ function build_forum_permissions($rebuild_genealogy = true)
 			$vbulletin->forumcache["$forumid"]['lastthread'],
 			$vbulletin->forumcache["$forumid"]['lastthreadid'],
 			$vbulletin->forumcache["$forumid"]['lasticonid'],
+			$vbulletin->forumcache["$forumid"]['lastprefixid'],
 			$vbulletin->forumcache["$forumid"]['threadcount']
 		);
 	}
@@ -3350,7 +3466,6 @@ function fetch_cpcss_options()
 function convert_to_valid_html($text)
 {
 	return preg_replace('/&(?![a-z0-9#]+;)/', '&amp;', $text);
-	//return preg_replace('/&(?![#0-9]+;)/s', '&amp;', $text);
 }
 
 // ############################## Start vbflush ####################################
@@ -3547,10 +3662,41 @@ function verify_optimizer_environment()
 	return true;
 }
 
+/**
+* Checks userid is a user that shouldn't be editable
+*
+* @param	integer	userid to check
+*
+* @return	boolean
+*/
+function is_unalterable_user($userid)
+{
+	global $vbulletin;
+
+	static $noalter = null;
+
+	if (!$userid)
+	{
+		return false;
+	}
+
+	if ($noalter === null)
+	{
+		$noalter = explode(',', $vbulletin->config['SpecialUsers']['undeletableusers']);
+
+		if (!is_array($noalter))
+		{
+			$noalter = array();
+		}
+	}
+
+	return in_array($userid, $noalter);
+}
+
 /*======================================================================*\
 || ####################################################################
-|| # Downloaded: 18:52, Sat Jul 14th 2007
-|| # CVS: $RCSfile$ - $Revision: 17013 $
+|| # Downloaded: 16:21, Sat Apr 6th 2013
+|| # CVS: $RCSfile$ - $Revision: 27099 $
 || ####################################################################
 \*======================================================================*/
 ?>

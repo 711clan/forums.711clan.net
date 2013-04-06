@@ -1,9 +1,9 @@
 <?php
 /*======================================================================*\
 || #################################################################### ||
-|| # vBulletin 3.6.7 PL1 - Licence Number VBF2470E4F
+|| # vBulletin 3.7.2 Patch Level 2 - Licence Number VBF2470E4F
 || # ---------------------------------------------------------------- # ||
-|| # Copyright ©2000-2007 Jelsoft Enterprises Ltd. All Rights Reserved. ||
+|| # Copyright ©2000-2013 Jelsoft Enterprises Ltd. All Rights Reserved. ||
 || # This file may not be redistributed in whole or significant part. # ||
 || # ---------------- VBULLETIN IS NOT FREE SOFTWARE ---------------- # ||
 || # http://www.vbulletin.com | http://www.vbulletin.com/license.html # ||
@@ -15,16 +15,17 @@ error_reporting(E_ALL & ~E_NOTICE);
 @set_time_limit(0);
 
 // ##################### DEFINE IMPORTANT CONSTANTS #######################
-define('CVS_REVISION', '$RCSfile$ - $Revision: 16941 $');
+define('CVS_REVISION', '$RCSfile$ - $Revision: 25491 $');
 
 // #################### PRE-CACHE TEMPLATES AND DATA ######################
-$phrasegroups = array('forum', 'cpuser', 'forumdisplay');
+$phrasegroups = array('forum', 'cpuser', 'forumdisplay', 'prefix');
 $specialtemplates = array();
 
 // ########################## REQUIRE BACK-END ############################
 require_once('./global.php');
 require_once(DIR . '/includes/adminfunctions_template.php');
 require_once(DIR . '/includes/adminfunctions_forums.php');
+require_once(DIR . '/includes/adminfunctions_prefix.php');
 
 // ######################## CHECK ADMIN PERMISSIONS #######################
 if (!can_administer('canadminforums'))
@@ -102,7 +103,8 @@ if ($_REQUEST['do'] == 'add' OR $_REQUEST['do'] == 'edit')
 			'countposts' => 1,
 			'showonforumjump' => 1,
 			'defaultsortfield' => 'lastpost',
-			'defaultsortorder' => 'desc'
+			'defaultsortorder' => 'desc',
+   			'imageprefix' => ''
 		);
 
 		if (!empty($vbulletin->GPC['defaultforumid']))
@@ -198,13 +200,14 @@ if ($_REQUEST['do'] == 'add' OR $_REQUEST['do'] == 'edit')
 	}
 	print_style_chooser_row('forum[styleid]', $forum['styleid'], $vbphrase['use_default_style'], $vbphrase['custom_forum_style'], 1);
 	print_yes_no_row($vbphrase['override_style_choice'], 'forum[options][styleoverride]', $forum['styleoverride']);
+	print_input_row($vbphrase['prefix_for_forum_status_images'], 'forum[imageprefix]', $forum['imageprefix']);
 
 	print_table_header($vbphrase['access_options']);
 
 	print_input_row($vbphrase['forum_password'], 'forum[password]', $forum['password']);
 	if ($_REQUEST['do'] == 'edit')
 	{
-		print_yes_no_row($vbphrase['apply_password_to_children'], 'applypwdtochild', iif($forum['password'], 0, 1));
+		print_yes_no_row($vbphrase['apply_password_to_children'], 'applypwdtochild', 0);
 	}
 	print_yes_no_row($vbphrase['can_have_password'], 'forum[options][canhavepassword]', $forum['canhavepassword']);
 
@@ -226,6 +229,13 @@ if ($_REQUEST['do'] == 'add' OR $_REQUEST['do'] == 'edit')
 	print_yes_no_row($vbphrase['count_posts_in_forum'], 'forum[options][countposts]', $forum['countposts']);
 	print_yes_no_row($vbphrase['show_forum_on_forum_jump'], 'forum[options][showonforumjump]', $forum['showonforumjump']);
 
+	$prefixsets = construct_prefixset_checkboxes('prefixset', $forum['forumid']);
+	if ($prefixsets)
+	{
+		print_label_row($vbphrase['use_selected_prefix_sets'], $prefixsets, '', 'top', 'prefixset');
+	}
+	print_yes_no_row($vbphrase['require_threads_have_prefix'], 'forum[options][prefixrequired]', $forum['prefixrequired']);
+
 	($hook = vBulletinHook::fetch_hook('forumadmin_edit_form')) ? eval($hook) : false;
 
 	print_submit_row($vbphrase['save']);
@@ -237,15 +247,21 @@ if ($_POST['do'] == 'update')
 	$vbulletin->input->clean_array_gpc('p', array(
 		'forumid'			=> TYPE_UINT,
 		'applypwdtochild'	=> TYPE_BOOL,
-		'forum'				=> TYPE_ARRAY
+		'forum'				=> TYPE_ARRAY,
+		'prefixset'         => TYPE_ARRAY_NOHTML
 	));
 
 	$forumdata =& datamanager_init('Forum', $vbulletin, ERRTYPE_CP);
+
+	$forum_exists = false;
 	if ($vbulletin->GPC['forumid'])
 	{
 		$forumdata->set_existing($vbulletin->forumcache[$vbulletin->GPC['forumid']]);
 		$forumdata->set_info('applypwdtochild', $vbulletin->GPC['applypwdtochild']);
+
+		$forum_exists = true;
 	}
+
 	foreach ($vbulletin->GPC['forum'] AS $varname => $value)
 	{
 		if ($varname == 'options')
@@ -269,6 +285,65 @@ if ($_POST['do'] == 'update')
 		$vbulletin->GPC['forumid'] = $forumid;
 	}
 
+	// find old sets
+	$old_prefixsets = array();
+	if ($forum_exists)
+	{
+		$set_list_sql = $db->query_read("
+			SELECT prefixsetid
+			FROM " . TABLE_PREFIX . "forumprefixset
+			WHERE forumid = " . $vbulletin->GPC['forumid']
+		);
+		while ($set = $db->fetch_array($set_list_sql))
+		{
+			$old_prefixsets[] = $set['prefixsetid'];
+		}
+	}
+
+	// setup prefixes
+	$db->query_write("
+		DELETE FROM " . TABLE_PREFIX . "forumprefixset
+		WHERE forumid = " . $vbulletin->GPC['forumid']
+	);
+
+	$add_prefixsets = array();
+	foreach ($vbulletin->GPC['prefixset'] AS $prefixsetid)
+	{
+		$add_prefixsets[] = '(' . $vbulletin->GPC['forumid'] . ", '" . $db->escape_string($prefixsetid) . "')";
+	}
+
+	if ($add_prefixsets)
+	{
+		$db->query_write("
+			INSERT IGNORE INTO " . TABLE_PREFIX . "forumprefixset
+				(forumid, prefixsetid)
+			VALUES
+				" . implode(',', $add_prefixsets)
+		);
+	}
+
+	$removed_sets = array_diff($old_prefixsets, $vbulletin->GPC['prefixset']);
+	if ($removed_sets)
+	{
+		$removed_sets = array_map(array(&$db, 'escape_string'), $removed_sets);
+
+		$prefixes = array();
+		$prefix_sql = $db->query_read("
+			SELECT prefixid
+			FROM " . TABLE_PREFIX . "prefix
+			WHERE prefixsetid IN ('" . implode("', '", $removed_sets) . "')
+		");
+		while ($prefix = $db->fetch_array($prefix_sql))
+		{
+			$prefixes[] = $prefix['prefixid'];
+		}
+
+		remove_prefixes_forum($prefixes, $vbulletin->GPC['forumid']);
+	}
+
+	require_once(DIR . '/includes/adminfunctions_prefix.php');
+	build_prefix_datastore();
+
 	define('CP_REDIRECT', "forum.php?do=modify&amp;f=" . $vbulletin->GPC['forumid'] . "#forum" . $vbulletin->GPC['forumid']);
 	print_stop_message('saved_forum_x_successfully', $vbulletin->GPC['forum']['title']);
 }
@@ -278,7 +353,7 @@ if ($_REQUEST['do'] == 'remove')
 {
 	$vbulletin->input->clean_array_gpc('r', array('forumid' => TYPE_UINT));
 
-	print_delete_confirmation('forum', $vbulletin->GPC['forumid'], 'forum', 'kill', 'forum', 0, $vbphrase['are_you_sure_you_want_to_delete_this_forum']);
+	print_delete_confirmation('forum', $vbulletin->GPC['forumid'], 'forum', 'kill', 'forum', 0, $vbphrase['are_you_sure_you_want_to_delete_this_forum'], 'title_clean');
 }
 
 // ###################### Start Kill #######################
@@ -544,7 +619,7 @@ if ($_REQUEST['do'] == 'modify')
 				$cell = array();
 				if (!$vbulletin->options['cp_collapse_forums'] OR $forum['forumid'] == $expanddata['forumid'] OR in_array($forum['forumid'], $expanddata['parentids']))
 				{
-					$cell[] = "<a name=\"forum$forum[forumid]\">&nbsp;</a> $expandtext<b>" . construct_depth_mark($forum['depth'],'- - ') . "<a href=\"forum.php?" . $vbulletin->session->vars['sessionurl'] . "do=edit&f=$forum[forumid]\">$forum[title]</a>" . iif(!empty($forum['password']),'*') . " " . iif($forum['link'], "(<a href=\"" . htmlspecialchars_uni($forum['link']) . "\">" . $vbphrase['link'] . "</a>)") . "</b>";
+					$cell[] = "<a name=\"forum$forum[forumid]\">&nbsp;</a> $expandtext<b>" . construct_depth_mark($forum['depth'],'- - ') . "<a href=\"forum.php?" . $vbulletin->session->vars['sessionurl'] . "do=edit&amp;f=$forum[forumid]\">$forum[title]</a>" . iif(!empty($forum['password']),'*') . " " . iif($forum['link'], "(<a href=\"" . htmlspecialchars_uni($forum['link']) . "\">" . $vbphrase['link'] . "</a>)") . "</b>";
 					$cell[] = "\n\t<select name=\"f$forum[forumid]\" onchange=\"js_forum_jump($forum[forumid]);\" class=\"bginput\">\n" . construct_select_options($mainoptions) . "\t</select><input type=\"button\" class=\"button\" value=\"" . $vbphrase['go'] . "\" onclick=\"js_forum_jump($forum[forumid]);\" />\n\t";
 					$cell[] = "<input type=\"text\" class=\"bginput\" name=\"order[$forum[forumid]]\" value=\"$forum[displayorder]\" tabindex=\"1\" size=\"3\" title=\"" . $vbphrase['edit_display_order'] . "\" />";
 
@@ -568,7 +643,7 @@ if ($_REQUEST['do'] == 'modify')
 						)
 					)
 				{
-					$cell[] = "<a name=\"forum$forum[forumid]\">&nbsp;</a> <a href=\"forum.php?" . $vbulletin->session->vars['sessionurl'] . "do=modify&amp;expandid=$forum[forumid]\">[+]</a>  <b>" . construct_depth_mark($forum['depth'],'- - ') . "<a href=\"forum.php?" . $vbulletin->session->vars['sessionurl'] . "do=edit&f=$forum[forumid]\">$forum[title]</a>" . iif(!empty($forum['password']),'*') . " " . iif($forum['link'], "(<a href=\"$forum[link]\">" . $vbphrase['link'] . "</a>)") . "</b>";
+					$cell[] = "<a name=\"forum$forum[forumid]\">&nbsp;</a> <a href=\"forum.php?" . $vbulletin->session->vars['sessionurl'] . "do=modify&amp;expandid=$forum[forumid]\">[+]</a>  <b>" . construct_depth_mark($forum['depth'],'- - ') . "<a href=\"forum.php?" . $vbulletin->session->vars['sessionurl'] . "do=edit&amp;f=$forum[forumid]\">$forum[title]</a>" . iif(!empty($forum['password']),'*') . " " . iif($forum['link'], "(<a href=\"$forum[link]\">" . $vbphrase['link'] . "</a>)") . "</b>";
 					$cell[] = construct_link_code($vbphrase['expand'], "forum.php?" . $vbulletin->session->vars['sessionurl'] . "do=modify&amp;expandid=$forum[forumid]");
 					$cell[] = "&nbsp;";
 					$cell[] = "&nbsp;";
@@ -701,8 +776,8 @@ print_cp_footer();
 
 /*======================================================================*\
 || ####################################################################
-|| # Downloaded: 18:52, Sat Jul 14th 2007
-|| # CVS: $RCSfile$ - $Revision: 16941 $
+|| # Downloaded: 16:21, Sat Apr 6th 2013
+|| # CVS: $RCSfile$ - $Revision: 25491 $
 || ####################################################################
 \*======================================================================*/
 ?>

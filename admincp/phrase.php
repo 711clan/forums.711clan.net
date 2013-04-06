@@ -1,9 +1,9 @@
 <?php
 /*======================================================================*\
 || #################################################################### ||
-|| # vBulletin 3.6.7 PL1 - Licence Number VBF2470E4F
+|| # vBulletin 3.7.2 Patch Level 2 - Licence Number VBF2470E4F
 || # ---------------------------------------------------------------- # ||
-|| # Copyright ©2000-2007 Jelsoft Enterprises Ltd. All Rights Reserved. ||
+|| # Copyright ©2000-2013 Jelsoft Enterprises Ltd. All Rights Reserved. ||
 || # This file may not be redistributed in whole or significant part. # ||
 || # ---------------- VBULLETIN IS NOT FREE SOFTWARE ---------------- # ||
 || # http://www.vbulletin.com | http://www.vbulletin.com/license.html # ||
@@ -14,7 +14,7 @@
 error_reporting(E_ALL & ~E_NOTICE);
 
 // ##################### DEFINE IMPORTANT CONSTANTS #######################
-define('CVS_REVISION', '$RCSfile$ - $Revision: 17006 $');
+define('CVS_REVISION', '$RCSfile$ - $Revision: 26617 $');
 
 // #################### PRE-CACHE TEMPLATES AND DATA ######################
 $phrasegroups = array('language');
@@ -466,7 +466,6 @@ if ($_REQUEST['do'] == 'findupdates')
 
 	if (empty($customcache))
 	{
-		define('CP_REDIRECT', 'javascript:history.back(1)');
 		print_stop_message('all_phrases_are_up_to_date');
 	}
 
@@ -523,8 +522,9 @@ if ($_POST['do'] == 'dosearch')
 		'searchstring'  => TYPE_STR,
 		'searchwhere'   => TYPE_UINT,
 		'casesensitive' => TYPE_BOOL,
+		'exactmatch'    => TYPE_BOOL,
 		'languageid'    => TYPE_INT,
-		'phrasetype'    => TYPE_ARRAY_NOTHML,
+		'phrasetype'    => TYPE_ARRAY_NOHTML,
 		'transonly'     => TYPE_BOOL,
 		'product'       => TYPE_STR,
 	));
@@ -534,12 +534,27 @@ if ($_POST['do'] == 'dosearch')
 		print_stop_message('please_complete_required_fields');
 	}
 
-	switch($vbulletin->GPC['searchwhere'])
+	if ($vbulletin->GPC['exactmatch'])
 	{
-		case 0:  $sql = fetch_field_like_sql($vbulletin->GPC['searchstring'], 'text', false, $vbulletin->GPC['casesensitive']); break;
-		case 1:  $sql = fetch_field_like_sql($vbulletin->GPC['searchstring'], 'varname', true, $vbulletin->GPC['casesensitive']); break;
-		case 10: $sql = '(' . fetch_field_like_sql($vbulletin->GPC['searchstring'], 'text', false, $vbulletin->GPC['casesensitive']) . ' OR ' . fetch_field_like_sql($vbulletin->GPC['searchstring'], 'varname', true, $vbulletin->GPC['casesensitive']) . ')'; break;
-		default: $sql = '';
+		$sql = ($vbulletin->GPC['casesensitive'] ? 'BINARY ' : '');
+
+		switch($vbulletin->GPC['searchwhere'])
+		{
+			case 0:  $sql .= "text = '" . $db->escape_string($vbulletin->GPC['searchstring']) . "'"; break;
+			case 1:  $sql .= "varname = '" . $db->escape_string($vbulletin->GPC['searchstring']) . "'"; break;
+			case 10: $sql .= "(text = '" . $db->escape_string($vbulletin->GPC['searchstring']) . "' OR $sql varname = '" . $db->escape_string($vbulletin->GPC['searchstring']) . "')"; break;
+			default: $sql .= '';
+		}
+	}
+	else
+	{
+		switch($vbulletin->GPC['searchwhere'])
+		{
+			case 0:  $sql = fetch_field_like_sql($vbulletin->GPC['searchstring'], 'text', false, $vbulletin->GPC['casesensitive']); break;
+			case 1:  $sql = fetch_field_like_sql($vbulletin->GPC['searchstring'], 'varname', true, $vbulletin->GPC['casesensitive']); break;
+			case 10: $sql = '(' . fetch_field_like_sql($vbulletin->GPC['searchstring'], 'text', false, $vbulletin->GPC['casesensitive']) . ' OR ' . fetch_field_like_sql($vbulletin->GPC['searchstring'], 'varname', true, $vbulletin->GPC['casesensitive']) . ')'; break;
+			default: $sql = '';
+		}
 	}
 
 	if (!empty($vbulletin->GPC['phrasetype']) AND trim(implode($vbulletin->GPC['phrasetype'])) != '')
@@ -620,12 +635,14 @@ if ($_POST['do'] == 'dosearch')
 	$phrasetypes = fetch_phrasetypes_array();
 
 	print_form_header('phrase', 'edit');
-	print_table_header($vbphrase['search_results'], 4);
+	print_table_header($vbphrase['search_results'], 5);
+
+	$ignorecase = ($vbulletin->GPC['casesensitive'] ? false : true);
 
 	foreach($phrasearray AS $fieldname => $x)
 	{
 		// display the header for the phrasetype
-		print_description_row(construct_phrase($vbphrase['x_phrases_containing_y'], $phrasetypes["$fieldname"]['title'], htmlspecialchars_uni($vbulletin->GPC['searchstring'])), 0, 4, 'thead" align="center');
+		print_description_row(construct_phrase($vbphrase['x_phrases_containing_y'], $phrasetypes["$fieldname"]['title'], htmlspecialchars_uni($vbulletin->GPC['searchstring'])), 0, 5, 'thead" align="center');
 
 		// sort the phrases alphabetically by $varname
 		ksort($x);
@@ -634,10 +651,18 @@ if ($_POST['do'] == 'dosearch')
 			foreach($y AS $phrase)
 			{
 				$cell = array();
-				$cell[] = '<b>' . iif($searchwhere > 0, fetch_highlighted_search_results($vbulletin->GPC['searchstring'], $varname), $varname) . '</b>';
+				$cell[] = '<b>' . ($vbulletin->GPC['searchwhere'] > 0 ? fetch_highlighted_search_results($vbulletin->GPC['searchstring'], $varname, $ignorecase) : $varname) . '</b>';
 				$cell[] = '<span class="smallfont">' . fetch_language_type_string($phrase['languageid'], $phrase['title']) . '</span>';
-				$cell[] = '<span class="smallfont">' . iif($searchwhere%10 == 0, fetch_highlighted_search_results($vbulletin->GPC['searchstring'], $phrase['text']), htmlspecialchars_uni($phrase['text'])) . '</span>';
+				$cell[] = '<span class="smallfont">' . nl2br(($vbulletin->GPC['searchwhere'] % 10 == 0) ? fetch_highlighted_search_results($vbulletin->GPC['searchstring'], $phrase['text'], $ignorecase) : htmlspecialchars_uni($phrase['text'])) . '</span>';
 				$cell[] = "<input type=\"submit\" class=\"button\" value=\" $vbphrase[edit] \" name=\"e[$fieldname][" . urlencode($varname) . "]\" />";
+				if (($vbulletin->debug AND $phrase['languageid'] == -1) OR $phrase['languageid'] == 0)
+				{
+					$cell[] = "<input type=\"submit\" class=\"button\" value=\" $vbphrase[delete] \" name=\"delete[$fieldname][" . urlencode($varname) . "]\" />";
+				}
+				else
+				{
+					$cell[] = '';
+				}
 				print_cells_row($cell, 0, 0, -2);
 			} // end foreach($y)
 		} // end foreach($x)
@@ -662,6 +687,7 @@ if ($_REQUEST['do'] == 'search')
 		'searchstring'  => TYPE_STR,
 		'searchwhere'   => TYPE_UINT,
 		'casesensitive' => TYPE_BOOL,
+		'exactmatch'    => TYPE_BOOL,
 		'languageid'    => TYPE_INT,
 		'phrasetype'    => TYPE_ARRAY_NOHTML,
 		'transonly'     => TYPE_BOOL,
@@ -710,6 +736,7 @@ if ($_REQUEST['do'] == 'search')
 		<label for="rb_sw_1"><input type="radio" name="searchwhere" id="rb_sw_1" value="1" tabindex="1"' . $where[1] . ' />' . $vbphrase['phrase_name_only'] . '</label><br />
 		<label for="rb_sw_10"><input type="radio" name="searchwhere" id="rb_sw_10" value="10" tabindex="1"' . $where[10] . ' />' . $vbphrase['phrase_text_and_phrase_name'] . '</label>', '', 'top', 'searchwhere');
 	print_yes_no_row($vbphrase['case_sensitive'], 'casesensitive', $vbulletin->GPC['casesensitive']);
+	print_yes_no_row($vbphrase['exact_match'], 'exactmatch', $vbulletin->GPC['exactmatch']);
 	print_submit_row($vbphrase['find']);
 
 	unset($languageselect[-10], $languageselect[-1], $languageselect[0]);
@@ -862,9 +889,9 @@ if ($_POST['do'] == 'replace')
 			foreach($y AS $phrase)
 			{
 				$cell = array();
-				$cell[] = '<b>' . iif($searchwhere > 0, fetch_highlighted_search_results($vbulletin->GPC['searchstring'], $varname), $varname) . '</b>';
+				$cell[] = '<b>' . $varname . '</b>';
 				$cell[] = '<span class="smallfont">' . fetch_language_type_string($phrase['languageid'], $phrase['title']) . '</span>';
-				$cell[] = '<span class="smallfont">' . iif($searchwhere%10 == 0, fetch_highlighted_search_results($vbulletin->GPC['searchstring'], $phrase['text']), htmlspecialchars_uni($phrase['text'])) . '</span>';
+				$cell[] = '<span class="smallfont">' . fetch_highlighted_search_results($vbulletin->GPC['searchstring'], $phrase['text'], false) . '</span>';
 				$cell[] = "<input type=\"checkbox\" value=\"1\" name=\"replace[{$phrase['phraseid']}]\" />";
 				print_cells_row($cell, 0, 0, -2);
 			} // end foreach($y)
@@ -907,38 +934,6 @@ if ($_POST['do'] == 'kill')
 
 // #############################################################################
 
-if ($_REQUEST['do'] == 'delete')
-{
-	$vbulletin->input->clean_array_gpc('r', array(
-		'pagenumber' => TYPE_UINT,
-		'perpage'    => TYPE_UINT,
-		'fieldname'  => TYPE_NOHTML,
-	));
-
-	//Check if Phrase belongs to Master Language -> only able to delete if $vbulletin->debug=1
-	$getvarname = $db->query_first("SELECT varname, fieldname FROM " . TABLE_PREFIX . "phrase WHERE phraseid=" . $vbulletin->GPC['phraseid']);
-	$ismasterphrase = $db->query_first("
-		SELECT languageid FROM " . TABLE_PREFIX . "phrase
-		WHERE varname = '" . $getvarname['varname'] . "' AND
-			languageid = '-1'" . iif($getvarname['fieldname'], " AND
-			fieldname = '" . $db->escape_string($getvarname['fieldname']) . "'")
-	);
-	if (!$vbulletin->debug AND $ismasterphrase)
-	{
-		print_stop_message('cant_delete_master_phrase');
-	}
-
-	print_delete_confirmation('phrase', $vbulletin->GPC['phraseid'], 'phrase', 'kill', 'phrase', array(
-		'sourcefieldname' => $vbulletin->GPC['fieldname'],
-		'fieldname'       => $getvarname['fieldname'],
-		'pagenumber'      => $vbulletin->GPC['pagenumber'],
-		'perpage'         => $vbulletin->GPC['perpage']
-	), $vbphrase['if_you_delete_this_phrase_translations_will_be_deleted']);
-
-}
-
-// #############################################################################
-
 if ($_POST['do'] == 'update')
 {
 	$vbulletin->input->clean_array_gpc('p', array(
@@ -953,7 +948,7 @@ if ($_POST['do'] == 'update')
 		't'               => TYPE_BOOL,
 	));
 
-	if ((empty($vbulletin->GPC['text'][0]) AND $vbulletin->GPC['text'][0] != '0' AND !$vbulletin->GPC['t']) OR empty($vbulletin->GPC['varname']))
+	if (empty($vbulletin->GPC['varname']))
 	{
 		print_stop_message('please_complete_required_fields');
 	}
@@ -989,7 +984,7 @@ if ($_POST['do'] == 'update')
 if ($_POST['do'] == 'insert')
 {
 	$vbulletin->input->clean_array_gpc('p', array(
-		'sourcefieldname' => TYPE_NOHML,
+		'sourcefieldname' => TYPE_NOHTML,
 		'fieldname'       => TYPE_NOHTML,
 		'varname'         => TYPE_STR,
 		'text'            => TYPE_ARRAY_NOTRIM,
@@ -999,19 +994,22 @@ if ($_POST['do'] == 'insert')
 		'product'         => TYPE_STR,
 	));
 
-	if ((empty($vbulletin->GPC['text'][0]) AND $vbulletin->GPC['text'][0] != '0' AND !$vbulletin->GPC['t']) OR empty($vbulletin->GPC['varname']))
+	if (empty($update))
 	{
-		print_stop_message('please_complete_required_fields');
-	}
+		if ((empty($vbulletin->GPC['text'][0]) AND $vbulletin->GPC['text'][0] != '0' AND !$vbulletin->GPC['t']) OR empty($vbulletin->GPC['varname']))
+		{
+			print_stop_message('please_complete_required_fields');
+		}
 
-	if (!preg_match('#^[a-z0-9_\[\]]+$#i', $vbulletin->GPC['varname'])) // match a-z, A-Z, 0-9, ',', _ only .. allow [] for help items
-	{
-		print_stop_message('invalid_phrase_varname');
-	}
+		if (!preg_match('#^[a-z0-9_\[\]]+$#i', $vbulletin->GPC['varname'])) // match a-z, A-Z, 0-9, ',', _ only .. allow [] for help items
+		{
+			print_stop_message('invalid_phrase_varname');
+		}
 
-	if (empty($update) AND $test = $db->query_first("SELECT phraseid FROM " . TABLE_PREFIX . "phrase WHERE varname = '" . $db->escape_string($vbulletin->GPC['varname']) . "' AND languageid IN(0,-1) AND fieldname = '" . $db->escape_string($vbulletin->GPC['fieldname']) . "'"))
-	{
-		print_stop_message('there_is_already_phrase_named_x', $vbulletin->GPC['varname']);
+		if ($db->query_first("SELECT phraseid FROM " . TABLE_PREFIX . "phrase WHERE varname = '" . $db->escape_string($vbulletin->GPC['varname']) . "' AND languageid IN(0,-1) AND fieldname = '" . $db->escape_string($vbulletin->GPC['fieldname']) . "'"))
+		{
+			print_stop_message('there_is_already_phrase_named_x', $vbulletin->GPC['varname']);
+		}
 	}
 
 	if ($vbulletin->GPC['ismaster'])
@@ -1163,13 +1161,22 @@ if ($_REQUEST['do'] == 'edit')
 {
 	$vbulletin->input->clean_array_gpc('r', array(
 		'e'          => TYPE_ARRAY_ARRAY,
+		'delete'     => TYPE_ARRAY_ARRAY,
 		'pagenumber' => TYPE_UINT,
 		'perpage'    => TYPE_UINT,
 		'fieldname'  => TYPE_NOHTML,
 		'varname'    => TYPE_STR,
 		't'          => TYPE_BOOL,		// Display only the translations and no delete button
 	));
-	$editvarname =& $vbulletin->GPC['e'];
+	if (!empty($vbulletin->GPC['delete']))
+	{
+		$editvarname =& $vbulletin->GPC['delete'];
+		$_REQUEST['do'] = 'delete';
+	}
+	else
+	{
+		$editvarname =& $vbulletin->GPC['e'];
+	}
 
 	// make phrasetype options
 	$phrasetypes = fetch_phrasetypes_array();
@@ -1183,7 +1190,7 @@ if ($_REQUEST['do'] == 'edit')
 	{
 		foreach($editvarname AS $fieldname => $varnames)
 		{
-			foreach($varnames AS $varname => $null)
+			foreach($varnames AS $varname => $type)
 			{
 				$varname = urldecode($varname);
 				$phrase['fieldname'] = $fieldname;
@@ -1220,107 +1227,145 @@ if ($_REQUEST['do'] == 'edit')
 		print_stop_message('no_phrases_matched_your_query');
 	}
 
-	// delete link
-	if (($vbulletin->debug OR $phrase['languageid'] != '-1') AND !$vbulletin->GPC['t'])
+	if ($_REQUEST['do'] == 'delete')
 	{
-		print_form_header('phrase', 'delete');
-		construct_hidden_code('phraseid', $phrase['phraseid']);
-		print_table_header($vbphrase['if_you_would_like_to_remove_this_phrase'] . ' &nbsp; &nbsp; <input type="submit" class="button" tabindex="1" value="' . $vbphrase['delete'] . '" />');
-		print_table_footer();
-	}
-
-	//. '<input type="hidden" id="default_phrase" value="' . htmlspecialchars_uni($phrase['text']) . '" />'
-
-	print_form_header('phrase', 'update', false, true, 'phraseform');
-
-	print_table_header(construct_phrase($vbphrase['x_y_id_z'], iif(
-		$phrase['languageid'] == 0,
-		$vbphrase['custom_phrase'],
-		$vbphrase['standard_phrase']
-	), $phrase['varname'], $phrase['phraseid']));
-	construct_hidden_code('mode', $mode);
-	construct_hidden_code('oldvarname', $phrase['varname']);
-	construct_hidden_code('t', $vbulletin->GPC['t']);
-
-	if ($vbulletin->debug)
-	{
-		print_select_row($vbphrase['language'], 'languageid', array('-1' => $vbphrase['master_language'], '0' => $vbphrase['custom_language']), $phrase['languageid']);
-		construct_hidden_code('oldfieldname', $phrase['fieldname']);
-		print_select_row($vbphrase['phrase_type'], 'fieldname', $typeoptions, $phrase['fieldname']);
+		$vbulletin->GPC['phraseid'] = $phrase['phraseid'];
 	}
 	else
 	{
-		construct_hidden_code('languageid', $phrase['languageid']);
-		construct_hidden_code('oldfieldname', $phrase['fieldname']);
-		construct_hidden_code('fieldname', $phrase['fieldname']);
-	}
-
-	print_select_row($vbphrase['product'], 'product', fetch_product_list(), $phrase['product']);
-
-	if (($phrase['languageid'] == 0 OR $vbulletin->debug) AND !$vbulletin->GPC['t'])
-	{
-		$resizer = "<div class=\"smallfont\"><a href=\"#\" onclick=\"return resize_textarea(1, 'default_phrase')\">$vbphrase[increase_size]</a> <a href=\"#\" onclick=\"return resize_textarea(-1, 'default_phrase')\">$vbphrase[decrease_size]</a></div>";
-
-		print_input_row($vbphrase['varname'], 'varname', $phrase['varname'], 1, 50);
-		print_label_row(
-			$vbphrase['text'] . $resizer,
-			"<textarea name=\"text[0]\" id=\"default_phrase\" rows=\"4\" cols=\"50\" wrap=\"virtual\" tabindex=\"1\" dir=\"ltr\"" . iif($vbulletin->debug, ' title="name=&quot;text[0]&quot;"') . ">" . htmlspecialchars_uni($phrase['text']) . "</textarea>",
-			'', 'top', 'text[0]'
-		);
-	}
-	else
-	{
-		print_label_row($vbphrase['varname'], '$vbphrase[<b>' . $phrase['varname'] . '</b>]');
-		construct_hidden_code('varname', $phrase['varname']);
-
-		print_label_row($vbphrase['text'], nl2br(htmlspecialchars_uni($phrase['text'])) . '<input type="hidden" id="default_phrase" value="' . htmlspecialchars_uni($phrase['text']) . '" />');
-		if (!$vbulletin->GPC['t'])
+		// delete link
+		if (($vbulletin->debug OR $phrase['languageid'] != '-1') AND !$vbulletin->GPC['t'])
 		{
-			construct_hidden_code('text[0]', $phrase['text']);
+			print_form_header('phrase', 'delete');
+			construct_hidden_code('phraseid', $phrase['phraseid']);
+			print_table_header($vbphrase['if_you_would_like_to_remove_this_phrase'] . ' &nbsp; &nbsp; <input type="submit" class="button" tabindex="1" value="' . $vbphrase['delete'] . '" />');
+			print_table_footer();
 		}
-	}
 
-	// do translation boxes
-	print_table_header($vbphrase['translations']);
-	print_description_row("
-			<ul><li>$vbphrase[phrase_translation_desc_1]</li>
-			<li>$vbphrase[phrase_translation_desc_2]</li>
-			<li>$vbphrase[phrase_translation_desc_3]</li></ul>
-		",
-		0, 2, 'tfoot'
-	);
+		//. '<input type="hidden" id="default_phrase" value="' . htmlspecialchars_uni($phrase['text']) . '" />'
 
-	$translations = $db->query_read("
-		SELECT languageid, text
-		FROM " . TABLE_PREFIX . "phrase
-		WHERE varname = '" . $db->escape_string($phrase['varname']) . "' AND
-			languageid <> $phrase[languageid] AND
-			fieldname = '" . $db->escape_string($phrase[fieldname]) . "'
-	");
-	while ($translation = $db->fetch_array($translations))
-	{
-		$text["{$translation['languageid']}"] = $translation['text'];
-	}
+		print_form_header('phrase', 'update', false, true, 'phraseform');
 
-	// remove escape junk from javascript phrases for nice editable look
-	fetch_js_unsafe_string($text);
+		print_table_header(construct_phrase($vbphrase['x_y_id_z'], iif(
+			$phrase['languageid'] == 0,
+			$vbphrase['custom_phrase'],
+			$vbphrase['standard_phrase']
+		), $phrase['varname'], $phrase['phraseid']));
+		construct_hidden_code('mode', $mode);
+		construct_hidden_code('oldvarname', $phrase['varname']);
+		construct_hidden_code('t', $vbulletin->GPC['t']);
 
-	$languages = fetch_languages_array();
-	foreach($languages AS $_languageid => $lang)
-	{
-		$resizer = "<div class=\"smallfont\"><a href=\"#\" onclick=\"return resize_textarea(1, 'text_$_languageid')\">$vbphrase[increase_size]</a> <a href=\"#\" onclick=\"return resize_textarea(-1, 'text_$_languageid')\">$vbphrase[decrease_size]</a></div>";
+		if ($vbulletin->debug)
+		{
+			print_select_row($vbphrase['language'], 'languageid', array('-1' => $vbphrase['master_language'], '0' => $vbphrase['custom_language']), $phrase['languageid']);
+			construct_hidden_code('oldfieldname', $phrase['fieldname']);
+			print_select_row($vbphrase['phrase_type'], 'fieldname', $typeoptions, $phrase['fieldname']);
+		}
+		else
+		{
+			construct_hidden_code('languageid', $phrase['languageid']);
+			construct_hidden_code('oldfieldname', $phrase['fieldname']);
+			construct_hidden_code('fieldname', $phrase['fieldname']);
+		}
 
-		print_label_row(
-			construct_phrase($vbphrase['x_translation'], "<b>$lang[title]</b>") . " <dfn>($vbphrase[optional])</dfn><br /><input type=\"button\" class=\"button\" class=\"smallfont\" value=\"$vbphrase[copy_default_text]\" tabindex=\"1\" onclick=\"copy_default_text($_languageid);\" />" . $resizer,
-			"<textarea name=\"text[$_languageid]\" id=\"text_$_languageid\" rows=\"5\" cols=\"60\" tabindex=\"1\" wrap=\"virtual\" dir=\"$lang[direction]\">" . htmlspecialchars_uni($text["$_languageid"]) . "</textarea>"
+		print_select_row($vbphrase['product'], 'product', fetch_product_list(), $phrase['product']);
+
+		if (($phrase['languageid'] == 0 OR $vbulletin->debug) AND !$vbulletin->GPC['t'])
+		{
+			$resizer = "<div class=\"smallfont\"><a href=\"#\" onclick=\"return resize_textarea(1, 'default_phrase')\">$vbphrase[increase_size]</a> <a href=\"#\" onclick=\"return resize_textarea(-1, 'default_phrase')\">$vbphrase[decrease_size]</a></div>";
+
+			print_input_row($vbphrase['varname'], 'varname', $phrase['varname'], 1, 50);
+			print_label_row(
+				$vbphrase['text'] . $resizer,
+				"<textarea name=\"text[0]\" id=\"default_phrase\" rows=\"4\" cols=\"50\" wrap=\"virtual\" tabindex=\"1\" dir=\"ltr\"" . iif($vbulletin->debug, ' title="name=&quot;text[0]&quot;"') . ">" . htmlspecialchars_uni($phrase['text']) . "</textarea>",
+				'', 'top', 'text[0]'
+			);
+		}
+		else
+		{
+			print_label_row($vbphrase['varname'], '$vbphrase[<b>' . $phrase['varname'] . '</b>]');
+			construct_hidden_code('varname', $phrase['varname']);
+
+			print_label_row($vbphrase['text'], nl2br(htmlspecialchars_uni($phrase['text'])) . '<input type="hidden" id="default_phrase" value="' . htmlspecialchars_uni($phrase['text']) . '" />');
+			if (!$vbulletin->GPC['t'])
+			{
+				construct_hidden_code('text[0]', $phrase['text']);
+			}
+		}
+
+		// do translation boxes
+		print_table_header($vbphrase['translations']);
+		print_description_row("
+				<ul><li>$vbphrase[phrase_translation_desc_1]</li>
+				<li>$vbphrase[phrase_translation_desc_2]</li>
+				<li>$vbphrase[phrase_translation_desc_3]</li></ul>
+			",
+			0, 2, 'tfoot'
 		);
-		print_description_row('<img src="../' . $vbulletin->options['cleargifurl'] . '" width="1" height="1" alt="" />', 0, 2, 'thead');
+
+		$translations = $db->query_read("
+			SELECT languageid, text
+			FROM " . TABLE_PREFIX . "phrase
+			WHERE varname = '" . $db->escape_string($phrase['varname']) . "' AND
+				languageid <> $phrase[languageid] AND
+				fieldname = '" . $db->escape_string($phrase[fieldname]) . "'
+		");
+		while ($translation = $db->fetch_array($translations))
+		{
+			$text["{$translation['languageid']}"] = $translation['text'];
+		}
+
+		// remove escape junk from javascript phrases for nice editable look
+		fetch_js_unsafe_string($text);
+
+		$languages = fetch_languages_array();
+		foreach($languages AS $_languageid => $lang)
+		{
+			$resizer = "<div class=\"smallfont\"><a href=\"#\" onclick=\"return resize_textarea(1, 'text_$_languageid')\">$vbphrase[increase_size]</a> <a href=\"#\" onclick=\"return resize_textarea(-1, 'text_$_languageid')\">$vbphrase[decrease_size]</a></div>";
+
+			print_label_row(
+				construct_phrase($vbphrase['x_translation'], "<b>$lang[title]</b>") . " <dfn>($vbphrase[optional])</dfn><br /><input type=\"button\" class=\"button\" class=\"smallfont\" value=\"$vbphrase[copy_default_text]\" tabindex=\"1\" onclick=\"copy_default_text($_languageid);\" />" . $resizer,
+				"<textarea name=\"text[$_languageid]\" id=\"text_$_languageid\" rows=\"5\" cols=\"60\" tabindex=\"1\" wrap=\"virtual\" dir=\"$lang[direction]\">" . htmlspecialchars_uni($text["$_languageid"]) . "</textarea>"
+			);
+			print_description_row('<img src="../' . $vbulletin->options['cleargifurl'] . '" width="1" height="1" alt="" />', 0, 2, 'thead');
+		}
+
+		construct_hidden_code('page', $vbulletin->GPC['pagenumber']);
+		construct_hidden_code('perpage', $vbulletin->GPC['perpage']);
+		construct_hidden_code('sourcefieldname', $vbulletin->GPC['fieldname']);
+		print_submit_row($vbphrase['save']);
+	}
+}
+
+// #############################################################################
+
+if ($_REQUEST['do'] == 'delete')
+{
+	$vbulletin->input->clean_array_gpc('r', array(
+		'pagenumber' => TYPE_UINT,
+		'perpage'    => TYPE_UINT,
+		'fieldname'  => TYPE_NOHTML,
+	));
+
+	//Check if Phrase belongs to Master Language -> only able to delete if $vbulletin->debug=1
+	$getvarname = $db->query_first("SELECT varname, fieldname FROM " . TABLE_PREFIX . "phrase WHERE phraseid=" . $vbulletin->GPC['phraseid']);
+	$ismasterphrase = $db->query_first("
+		SELECT languageid FROM " . TABLE_PREFIX . "phrase
+		WHERE varname = '" . $getvarname['varname'] . "' AND
+			languageid = '-1'" . iif($getvarname['fieldname'], " AND
+			fieldname = '" . $db->escape_string($getvarname['fieldname']) . "'")
+	);
+	if (!$vbulletin->debug AND $ismasterphrase)
+	{
+		print_stop_message('cant_delete_master_phrase');
 	}
 
-	construct_hidden_code('page', $vbulletin->GPC['pagenumber']);
-	construct_hidden_code('perpage', $vbulletin->GPC['perpage']);
-	construct_hidden_code('sourcefieldname', $vbulletin->GPC['fieldname']);
-	print_submit_row($vbphrase['save']);
+	print_delete_confirmation('phrase', $vbulletin->GPC['phraseid'], 'phrase', 'kill', 'phrase', array(
+		'sourcefieldname' => $vbulletin->GPC['fieldname'],
+		'fieldname'       => $getvarname['fieldname'],
+		'pagenumber'      => $vbulletin->GPC['pagenumber'],
+		'perpage'         => $vbulletin->GPC['perpage']
+	), $vbphrase['if_you_delete_this_phrase_translations_will_be_deleted']);
 
 }
 
@@ -1572,8 +1617,8 @@ print_cp_footer();
 
 /*======================================================================*\
 || ####################################################################
-|| # Downloaded: 18:52, Sat Jul 14th 2007
-|| # CVS: $RCSfile$ - $Revision: 17006 $
+|| # Downloaded: 16:21, Sat Apr 6th 2013
+|| # CVS: $RCSfile$ - $Revision: 26617 $
 || ####################################################################
 \*======================================================================*/
 ?>

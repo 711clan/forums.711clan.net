@@ -1,9 +1,9 @@
 <?php
 /*======================================================================*\
 || #################################################################### ||
-|| # vBulletin 3.6.7 PL1 - Licence Number VBF2470E4F
+|| # vBulletin 3.7.2 Patch Level 2 - Licence Number VBF2470E4F
 || # ---------------------------------------------------------------- # ||
-|| # Copyright ©2000-2007 Jelsoft Enterprises Ltd. All Rights Reserved. ||
+|| # Copyright ©2000-2013 Jelsoft Enterprises Ltd. All Rights Reserved. ||
 || # This file may not be redistributed in whole or significant part. # ||
 || # ---------------- VBULLETIN IS NOT FREE SOFTWARE ---------------- # ||
 || # http://www.vbulletin.com | http://www.vbulletin.com/license.html # ||
@@ -15,6 +15,7 @@ error_reporting(E_ALL & ~E_NOTICE);
 
 // #################### DEFINE IMPORTANT CONSTANTS #######################
 define('THIS_SCRIPT', 'printthread');
+define('CSRF_PROTECTION', true);
 
 // ################### PRE-CACHE TEMPLATES AND DATA ######################
 // get special phrase groups
@@ -42,7 +43,7 @@ $actiontemplates = array();
 
 // ######################### REQUIRE BACK-END ############################
 require_once('./global.php');
-require_once(DIR . '/includes/class_bbcode.php');
+require_once(DIR . '/includes/class_bbcode_alt.php');
 require_once(DIR . '/includes/functions_bigthree.php');
 
 // #######################################################################
@@ -115,8 +116,7 @@ $startat = ($vbulletin->GPC['pagenumber'] - 1) * $vbulletin->GPC['perpage'];
 $pagenav = construct_page_nav($vbulletin->GPC['pagenumber'], $vbulletin->GPC['perpage'], $totalposts, 'printthread.php?' . $vbulletin->session->vars['sessionurl'] . "t=$threadinfo[threadid]", '&amp;pp=' . $vbulletin->GPC['perpage']);
 // end page splitter
 
-$bbcode_parser =& new vB_BbCodeParser($vbulletin, fetch_tag_list());
-$bbcode_parser->printable = true;
+$bbcode_parser =& new vB_BbCodeParser_PrintableThread($vbulletin, fetch_tag_list());
 
 $ignore = array();
 if (trim($vbulletin->userinfo['ignorelist']))
@@ -174,7 +174,7 @@ while ($post = $db->fetch_array($posts))
 		$post['username'] = $post['postusername'];
 	}
 
-	$post['message'] = $bbcode_parser->parse($post['pagetext'], $foruminfo['forumid'], false);
+	$post['message'] = $bbcode_parser->parse($post['pagetext'], 'nonforum', false);
 
 	($hook = vBulletinHook::fetch_hook('printthread_post')) ? eval($hook) : false;
 
@@ -188,8 +188,8 @@ eval('print_output("' . fetch_template('printthread') . '");');
 
 /*======================================================================*\
 || ####################################################################
-|| # Downloaded: 18:52, Sat Jul 14th 2007
-|| # CVS: $RCSfile$ - $Revision: 15517 $
+|| # Downloaded: 16:21, Sat Apr 6th 2013
+|| # CVS: $RCSfile$ - $Revision: 26399 $
 || ####################################################################
 \*======================================================================*/
 ?>

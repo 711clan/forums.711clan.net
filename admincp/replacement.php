@@ -1,9 +1,9 @@
 <?php
 /*======================================================================*\
 || #################################################################### ||
-|| # vBulletin 3.6.7 PL1 - Licence Number VBF2470E4F
+|| # vBulletin 3.7.2 Patch Level 2 - Licence Number VBF2470E4F
 || # ---------------------------------------------------------------- # ||
-|| # Copyright ©2000-2007 Jelsoft Enterprises Ltd. All Rights Reserved. ||
+|| # Copyright ©2000-2013 Jelsoft Enterprises Ltd. All Rights Reserved. ||
 || # This file may not be redistributed in whole or significant part. # ||
 || # ---------------- VBULLETIN IS NOT FREE SOFTWARE ---------------- # ||
 || # http://www.vbulletin.com | http://www.vbulletin.com/license.html # ||
@@ -14,7 +14,7 @@
 error_reporting(E_ALL & ~E_NOTICE);
 
 // ##################### DEFINE IMPORTANT CONSTANTS #######################
-define('CVS_REVISION', '$RCSfile$ - $Revision: 13308 $');
+define('CVS_REVISION', '$RCSfile$ - $Revision: 25689 $');
 
 // #################### PRE-CACHE TEMPLATES AND DATA ######################
 $phrasegroups = array('style');
@@ -82,6 +82,11 @@ if ($_POST['do'] == 'update')
 	));
 
 	$vbulletin->GPC['findtext'] = strtolower($vbulletin->GPC['findtext']);
+
+	if ($vbulletin->GPC['findtext'] === '')
+	{
+		print_stop_message('please_complete_required_fields');
+	}
 
 	if ($vbulletin->GPC['dostyleid'] != -1)
 	{
@@ -181,16 +186,17 @@ if ($_REQUEST['do'] == 'edit')
 	print_form_header('replacement', 'update');
 	construct_hidden_code('templateid', $vbulletin->GPC['templateid']);
 	construct_hidden_code('dostyleid', $vbulletin->GPC['dostyleid']);
+	construct_hidden_code('findtext', $replacement['title']);
 	if ($replacement['styleid'] == $vbulletin->GPC['dostyleid'])
 	{
-		print_table_header(construct_phrase($vbphrase['x_y_id_z'], $vbphrase['replacement_variable'], $replacement['title'], $replacement['templateid']));
+		print_table_header(construct_phrase($vbphrase['x_y_id_z'], $vbphrase['replacement_variable'], htmlspecialchars_uni($replacement['title']), $replacement['templateid']));
 	}
 	else
 	{
-		print_table_header(construct_phrase($vbphrase['customize_replacement_variable_x'], $replacement['title']));
+		print_table_header(construct_phrase($vbphrase['customize_replacement_variable_x'], htmlspecialchars_uni($replacement['title'])));
 	}
 	print_label_row($vbphrase['style'], iif($vbulletin->GPC['dostyleid'] == -1, MASTERSTYLE, $style['title']));
-	print_input_row("$vbphrase[search_for_text] <dfn>($vbphrase[case_insensitive])</dfn>", 'findtext', $replacement['title']);
+	print_label_row("$vbphrase[search_for_text] <dfn>($vbphrase[case_insensitive])</dfn>", htmlspecialchars_uni($replacement['title']));
 	print_textarea_row($vbphrase['replace_with_text'], 'replacetext', $replacement['template'], 5, 50);
 	print_submit_row($vbphrase['save']);
 
@@ -205,6 +211,11 @@ if ($_POST['do'] == 'insert')
 	));
 
 	$vbulletin->GPC['findtext'] = strtolower($vbulletin->GPC['findtext']);
+
+	if ($vbulletin->GPC['findtext'] === '')
+	{
+		print_stop_message('please_complete_required_fields');
+	}
 
 	if ($existing = $db->query_first("
 		SELECT templateid, styleid, title, template
@@ -382,8 +393,8 @@ print_cp_footer();
 
 /*======================================================================*\
 || ####################################################################
-|| # Downloaded: 18:52, Sat Jul 14th 2007
-|| # CVS: $RCSfile$ - $Revision: 13308 $
+|| # Downloaded: 16:21, Sat Apr 6th 2013
+|| # CVS: $RCSfile$ - $Revision: 25689 $
 || ####################################################################
 \*======================================================================*/
 ?>

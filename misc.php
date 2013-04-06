@@ -1,9 +1,9 @@
 <?php
 /*======================================================================*\
 || #################################################################### ||
-|| # vBulletin 3.6.7 PL1 - Licence Number VBF2470E4F
+|| # vBulletin 3.7.2 Patch Level 2 - Licence Number VBF2470E4F
 || # ---------------------------------------------------------------- # ||
-|| # Copyright ©2000-2007 Jelsoft Enterprises Ltd. All Rights Reserved. ||
+|| # Copyright ©2000-2013 Jelsoft Enterprises Ltd. All Rights Reserved. ||
 || # This file may not be redistributed in whole or significant part. # ||
 || # ---------------- VBULLETIN IS NOT FREE SOFTWARE ---------------- # ||
 || # http://www.vbulletin.com | http://www.vbulletin.com/license.html # ||
@@ -15,6 +15,7 @@ error_reporting(E_ALL & ~E_NOTICE);
 
 // #################### DEFINE IMPORTANT CONSTANTS #######################
 define('THIS_SCRIPT', 'misc');
+define('CSRF_PROTECTION', true);
 if (in_array($_GET['do'], array('whoposted', 'buddylist', 'getsmilies')))
 {
 	define('NOPMPOPUP', 1);
@@ -107,82 +108,79 @@ if ($_REQUEST['do'] == 'buddylist')
 
 	$buddies =& $vbulletin->input->clean_gpc('r', 'buddies', TYPE_STR);
 
-	if (trim($vbulletin->userinfo['buddylist']))
+	$datecut = TIMENOW - $vbulletin->options['cookietimeout'];
+
+	$buddys = $db->query_read_slave("
+		SELECT
+		user.username, (user.options & " . $vbulletin->bf_misc_useroptions['invisible'] . ") AS invisible, user.userid, session.lastactivity
+		FROM " . TABLE_PREFIX . "userlist AS userlist
+		LEFT JOIN " . TABLE_PREFIX . "user AS user ON(user.userid = userlist.relationid)
+		LEFT JOIN " . TABLE_PREFIX . "session AS session ON(session.userid = user.userid)
+		WHERE userlist.userid = {$vbulletin->userinfo['userid']} AND userlist.relationid = user.userid AND type = 'buddy'
+		ORDER BY username ASC, session.lastactivity DESC
+	");
+
+	$onlineusers = '';
+	$offlineusers = '';
+	$newusersound = '';
+	$lastonline = array();
+
+	if (isset($buddies))
 	{
-		$buddylist = preg_split('/( )+/', trim($vbulletin->userinfo['buddylist']), -1, PREG_SPLIT_NO_EMPTY);
-		$datecut = TIMENOW - $vbulletin->options['cookietimeout'];
+		$buddies = urldecode($buddies);
+		$lastonline = explode(' ', $buddies);
+	}
+	$buddies = '0 ';
+	$show['playsound'] = false;
 
-		$buddys = $db->query_read_slave("
-			SELECT
-			user.username, (user.options & " . $vbulletin->bf_misc_useroptions['invisible'] . ") AS invisible, user.userid, session.lastactivity
-			FROM " . TABLE_PREFIX . "user AS user
-			LEFT JOIN " . TABLE_PREFIX . "session AS session ON(session.userid = user.userid)
-			WHERE user.userid IN (" . implode(',', $buddylist) . ")
-			ORDER BY username ASC,session.lastactivity DESC
-		");
-
-		$onlineusers = '';
-		$offlineusers = '';
-		$newusersound = '';
-		$lastonline = array();
-
-		if (isset($buddies))
+	require_once(DIR . '/includes/functions_bigthree.php');
+	while ($buddy = $db->fetch_array($buddys))
+	{
+		if ($doneuser["$buddy[userid]"])
 		{
-			$buddies = urldecode($buddies);
-			$lastonline = explode(' ', $buddies);
+			continue;
 		}
-		$buddies = '0 ';
-		$show['playsound'] = false;
 
-		require_once(DIR . '/includes/functions_bigthree.php');
-		while ($buddy = $db->fetch_array($buddys))
+		$doneuser["$buddy[userid]"] = true;
+
+		if ($onlineresult = fetch_online_status($buddy))
 		{
-			if ($doneuser["$buddy[userid]"])
+			if ($onlineresult == 1)
 			{
-				continue;
-			}
-
-			$doneuser["$buddy[userid]"] = true;
-
-			if ($onlineresult = fetch_online_status($buddy))
-			{
-				if ($onlineresult == 1)
-				{
-					$buddy['statusicon'] = 'online';
-				}
-				else
-				{
-					$buddy['statusicon'] = 'invisible';
-				}
-				$buddies .= $buddy['userid'] . ' ';
+				$buddy['statusicon'] = 'online';
 			}
 			else
 			{
-				$buddy['statusicon'] = 'offline';
+				$buddy['statusicon'] = 'invisible';
 			}
+			$buddies .= $buddy['userid'] . ' ';
+		}
+		else
+		{
+			$buddy['statusicon'] = 'offline';
+		}
 
-			$show['highlightuser'] = false;
+		$show['highlightuser'] = false;
 
-			($hook = vBulletinHook::fetch_hook('misc_buddylist_bit')) ? eval($hook) : false;
+		($hook = vBulletinHook::fetch_hook('misc_buddylist_bit')) ? eval($hook) : false;
 
-			if ($buddy['statusicon'] != 'offline')
+		if ($buddy['statusicon'] != 'offline')
+		{
+			if (!in_array($buddy['userid'], $lastonline) AND !empty($lastonline))
 			{
-				if (!in_array($buddy['userid'], $lastonline) AND !empty($lastonline))
-				{
-					$show['playsound'] = true;
-					$show['highlightuser'] = true;
-					// add name to top of list
-					eval('$onlineusers = "' . fetch_template('buddylistbit') . '" . $onlineusers;');
-				}
-				else
-				{
-					eval('$onlineusers .= "' . fetch_template('buddylistbit') . '";');
-				}
+				$show['playsound'] = true;
+				$show['highlightuser'] = true;
+				// add name to top of list
+				eval('$onlineusers = "' . fetch_template('buddylistbit') . '" . $onlineusers;');
 			}
 			else
 			{
-				eval('$offlineusers .= "' . fetch_template('buddylistbit') . '";');
+				eval('$onlineusers .= "' . fetch_template('buddylistbit') . '";');
 			}
+		}
+		else
+		{
+			eval('$offlineusers .= "' . fetch_template('buddylistbit') . '";');
 		}
 	}
 
@@ -225,6 +223,7 @@ if ($_REQUEST['do'] == 'whoposted')
 	");
 
 	$totalposts = 0;
+	$posters = '';
 	if ($db->num_rows($posts))
 	{
 		require_once(DIR . '/includes/functions_bigthree.php');
@@ -502,12 +501,12 @@ if ($_REQUEST['do'] == 'bbcode')
 	$specialbbcode['php'] = $bbcode_parser->parse("[php]\$myvar = 'Hello World!';\nfor (\$i = 0; \$i < 10; \$i++)\n{\n\techo \$myvar . \"\\n\";\n}[/php]", 0, false);
 
 	// ### Quote Tag
-	$specialbbcode['quote1'] = $bbcode_parser->parse("[quote]vBulletin[/quote]", 0, false);
-	$specialbbcode['quote2'] = $bbcode_parser->parse("[quote=John Percival]vBulletin[/quote]", 0, false);
+	$specialbbcode['quote1'] = $bbcode_parser->parse("[quote]Lorem ipsum dolor sit amet[/quote]", 0, false);
+	$specialbbcode['quote2'] = $bbcode_parser->parse("[quote=John Doe]Lorem ipsum dolor sit amet[/quote]", 0, false);
 
 	$max_post = $db->query_first_slave("SELECT MAX(postid) AS maxpostid FROM " . TABLE_PREFIX . "post");
 	$max_post['maxpostid'] = intval($max_post['maxpostid']);
-	$specialbbcode['quote3'] = $bbcode_parser->parse("[quote=John Percival;$max_post[maxpostid]]vBulletin[/quote]", 0, false);
+	$specialbbcode['quote3'] = $bbcode_parser->parse("[quote=John Doe;$max_post[maxpostid]]Lorem ipsum dolor sit amet[/quote]", 0, false);
 
 	// ### Special URL for Image
 	if (preg_match('#^[a-z0-9]+://#si', $stylevar['imgdir_statusicon']))
@@ -662,8 +661,8 @@ if ($_REQUEST['do'] == 'showsmilies')
 
 /*======================================================================*\
 || ####################################################################
-|| # Downloaded: 18:52, Sat Jul 14th 2007
-|| # CVS: $RCSfile$ - $Revision: 15050 $
+|| # Downloaded: 16:21, Sat Apr 6th 2013
+|| # CVS: $RCSfile$ - $Revision: 26399 $
 || ####################################################################
 \*======================================================================*/
 ?>

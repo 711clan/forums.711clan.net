@@ -1,9 +1,9 @@
 <?php
 /*======================================================================*\
 || #################################################################### ||
-|| # vBulletin 3.6.7 PL1 - Licence Number VBF2470E4F
+|| # vBulletin 3.7.2 Patch Level 2 - Licence Number VBF2470E4F
 || # ---------------------------------------------------------------- # ||
-|| # Copyright ©2000-2007 Jelsoft Enterprises Ltd. All Rights Reserved. ||
+|| # Copyright ©2000-2013 Jelsoft Enterprises Ltd. All Rights Reserved. ||
 || # This file may not be redistributed in whole or significant part. # ||
 || # ---------------- VBULLETIN IS NOT FREE SOFTWARE ---------------- # ||
 || # http://www.vbulletin.com | http://www.vbulletin.com/license.html # ||
@@ -61,6 +61,15 @@ if (CWD == '.')
 else
 {
 	define('DIR', CWD);
+}
+
+if (!empty($vbulletin->config['Misc']['datastorepath']))
+{
+		define('DATASTORE', $vbulletin->config['Misc']['datastorepath']);
+}
+else
+{
+		define('DATASTORE', DIR . '/includes/datastore');
 }
 
 // load database class
@@ -163,6 +172,16 @@ if (!defined('SKIPDB'))
 			$vbulletin->datastore->fetch($specialtemplates);
 		}
 	}
+	else if (VB_AREA == 'Install')
+	{ // load it up but don't actually call fetch, we need the ability to overwrite fields.
+		$datastore_class = (!empty($vbulletin->config['Datastore']['class'])) ? $vbulletin->config['Datastore']['class'] : 'vB_Datastore';
+
+		if ($datastore_class != 'vB_Datastore')
+		{
+			require_once(DIR . '/includes/class_datastore.php');
+		}
+		$vbulletin->datastore =& new $datastore_class($vbulletin, $db);
+	}
 
 	// ## Load latest bitfields, overwrite datastore versions (if they exist)
 	// ## (so latest upgrade script can access any new permissions)
@@ -195,8 +214,8 @@ $vbulletin->pluginlist = '';
 
 /*======================================================================*\
 || ####################################################################
-|| # Downloaded: 18:52, Sat Jul 14th 2007
-|| # CVS: $RCSfile$ - $Revision: 15975 $
+|| # Downloaded: 16:21, Sat Apr 6th 2013
+|| # CVS: $RCSfile$ - $Revision: 26885 $
 || ####################################################################
 \*======================================================================*/
 ?>

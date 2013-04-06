@@ -1,9 +1,9 @@
 <?php
 /*======================================================================*\
 || #################################################################### ||
-|| # vBulletin 3.6.7 PL1 - Licence Number VBF2470E4F
+|| # vBulletin 3.7.2 Patch Level 2 - Licence Number VBF2470E4F
 || # ---------------------------------------------------------------- # ||
-|| # Copyright ©2000-2007 Jelsoft Enterprises Ltd. All Rights Reserved. ||
+|| # Copyright ©2000-2013 Jelsoft Enterprises Ltd. All Rights Reserved. ||
 || # This file may not be redistributed in whole or significant part. # ||
 || # ---------------- VBULLETIN IS NOT FREE SOFTWARE ---------------- # ||
 || # http://www.vbulletin.com | http://www.vbulletin.com/license.html # ||
@@ -19,8 +19,8 @@ if (!class_exists('vB_DataManager'))
 * Class to do data save/delete operations for infractions
 *
 * @package	vBulletin
-* @version	$Revision: 15993 $
-* @date		$Date: 2006-12-12 11:50:32 -0600 (Tue, 12 Dec 2006) $
+* @version	$Revision: 23864 $
+* @date		$Date: 2007-09-18 08:57:22 -0500 (Tue, 18 Sep 2007) $
 */
 class vB_DataManager_Infraction extends vB_DataManager
 {
@@ -286,20 +286,29 @@ class vB_DataManager_Infraction extends vB_DataManager
 				if ($this->registry->options['uiforumid'] AND $foruminfo = fetch_foruminfo($this->registry->options['uiforumid']))
 				{
 					$infractioninfo = array(
-						'title'       => $this->fetch_field('customreason') ? unhtmlspecialchars($this->fetch_field('customreason')) : fetch_phrase('infractionlevel' . $this->fetch_field('infractionlevelid') . '_title', 'infractionlevel', '', true, true, 0),
+						'title'       => $this->fetch_field('customreason') ? unhtmlspecialchars($this->fetch_field('customreason')) : fetch_phrase('infractionlevel' . $this->fetch_field('infractionlevelid') . '_title', 'infractionlevel', '', false, true, 0),
 						'points'      => $points,
 						'note'        => unhtmlspecialchars($this->fetch_field('note')),
 						'message'     => $this->info['message'],
 						'username'    => unhtmlspecialchars($userinfo['username']),
 						'threadtitle' => unhtmlspecialchars($threadinfo['title']),
 					);
+					
+					if ($threadinfo['prefixid'])
+					{
+						// need prefix in correct language
+						$infractioninfo['prefix_plain'] = fetch_phrase("prefix_$threadinfo[prefixid]_title_plain", 'global', '', false, true, 0, false) . ' ';
+					}
+					else
+					{
+						$infractioninfo['prefix_plain'] = '';
+					}
+					
 					eval(fetch_email_phrases($postinfo ? 'infraction_thread_post' : 'infraction_thread_profile', 0, $points > 0 ? 'infraction_thread_infraction' : 'infraction_thread_warning'));
 
 					$dataman =& datamanager_init('Thread_FirstPost', $this->registry, ERRTYPE_SILENT, 'threadpost');
 					$dataman->set_info('forum', $foruminfo);
-					$dataman->set_info('skip_floodcheck', true);
-					$dataman->set_info('skip_charcount', true);
-					$dataman->set_info('skip_title_error', true);
+					$dataman->set_info('is_automated', true);
 					$dataman->set_info('mark_thread_read', true);
 					$dataman->set('allowsmilie', true);
 					$dataman->setr('userid', $this->fetch_field('whoadded'));
@@ -368,8 +377,8 @@ class vB_DataManager_Infraction extends vB_DataManager
 
 /*======================================================================*\
 || ####################################################################
-|| # Downloaded: 18:52, Sat Jul 14th 2007
-|| # CVS: $RCSfile$ - $Revision: 15993 $
+|| # Downloaded: 16:21, Sat Apr 6th 2013
+|| # CVS: $RCSfile$ - $Revision: 23864 $
 || ####################################################################
 \*======================================================================*/
 ?>

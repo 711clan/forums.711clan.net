@@ -1,9 +1,9 @@
 <?php
 /*======================================================================*\
 || #################################################################### ||
-|| # vBulletin 3.6.7 PL1 - Licence Number VBF2470E4F
+|| # vBulletin 3.7.2 Patch Level 2 - Licence Number VBF2470E4F
 || # ---------------------------------------------------------------- # ||
-|| # Copyright ©2000-2007 Jelsoft Enterprises Ltd. All Rights Reserved. ||
+|| # Copyright ©2000-2013 Jelsoft Enterprises Ltd. All Rights Reserved. ||
 || # This file may not be redistributed in whole or significant part. # ||
 || # ---------------- VBULLETIN IS NOT FREE SOFTWARE ---------------- # ||
 || # http://www.vbulletin.com | http://www.vbulletin.com/license.html # ||
@@ -15,6 +15,8 @@ error_reporting(E_ALL & ~E_NOTICE);
 
 // #################### DEFINE IMPORTANT CONSTANTS #######################
 define('THIS_SCRIPT', 'index');
+define('CSRF_PROTECTION', true);
+define('CSRF_SKIP_LIST', '');
 
 // ################### PRE-CACHE TEMPLATES AND DATA ######################
 // get special phrase groups
@@ -27,11 +29,14 @@ $specialtemplates = array(
 	'maxloggedin',
 	'iconcache',
 	'eventcache',
-	'mailqueue'
+	'mailqueue',
+	'blogstats',
+	'blogcategorycache',
 );
 
 // pre-cache templates used by all actions
 $globaltemplates = array(
+	'ad_forumhome_afterforums',
 	'FORUMHOME',
 	'forumhome_event',
 	'forumhome_forumbit_level1_nopost',
@@ -45,7 +50,8 @@ $globaltemplates = array(
 	'forumhome_subforumbit_post',
 	'forumhome_subforumseparator_nopost',
 	'forumhome_subforumseparator_post',
-	'forumhome_markread_script'
+	'forumhome_markread_script',
+	'forumhome_birthdaybit'
 );
 
 // pre-cache templates used by specific actions
@@ -108,7 +114,10 @@ $today = vbdate('Y-m-d', TIMENOW, false, false);
 // ### TODAY'S BIRTHDAYS #################################################
 if ($vbulletin->options['showbirthdays'])
 {
-	if (!is_array($vbulletin->birthdaycache) OR ($today != $vbulletin->birthdaycache['day1'] AND $today != $vbulletin->birthdaycache['day2']))
+	if (!is_array($vbulletin->birthdaycache)
+		OR ($today != $vbulletin->birthdaycache['day1'] AND $today != $vbulletin->birthdaycache['day2'])
+		OR !is_array($vbulletin->birthdaycache['users1'])
+	)
 	{
 		// Need to update!
 		require_once(DIR . '/includes/functions_databuild.php');
@@ -123,15 +132,24 @@ if ($vbulletin->options['showbirthdays'])
 	switch ($today)
 	{
 		case $birthdaystore['day1']:
-			$birthdays = $birthdaystore['users1'];
+			$birthdaysarray = $birthdaystore['users1'];
 			break;
 
 		case $birthdaystore['day2']:
-			$birthdays = $birthdaystore['users2'];
+			$birthdaysarray = $birthdaystore['users2'];
 			break;
 	}
 	// memory saving
 	unset($birthdaystore);
+
+	$birthdaybits = array();
+
+	foreach ($birthdaysarray AS $birthday)
+	{
+		eval('$birthdaybits[] = "' . fetch_template('forumhome_birthdaybit') . '";');
+	}
+
+	$birthdays = implode(', ', $birthdaybits);
 
 	if ($stylevar['dirmark'])
 	{
@@ -391,14 +409,20 @@ if (($vbulletin->options['displayloggedin'] == 1 OR $vbulletin->options['display
 	$numberregistered = 0;
 	$numberguest = 0;
 
+	$hook_query_fields = $hook_query_joins = $hook_query_where = '';
+	($hook = vBulletinHook::fetch_hook('forumhome_loggedinuser_query')) ? eval($hook) : false;
+
 	$forumusers = $db->query_read_slave("
 		SELECT
 			user.username, (user.options & " . $vbulletin->bf_misc_useroptions['invisible'] . ") AS invisible, user.usergroupid,
 			session.userid, session.inforum, session.lastactivity,
 			IF(displaygroupid=0, user.usergroupid, displaygroupid) AS displaygroupid, infractiongroupid
+			$hook_query_fields
 		FROM " . TABLE_PREFIX . "session AS session
 		LEFT JOIN " . TABLE_PREFIX . "user AS user ON(user.userid = session.userid)
+		$hook_query_joins
 		WHERE session.lastactivity > $datecut
+			$hook_query_where
 		" . iif($vbulletin->options['displayloggedin'] == 1 OR $vbulletin->options['displayloggedin'] == 3, "ORDER BY username ASC") . "
 	");
 
@@ -460,14 +484,13 @@ if (($vbulletin->options['displayloggedin'] == 1 OR $vbulletin->options['display
 		if (fetch_online_status($loggedin))
 		{
 			$numbervisible++;
-			eval('$activeusers .= ", ' . fetch_template('forumhome_loggedinuser') . '";');
+			$show['comma_leader'] = ($activeusers != '');
+			eval('$activeusers .= "' . fetch_template('forumhome_loggedinuser') . '";');
 		}
 	}
 
 	// memory saving
 	unset($userinfos, $loggedin);
-
-	$activeusers = substr($activeusers, 2); // get rid of initial comma
 
 	$db->free_result($forumusers);
 
@@ -482,7 +505,7 @@ if (($vbulletin->options['displayloggedin'] == 1 OR $vbulletin->options['display
 		build_datastore('maxloggedin', serialize($vbulletin->maxloggedin), 1);
 	}
 
-	$recordusers = vb_number_format($vbulletin->maxloggedin['maxonline']);;
+	$recordusers = vb_number_format($vbulletin->maxloggedin['maxonline']);
 	$recorddate = vbdate($vbulletin->options['dateformat'], $vbulletin->maxloggedin['maxonlinedate'], true);
 	$recordtime = vbdate($vbulletin->options['timeformat'], $vbulletin->maxloggedin['maxonlinedate']);
 
@@ -494,12 +517,12 @@ else
 }
 
 // ### GET FORUMS & MODERATOR iCACHES ########################
-cache_ordered_forums(1);
+cache_ordered_forums(1, 1);
 if ($vbulletin->options['showmoderatorcolumn'])
 {
 	cache_moderators();
 }
-else
+else if ($vbulletin->userinfo['userid'])
 {
 	cache_moderators($vbulletin->userinfo['userid']);
 }
@@ -533,6 +556,8 @@ $newuserid = $vbulletin->userstats['newuserid'];
 $activemembers = vb_number_format($vbulletin->userstats['activemembers']);
 $show['activemembers'] = ($vbulletin->options['activememberdays'] > 0 AND ($vbulletin->options['activememberoptions'] & 2)) ? true : false;
 
+eval('$ad_location[\'ad_forumhome_afterforums\'] = "' . fetch_template('ad_forumhome_afterforums') . '";');
+
 // ### ALL DONE! SPIT OUT THE HTML AND LET'S GET OUTTA HERE... ###
 ($hook = vBulletinHook::fetch_hook('forumhome_complete')) ? eval($hook) : false;
 
@@ -541,8 +566,8 @@ eval('print_output("' . fetch_template('FORUMHOME') . '");');
 
 /*======================================================================*\
 || ####################################################################
-|| # Downloaded: 18:52, Sat Jul 14th 2007
-|| # CVS: $RCSfile$ - $Revision: 16318 $
+|| # Downloaded: 16:21, Sat Apr 6th 2013
+|| # CVS: $RCSfile$ - $Revision: 26941 $
 || ####################################################################
 \*======================================================================*/
 ?>

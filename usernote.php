@@ -1,9 +1,9 @@
 <?php
 /*======================================================================*\
 || #################################################################### ||
-|| # vBulletin 3.6.7 PL1 - Licence Number VBF2470E4F
+|| # vBulletin 3.7.2 Patch Level 2 - Licence Number VBF2470E4F
 || # ---------------------------------------------------------------- # ||
-|| # Copyright ©2000-2007 Jelsoft Enterprises Ltd. All Rights Reserved. ||
+|| # Copyright ©2000-2013 Jelsoft Enterprises Ltd. All Rights Reserved. ||
 || # This file may not be redistributed in whole or significant part. # ||
 || # ---------------- VBULLETIN IS NOT FREE SOFTWARE ---------------- # ||
 || # http://www.vbulletin.com | http://www.vbulletin.com/license.html # ||
@@ -15,6 +15,7 @@ error_reporting(E_ALL & ~E_NOTICE);
 
 // #################### DEFINE IMPORTANT CONSTANTS #######################
 define('THIS_SCRIPT', 'usernote');
+define('CSRF_PROTECTION', true);
 
 // ################### PRE-CACHE TEMPLATES AND DATA ######################
 // get special phrase groups
@@ -28,7 +29,8 @@ $specialtemplates = array(
 
 // pre-cache templates used by all actions
 $globaltemplates = array(
-	'forumrules'
+	'forumrules',
+	'newpost_usernamecode'
 );
 
 // pre-cache templates used by specific actions
@@ -49,7 +51,6 @@ $actiontemplates = array(
 		'bbcode_php',
 		'bbcode_quote',
 		'usernote',
-		'newpost_usernamecode'
 	),
 	'newnote' => array(
 		'usernote_note'
@@ -521,6 +522,9 @@ if ($_REQUEST['do'] == 'viewuser')
 
 	$show['addnote'] = $canpost;
 
+	// deals with this: http://www.vbulletin.com/forum/project.php?issueid=22750 - don't apply for IE < 7
+	$stylevar['margin_3px_fix'] = ((!is_browser('ie') OR is_browser('ie', 7)) ? 3 - $stylevar['cellpadding'] : 0);
+
 	$navbits = construct_navbits($navbits);
 	eval('$navbar = "' . fetch_template('navbar') . '";');
 
@@ -532,8 +536,8 @@ if ($_REQUEST['do'] == 'viewuser')
 
 /*======================================================================*\
 || ####################################################################
-|| # Downloaded: 18:52, Sat Jul 14th 2007
-|| # CVS: $RCSfile$ - $Revision: 15984 $
+|| # Downloaded: 16:21, Sat Apr 6th 2013
+|| # CVS: $RCSfile$ - $Revision: 26399 $
 || ####################################################################
 \*======================================================================*/
 ?>

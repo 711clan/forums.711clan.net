@@ -1,9 +1,9 @@
 <?php
 /*======================================================================*\
 || #################################################################### ||
-|| # vBulletin 3.6.7 PL1 - Licence Number VBF2470E4F
+|| # vBulletin 3.7.2 Patch Level 2 - Licence Number VBF2470E4F
 || # ---------------------------------------------------------------- # ||
-|| # Copyright ©2000-2007 Jelsoft Enterprises Ltd. All Rights Reserved. ||
+|| # Copyright ©2000-2013 Jelsoft Enterprises Ltd. All Rights Reserved. ||
 || # This file may not be redistributed in whole or significant part. # ||
 || # ---------------- VBULLETIN IS NOT FREE SOFTWARE ---------------- # ||
 || # http://www.vbulletin.com | http://www.vbulletin.com/license.html # ||
@@ -122,11 +122,9 @@ function print_archive_forum_list($parentid = -1, $indent = '')
 		unset($forum);
 		$vbulletin->db->free_result($forums);
 	}
-	
+
 	if (is_array($vbulletin->iforumcache["$parentid"]))
 	{
-		$output = "\n$indent<ul>\n";
-	
 		foreach($vbulletin->iforumcache["$parentid"] AS $x)
 		{
 			foreach($x AS $forumid => $forum)
@@ -139,13 +137,9 @@ function print_archive_forum_list($parentid = -1, $indent = '')
 				}
 				else
 				{
-					if ($forum['link'] !== '')
+					if ($forum['cancontainthreads'] OR $forum['link'] !== '')
 					{
-						$forum_link = "<a href=\"$forum[link]\">";
-					}
-					else if ($forum['cancontainthreads'])
-					{
-						$forum_link = "<a href=\"" . (!SLASH_METHOD ? 'index.php?' : '') . "f-$forumid.html\">";
+						$forum_link = '<a href="' . $vbulletin->options['bburl'] . '/archive/index.php' . (SLASH_METHOD ? '/' : '?') . "f-$forumid.html\">";
 					}
 					else
 					{
@@ -155,8 +149,11 @@ function print_archive_forum_list($parentid = -1, $indent = '')
 				}
 			}
 		}
-		
-		$output .= "$indent</ul>\n$indent";
+		// only add to $output if there were actual forums
+		if (!empty($output))
+		{
+			$output = "\n$indent<ul>\n" . $output . "$indent</ul>\n$indent";
+		}
 	}
 
 	return $output;
@@ -165,16 +162,9 @@ function print_archive_forum_list($parentid = -1, $indent = '')
 // function to draw the navbar for the archive pages
 function print_archive_navigation($foruminfo, $threadinfo='')
 {
-	global $vbulletin, $vbphrase, $pda;
+	global $vbulletin, $vbphrase, $pda, $querystring;
 
-	if (SLASH_METHOD)
-	{
-		$navarray = array('<a href="../index.php/">' . $vbulletin->options['bbtitle'] . '</a>');
-	}
-	else
-	{
-		$navarray = array('<a href="index.php">' . $vbulletin->options['bbtitle'] . '</a>');
-	}
+	$navarray = array('<a href="' . $vbulletin->options['bburl'] . '/archive/index.php">' . $vbulletin->options['bbtitle'] . '</a>');
 
 	if (!empty($foruminfo))
 	{
@@ -186,41 +176,36 @@ function print_archive_navigation($foruminfo, $threadinfo='')
 			}
 			else
 			{
-				$navarray[] = "<a href=\"" . (!SLASH_METHOD ? 'index.php?' : '') . "f-$forumid.html\">" . $vbulletin->forumcache["$forumid"]['title_clean'] . "</a>";
+				$navarray[] = "<a href=\"" . $vbulletin->options['bburl'] . '/archive/index.php' . (SLASH_METHOD ? '/' : '?') . "f-$forumid.html\">" . $vbulletin->forumcache["$forumid"]['title_clean'] . "</a>";
 			}
 		}
 		if (is_array($threadinfo))
 		{
-			$navarray[] = $threadinfo['title'];
+			$navarray[] = $threadinfo['prefix_plain_html'] . ' ' . $threadinfo['title'];
 		}
+	}
+
+	if (SLASH_METHOD)
+	{
+		$loginlink = 'index.php' . (!empty($querystring) ? "/$querystring" : '') . '?login=1';
+		$pdalink = 'index.php' . (!empty($querystring) ? "/$querystring" : '') . '?pda=1';
+	}
+	else
+	{
+		$loginlink = 'index.php?login=1';
+		$pdalink = 'index.php?pda=1';
 	}
 
 	if ($pda)
 	{
 		if ($vbulletin->userinfo['userid'] == 0)
 		{
-			if (SLASH_METHOD)
-			{
-				$loginlink = '?login=1';
-			}
-			else
-			{
-				$loginlink = "index.php?login=1" . (!empty($querystring) ? "&amp;$querystring" : '');
-			}
-			$extra = '<div class="pda"><a href="' . $loginlink . '" rel="nofollow">' . $vbphrase['log_in'] . "</a></div>\n";
+			$extra = '<div class="pda"><a href="' . $vbulletin->options['bburl'] . "/archive/$loginlink" . '" rel="nofollow">' . $vbphrase['log_in'] . "</a></div>\n";
 		}
 	}
 	else
 	{
-		if (SLASH_METHOD)
-		{
-			$pdalink = '?pda=1';
-		}
-		else
-		{
-			$pdalink = "index.php?pda=1" . (!empty($querystring) ? "&amp;$querystring" : '');
-		}
-		$extra = '<div class="pda"><a href="' . $pdalink . '" rel="nofollow">' . $vbphrase['pda'] . "</a></div>\n";
+		$extra = '<div class="pda"><a href="' . $vbulletin->options['bburl'] . "/archive/$pdalink" . '" rel="nofollow">' . $vbphrase['pda'] . "</a></div>\n";
 	}
 
 	$return = '<div id="navbar">' . implode(' &gt; ', $navarray) . "</div>\n<hr />\n" . $extra;
@@ -232,16 +217,9 @@ function print_archive_navigation($foruminfo, $threadinfo='')
 
 function print_archive_navbar($navbits = array())
 {
-	global $vbulletin, $vbphrase, $pda;
+	global $vbulletin, $vbphrase, $pda, $querystring;
 
-	if (SLASH_METHOD)
-	{
-		$navarray = array('<a href="../index.php/">' . $vbulletin->options['bbtitle'] . '</a>');
-	}
-	else
-	{
-		$navarray = array('<a href="index.php">' . $vbulletin->options['bbtitle'] . '</a>');
-	}
+	$navarray = array('<a href="' . $vbulletin->options['bburl'] . '/index.php">' . $vbulletin->options['bbtitle'] . '</a>');
 
 	foreach ($navbits AS $url => $navbit)
 	{
@@ -255,32 +233,27 @@ function print_archive_navbar($navbits = array())
 		}
 	}
 
+	if (SLASH_METHOD)
+	{
+		$loginlink = 'index.php' . (!empty($querystring) ? "/$querystring" : '') . '?login=1';
+		$pdalink = 'index.php' . (!empty($querystring) ? "/$querystring" : '') . '?pda=1';
+	}
+	else
+	{
+		$loginlink = 'index.php?login=1';
+		$pdalink = 'index.php?pda=1';
+	}
+
 	if ($pda)
 	{
 		if ($vbulletin->userinfo['userid'] == 0)
 		{
-			if (SLASH_METHOD)
-			{
-				$loginlink = '?login=1';
-			}
-			else
-			{
-				$loginlink = "index.php?login=1" . (!empty($querystring) ? "&amp;$querystring" : '');
-			}
-			$extra = '<div class="pda"><a href="' . $loginlink . '" rel="nofollow">' . $vbphrase['log_in'] . "</a></div>\n";
+			$extra = '<div class="pda"><a href="' . $vbulletin->options['bburl'] . "/archive/$loginlink" . '" rel="nofollow">' . $vbphrase['log_in'] . "</a></div>\n";
 		}
 	}
 	else
 	{
-		if (SLASH_METHOD)
-		{
-			$pdalink = '?pda=1';
-		}
-		else
-		{
-			$pdalink = "index.php?pda=1" . (!empty($querystring) ? "&amp;$querystring" : '');
-		}
-		$extra = '<div class="pda"><a href="' . $pdalink . '" rel="nofollow">' . $vbphrase['pda'] . "</a></div>\n";
+		$extra = '<div class="pda"><a href="' . $vbulletin->options['bburl'] . "/archive/$pdalink" . '" rel="nofollow">' . $vbphrase['pda'] . "</a></div>\n";
 	}
 
 	$return = '<div id="navbar">' . implode(' &gt; ', $navarray) . "</div>\n<hr />\n" . $extra;
@@ -291,9 +264,9 @@ function print_archive_navbar($navbits = array())
 }
 
 // function to draw the page links for the archive pages
-function print_archive_page_navigation($total, $perpage, $link, $fallback_filename = 'index.php?')
+function print_archive_page_navigation($total, $perpage, $link)
 {
-	global $p, $vbphrase;
+	global $p, $vbphrase, $vbulletin;
 
 	$output = '';
 	$numpages = ceil($total / $perpage);
@@ -310,11 +283,11 @@ function print_archive_page_navigation($total, $perpage, $link, $fallback_filena
 			}
 			else if ($i == 1)
 			{
-				$output .= "<a href=\"" . (!SLASH_METHOD ? $fallback_filename : '') . "$link.html\">$i</a>\n";
+				$output .= '<a href="' . $vbulletin->options['bburl'] . '/archive/index.php' . (SLASH_METHOD ? '/' : '?') . "$link.html\">$i</a>\n";
 			}
 			else
 			{
-				$output .= "<a href=\"" . (!SLASH_METHOD ? $fallback_filename : '') . "$link-p-$i.html\">$i</a>\n";
+				$output .= '<a href="' . $vbulletin->options['bburl'] . '/archive/index.php' . (SLASH_METHOD ? '/' : '?') . "$link-p-$i.html\">$i</a>\n";
 			}
 		}
 
@@ -326,8 +299,8 @@ function print_archive_page_navigation($total, $perpage, $link, $fallback_filena
 
 /*======================================================================*\
 || ####################################################################
-|| # Downloaded: 18:52, Sat Jul 14th 2007
-|| # CVS: $RCSfile$ - $Revision: 16998 $
+|| # Downloaded: 16:21, Sat Apr 6th 2013
+|| # CVS: $RCSfile$ - $Revision: 25112 $
 || ####################################################################
 \*======================================================================*/
 ?>

@@ -1,9 +1,9 @@
 <?php
 /*======================================================================*\
 || #################################################################### ||
-|| # vBulletin 3.6.7 PL1 - Licence Number VBF2470E4F
+|| # vBulletin 3.7.2 Patch Level 2 - Licence Number VBF2470E4F
 || # ---------------------------------------------------------------- # ||
-|| # Copyright ©2000-2007 Jelsoft Enterprises Ltd. All Rights Reserved. ||
+|| # Copyright ©2000-2013 Jelsoft Enterprises Ltd. All Rights Reserved. ||
 || # This file may not be redistributed in whole or significant part. # ||
 || # ---------------- VBULLETIN IS NOT FREE SOFTWARE ---------------- # ||
 || # http://www.vbulletin.com | http://www.vbulletin.com/license.html # ||
@@ -14,7 +14,7 @@
 error_reporting(E_ALL & ~E_NOTICE);
 
 // ##################### DEFINE IMPORTANT CONSTANTS #######################
-define('CVS_REVISION', '$RCSfile$ - $Revision: 16311 $');
+define('CVS_REVISION', '$RCSfile$ - $Revision: 26863 $');
 
 // #################### PRE-CACHE TEMPLATES AND DATA ######################
 $phrasegroups = array('user', 'cpuser', 'infraction', 'infractionlevel', 'banning');
@@ -238,7 +238,10 @@ if ($_REQUEST['do'] == 'modify')
 	</script>
 	<?php
 
-	$options = array('editlevel' => $vbphrase['edit'], 'killlevel' => $vbphrase['delete'], 'no_value' => '_________________');
+	$options = array(
+		'editlevel' => $vbphrase['edit'],
+		'killlevel' => $vbphrase['delete'],
+	);
 
 	print_form_header('admininfraction', 'editlevel');
 	print_table_header($vbphrase['user_infraction_levels'], 6);
@@ -281,7 +284,10 @@ if ($_REQUEST['do'] == 'modify')
 		ORDER BY pointlevel
 	");
 
-	$options = array('editgroup' => $vbphrase['edit'], 'killgroup' => $vbphrase['delete'], 'no_value' => '_________________');
+	$options = array(
+		'editgroup' => $vbphrase['edit'],
+		'killgroup' => $vbphrase['delete'],
+	);
 
 	print_form_header('admininfraction', 'editgroup');
 	print_table_header($vbphrase['user_infraction_groups'], 5);
@@ -301,7 +307,10 @@ if ($_REQUEST['do'] == 'modify')
 
 	print_submit_row($vbphrase['add_new_user_infraction_group'], 0, 6);
 
-	$options = array('editban' => $vbphrase['edit'], 'killban' => $vbphrase['delete'], 'no_value' => '_________________');
+	$options = array(
+		'editban' => $vbphrase['edit'],
+		'killban' => $vbphrase['delete'],
+	);
 
 	print_form_header('admininfraction', 'editbangroup');
 	print_table_header($vbphrase['automatic_ban'], 6);
@@ -464,7 +473,8 @@ if ($_POST['do'] == 'doreverse')
 			 '&endstamp=' . $vbulletin->GPC['endstamp'] .
 			 '&pp=' . $vbulletin->GPC['perpage'] .
 			 '&page=' . $vbulletin->GPC['pagenumber'] .
-			 '&orderby=' . $vbulletin->GPC['orderby'];
+			 '&orderby=' . $vbulletin->GPC['orderby'] .
+			 '&infractionlevelid=' . $vbulletin->GPC['infractionlevelid'];
 
 		define('CP_REDIRECT', 'admininfraction.php?do=dolist' . $args);
 		print_stop_message('reversed_infraction_successfully');
@@ -535,6 +545,7 @@ if ($_REQUEST['do'] == 'reverse')
 		construct_hidden_code('whoadded', $vbulletin->GPC['whoadded']);
 		construct_hidden_code('startstamp', $vbulletin->GPC['startstamp']);
 		construct_hidden_code('endstamp', $vbulletin->GPC['endstamp']);
+		construct_hidden_code('infractionlevelid', $vbulletin->GPC['infractionlevelid']);
 		print_submit_row();
 	}
 	else
@@ -749,6 +760,7 @@ if ($_REQUEST['do'] == 'dolist')
 
 	if ($vbulletin->GPC['start'] >= $vbulletin->GPC['end'])
 	{
+		define('CP_BACKURL', '');
 		print_stop_message('start_date_after_end');
 	}
 
@@ -760,6 +772,7 @@ if ($_REQUEST['do'] == 'dolist')
 			WHERE username = '" . $db->escape_string($vbulletin->GPC['leftby']) . "'
 		"))
 		{
+			define('CP_BACKURL', '');
 			print_stop_message('could_not_find_user_x', $vbulletin->GPC['leftby']);
 		}
 		$vbulletin->GPC['whoadded'] = $leftby_user['userid'];
@@ -773,6 +786,7 @@ if ($_REQUEST['do'] == 'dolist')
 			WHERE username = '" . $db->escape_string($vbulletin->GPC['leftfor']) . "'
 		"))
 		{
+			define('CP_BACKURL', '');
 			print_stop_message('could_not_find_user_x', $vbulletin->GPC['leftfor']);
 		}
 		$vbulletin->GPC['userid'] = $leftfor_user['userid'];
@@ -819,6 +833,7 @@ if ($_REQUEST['do'] == 'dolist')
 	");
 	if (!($totalinf = $counter['total']))
 	{
+		define('CP_BACKURL', '');
 		print_stop_message('no_matches_found');
 	}
 
@@ -959,6 +974,7 @@ if ($_REQUEST['do'] == 'dolist')
 	}
 	else
 	{
+		define('CP_BACKURL', '');
 		print_stop_message('no_matches_found');
 	}
 }
@@ -1035,6 +1051,13 @@ if ($_POST['do'] == 'updategroup')
 		WHERE infractiongroupid = " . $vbulletin->GPC['infractiongroupid'] . "
 	");
 
+	require_once(DIR . '/includes/functions_infractions.php');
+	check_infraction_group_change(
+		$vbulletin->GPC['orusergroupid'],
+		$vbulletin->GPC['pointlevel'],
+		$vbulletin->GPC['usergroupid']
+	);
+
 	define('CP_REDIRECT', 'admininfraction.php?do=modify');
 	print_stop_message('saved_infraction_group_successfully');
 
@@ -1057,8 +1080,22 @@ if ($_REQUEST['do'] == 'removegroup')
 
 if ($_POST['do'] == 'killgroup')
 {
+	$group = $db->query_first("
+		SELECT *
+		FROM " . TABLE_PREFIX . "infractiongroup
+		WHERE infractiongroupid = " . $vbulletin->GPC['infractiongroupid']
+	);
+	if ($group)
+	{
+		$db->query_write("DELETE FROM " . TABLE_PREFIX . "infractiongroup WHERE infractiongroupid = " . $vbulletin->GPC['infractiongroupid']);
 
-	$db->query_write("DELETE FROM " . TABLE_PREFIX . "infractiongroup WHERE infractiongroupid = " . $vbulletin->GPC['infractiongroupid']);
+		require_once(DIR . '/includes/functions_infractions.php');
+		check_infraction_group_change(
+			$group['orusergroupid'],
+			$group['pointlevel'],
+			$group['usergroupid']
+		);
+	}
 
 	define('CP_REDIRECT', 'admininfraction.php?do=modify');
 	print_stop_message('deleted_infraction_group_successfully');
@@ -1223,8 +1260,8 @@ print_cp_footer();
 
 /*======================================================================*\
 || ####################################################################
-|| # Downloaded: 18:52, Sat Jul 14th 2007
-|| # CVS: $RCSfile$ - $Revision: 16311 $
+|| # Downloaded: 16:21, Sat Apr 6th 2013
+|| # CVS: $RCSfile$ - $Revision: 26863 $
 || ####################################################################
 \*======================================================================*/
 ?>

@@ -1,9 +1,9 @@
 <?php
 /*======================================================================*\
 || #################################################################### ||
-|| # vBulletin 3.6.7 PL1 - Licence Number VBF2470E4F
+|| # vBulletin 3.7.2 Patch Level 2 - Licence Number VBF2470E4F
 || # ---------------------------------------------------------------- # ||
-|| # Copyright ©2000-2007 Jelsoft Enterprises Ltd. All Rights Reserved. ||
+|| # Copyright ©2000-2013 Jelsoft Enterprises Ltd. All Rights Reserved. ||
 || # This file may not be redistributed in whole or significant part. # ||
 || # ---------------- VBULLETIN IS NOT FREE SOFTWARE ---------------- # ||
 || # http://www.vbulletin.com | http://www.vbulletin.com/license.html # ||
@@ -38,8 +38,8 @@ if (!class_exists('vB_DataManager'))
 * $poll->save();
 *
 * @package	vBulletin
-* @version	$Revision: 15943 $
-* @date		$Date: 2006-11-27 06:06:00 -0600 (Mon, 27 Nov 2006) $
+* @version	$Revision: 25978 $
+* @date		$Date: 2008-03-05 23:49:13 -0600 (Wed, 05 Mar 2008) $
 */
 class vB_DataManager_Poll extends vB_DataManager
 {
@@ -49,18 +49,18 @@ class vB_DataManager_Poll extends vB_DataManager
 	* @var	array
 	*/
 	var $validfields = array(
-		'pollid'		=> array(TYPE_UINT, REQ_INCR, VF_METHOD, 'verify_nonzero'),
-		'question'		=> array(TYPE_STR,  REQ_YES),
-		'dateline'      => array(TYPE_UINT, REQ_AUTO),
-		'options'		=> array(TYPE_STR,  REQ_YES,  VF_METHOD, 'verify_poll_options'),
-		'votes'			=> array(TYPE_STR,  REQ_YES,  VF_METHOD, 'verify_poll_votes'),
-		'active'		=> array(TYPE_BOOL, REQ_NO),   # Default 1
-		'numberoptions'	=> array(TYPE_UINT, REQ_NO),   # Built in pre_save
-		'timeout'		=> array(TYPE_UINT, REQ_NO),   # Default 0
-		'multiple'		=> array(TYPE_BOOL, REQ_NO),   # Default 0
-		'voters'		=> array(TYPE_UINT, REQ_NO),   # Default 0
-		'public'		=> array(TYPE_UINT, REQ_NO),   # Default 0
-		'lastvote'      => array(TYPE_UINT, REQ_AUTO), # A date line ?
+		'pollid'		=> array(TYPE_UINT,       REQ_INCR, VF_METHOD, 'verify_nonzero'),
+		'question'		=> array(TYPE_NOHTMLCOND, REQ_YES),
+		'dateline'      => array(TYPE_UINT,       REQ_AUTO),
+		'options'		=> array(TYPE_STR,        REQ_YES,  VF_METHOD, 'verify_poll_options'),
+		'votes'			=> array(TYPE_STR,        REQ_YES,  VF_METHOD, 'verify_poll_votes'),
+		'active'		=> array(TYPE_BOOL,       REQ_NO),   # Default 1
+		'numberoptions'	=> array(TYPE_UINT,       REQ_NO),   # Built in pre_save
+		'timeout'		=> array(TYPE_UINT,       REQ_NO),   # Default 0
+		'multiple'		=> array(TYPE_BOOL,       REQ_NO),   # Default 0
+		'voters'		=> array(TYPE_UINT,       REQ_NO),   # Default 0
+		'public'		=> array(TYPE_UINT,       REQ_NO),   # Default 0
+		'lastvote'      => array(TYPE_UINT,       REQ_AUTO), # A date line ?
 	);
 
 	/**
@@ -352,9 +352,11 @@ class vB_DataManager_Poll extends vB_DataManager
 			{
 				$this->dbobject->query_write("
 					UPDATE " . TABLE_PREFIX . "pollvote SET
-						voteoption = voteoption - 1
+						voteoption = voteoption - 1,
+						votetype = IF(votetype = 0, 0, votetype - 1)
 					WHERE pollid = " . $this->existing['pollid'] . "
 						AND voteoption > $deloption
+					ORDER BY voteoption
 				");
 			}
 		}
@@ -432,8 +434,8 @@ class vB_DataManager_Poll extends vB_DataManager
 
 /*======================================================================*\
 || ####################################################################
-|| # Downloaded: 18:52, Sat Jul 14th 2007
-|| # CVS: $RCSfile$ - $Revision: 15943 $
+|| # Downloaded: 16:21, Sat Apr 6th 2013
+|| # CVS: $RCSfile$ - $Revision: 25978 $
 || ####################################################################
 \*======================================================================*/
 ?>

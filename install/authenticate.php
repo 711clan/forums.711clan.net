@@ -1,9 +1,9 @@
 <?php
 /*======================================================================*\
 || #################################################################### ||
-|| # vBulletin 3.6.7 PL1 - Licence Number VBF2470E4F
+|| # vBulletin 3.7.2 Patch Level 2 - Licence Number VBF2470E4F
 || # ---------------------------------------------------------------- # ||
-|| # Copyright ©2000-2007 Jelsoft Enterprises Ltd. All Rights Reserved. ||
+|| # Copyright ©2000-2013 Jelsoft Enterprises Ltd. All Rights Reserved. ||
 || # This file may not be redistributed in whole or significant part. # ||
 || # ---------------- VBULLETIN IS NOT FREE SOFTWARE ---------------- # ||
 || # http://www.vbulletin.com | http://www.vbulletin.com/license.html # ||
@@ -48,7 +48,6 @@ if ($_POST['do'] == 'login')
 {
 	$vbulletin->input->clean_array_gpc('p', array(
 		'customerid' => TYPE_STR,
-		'redirect' => TYPE_STR,
 	));
 
 	if (md5(strtoupper($vbulletin->GPC['customerid'])) === CUSTOMER_NUMBER)
@@ -58,25 +57,17 @@ if ($_POST['do'] == 'login')
 		// set the style folder
 		if (empty($vbulletin->options['cpstylefolder']))
 		{
-			$vbulletin->options['cpstylefolder'] = 'vBulletin_3_Default';
+			$vbulletin->options['cpstylefolder'] = 'vBulletin_3_Silver';
 		}
 
-		if (strpos($vbulletin->GPC['redirect'], '?') === false)
-		{
-			$vbulletin->GPC['redirect'] .= '?';
-		}
-		else
-		{
-			$vbulletin->GPC['redirect'] .= '&';
-		}
-		$vbulletin->GPC['redirect'] .= 'rand=' . rand(0, 1000);
+		$redirect = '?rand=' . rand(0, 1000);
 
-		print_cp_header('', '', "<meta http-equiv=\"Refresh\" content=\"1; URL={$vbulletin->GPC['redirect']}\">");
+		print_cp_header('', '', "<meta http-equiv=\"Refresh\" content=\"1; URL=$redirect\">");
 		?>
 		<p>&nbsp;</p><p>&nbsp;</p>
 		<blockquote><blockquote><p>
 		<b><?php echo $authenticate_phrases['cust_num_success']; ?></b><br />
-		<span class="smallfont"><a href="<?php echo $vbulletin->GPC['redirect']; ?>"><?php echo $authenticate_phrases['redirecting']; ?></a></span>
+		<span class="smallfont"><a href="<?php echo $redirect; ?>"><?php echo $authenticate_phrases['redirecting']; ?></a></span>
 		</p></blockquote></blockquote>
 		<?php
 
@@ -84,10 +75,6 @@ if ($_POST['do'] == 'login')
 		define('NO_CP_COPYRIGHT', true);
 		print_cp_footer();
 		exit;
-	}
-	else
-	{
-		$scriptpath = $vbulletin->GPC['redirect'];
 	}
 }
 
@@ -109,7 +96,7 @@ if ($vbulletin->GPC['bbcustomerid'] !== CUSTOMER_NUMBER)
 	// set the style folder
 	if (empty($vbulletin->options['cpstylefolder']))
 	{
-		$vbulletin->options['cpstylefolder'] = 'vBulletin_3_Default';
+		$vbulletin->options['cpstylefolder'] = 'vBulletin_3_Silver';
 	}
 	// set the forumhome script
 	if (empty($vbulletin->options['forumhome']))
@@ -135,7 +122,6 @@ if ($vbulletin->GPC['bbcustomerid'] !== CUSTOMER_NUMBER)
 
 	?>
 	<form action="<?php echo THIS_SCRIPT; ?>?do=login" name="authenticateform" method="post">
-	<input type="hidden" name="redirect" value="<?php echo htmlspecialchars_uni($scriptpath); ?>" />
 	<input type="hidden" name="do" value="login" />
 	<p>&nbsp;</p><p>&nbsp;</p>
 	<table class="tborder" cellpadding="0" cellspacing="0" border="0" width="450" align="center"><tr><td>
@@ -187,8 +173,8 @@ if ($vbulletin->GPC['bbcustomerid'] !== CUSTOMER_NUMBER)
 
 /*======================================================================*\
 || ####################################################################
-|| # Downloaded: 18:52, Sat Jul 14th 2007
-|| # CVS: $RCSfile$ - $Revision: 15883 $
+|| # Downloaded: 16:21, Sat Apr 6th 2013
+|| # CVS: $RCSfile$ - $Revision: 26969 $
 || ####################################################################
 \*======================================================================*/
 ?>

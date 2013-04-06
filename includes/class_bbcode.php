@@ -1,9 +1,9 @@
 <?php
 /*======================================================================*\
 || #################################################################### ||
-|| # vBulletin 3.6.7 PL1 - Licence Number VBF2470E4F
+|| # vBulletin 3.7.2 Patch Level 2 - Licence Number VBF2470E4F
 || # ---------------------------------------------------------------- # ||
-|| # Copyright ©2000-2007 Jelsoft Enterprises Ltd. All Rights Reserved. ||
+|| # Copyright ©2000-2013 Jelsoft Enterprises Ltd. All Rights Reserved. ||
 || # This file may not be redistributed in whole or significant part. # ||
 || # ---------------- VBULLETIN IS NOT FREE SOFTWARE ---------------- # ||
 || # http://www.vbulletin.com | http://www.vbulletin.com/license.html # ||
@@ -26,35 +26,12 @@ define('BB_PARSER_TEXT', 2);
 */
 define('BB_PARSER_TAG_OPENED', 3);
 
-/**#@+
-* These make up the bit field to disable specific types of BB codes.
-*/
-define('ALLOW_BBCODE_BASIC', 1);
-define('ALLOW_BBCODE_COLOR', 2);
-define('ALLOW_BBCODE_SIZE',  4);
-define('ALLOW_BBCODE_FONT',  8);
-define('ALLOW_BBCODE_ALIGN', 16);
-define('ALLOW_BBCODE_LIST',  32);
-define('ALLOW_BBCODE_URL',   64);
-define('ALLOW_BBCODE_CODE',  128);
-define('ALLOW_BBCODE_PHP',   256);
-define('ALLOW_BBCODE_HTML',  512);
-/**#@-*/
-
-/**#@+
-* These make up the bit field to control what "special" BB codes are found in the text.
-*/
-define('BBCODE_HAS_IMG', 1);
-define('BBCODE_HAS_ATTACH', 2);
-define('BBCODE_HAS_SIGPIC', 4);
-/**#@-*/
-
 /**
 * Stack based BB code parser.
 *
 * @package 		vBulletin
-* @version		$Revision: 16996 $
-* @date 		$Date: 2007-05-14 06:52:44 -0500 (Mon, 14 May 2007) $
+* @version		$Revision: 26966 $
+* @date 		$Date: 2008-06-18 04:38:54 -0500 (Wed, 18 Jun 2008) $
 *
 */
 class vB_BbCodeParser
@@ -200,9 +177,13 @@ class vB_BbCodeParser
 				$has_option = $customtag['twoparams'] ? 'option' : 'no_option';
 				$customtag['bbcodetag'] = strtolower($customtag['bbcodetag']);
 
+
 				$this->tag_list["$has_option"]["$customtag[bbcodetag]"] = array(
-					'html' => $customtag['bbcodereplacement'],
-					'strip_empty' => true
+					'html' 			=> $customtag['bbcodereplacement'],
+					'strip_empty' 		=> $customtag['strip_empty'],
+					'stop_parse'		=> $customtag['stop_parse'],
+					'disable_smilies'	=> $customtag['disable_smilies'],
+					'disable_wordwrap'	=> $customtag['disable_wordwrap'],
 				);
 			}
 		}
@@ -219,8 +200,11 @@ class vB_BbCodeParser
 				$has_option = $customtag['twoparams'] ? 'option' : 'no_option';
 
 				$this->tag_list["$has_option"]["$customtag[bbcodetag]"] = array(
-					'html' => $customtag['bbcodereplacement'],
-					'strip_empty' => true
+					'html' 			=> $customtag['bbcodereplacement'],
+					'strip_empty'		=> (intval($customtag['options']) & $this->registry->bf_misc['bbcodeoptions']['strip_empty']) ? 1 : 0 ,
+					'stop_parse' 		=> (intval($customtag['options']) & $this->registry->bf_misc['bbcodeoptions']['stop_parse']) ? 1 : 0 ,
+					'disable_smilies'	=> (intval($customtag['options']) & $this->registry->bf_misc['bbcodeoptions']['disable_smilies']) ? 1 : 0 ,
+					'disable_wordwrap'	=> (intval($customtag['options']) & $this->registry->bf_misc['bbcodeoptions']['disable_wordwrap']) ? 1 : 0
 				);
 
 				$this->registry->bbcodecache["$customtag[bbcodeid]"] = $customtag;
@@ -229,7 +213,11 @@ class vB_BbCodeParser
 	}
 
 	/**
-	* ?
+	* Sets the user the BB code as parsed as. As of 3.7, this function should
+	* only be called for parsing signatures (for sigpics and permissions).
+	*
+	* @param	array	Array of user info to parse as
+	* @param	array	Array of user's permissions (may come through $userinfo already)
 	*/
 	function set_parse_userinfo($userinfo, $permissions = null)
 	{
@@ -248,7 +236,7 @@ class vB_BbCodeParser
 	* @param	bool	Whether to allow smilies in this post (if the option is allowed)
 	* @param	bool	Whether to parse the text as an image count check
 	* @param	string	Preparsed text ([img] tags should not be parsed)
-	* @param	int	Whether the preparsed text has images
+	* @param	int		Whether the preparsed text has images
 	* @param	bool	Whether the parsed post is cachable
 	*
 	* @return	string	Parsed text
@@ -319,8 +307,19 @@ class vB_BbCodeParser
 					$donl2br = false;
 				}
 				$dobbcode = ($post['announcementoptions'] & $this->registry->bf_misc_announcementoptions['allowbbcode']);
-				$dobbimagecode = ($post['announcementoptions'] & $this->registry->bf_misc_announcementoptions['allowbbcode']);;
+				$dobbimagecode = ($post['announcementoptions'] & $this->registry->bf_misc_announcementoptions['allowbbcode']);
 				$dosmilies = $allowsmilie;
+				break;
+
+			// parse visitor/group/picture message
+			case 'visitormessage':
+			case 'groupmessage':
+			case 'picturecomment':
+			case 'socialmessage':
+				$dohtml = $this->registry->options['allowhtml'];
+				$dobbcode = $this->registry->options['allowbbcode'];
+				$dobbimagecode = true; // this tag can be disabled manually; leaving as true means old usages remain (as documented)
+				$dosmilies = $this->registry->options['allowsmilies'];
 				break;
 
 			// parse forum item
@@ -418,6 +417,8 @@ class vB_BbCodeParser
 		$text = fetch_censored_text($text);
 		$has_img_tag = ($do_bbcode ? $this->contains_bbcode_img_tags($text) : 0);
 
+		($hook = vBulletinHook::fetch_hook('bbcode_parse_complete_precache')) ? eval($hook) : false;
+
 		// save the cached post
 		if ($this->options['cachable'])
 		{
@@ -462,34 +463,44 @@ class vB_BbCodeParser
 	*/
 	function parse_smilies($text, $do_html = false)
 	{
-		$cache =& $this->cache_smilies($do_html);
-		$this->local_smilies =& $cache;
+		static $regex_cache;
 
-		$quoted = array();
-		foreach ($cache AS $find => $replace)
+		$this->local_smilies =& $this->cache_smilies($do_html);
+
+		$cache_key = ($do_html ? 'html' : 'nohtml');
+
+		if (!isset($regex_cache["$cache_key"]))
 		{
-			$quoted[] = preg_quote($find, '/');
-			if (sizeof($quoted) > 100)
+			$regex_cache["$cache_key"] = array();
+			$quoted = array();
+
+			foreach ($this->local_smilies AS $find => $replace)
 			{
-				$text = preg_replace_callback('/(?<!&amp|&quot|&lt|&gt|&copy|&#[0-9]{1}|&#[0-9]{2}|&#[0-9]{3}|&#[0-9]{4}|&#[0-9]{5})(' . implode('|', $quoted) . ')/s', array(&$this, 'replace_smilies'), $text);
-				$quoted = array();
+				$quoted[] = preg_quote($find, '/');
+				if (sizeof($quoted) > 500)
+				{
+					$regex_cache["$cache_key"][] = '/(?<!&amp|&quot|&lt|&gt|&copy|&#[0-9]{1}|&#[0-9]{2}|&#[0-9]{3}|&#[0-9]{4}|&#[0-9]{5})(' . implode('|', $quoted) . ')/s';
+					$quoted = array();
+				}
+			}
+
+			if (sizeof($quoted) > 0)
+			{
+				$regex_cache["$cache_key"][] = '/(?<!&amp|&quot|&lt|&gt|&copy|&#[0-9]{1}|&#[0-9]{2}|&#[0-9]{3}|&#[0-9]{4}|&#[0-9]{5})(' . implode('|', $quoted) . ')/s';
 			}
 		}
 
-		if (sizeof($quoted) > 0)
+		foreach ($regex_cache["$cache_key"] AS $regex)
 		{
-			$text = preg_replace_callback('/(?<!&amp|&quot|&lt|&gt|&copy|&#[0-9]{1}|&#[0-9]{2}|&#[0-9]{3}|&#[0-9]{4}|&#[0-9]{5})(' . implode('|', $quoted) . ')/s', array(&$this, 'replace_smilies'), $text);
+			$text = preg_replace_callback($regex, array(&$this, 'replace_smilies'), $text);
 		}
-
-		/*foreach ($cache AS $find => $replace)
-		{
-			$text = preg_replace('/(?<!&amp|&quot|&lt|&gt|&copy|&#[0-9]{1}|&#[0-9]{2}|&#[0-9]{3}|&#[0-9]{4}|&#[0-9]{5})' . preg_quote($find, '/') . '/s', $replace, $text);
-		}*/
 
 		return $text;
 	}
 
 	/**
+	* Callback function for replacing smilies.
+	*
 	* @ignore
 	*/
 	function replace_smilies($matches)
@@ -878,7 +889,12 @@ class vB_BbCodeParser
 			else
 			{
 				// closing tag
-				if (($key = $this->find_first_tag($node['name'], $stack)) !== false)
+				if ($noparse !== null AND $node['name'] != 'noparse')
+				{
+					// closing a tag but we're in a noparse - treat as text
+					$output[] = array('type' => 'text', 'data' => '[/' . $node['name'] . ']');
+				}
+				else if (($key = $this->find_first_tag($node['name'], $stack)) !== false)
 				{
 					if ($node['name'] == 'noparse')
 					{
@@ -898,16 +914,6 @@ class vB_BbCodeParser
 						$stack = array_values($stack); // this is a tricky way to renumber the stack's keys
 
 						$noparse = null;
-
-						continue;
-					}
-					else if ($noparse !== null)
-					{
-						// we're inside a noparse tag; don't try tag renesting
-						$output[] = $node;
-
-						unset($stack["$key"]);
-						$stack = array_values($stack); // this is a tricky way to renumber the stack's keys
 
 						continue;
 					}
@@ -985,7 +991,7 @@ class vB_BbCodeParser
 	*
 	* @param	array	Parse array
 	* @param	bool	Whether to parse smilies
-	& @param	bool	Whether to allow HTML (for smilies)
+	* @param	bool	Whether to allow HTML (for smilies)
 	*
 	* @return	string	Final HTML
 	*/
@@ -1005,7 +1011,7 @@ class vB_BbCodeParser
 		);
 
 		$this->node_max = count($preparsed);
-		$this->node_cur = 0;
+		$this->node_num = 0;
 
 		foreach ($preparsed AS $node)
 		{
@@ -1105,6 +1111,7 @@ class vB_BbCodeParser
 									$old_stack = $this->stack;
 									$open['option'] = $this->parse_bbcode($open['option'], $do_smilies);
 									$this->stack = $old_stack;
+									$this->current_tag =& $open;
 									unset($old_stack);
 								}
 
@@ -1516,7 +1523,7 @@ class vB_BbCodeParser
 		global $vbulletin, $vbphrase, $stylevar, $show;
 
 		// remove unnecessary line breaks and escaped quotes
-		$code = str_replace(array('<br>', '<br />', '\\"'), array('', '', '"'), $code);
+		$code = str_replace(array('<br>', '<br />'), array('', ''), $code);
 
 		$code = $this->strip_front_back_whitespace($code, 1);
 
@@ -1784,22 +1791,27 @@ class vB_BbCodeParser
 		}
 		$rightlink = str_replace(array('`', '"', "'", '['), array('&#96;', '&quot;', '&#39;', '&#91;'), $this->strip_smilies($rightlink));
 
+		// remove double spaces -- fixes issues with wordwrap
+		$rightlink = str_replace('  ', '', $rightlink);
+
 		if (!preg_match('#^[a-z0-9]+(?<!about|javascript|vbscript|data):#si', $rightlink))
 		{
 			$rightlink = "http://$rightlink";
 		}
 
-		if (!trim($link) OR $text == $rightlink)
+		if (!trim($link) OR str_replace('  ', '', $text) == $rightlink)
 		{
 			$tmp = unhtmlspecialchars($rightlink);
 			if (vbstrlen($tmp) > 55 AND $this->is_wysiwyg() == false)
 			{
 				$text = htmlspecialchars_uni(substr($tmp, 0, 36) . '...' . substr($tmp, -14));
 			}
+			else
+			{
+				// under the 55 chars length, don't wordwrap this
+				$text = str_replace('  ', '', $text);
+			}
 		}
-
-		// remove double spaces -- fixes issues with wordwrap
-		$rightlink = str_replace('  ', '', $rightlink);
 
 		// standard URL hyperlink
 		return "<a href=\"$rightlink\" target=\"_blank\">$text</a>";
@@ -1822,7 +1834,7 @@ class vB_BbCodeParser
 			foreach($matches[2] AS $key => $attachmentid)
 			{
 				$align = $matches[1]["$key"];
-				$search[] = "#\[attach" . (!empty($align) ? '=' . $align : '') . "\]($attachmentid)\[/attach\]#i";
+				$search[] = '#\[attach' . (!empty($align) ? '=' . $align : '') . '\](' . $attachmentid . ')\[/attach\]#i';
 
 				// attachment specified by [attach] tag belongs to this post
 				if (!empty($this->attachments["$attachmentid"]))
@@ -1833,7 +1845,7 @@ class vB_BbCodeParser
 						continue;
 					}
 
-					if ($attachment['thumbnail_filesize'] == $attachment['filesize'])
+					if ($attachment['thumbnail_filesize'] == $attachment['filesize'] AND ($this->registry->options['viewattachedimages'] OR $this->registry->options['attachthumbs']))
 					{
 						$attachment['hasthumbnail'] = false;
 						$forceimage = true;
@@ -1862,7 +1874,7 @@ class vB_BbCodeParser
 						case 'pdf':
 								if ($this->registry->options['attachthumbs'] AND $attachment['hasthumbnail'] AND $this->registry->userinfo['showimages'])
 								{	// Display a thumbnail
-									$replace[] = "<a href=\"{$this->registry->options['bburl']}/attachment.php?{$this->registry->session->vars['sessionurl']}attachmentid=\\1&amp;d=$attachment[dateline]\" $addtarget><img src=\"{$this->registry->options['bburl']}/attachment.php?{$this->registry->session->vars['sessionurl']}attachmentid=\\1&amp;thumb=1&amp;d=$attachment[thumbnail_dateline]\" class=\"thumbnail\" border=\"0\" alt=\""
+									$replace[] = "<a href=\"{$this->registry->options['bburl']}/attachment.php?{$this->registry->session->vars['sessionurl']}attachmentid=\\1&amp;d=$attachment[dateline]\" rel=\"Lightbox\" id=\"attachment\\1\" $addtarget><img src=\"{$this->registry->options['bburl']}/attachment.php?{$this->registry->session->vars['sessionurl']}attachmentid=\\1&amp;thumb=1&amp;d=$attachment[thumbnail_dateline]\" class=\"thumbnail\" border=\"0\" alt=\""
 									. construct_phrase($vbphrase['image_larger_version_x_y_z'], $attachment['filename'], $attachment['counter'], $attachment['filesize'], $attachment['attachmentid'])
 									. "\" " . (!empty($align) ? " style=\"float: $align; margin: 2px\"" : 'style="margin: 2px"') . " /></a>";
 								}
@@ -1906,9 +1918,12 @@ class vB_BbCodeParser
 			if ($do_imgcode AND ($this->registry->userinfo['userid'] == 0 OR $this->registry->userinfo['showimages']))
 			{
 				// do [img]xxx[/img]
-				$bbcode = preg_replace('#\[img\]\s*(https?://([^<>*"' . iif(!$this->registry->options['allowdynimg'], '?') . ']+|[a-z0-9/\\._\- !]+))\[/img\]#iUe', "\$this->handle_bbcode_img_match('\\1')", $bbcode);
+				$bbcode = preg_replace('#\[img\]\s*(https?://([^*\r\n]+|[a-z0-9/\\._\- !]+))\[/img\]#iUe', "\$this->handle_bbcode_img_match('\\1')", $bbcode);
 			}
-			$bbcode = preg_replace('#\[img\]\s*(https?://([^<>*"]+|[a-z0-9/\\._\- !]+))\[/img\]#iUe', "\$this->handle_bbcode_url(str_replace('\\\"', '\"', '\\1'), '')", $bbcode);
+			else
+			{
+				$bbcode = preg_replace('#\[img\]\s*(https?://([^*\r\n]+|[a-z0-9/\\._\- !]+))\[/img\]#iUe', "\$this->handle_bbcode_url(str_replace('\\\"', '\"', '\\1'), '')", $bbcode);
+			}
 		}
 
 		if ($has_img_code & BBCODE_HAS_SIGPIC)
@@ -1932,17 +1947,25 @@ class vB_BbCodeParser
 		$link = $this->strip_smilies(str_replace('\\"', '"', $link));
 
 		// remove double spaces -- fixes issues with wordwrap
-		$link = str_replace('  ', '', $link);
+		$link = str_replace(array('  ', '"'), '', $link);
 
 		return '<img src="' .  $link . '" border="0" alt="" />';
 	}
 
+	/**
+	* Handles the parsing of a signature picture. Most of this is handled
+	* based on the $parse_userinfo member.
+	*
+	* @param	string	Description for the sig pic
+	*
+	* @return	string	HTML representation of the sig pic
+	*/
 	function handle_bbcode_sigpic($description)
 	{
 		// remove unnecessary line breaks and escaped quotes
 		$description = str_replace(array('<br>', '<br />', '\\"'), array('', '', '"'), $description);
 
-		if (empty($this->parse_userinfo['userid']) OR empty($this->parse_userinfo['sigpic']))
+		if (empty($this->parse_userinfo['userid']) OR empty($this->parse_userinfo['sigpic']) OR (is_array($this->parse_userinfo['permissions']) AND !($this->parse_userinfo['permissions']['signaturepermissions'] & $this->registry->bf_ugp_signaturepermissions['cansigpic'])))
 		{
 			// unknown user or no sigpic
 			return '';
@@ -2055,7 +2078,15 @@ class vB_BbCodeParser
 
 		if (stripos($text, '[/sigpic]') !== false)
 		{
-			$hasimage += BBCODE_HAS_SIGPIC;
+			if (!empty($this->parse_userinfo['userid'])
+				AND !empty($this->parse_userinfo['sigpic'])
+				AND (!is_array($this->parse_userinfo['permissions'])
+					OR $this->parse_userinfo['permissions']['signaturepermissions'] & $this->registry->bf_ugp_signaturepermissions['cansigpic']
+				)
+			)
+			{
+				$hasimage += BBCODE_HAS_SIGPIC;
+			}
 		}
 
 		return $hasimage;
@@ -2412,8 +2443,8 @@ function fetch_tag_list($prepend_path = '', $force_all = false)
 
 /*======================================================================*\
 || ####################################################################
-|| # Downloaded: 18:52, Sat Jul 14th 2007
-|| # CVS: $RCSfile$ - $Revision: 16996 $
+|| # Downloaded: 16:21, Sat Apr 6th 2013
+|| # CVS: $RCSfile$ - $Revision: 26966 $
 || ####################################################################
 \*======================================================================*/
 ?>

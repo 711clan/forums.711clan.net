@@ -1,9 +1,9 @@
 <?php
 /*======================================================================*\
 || #################################################################### ||
-|| # vBulletin 3.6.7 PL1 - Licence Number VBF2470E4F
+|| # vBulletin 3.7.2 Patch Level 2 - Licence Number VBF2470E4F
 || # ---------------------------------------------------------------- # ||
-|| # Copyright ©2000-2007 Jelsoft Enterprises Ltd. All Rights Reserved. ||
+|| # Copyright ©2000-2013 Jelsoft Enterprises Ltd. All Rights Reserved. ||
 || # This file may not be redistributed in whole or significant part. # ||
 || # ---------------- VBULLETIN IS NOT FREE SOFTWARE ---------------- # ||
 || # http://www.vbulletin.com | http://www.vbulletin.com/license.html # ||
@@ -52,6 +52,39 @@ function fetch_modlogtypes($logtype)
 		'thread_redirect_removed'                 => 30,
 		'posts_copied_to_x'                       => 31,
 
+		'album_x_by_y_edited'                     => 32,
+		'album_x_by_y_deleted'                    => 33,
+		'picture_x_in_y_by_z_edited'              => 34,
+		'picture_x_in_y_by_z_deleted'             => 35,
+		// see 46 below as well
+
+		'social_group_x_edited'                   => 36,
+		'social_group_x_deleted'                  => 37,
+		'social_group_x_members_managed'          => 38,
+		'social_group_picture_x_in_y_removed'     => 39,
+
+		'pc_by_x_on_y_edited'                     => 40,
+		'pc_by_x_on_y_soft_deleted'               => 41,
+		'pc_by_x_on_y_removed'                    => 42,
+		'pc_by_x_on_y_undeleted'                  => 43,
+		'pc_by_x_on_y_unapproved'                 => 44,
+		'pc_by_x_on_y_approved'                   => 45,
+
+		'picture_x_in_y_by_z_approved'            => 46,
+
+		'gm_by_x_for_y_edited'                    => 47,
+		'gm_by_x_for_y_soft_deleted'              => 48,
+		'gm_by_x_for_y_removed'                   => 49,
+		'gm_by_x_for_y_undeleted'                 => 50,
+		'gm_by_x_for_y_unapproved'                => 51,
+		'gm_by_x_for_y_approved'                  => 52,
+
+		'vm_by_x_for_y_edited'                    => 53,
+		'vm_by_x_for_y_soft_deleted'              => 54,
+		'vm_by_x_for_y_removed'                   => 55,
+		'vm_by_x_for_y_undeleted'                 => 56,
+		'vm_by_x_for_y_unapproved'                => 57,
+		'vm_by_x_for_y_approved'                  => 58,
 	);
 
 	($hook = vBulletinHook::fetch_hook('fetch_modlogtypes')) ? eval($hook) : false;
@@ -100,6 +133,40 @@ function fetch_modlogactions($logaction)
 		29 => 'thread_title_x_changed',
 		30 => 'thread_redirect_removed',
 		31 => 'posts_copied_to_x',
+
+		32 => 'album_x_by_y_edited',
+		33 => 'album_x_by_y_deleted',
+		34 => 'picture_x_in_y_by_z_edited',
+		35 => 'picture_x_in_y_by_z_deleted',
+		// see 46 below as well
+
+		36 => 'social_group_x_edited',
+		37 => 'social_group_x_deleted',
+		38 => 'social_group_x_members_managed',
+		39 => 'social_group_picture_x_in_y_removed',
+
+		40 => 'pc_by_x_on_y_edited',
+		41 => 'pc_by_x_on_y_soft_deleted',
+		42 => 'pc_by_x_on_y_removed',
+		43 => 'pc_by_x_on_y_undeleted',
+		44 => 'pc_by_x_on_y_unapproved',
+		45 => 'pc_by_x_on_y_approved',
+
+		46 => 'picture_x_in_y_by_z_approved',
+
+		47 => 'gm_by_x_for_y_edited',
+		48 => 'gm_by_x_for_y_soft_deleted',
+		49 => 'gm_by_x_for_y_removed',
+		50 => 'gm_by_x_for_y_undeleted',
+		51 => 'gm_by_x_for_y_unapproved',
+		52 => 'gm_by_x_for_y_approved',
+
+		53 => 'vm_by_x_for_y_edited',
+		54 => 'vm_by_x_for_y_soft_deleted',
+		55 => 'vm_by_x_for_y_removed',
+		56 => 'vm_by_x_for_y_undeleted',
+		57 => 'vm_by_x_for_y_unapproved',
+		58 => 'vm_by_x_for_y_approved',
 	);
 
 	($hook = vBulletinHook::fetch_hook('fetch_modlogactions')) ? eval($hook) : false;
@@ -127,7 +194,7 @@ function log_vbulletin_error($errstring, $type = 'database')
 			if (!empty($vbulletin->options['errorlogphp']))
 			{
 				$errfile = $vbulletin->options['errorlogphp'];
-				$errstring .= "\r\nDate: " . date('l dS of F Y h:i:s A') . "\r\n";
+				$errstring .= "\r\nDate: " . date('l dS \o\f F Y h:i:s A') . "\r\n";
 				$errstring .= "Username: {$vbulletin->userinfo['username']}\r\n";
 				$errstring .= 'IP Address: ' . IPADDRESS . "\r\n";
 			}
@@ -149,7 +216,7 @@ function log_vbulletin_error($errstring, $type = 'database')
 				$errfile = $vbulletin->options['errorlogsecurity'];
 				$username = $errstring;
 				$errstring  = 'Failed admin logon in ' . $vbulletin->db->appname . ' ' . $vbulletin->options['templateversion'] . "\r\n\r\n";
-				$errstring .= 'Date: ' . date('l dS of F Y h:i:s A') . "\r\n";
+				$errstring .= 'Date: ' . date('l dS \o\f F Y h:i:s A') . "\r\n";
 				$errstring .= "Script: http://$_SERVER[HTTP_HOST]" . unhtmlspecialchars($vbulletin->scriptpath) . "\r\n";
 				$errstring .= 'Referer: ' . REFERRER . "\r\n";
 				$errstring .= "Username: $username\r\n";
@@ -205,7 +272,7 @@ function verify_email_vbulletin_error($error = '', $type = 'database')
 * @param	integer	This value corresponds to the action that was being performed
 * @param	string	Other moderator parameters
 */
-function log_moderator_action(&$loginfo, $logtype, $action = '')
+function log_moderator_action($loginfo, $logtype, $action = '')
 {
 	global $vbulletin;
 
@@ -213,7 +280,7 @@ function log_moderator_action(&$loginfo, $logtype, $action = '')
 
 	if ($result = fetch_modlogtypes($logtype))
 	{
-		$logtype =& $result;
+		$logtype = $result;
 	}
 
 	($hook = vBulletinHook::fetch_hook('log_moderator_action')) ? eval($hook) : false;
@@ -259,8 +326,8 @@ function log_moderator_action(&$loginfo, $logtype, $action = '')
 
 /*======================================================================*\
 || ####################################################################
-|| # Downloaded: 18:52, Sat Jul 14th 2007
-|| # CVS: $RCSfile$ - $Revision: 16315 $
+|| # Downloaded: 16:21, Sat Apr 6th 2013
+|| # CVS: $RCSfile$ - $Revision: 26365 $
 || ####################################################################
 \*======================================================================*/
 ?>

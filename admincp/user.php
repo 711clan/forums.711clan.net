@@ -1,9 +1,9 @@
 <?php
 /*======================================================================*\
 || #################################################################### ||
-|| # vBulletin 3.6.7 PL1 - Licence Number VBF2470E4F
+|| # vBulletin 3.7.2 Patch Level 2 - Licence Number VBF2470E4F
 || # ---------------------------------------------------------------- # ||
-|| # Copyright ©2000-2007 Jelsoft Enterprises Ltd. All Rights Reserved. ||
+|| # Copyright ©2000-2013 Jelsoft Enterprises Ltd. All Rights Reserved. ||
 || # This file may not be redistributed in whole or significant part. # ||
 || # ---------------- VBULLETIN IS NOT FREE SOFTWARE ---------------- # ||
 || # http://www.vbulletin.com | http://www.vbulletin.com/license.html # ||
@@ -14,10 +14,10 @@
 error_reporting(E_ALL & ~E_NOTICE);
 
 // ##################### DEFINE IMPORTANT CONSTANTS #######################
-define('CVS_REVISION', '$RCSfile$ - $Revision: 16924 $');
+define('CVS_REVISION', '$RCSfile$ - $Revision: 26706 $');
 
 // #################### PRE-CACHE TEMPLATES AND DATA ######################
-$phrasegroups = array('cpuser', 'forum', 'timezone', 'user', 'cprofilefield', 'subscription');
+$phrasegroups = array('cpuser', 'forum', 'timezone', 'user', 'cprofilefield', 'subscription', 'banning', 'profilefield');
 $specialtemplates = array();
 
 // ########################## REQUIRE BACK-END ############################
@@ -60,18 +60,18 @@ if ($_REQUEST['do'] == 'find')
 
 	if (!empty($vbulletin->GPC['serializeduser']))
 	{
-		$vbulletin->GPC['user']		= @unserialize($vbulletin->GPC['serializeduser']);
-		$vbulletin->GPC['profile']	= @unserialize($vbulletin->GPC['serializedprofile']);
+		$vbulletin->GPC['user']    = @unserialize(verify_client_string($vbulletin->GPC['serializeduser']));
+		$vbulletin->GPC['profile'] = @unserialize(verify_client_string($vbulletin->GPC['serializedprofile']));
 	}
 
 	if (!empty($vbulletin->GPC['serializeddisplay']))
 	{
-		$vbulletin->GPC['display'] = @unserialize($vbulletin->GPC['serializeddisplay']);
+		$vbulletin->GPC['display'] = @unserialize(verify_client_string($vbulletin->GPC['serializeddisplay']));
 	}
 
 	if (@array_sum($vbulletin->GPC['display']) == 0)
 	{
-		$vbulletin->GPC['display'] =  array('username' => 1, 'options' => 1, 'email' => 1, 'joindate' => 1, 'lastactivity' => 1, 'posts' => 1);
+		$vbulletin->GPC['display'] = array('username' => 1, 'options' => 1, 'email' => 1, 'joindate' => 1, 'lastactivity' => 1, 'posts' => 1);
 	}
 
 	$condition = fetch_user_search_sql($vbulletin->GPC['user'], $vbulletin->GPC['profile']);
@@ -166,12 +166,14 @@ if (empty($_REQUEST['do']))
 if ($_REQUEST['do'] == 'emailpassword')
 {
 	$vbulletin->input->clean_array_gpc('r', array(
-		'email' => TYPE_STR
+		'email'  => TYPE_STR,
+		'userid' => TYPE_UINT,
 	));
 
 	print_form_header('../login', 'emailpassword');
 	construct_hidden_code('email', $vbulletin->GPC['email']);
 	construct_hidden_code('url', $vbulletin->config['Misc']['admincpdir'] . "/user.php?do=find&user[email]=" . urlencode($vbulletin->GPC['email']));
+	construct_hidden_code('u', $vbulletin->GPC['userid']);
 	print_table_header($vbphrase['email_password_reminder_to_user']);
 	print_description_row(construct_phrase($vbphrase['click_the_button_to_send_password_reminder_to_x'], "<i>" . htmlspecialchars_uni($vbulletin->GPC['email']) . "</i>"));
 	print_submit_row($vbphrase['send'], 0);
@@ -195,21 +197,22 @@ if ($_POST['do'] == 'kill')
 		'userid' => TYPE_INT
 	));
 	// check user is not set in the $undeletable users string
-	$nodelete = explode(',', $vbulletin->config['SpecialUsers']['undeletableusers']);
-	if (in_array($vbulletin->GPC['userid'], $nodelete))
+	if (is_unalterable_user($vbulletin->GPC['userid']))
 	{
 		print_stop_message('user_is_protected_from_alteration_by_undeletableusers_var');
 	}
 	else
 	{
 		$info = fetch_userinfo($vbulletin->GPC['userid']);
-		if ($info['userid'] == $vbulletin->GPC['userid'])
+		if (!$info)
 		{
-			$userdm =& datamanager_init('User', $vbulletin, ERRTYPE_CP);
-			$userdm->set_existing($info);
-			$userdm->delete();
-			unset($userdm);
+			print_stop_message('invalid_user_specified');
 		}
+
+		$userdm =& datamanager_init('User', $vbulletin, ERRTYPE_CP);
+		$userdm->set_existing($info);
+		$userdm->delete();
+		unset($userdm);
 
 		define('CP_REDIRECT', 'user.php?do=modify');
 		print_stop_message('deleted_user_successfully');
@@ -222,7 +225,6 @@ if ($_REQUEST['do'] == 'edit' OR $_REQUEST['do'] == 'add')
 	$OUTERTABLEWIDTH = '95%';
 	$INNERTABLEWIDTH = '100%';
 
-	// must include this in order to use bitwise()
 	require_once(DIR . '/includes/functions_misc.php');
 
 	$vbulletin->input->clean_array_gpc('r', array(
@@ -240,7 +242,8 @@ if ($_REQUEST['do'] == 'edit' OR $_REQUEST['do'] == 'add')
 			NOT ISNULL(customprofilepic.userid) AS hasprofilepic,
 			NOT ISNULL(sigpic.userid) AS hassigpic,
 			sigpic.width AS sigpicwidth, sigpic.height AS sigpicheight,
-			sigpic.userid AS profilepic, sigpic.dateline AS sigpicdateline
+			sigpic.userid AS profilepic, sigpic.dateline AS sigpicdateline,
+			usercsscache.cachedcss
 			FROM " . TABLE_PREFIX . "user AS user
 			LEFT JOIN " . TABLE_PREFIX . "avatar AS avatar ON(avatar.avatarid = user.avatarid)
 			LEFT JOIN " . TABLE_PREFIX . "customavatar AS customavatar ON(customavatar.userid = user.userid)
@@ -248,6 +251,7 @@ if ($_REQUEST['do'] == 'edit' OR $_REQUEST['do'] == 'add')
 			LEFT JOIN " . TABLE_PREFIX . "sigpic AS sigpic ON(sigpic.userid = user.userid)
 			LEFT JOIN " . TABLE_PREFIX . "usertextfield AS usertextfield ON(usertextfield.userid = user.userid)
 			LEFT JOIN " . TABLE_PREFIX . "usergroup AS usergroup ON(usergroup.usergroupid = user.usergroupid)
+			LEFT JOIN " . TABLE_PREFIX . "usercsscache AS usercsscache ON (user.userid = usercsscache.userid)
 			WHERE user.userid = " . $vbulletin->GPC['userid']
 		);
 
@@ -302,7 +306,7 @@ if ($_REQUEST['do'] == 'edit' OR $_REQUEST['do'] == 'add')
 		$quicklinks = array_merge(
 			$quicklinks,
 			array(
-			"user.php?" . $vbulletin->session->vars['sessionurl'] . "do=emailpassword&amp;email=" . urlencode(unhtmlspecialchars($user['email']))
+			"user.php?" . $vbulletin->session->vars['sessionurl'] . "do=emailpassword&amp;u=" . $vbulletin->GPC['userid'] . "&amp;email=" . urlencode(unhtmlspecialchars($user['email']))
 				=> $vbphrase['email_password_reminder_to_user'],
 			"../private.php?" . $vbulletin->session->vars['sessionurl'] . "do=newpm&amp;u=" . $vbulletin->GPC['userid']
 				=> $vbphrase['send_private_message_to_user'],
@@ -326,6 +330,8 @@ if ($_REQUEST['do'] == 'edit' OR $_REQUEST['do'] == 'add')
 				=> $vbphrase['ban_user'],
 			"user.php?" . $vbulletin->session->vars['sessionurl'] . "do=remove&u=" . $vbulletin->GPC['userid']
 				=> $vbphrase['delete_user'],
+			"socialgroups.php?" . $vbulletin->session->vars['sessionurl'] . "do=groupsby&u=" . $vbulletin->GPC['userid']
+				=> $vbphrase['view_social_groups_created_by_user'],
 			)
 		);
 
@@ -340,19 +346,19 @@ if ($_REQUEST['do'] == 'edit' OR $_REQUEST['do'] == 'add')
 	else
 	{
 		$regoption = array();
-		if (bitwise($vbulletin->bf_misc_regoptions['subscribe_none'], $vbulletin->options['defaultregoptions']))
+		if ($vbulletin->bf_misc_regoptions['subscribe_none'] & $vbulletin->options['defaultregoptions'])
 		{
 			$regoption['autosubscribe'] = -1;
 		}
-		else if (bitwise($vbulletin->bf_misc_regoptions['subscribe_nonotify'], $vbulletin->options['defaultregoptions']))
+		else if ($vbulletin->bf_misc_regoptions['subscribe_nonotify'] & $vbulletin->options['defaultregoptions'])
 		{
 			$regoption['autosubscribe'] = 0;
 		}
-		else if (bitwise($vbulletin->bf_misc_regoptions['subscribe_instant'], $vbulletin->options['defaultregoptions']))
+		else if ($vbulletin->bf_misc_regoptions['subscribe_instant'] & $vbulletin->options['defaultregoptions'])
 		{
 			$regoption['autosubscribe'] = 1;
 		}
-		else if (bitwise($vbulletin->bf_misc_regoptions['subscribe_daily'], $vbulletin->options['defaultregoptions']))
+		else if ($vbulletin->bf_misc_regoptions['subscribe_daily'] & $vbulletin->options['defaultregoptions'])
 		{
 			$regoption['autosubscribe'] = 2;
 		}
@@ -361,11 +367,11 @@ if ($_REQUEST['do'] == 'edit' OR $_REQUEST['do'] == 'add')
 			$regoption['autosubscribe'] = 3;
 		}
 
-		if (bitwise($vbulletin->bf_misc_regoptions['vbcode_none'], $vbulletin->options['defaultregoptions']))
+		if ($vbulletin->bf_misc_regoptions['vbcode_none'] & $vbulletin->options['defaultregoptions'])
 		{
 			$regoption['showvbcode'] = 0;
 		}
-		else if (bitwise($vbulletin->bf_misc_regoptions['vbcode_standard'], $vbulletin->options['defaultregoptions']))
+		else if ($vbulletin->bf_misc_regoptions['vbcode_standard'] & $vbulletin->options['defaultregoptions'])
 		{
 			$regoption['showvbcode'] = 1;
 		}
@@ -374,22 +380,22 @@ if ($_REQUEST['do'] == 'edit' OR $_REQUEST['do'] == 'add')
 			$regoption['showvbcode'] = 2;
 		}
 
-		if (bitwise($vbulletin->bf_misc_regoptions['thread_linear_oldest'], $vbulletin->options['defaultregoptions']))
+		if ($vbulletin->bf_misc_regoptions['thread_linear_oldest'] & $vbulletin->options['defaultregoptions'])
 		{
 			$regoption['threadedmode'] = 0;
 			$regoption['postorder'] = 0;
 		}
-		else if (bitwise($vbulletin->bf_misc_regoptions['thread_linear_newest'], $vbulletin->options['defaultregoptions']))
+		else if ($vbulletin->bf_misc_regoptions['thread_linear_newest'] & $vbulletin->options['defaultregoptions'])
 		{
 			$regoption['threadedmode'] = 0;
 			$regoption['postorder'] = 1;
 		}
-		else if (bitwise($vbulletin->bf_misc_regoptions['thread_threaded'], $vbulletin->options['defaultregoptions']))
+		else if ($vbulletin->bf_misc_regoptions['thread_threaded'] & $vbulletin->options['defaultregoptions'])
 		{
 			$regoption['threadedmode'] = 1;
 			$regoption['postorder'] = 0;
 		}
-		else if (bitwise($vbulletin->bf_misc_regoptions['thread_hybrid'], $vbulletin->options['defaultregoptions']))
+		else if ($vbulletin->bf_misc_regoptions['thread_hybrid'] & $vbulletin->options['defaultregoptions'])
 		{
 			$regoption['threadedmode'] = 2;
 			$regoption['postorder'] = 0;
@@ -402,29 +408,34 @@ if ($_REQUEST['do'] == 'edit' OR $_REQUEST['do'] == 'add')
 
 		$userfield = '';
 		$user = array(
-			'invisible'        => bitwise($vbulletin->bf_misc_regoptions['invisiblemode'], $vbulletin->options['defaultregoptions']) ? 1 : 0,
-			'daysprune'        => -1,
-			'joindate'         => TIMENOW,
-			'lastactivity'     => TIMENOW,
-			'lastpost'         => 0,
-			'adminemail'       => iif(bitwise($vbulletin->bf_misc_regoptions['adminemail'], $vbulletin->options['defaultregoptions']), 1, 0),
-			'showemail'        => iif(bitwise($vbulletin->bf_misc_regoptions['receiveemail'], $vbulletin->options['defaultregoptions']), 1, 0),
-			'receivepm'        => iif(bitwise($vbulletin->bf_misc_regoptions['enablepm'], $vbulletin->options['defaultregoptions']), 1, 0),
-			'receivepmbuddies' => 0,
-			'emailonpm'        => iif(bitwise($vbulletin->bf_misc_regoptions['emailonpm'], $vbulletin->options['defaultregoptions']), 1, 0),
-			'pmpopup'          => iif(bitwise($vbulletin->bf_misc_regoptions['pmpopup'], $vbulletin->options['defaultregoptions']), 1, 0),
-			'showvcard'        => iif(bitwise($vbulletin->bf_misc_regoptions['vcard'], $vbulletin->options['defaultregoptions']), 1, 0),
-			'autosubscribe'    => $regoption['autosubscribe'],
-			'showreputation'   => iif(bitwise($vbulletin->bf_misc_regoptions['showreputation'], $vbulletin->options['defaultregoptions']), 1, 0),
-			'reputation'       => $vbulletin->options['reputationdefault'],
-			'showsignatures'   => iif(bitwise($vbulletin->bf_misc_regoptions['signature'], $vbulletin->options['defaultregoptions']), 1, 0),
-			'showavatars'      => iif(bitwise($vbulletin->bf_misc_regoptions['avatar'], $vbulletin->options['defaultregoptions']), 1, 0),
-			'showimages'       => iif(bitwise($vbulletin->bf_misc_regoptions['image'], $vbulletin->options['defaultregoptions']), 1, 0),
-			'postorder'        => $regoption['postorder'],
-			'threadedmode'     => $regoption['threadedmode'],
-			'showvbcode'       => $regoption['showvbcode'],
-			'usergroupid'      => 2,
-			'dstauto'          => 1
+			'invisible'                 => $vbulletin->bf_misc_regoptions['invisiblemode'] & $vbulletin->options['defaultregoptions'] ? 1 : 0,
+			'daysprune'                 => -1,
+			'joindate'                  => TIMENOW,
+			'lastactivity'              => TIMENOW,
+			'lastpost'                  => 0,
+			'adminemail'                => $vbulletin->bf_misc_regoptions['adminemail'] & $vbulletin->options['defaultregoptions'] ? 1 : 0,
+			'showemail'                 => $vbulletin->bf_misc_regoptions['receiveemail'] & $vbulletin->options['defaultregoptions'] ? 1 : 0,
+			'receivepm'                 => $vbulletin->bf_misc_regoptions['enablepm'] & $vbulletin->options['defaultregoptions'] ? 1 : 0,
+			'receivepmbuddies'          => 0,
+			'emailonpm'                 => $vbulletin->bf_misc_regoptions['emailonpm'] & $vbulletin->options['defaultregoptions'] ? 1 : 0,
+			'pmpopup'                   => $vbulletin->bf_misc_regoptions['pmpopup'] & $vbulletin->options['defaultregoptions'] ? 1 : 0,
+			'vm_enable'                 => $vbulletin->bf_misc_regoptions['vm_enable'] & $vbulletin->options['defaultregoptions'] ? 1 : 0,
+			'vm_contactonly'            => $vbulletin->bf_misc_regoptions['vm_contactonly'] & $vbulletin->options['defaultregoptions'] ? 1 : 0,
+			'showvcard'                 => $vbulletin->bf_misc_regoptions['vcard'] & $vbulletin->options['defaultregoptions'] ? 1 : 0,
+			'autosubscribe'             => $regoption['autosubscribe'],
+			'showreputation'            => $vbulletin->bf_misc_regoptions['showreputation'] & $vbulletin->options['defaultregoptions'] ? 1 : 0,
+			'reputation'                => $vbulletin->options['reputationdefault'],
+			'showsignatures'            => $vbulletin->bf_misc_regoptions['signature'] & $vbulletin->options['defaultregoptions'] ? 1 : 0,
+			'showavatars'               => $vbulletin->bf_misc_regoptions['avatar'] & $vbulletin->options['defaultregoptions'] ? 1 : 0,
+			'showimages'                => $vbulletin->bf_misc_regoptions['image'] & $vbulletin->options['defaultregoptions'] ? 1 : 0,
+			'postorder'                 => $regoption['postorder'],
+			'threadedmode'              => $regoption['threadedmode'],
+			'showvbcode'                => $regoption['showvbcode'],
+			'usergroupid'               => 2,
+			'timezoneoffset'            => $vbulletin->options['timeoffset'],
+			'dstauto'                   => 1,
+			'showusercss'               => 1,
+			'receivefriendemailrequest' => 1
 		);
 	}
 
@@ -504,16 +515,31 @@ if ($_REQUEST['do'] == 'edit' OR $_REQUEST['do'] == 'add')
 	construct_hidden_code('ousergroupid', $user['usergroupid']);
 	construct_hidden_code('odisplaygroupid', $user['displaygroupid']);
 
+	$haschangehistory = false;
+
 	if ($vbulletin->GPC['userid'])
 	{
 		// QUICK LINKS SECTION
 		print_table_header(construct_phrase($vbphrase['x_y_id_z'], $vbphrase['user'], $user['username'], $vbulletin->GPC['userid']));
 		print_label_row($vbphrase['quick_user_links'], '<select name="quicklinks" onchange="javascript:pick_a_window(this.options[this.selectedIndex].value);" tabindex="1" class="bginput">' . construct_select_options($quicklinks) . '</select><input type="button" class="button" value="' . $vbphrase['go'] . '" onclick="javascript:pick_a_window(this.form.quicklinks.options[this.form.quicklinks.selectedIndex].value);" tabindex="2" />');
 		print_table_break('', $INNERTABLEWIDTH);
+
+		require_once(DIR . '/includes/class_userchangelog.php');
+
+		$userchangelog = new vb_UserChangeLog($vbulletin);
+		$userchangelog->set_execute(true);
+
+		// get the user change list
+		$userchange_list = $userchangelog->sql_select_by_userid($vbulletin->GPC['userid']);
+
+		$haschangehistory = $db->num_rows($userchange_list) ? true : false;
 	}
 
 	// PROFILE SECTION
-	print_table_header($vbphrase['profile']);
+	unset($user['salt']);
+	construct_hidden_code('olduser', sign_client_string(serialize($user))); //For consistent Edits
+
+	print_table_header($vbphrase['profile'] . ($haschangehistory ? '<span class="smallfont">' . construct_link_code($vbphrase['view_change_history'], 'user.php?' . $vbulletin->session->vars['sessionurl'] . 'do=changehistory&amp;userid=' . $vbulletin->GPC['userid'])  . '</span>' : ''));
 	print_input_row($vbphrase['username'], 'user[username]', $user['username'], 0);
 	print_input_row($vbphrase['password'], 'password');
 	print_input_row($vbphrase['email'], 'user[email]', $user['email']);
@@ -621,11 +647,44 @@ if ($_REQUEST['do'] == 'edit' OR $_REQUEST['do'] == 'add')
 	print_label_row($vbphrase['signature_picture'] . '<input type="image" src="../' . $vbulletin->options['cleargifurl'] . '" alt="" />', '<img src="' . $sigpicurl . '" alt="" align="top" /> &nbsp; <input type="submit" class="button" tabindex="1" name="modifysigpic" value="' . $vbphrase['change_signature_picture'] . '" />');
 	print_table_break('', $INNERTABLEWIDTH);
 
+	// USER CSS SECTION
+	if ($user['cachedcss'])
+	{
+		print_table_header($vbphrase['profile_style_customizations']);
+		print_description_row(
+			'<input type="submit" class="button" tabindex="1" name="modifycss" value="' . $vbphrase['edit_profile_customizations'] . '" />',
+			false, 2, '', 'center'
+		);
+		print_table_break('', $INNERTABLEWIDTH);
+	}
+
 	// PROFILE FIELDS SECTION
+	$forms = array(
+		0 => $vbphrase['edit_your_details'],
+		1 => "$vbphrase[options]: $vbphrase[log_in] / $vbphrase[privacy]",
+		2 => "$vbphrase[options]: $vbphrase[messaging] / $vbphrase[notification]",
+		3 => "$vbphrase[options]: $vbphrase[thread_viewing]",
+		4 => "$vbphrase[options]: $vbphrase[date] / $vbphrase[time]",
+		5 => "$vbphrase[options]: $vbphrase[other]",
+	);
+	$currentform = -1;
+
 	print_table_header($vbphrase['user_profile_fields']);
-	$profilefields = $db->query_read("SELECT * FROM " . TABLE_PREFIX . "profilefield ORDER by displayorder");
+
+	$profilefields = $db->query_read("
+		SELECT *
+		FROM " . TABLE_PREFIX . "profilefield AS profilefield
+		LEFT JOIN " . TABLE_PREFIX . "profilefieldcategory AS profilefieldcategory ON
+			(profilefield.profilefieldcategoryid = profilefieldcategory.profilefieldcategoryid)
+		ORDER BY profilefield.form, profilefieldcategory.displayorder, profilefield.displayorder
+	");
 	while ($profilefield = $db->fetch_array($profilefields))
 	{
+		if ($profilefield['form'] != $currentform)
+		{
+			print_description_row(construct_phrase($vbphrase['fields_from_form_x'], $forms["$profilefield[form]"]), false, 2, 'optiontitle');
+			$currentform = $profilefield['form'];
+		}
 		print_profilefield_row('userfield', $profilefield, $userfield);
 		construct_hidden_code('userfield[field' . $profilefield['profilefieldid'] . '_set]', 1);
 	}
@@ -658,6 +717,16 @@ if ($_REQUEST['do'] == 'edit' OR $_REQUEST['do'] == 'add')
 	print_membergroup_row($vbphrase['additional_usergroups'], 'user[membergroupids]', 0, $user);
 	print_table_break('', $INNERTABLEWIDTH);
 	$user['usergroupid'] = $tempgroup;
+
+	if ($banreason = $db->query_first("SELECT * FROM " . TABLE_PREFIX . "userban WHERE userid = " . intval($user['userid'])))
+	{
+		print_table_header($vbphrase['banning'], 3);
+
+		$row = array($vbphrase['ban_reason'], (!empty($banreason['reason']) ? $banreason['reason'] : $vbphrase['n_a']), construct_link_code($vbphrase['lift_ban'], "../" . $vbulletin->config['Misc']['modcpdir'] . "/banning.php?" . $vbulletin->session->vars['sessionurl'] . "do=liftban&amp;userid=" . $user['userid']));
+		print_cells_row($row);
+
+		print_table_break('', $INNERTABLEWIDTH);
+	}
 
 	if (!empty($subobj->subscriptioncache))
 	{
@@ -697,7 +766,7 @@ if ($_REQUEST['do'] == 'edit' OR $_REQUEST['do'] == 'add')
 		}
 	}
 
-	// reputation SECTION
+	// REPUTATION SECTION
 	require_once(DIR . '/includes/functions_reputation.php');
 
 	if ($user['userid'])
@@ -716,7 +785,8 @@ if ($_REQUEST['do'] == 'edit' OR $_REQUEST['do'] == 'add')
 	print_label_row($vbphrase['current_reputation_power'], $score, '', 'top', 'reputationpower');
 	print_table_break('',$INNERTABLEWIDTH);
 
-	print_table_header($vbphrase['infractions'] . construct_link_code($vbphrase['view'], "admininfraction.php?" . $vbulletin->session->vars['sessionurl'] . "do=dolist&amp;startstamp=1&amp;endstamp= " . TIMENOW . "&amp;infractionlevelid=-1&amp;u= " . $vbulletin->GPC['userid']));
+	// INFRACTIONS section
+	print_table_header($vbphrase['infractions'] . '<span class="smallfont">' . construct_link_code($vbphrase['view'], "admininfraction.php?" . $vbulletin->session->vars['sessionurl'] . "do=dolist&amp;startstamp=1&amp;endstamp= " . TIMENOW . "&amp;infractionlevelid=-1&amp;u= " . $vbulletin->GPC['userid']) . '</span>');
 	print_input_row($vbphrase['warnings'], 'user[warnings]', $user['warnings'], true, 5);
 	print_input_row($vbphrase['infractions'], 'user[infractions]', $user['infractions'], true, 5);
 	print_input_row($vbphrase['infraction_points'], 'user[ipoints]', $user['ipoints'], true, 5);
@@ -749,12 +819,17 @@ if ($_REQUEST['do'] == 'edit' OR $_REQUEST['do'] == 'add')
 	print_yes_no_row($vbphrase['invisible_mode'], 'options[invisible]', $user['invisible']);
 	print_yes_no_row($vbphrase['allow_vcard_download'], 'options[showvcard]', $user['showvcard']);
 	print_yes_no_row($vbphrase['receive_private_messages'], 'options[receivepm]', $user['receivepm']);
-	print_yes_no_row($vbphrase['pm_from_buddies_only'], 'options[receivepmbuddies]', $user['receivepmbuddies']);
+	print_yes_no_row($vbphrase['pm_from_contacts_only'], 'options[receivepmbuddies]', $user['receivepmbuddies']);
 	print_yes_no_row($vbphrase['send_notification_email_when_a_private_message_is_received'], 'options[emailonpm]', $user['emailonpm']);
 	print_yes_no_row($vbphrase['pop_up_notification_box_when_a_private_message_is_received'], 'user[pmpopup]', $user['pmpopup']);
+	print_yes_no_row($vbphrase['enable_visitor_messaging'], 'options[vm_enable]', $user['vm_enable']);
+	print_yes_no_row($vbphrase['limit_vm_to_contacts_only'], 'options[vm_contactonly]', $user['vm_contactonly']);
 	print_yes_no_row($vbphrase['display_signatures'], 'options[showsignatures]', $user['showsignatures']);
 	print_yes_no_row($vbphrase['display_avatars'], 'options[showavatars]', $user['showavatars']);
 	print_yes_no_row($vbphrase['display_images'], 'options[showimages]', $user['showimages']);
+	print_yes_no_row($vbphrase['show_others_custom_profile_styles'], 'options[showusercss]', $user['showusercss']);
+	print_yes_no_row($vbphrase['receieve_friend_request_notification'], 'options[receivefriendemailrequest]', $user['receivefriendemailrequest']);
+
 	print_radio_row($vbphrase['auto_subscription_mode'], 'user[autosubscribe]', array(
 		-1 => $vbphrase['subscribe_choice_none'],
 		0  => $vbphrase['subscribe_choice_0'],
@@ -825,12 +900,13 @@ if ($_POST['do'] == 'update')
 		'modifyavatar'      => TYPE_NOCLEAN,
 		'modifyprofilepic'  => TYPE_NOCLEAN,
 		'modifysigpic'      => TYPE_NOCLEAN,
+		'modifycss'         => TYPE_NOCLEAN,
 		'subscriptionlogid' => TYPE_ARRAY_KEYS_INT,
+		'olduser'           => TYPE_BINARY
 	));
 
 	// check for 'undeletable' users
-	$noalter = explode(',', $vbulletin->config['SpecialUsers']['undeletableusers']);
-	if (!empty($noalter[0]) AND in_array($vbulletin->GPC['userid'], $noalter))
+	if (is_unalterable_user($vbulletin->GPC['userid']))
 	{
 		print_stop_message('user_is_protected_from_alteration_by_undeletableusers_var');
 	}
@@ -843,12 +919,12 @@ if ($_POST['do'] == 'update')
 	if ($vbulletin->GPC['userid'])
 	{
 		$userinfo = fetch_userinfo($vbulletin->GPC['userid']);
-		$userinfo['posts'] = intval($vbulletin->GPC['user']['posts']);
-		$userdata->set_existing($userinfo);
-		if ($userdata->existing['userid'] != $vbulletin->GPC['userid'])
+		if (!$userinfo)
 		{
 			print_stop_message('invalid_user_specified');
 		}
+		$userinfo['posts'] = intval($vbulletin->GPC['user']['posts']);
+		$userdata->set_existing($userinfo);
 	}
 
 	// password
@@ -861,10 +937,15 @@ if ($_POST['do'] == 'update')
 		print_stop_message('invalid_password_specified');
 	}
 
+	$olduser = @unserialize(verify_client_string($vbulletin->GPC['olduser']));
+
 	// user options
 	foreach ($vbulletin->GPC['options'] AS $key => $val)
 	{
-		$userdata->set_bitfield('options', $key, $val);
+		if (!$vbulletin->GPC['userid'] OR $olduser["$key"] != $val)
+		{
+			$userdata->set_bitfield('options', $key, $val);
+		}
 	}
 
 	foreach($vbulletin->GPC['adminoptions'] AS $key => $val)
@@ -886,7 +967,10 @@ if ($_POST['do'] == 'update')
 	// user fields
 	foreach ($vbulletin->GPC['user'] AS $key => $val)
 	{
-		$userdata->set($key, $val);
+		if (!$vbulletin->GPC['userid'] OR $olduser["$key"] != $val)
+		{
+			$userdata->set($key, $val);
+		}
 	}
 
 	if (empty($vbulletin->GPC['user']['membergroupids']))
@@ -924,6 +1008,10 @@ if ($_POST['do'] == 'update')
 	else if ($vbulletin->GPC['subscriptionlogid'])
 	{
 		define('CP_REDIRECT', "subscriptions.php?do=adjust&amp;subscriptionlogid=" . array_pop($vbulletin->GPC['subscriptionlogid']));
+	}
+	else if ($vbulletin->GPC['modifycss'])
+	{
+		define('CP_REDIRECT', "usertools.php?do=usercss&amp;u=$userid");
 	}
 	else
 	{
@@ -1011,7 +1099,7 @@ if ($_POST['do'] == 'updateaccess')
 
 	$user = fetch_userinfo($vbulletin->GPC['userid']);
 
-	if ($user === null)
+	if (!$user)
 	{
 		print_stop_message('invalid_user_specified');
 	}
@@ -1085,7 +1173,10 @@ if ($_REQUEST['do'] == 'modify')
 	if ($vbulletin->GPC['userid'])
 	{
 		$userinfo = fetch_userinfo($vbulletin->GPC['userid']);
-
+		if (!$userinfo)
+		{
+			print_stop_message('invalid_user_specified');
+		}
 		print_form_header('user', 'edit', 0, 1, 'reviewform');
 		print_table_header($userinfo['username'], 2, 0, '', 'center', 0);
 		construct_hidden_code('userid', $vbulletin->GPC['userid']);
@@ -1145,7 +1236,13 @@ if ($_REQUEST['do'] == 'modify')
 	print_description_row('<div align="' . $stylevar['right'] .'"><input type="submit" class="button" value=" ' . $vbphrase['find'] . ' " tabindex="1" /></div>');
 
 	print_table_header($vbphrase['user_profile_field_options']);
-	$profilefields = $db->query_read("SELECT profilefieldid FROM " . TABLE_PREFIX . "profilefield");
+	$profilefields = $db->query_read("
+		SELECT profilefieldid
+		FROM " . TABLE_PREFIX . "profilefield AS profilefield
+		LEFT JOIN " . TABLE_PREFIX . "profilefieldcategory AS profilefieldcategory ON
+			(profilefield.profilefieldcategoryid = profilefieldcategory.profilefieldcategoryid)
+		ORDER BY profilefield.form, profilefieldcategory.displayorder, profilefield.displayorder
+	");
 	while ($profilefield = $db->fetch_array($profilefields))
 	{
 		print_yes_no_row(construct_phrase($vbphrase['display_x'], htmlspecialchars_uni($vbphrase['field' . $profilefield['profilefieldid'] . '_title'])), "display[field$profilefield[profilefieldid]]", 0);
@@ -1282,7 +1379,13 @@ if ($_REQUEST['do'] == 'find2' AND defined('DONEFIND'))
 		$header[] = $vbphrase['birthday'];
 	}
 
-	$profilefields = $db->query_read("SELECT profilefieldid, type, data FROM " . TABLE_PREFIX . "profilefield");
+	$profilefields = $db->query_read("
+		SELECT profilefieldid, type, data
+		FROM " . TABLE_PREFIX . "profilefield AS profilefield
+		LEFT JOIN " . TABLE_PREFIX . "profilefieldcategory AS profilefieldcategory ON
+			(profilefield.profilefieldcategoryid = profilefieldcategory.profilefieldcategoryid)
+		ORDER BY profilefield.form, profilefieldcategory.displayorder, profilefield.displayorder
+	");
 	while ($profilefield = $db->fetch_array($profilefields))
 	{
 		if ($vbulletin->GPC['display']["field$profilefield[profilefieldid]"])
@@ -1311,7 +1414,7 @@ if ($_REQUEST['do'] == 'find2' AND defined('DONEFIND'))
 				case 'edit': page = "edit&u=" + userinfo; break;
 				case 'kill': page = "remove&u=" + userinfo; break;
 				case 'access': page = "editaccess&u=" + userinfo; break;
-				default: page = "emailpassword&email=" + value; break;
+				default: page = "emailpassword&u=" + userinfo + "&email=" + value; break;
 			}
 			window.location = "user.php?<?php echo $vbulletin->session->vars['sessionurl_js']; ?>do=" + page;
 		}
@@ -1479,9 +1582,9 @@ if ($_REQUEST['do'] == 'find2' AND defined('DONEFIND'))
 		print_cells_row($cell);
 	}
 
-	construct_hidden_code('serializeduser', serialize($vbulletin->GPC['user']));
-	construct_hidden_code('serializedprofile', serialize($vbulletin->GPC['profile']));
-	construct_hidden_code('serializeddisplay', serialize($vbulletin->GPC['display']));
+	construct_hidden_code('serializeduser', sign_client_string(serialize($vbulletin->GPC['user'])));
+	construct_hidden_code('serializedprofile', sign_client_string(serialize($vbulletin->GPC['profile'])));
+	construct_hidden_code('serializeddisplay', sign_client_string(serialize($vbulletin->GPC['display'])));
 	construct_hidden_code('limitnumber', $vbulletin->GPC['limitnumber']);
 	construct_hidden_code('orderby', $vbulletin->GPC['orderby']);
 	construct_hidden_code('direction', $vbulletin->GPC['direction']);
@@ -1561,9 +1664,9 @@ if ($_REQUEST['do'] == 'moderate')
 			$cell[] = "<a href=\"mailto:$user[email]\">$user[email]</a>";
 			$cell[] = "<a href=\"usertools.php?" . $vbulletin->session->vars['sessionurl'] . "do=doips&amp;depth=2&amp;ipaddress=$user[ipaddress]&amp;hash=" . CP_SESSIONHASH . "\" target=\"_user\">$user[ipaddress]</a>";
 			$cell[] = "
-				<label for=\"v_$user[userid]\"><input type=\"radio\" name=\"validate[$user[userid]]\" value=\"1\" id=\"v_$user[userid]\" tabindex=\"1\" checked=\"checked\" />$vbphrase[accept]</label>
+				<label for=\"v_$user[userid]\"><input type=\"radio\" name=\"validate[$user[userid]]\" value=\"1\" id=\"v_$user[userid]\" tabindex=\"1\" />$vbphrase[accept]</label>
 				<label for=\"d_$user[userid]\"><input type=\"radio\" name=\"validate[$user[userid]]\" value=\"-1\" id=\"d_$user[userid]\" tabindex=\"1\" />$vbphrase[delete]</label>
-				<label for=\"i_$user[userid]\"><input type=\"radio\" name=\"validate[$user[userid]]\" value=\"0\" id=\"i_$user[userid]\" tabindex=\"1\" />$vbphrase[ignore]</label>
+				<label for=\"i_$user[userid]\"><input type=\"radio\" name=\"validate[$user[userid]]\" value=\"0\" id=\"i_$user[userid]\" tabindex=\"1\" checked=\"checked\" />$vbphrase[ignore]</label>
 			";
 			print_cells_row($cell, 0, '', -4);
 		}
@@ -2017,12 +2120,20 @@ if ($_REQUEST['do'] == 'pruneusers')
 	}
 	if ($vbulletin->GPC['daysprune'])
 	{
-		$sqlconds .= iif(empty($sqlconds), 'WHERE', 'AND') . ' lastactivity < ' . (TIMENOW - $vbulletin->GPC['daysprune'] * 86400) . ' ';
+		$daysprune = intval(TIMENOW - $vbulletin->GPC['daysprune'] * 86400);
+		if ($daysprune < 0)
+		{ // if you have a negative number you're never going to find a value
+			print_stop_message('no_users_matched_your_query');
+		}
+		$sqlconds .= iif(empty($sqlconds), 'WHERE', 'AND') . " lastactivity < $daysprune ";
 	}
 	if ($vbulletin->GPC['joindate']['month'] AND $vbulletin->GPC['joindate']['year'])
 	{
 		$joindateunix = mktime(0, 0, 0, $vbulletin->GPC['joindate']['month'], $vbulletin->GPC['joindate']['day'], $vbulletin->GPC['joindate']['year']);
-		$sqlconds .= iif(empty($sqlconds), 'WHERE', 'AND') . " joindate < $joindateunix ";
+		if ($joindateunix)
+		{
+			$sqlconds .= iif(empty($sqlconds), 'WHERE', 'AND') . " joindate < $joindateunix ";
+		}
 	}
 	if ($vbulletin->GPC['minposts'])
 	{
@@ -2103,10 +2214,9 @@ if ($_REQUEST['do'] == 'pruneusers')
 				$vbphrase['post_count'],
 				$vbphrase['last_activity'],
 				$vbphrase['join_date'],
-				'<input type="checkbox" name="allbox" onclick="js_check_all(this.form)" title="' . $vbphrase['check_all'] . '" checked="checked">'
+				'<input type="checkbox" name="allbox" onclick="js_check_all(this.form)" title="' . $vbphrase['check_all'] . '" checked="checked" />'
 			), 1);
 
-			$nodelete = explode(',', $vbulletin->config['SpecialUsers']['undeletableusers']);
 			while ($user = $db->fetch_array($users))
 			{
 				$cell = array();
@@ -2116,7 +2226,7 @@ if ($_REQUEST['do'] == 'pruneusers')
 				$cell[] = vb_number_format($user['posts']);
 				$cell[] = vbdate($vbulletin->options['dateformat'], $user['lastactivity']);
 				$cell[] = vbdate($vbulletin->options['dateformat'], $user['joindate']);
-				if ($user['userid'] == $vbulletin->userinfo['userid'] OR $user['usergroupid'] == 6 OR $user['usergroupid'] == 5 OR $user['moderatorid'] OR (in_array($user['userid'], $nodelete)))
+				if ($user['userid'] == $vbulletin->userinfo['userid'] OR $user['usergroupid'] == 6 OR $user['usergroupid'] == 5 OR $user['moderatorid'] OR is_unalterable_user($user['userid']))
 				{
 					$cell[] = '<input type="button" class="button" value=" ! " onclick="js_alert_no_permission()" />';
 				}
@@ -2169,7 +2279,7 @@ if ($_REQUEST['do'] == 'prune')
 	print_description_row('<blockquote>' . $vbphrase['this_system_allows_you_to_mass_move_delete_users'] . '</blockquote>');
 	print_chooser_row($vbphrase['usergroup'], 'usergroupid', 'usergroup', iif($vbulletin->GPC['usergroupid'], $vbulletin->GPC['usergroupid'], -1), $vbphrase['all_usergroups']);
 	print_input_row($vbphrase['has_not_logged_on_for_xx_days'], 'daysprune', iif($vbulletin->GPC['daysprune'], $vbulletin->GPC['daysprune'], 365));
-	print_time_row($vbphrase['join_date_is_before'], 'joindate', $vbulletin->GPC['joindateunix'], 0, 1, 'middle');
+	print_time_row($vbphrase['join_date_is_before'], 'joindate', $vbulletin->GPC['joindateunix'], false, false, 'middle');
 	print_input_row($vbphrase['posts_is_less_than'], 'minposts', iif($vbulletin->GPC['minposts'], $vbulletin->GPC['minposts'], '0'));
 	print_label_row($vbphrase['order_by'], '<select name="order" tabindex="1" class="bginput">
 		<option value="username">' . $vbphrase['username'] . '</option>
@@ -2183,12 +2293,120 @@ if ($_REQUEST['do'] == 'prune')
 
 }
 
+// ############################# user change history #########################
+if ($_REQUEST['do'] == 'changehistory')
+{
+	require_once(DIR . '/includes/class_userchangelog.php');
+	require_once(DIR . '/includes/functions_misc.php');
+
+	$vbulletin->input->clean_array_gpc('r', array(
+		'userid' => TYPE_UINT
+	));
+
+	if ($vbulletin->GPC['userid'])
+	{
+		// initalize the $user storage
+		$users = false;
+
+		// create the vb_UserChangeLog instance and set the execute flag (we want to do the query, not just to build)
+		$userchangelog = new vb_UserChangeLog($vbulletin);
+		$userchangelog->set_execute(true);
+
+		// get the user change list
+		$userchange_list = $userchangelog->sql_select_by_userid($vbulletin->GPC['userid']);
+
+		if (!$userchange_list)
+		{
+			print_stop_message('invalid_user_specified');
+		}
+
+		if ($db->num_rows($userchange_list))
+		{
+			//start the printing
+			$printed = array();
+			print_table_start();
+			print_column_style_code(array('width: 30%;', 'width: 35%;', 'width: 35%;'));
+
+			// fetch the rows
+			while ($userchange = $db->fetch_array($userchange_list))
+			{
+				if (!$printed['header'])
+				{
+					// print the table header
+					print_table_header($vbphrase['view_change_history'] . ' <span class="normal"><a href="user.php?' . $vbulletin->session->vars['sessionurl'] . 'do=edit&amp;userid=' . $userchange['userid'] . '">' . $userchange['username'] . '</a>', 3);
+					//print_cells_row(array('&nbsp;', $vbphrase['oldvalue'], $vbphrase['newvalue']), 1, false, -10);
+					$printed['header'] = true;
+				}
+
+				// new change block, print a block header (empty line + header line)
+				if ($printed['change_uniq'] != $userchange['change_uniq'])
+				{
+					//print_cells_row(array('&nbsp;', '&nbsp', '&nbsp'), 0, false, -10);
+					$text = array();
+					$text[] = '<span class="normal" title="' . vbdate($vbulletin->options['timeformat'], $userchange['change_time']) . '">' . vbdate($vbulletin->options['dateformat'], $userchange['change_time']) . ';</span> ' . $userchange['admin_username'];
+					$text[] = $vbphrase['old_value'];
+					$text[] = $vbphrase['new_value'];
+					print_cells_row($text, 1, false, -10);
+
+					// actualize the block id
+					$printed['change_uniq'] = $userchange['change_uniq'];
+				}
+
+				// get/find some names, depend on the field and the content
+				switch ($userchange['fieldname'])
+				{
+					// get usergroup names from the cache
+					case 'usergroupid':
+					case 'membergroupids':
+					{
+						foreach (array('oldvalue', 'newvalue') as $fname)
+						{
+							$str = '';
+							if ($ids = explode(',', $userchange[$fname]))
+							{
+								foreach ($ids as $id)
+								{
+									if ($vbulletin->usergroupcache["$id"]['title'])
+									{
+										$str .= ($vbulletin->usergroupcache["$id"]['title']).'<br/>';
+									}
+								}
+							}
+							$userchange["$fname"] = ($str ? $str : '-');
+						}
+						break;
+					}
+				}
+
+				// sometimes we need translate the fieldname to show the phrases (database field and phrase have different name)
+				$fieldnametrans = array('usergroupid' => 'primary_usergroup', 'membergroupids' => 'additional_usergroups');
+				if ($fieldnametrans["$userchange[fieldname]"])
+				{
+					$userchange['fieldname'] = $fieldnametrans["$userchange[fieldname]"];
+				}
+
+				// print the change
+				$text = array();
+				$text[] = $vbphrase["$userchange[fieldname]"];
+				$text[] = $userchange['oldvalue'];
+				$text[] = $userchange['newvalue'];
+				print_cells_row($text, 0, false, -10);
+			}
+			print_table_footer();
+		}
+		else
+		{
+			print_stop_message('no_userchange_history');
+		}
+	}
+}
+
 print_cp_footer();
 
 /*======================================================================*\
 || ####################################################################
-|| # Downloaded: 18:52, Sat Jul 14th 2007
-|| # CVS: $RCSfile$ - $Revision: 16924 $
+|| # Downloaded: 16:21, Sat Apr 6th 2013
+|| # CVS: $RCSfile$ - $Revision: 26706 $
 || ####################################################################
 \*======================================================================*/
 ?>

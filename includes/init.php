@@ -1,9 +1,9 @@
 <?php
 /*======================================================================*\
 || #################################################################### ||
-|| # vBulletin 3.6.7 PL1 - Licence Number VBF2470E4F
+|| # vBulletin 3.7.2 Patch Level 2 - Licence Number VBF2470E4F
 || # ---------------------------------------------------------------- # ||
-|| # Copyright ©2000-2007 Jelsoft Enterprises Ltd. All Rights Reserved. ||
+|| # Copyright ©2000-2013 Jelsoft Enterprises Ltd. All Rights Reserved. ||
 || # This file may not be redistributed in whole or significant part. # ||
 || # ---------------- VBULLETIN IS NOT FREE SOFTWARE ---------------- # ||
 || # http://www.vbulletin.com | http://www.vbulletin.com/license.html # ||
@@ -12,7 +12,7 @@
 
 if (!defined('VB_AREA') AND !defined('THIS_SCRIPT'))
 {
-	echo 'VB_AREA or THIS_SCRIPT must be defined to continue';
+	echo 'VB_AREA and THIS_SCRIPT must be defined to continue';
 	exit;
 }
 
@@ -43,6 +43,7 @@ if (!defined('CWD'))
 // #############################################################################
 // fetch the core includes
 require_once(CWD . '/includes/class_core.php');
+set_error_handler('vb_error_handler');
 
 // initialize the data registry
 $vbulletin =& new vB_Registry();
@@ -76,9 +77,9 @@ else
 		define('DATASTORE', DIR . '/includes/datastore');
 }
 
-if (!$vbulletin->debug)
+if ($vbulletin->debug)
 {
-	set_error_handler('vb_error_handler');
+	restore_error_handler();
 }
 
 // #############################################################################
@@ -218,6 +219,12 @@ if (!empty($db->explain))
 	$db->timer_stop(false);
 }
 
+if ($vbulletin->options['cookietimeout'] < 60)
+{
+	// values less than 60 will probably break things, so prevent that
+	$vbulletin->options['cookietimeout'] = 60;
+}
+
 // #############################################################################
 /**
 * If shutdown functions are allowed, register exec_shut_down to be run on exit.
@@ -243,48 +250,6 @@ define('NOSHUTDOWNFUNC', true);
 // fetch url of referring page after we have access to vboptions['forumhome']
 $vbulletin->url =& $vbulletin->input->fetch_url();
 define('REFERRER_PASSTHRU', $vbulletin->url);
-
-// #############################################################################
-// referrer check for POSTs; this is simply designed to prevent self-submitting
-// forms on foreign hosts from doing nasty things
-if (strtoupper($_SERVER['REQUEST_METHOD']) == 'POST' AND !defined('SKIP_REFERRER_CHECK'))
-{
-	if ($_SERVER['HTTP_HOST'] OR $_ENV['HTTP_HOST'])
-	{
-		$http_host = ($_SERVER['HTTP_HOST'] ? $_SERVER['HTTP_HOST'] : $_ENV['HTTP_HOST']);
-	}
-	else if ($_SERVER['SERVER_NAME'] OR $_ENV['SERVER_NAME'])
-	{
-		$http_host = ($_SERVER['SERVER_NAME'] ? $_SERVER['SERVER_NAME'] : $_ENV['SERVER_NAME']);
-	}
-
-	if ($http_host AND $_SERVER['HTTP_REFERER'])
-	{
-		$referrer_parts = @parse_url($_SERVER['HTTP_REFERER']);
-		$ref_port = intval($referrer_parts['port']);
-		$ref_host = $referrer_parts['host'] . (!empty($ref_port) ? ":$ref_port" : '');
-
-		$allowed = preg_split('#\s+#', $vbulletin->options['allowedreferrers'], -1, PREG_SPLIT_NO_EMPTY);
-		$allowed[] = preg_replace('#^www\.#i', '', $http_host);
-		$allowed[] = '.paypal.com';
-
-		$pass_ref_check = false;
-		foreach ($allowed AS $host)
-		{
-			if (preg_match('#' . preg_quote($host, '#') . '$#siU', $ref_host))
-			{
-				$pass_ref_check = true;
-				break;
-			}
-		}
-		unset($allowed);
-
-		if ($pass_ref_check == false)
-		{
-			die('In order to accept POST request originating from this domain, the admin must add this domain to the whitelist.');
-		}
-	}
-}
 
 // #############################################################################
 // demo mode stuff
@@ -430,6 +395,76 @@ if ($vbulletin->session->visible AND $vbulletin->options['contactuslink'] != '' 
 	}
 }
 
+// CSRF Protection for POST requests
+if (strtoupper($_SERVER['REQUEST_METHOD']) == 'POST')
+{
+
+	if ($vbulletin->userinfo['userid'] > 0 AND defined('CSRF_PROTECTION') AND CSRF_PROTECTION === true)
+	{
+		$vbulletin->input->clean_array_gpc('p', array(
+			'securitytoken' => TYPE_STR,
+		));
+
+		if (!in_array($_POST['do'], $vbulletin->csrf_skip_list))
+		{
+			if (!verify_security_token($vbulletin->GPC['securitytoken'], $vbulletin->userinfo['securitytoken_raw']))
+			{
+				switch ($vbulletin->GPC['securitytoken'])
+				{
+					case '':
+						define('CSRF_ERROR', 'missing');
+						break;
+					case 'guest':
+						define('CSRF_ERROR', 'guest');
+						break;
+					default:
+						define('CSRF_ERROR', 'invalid');
+				}
+			}
+		}
+	}
+	else if (!defined('CSRF_PROTECTION') AND !defined('SKIP_REFERRER_CHECK'))
+	{
+		if ($_SERVER['HTTP_HOST'] OR $_ENV['HTTP_HOST'])
+		{
+			$http_host = ($_SERVER['HTTP_HOST'] ? $_SERVER['HTTP_HOST'] : $_ENV['HTTP_HOST']);
+		}
+		else if ($_SERVER['SERVER_NAME'] OR $_ENV['SERVER_NAME'])
+		{
+			$http_host = ($_SERVER['SERVER_NAME'] ? $_SERVER['SERVER_NAME'] : $_ENV['SERVER_NAME']);
+		}
+
+		if ($http_host AND $_SERVER['HTTP_REFERER'])
+		{
+			$http_host = preg_replace('#:80$#', '', trim($http_host));
+			$referrer_parts = @parse_url($_SERVER['HTTP_REFERER']);
+			$ref_port = intval($referrer_parts['port']);
+			$ref_host = $referrer_parts['host'] . ((!empty($ref_port) AND $ref_port != '80') ? ":$ref_port" : '');
+
+			$allowed = preg_split('#\s+#', $vbulletin->options['allowedreferrers'], -1, PREG_SPLIT_NO_EMPTY);
+			$allowed[] = preg_replace('#^www\.#i', '', $http_host);
+			$allowed[] = '.paypal.com';
+
+			$pass_ref_check = false;
+			foreach ($allowed AS $host)
+			{
+				if (preg_match('#' . preg_quote($host, '#') . '$#siU', $ref_host))
+				{
+					$pass_ref_check = true;
+					break;
+				}
+			}
+			unset($allowed);
+
+			if ($pass_ref_check == false)
+			{
+				die('In order to accept POST request originating from this domain, the admin must add this domain to the whitelist.');
+			}
+		}
+	}
+}
+
+
 // Google Web Accelerator can display sensitive data ignoring any headers regarding caching
 // it's a good thing for guests but not for anyone else
 if ($vbulletin->userinfo['userid'] > 0 AND strpos($_SERVER['HTTP_X_MOZ'], 'prefetch') !== false)
@@ -458,8 +493,8 @@ if (!empty($db->explain))
 
 /*======================================================================*\
 || ####################################################################
-|| # Downloaded: 18:52, Sat Jul 14th 2007
-|| # CVS: $RCSfile$ - $Revision: 16946 $
+|| # Downloaded: 16:21, Sat Apr 6th 2013
+|| # CVS: $RCSfile$ - $Revision: 26768 $
 || ####################################################################
 \*======================================================================*/
 ?>

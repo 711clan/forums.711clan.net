@@ -1,9 +1,9 @@
 <?php
 /*======================================================================*\
 || #################################################################### ||
-|| # vBulletin 3.6.7 PL1 - Licence Number VBF2470E4F
+|| # vBulletin 3.7.2 Patch Level 2 - Licence Number VBF2470E4F
 || # ---------------------------------------------------------------- # ||
-|| # Copyright ©2000-2007 Jelsoft Enterprises Ltd. All Rights Reserved. ||
+|| # Copyright ©2000-2013 Jelsoft Enterprises Ltd. All Rights Reserved. ||
 || # This file may not be redistributed in whole or significant part. # ||
 || # ---------------- VBULLETIN IS NOT FREE SOFTWARE ---------------- # ||
 || # http://www.vbulletin.com | http://www.vbulletin.com/license.html # ||
@@ -32,13 +32,13 @@ $authenticate_phrases['redirecting'] = 'Redirecting...';
 #####################################
 # upgradecore phrases
 #####################################
-$upgradecore_phrases['vb3_upgrade_system'] = 'vBulletin 3.6 Upgrade System';
+$upgradecore_phrases['vb3_upgrade_system'] = 'vBulletin 3.7 Upgrade System';
 $upgradecore_phrases['please_login'] = 'Please Log in:';
 $upgradecore_phrases['username'] = '<u>U</u>sername';
 $upgradecore_phrases['password'] = '<u>P</u>assword';
 $upgradecore_phrases['login'] = 'Log in';
-$upgradecore_phrases['php_version_too_old'] = 'vBulletin 3.6 requires PHP version 4.3.3 or greater. Your PHP is version ' . PHP_VERSION . ', please ask your host to upgrade.';
-$upgradecore_phrases['mysql_version_too_old'] = 'vBulletin 3.6 requires MySQL version 4.0.16 or greater. Your MySQL is version %1$s, please ask your host to upgrade.';
+$upgradecore_phrases['php_version_too_old'] = 'vBulletin 3.7 requires PHP version 4.3.3 or greater. Your PHP is version ' . PHP_VERSION . ', please ask your host to upgrade.';
+$upgradecore_phrases['mysql_version_too_old'] = 'vBulletin 3.7 requires MySQL version 4.0.16 or greater. Your MySQL is version %1$s, please ask your host to upgrade.';
 $upgradecore_phrases['ensure_config_exists'] = 'Please make sure you have created the new directory structure required by vBulletin 3';
 $upgradecore_phrases['mysql_strict_mode'] = 'MySQL is running in strict mode. While you may proceed, some areas of vBulletin may not function properly. It is <em>strongly recommended</em> that you set <code>$config[\'Database\'][\'force_sql_mode\']</code> to <code>true</code> in your includes/config.php file!';
 $upgradecore_phrases['step_x_of_y'] = ' (Step %1$d of %2$d)';
@@ -47,6 +47,7 @@ $upgradecore_phrases['file_not_found'] = 'File Not Found!';
 $upgradecore_phrases['xml_file_versions'] = 'XML File Versions:';
 $upgradecore_phrases['may_take_some_time'] = '(Please be patient as some parts may take some time)';
 $upgradecore_phrases['update_v_number'] = 'Updating Version Number to ' . VERSION . '... ';
+$upgradecore_phrases['skipping_v_number_update'] = 'Skipping version number update, you already have a newer version... ';
 $upgradecore_phrases['done'] = 'done';
 $upgradecore_phrases['step_title'] = 'Step %1$d) %2$s';
 $upgradecore_phrases['batch_complete'] = 'Batch complete! Click the button on the right if you are not redirected automatically.';
@@ -73,14 +74,15 @@ $upgradecore_phrases['dump_database_desc'] = '<p class="smallfont">From here, yo
 		command on the command line. For more details,
 		<a href="http://www.vbulletin.com/manual/html/manual_database_backup" target="_blank">read this</a>.</p>';
 $upgradecode_phrases['vb_database_backup_system'] = 'vBulletin Database Backup System';
-$upgradecore_phrases['backup_after_upgrade'] = '<p class="smallfont">Backups must be ran prior to the upgrade, if the upgrade is complete please use the Admin Control Panel.</p>
+$upgradecore_phrases['backup_after_upgrade'] = '<p class="smallfont">Backups must be run prior to the upgrade, if the upgrade is complete please use the Admin Control Panel.</p>
 		<p class="smallfont">For a foolproof backup, login to your server via Telnet or SSH and use the <i>mysqldump</i>
 		command on the command line. For more details,
-		<a href="http://www.vbulletin.com/manual/html/manual_database_backup" target="_blank">read this</a>.</p>';
+		<a href="http://www.vbulletin.com/docs/html/maintenance_ssh_backup" target="_blank">read this</a>.</p>';
 $upgradecore_phrases['eaccelerator_too_old'] = 'eAccelerator for PHP must be upgraded to 0.9.3 or newer. Please view this <a href="http://www.vbulletin.com/forum/showthread.p' . 'hp?p=979044#post979044">Post</a> for more information.';
 $upgradecore_phrases['apc_too_old'] = 'Your server is running a version of the <a href="http://pecl.p' . 'hp.net/package/APC/">Alternative PHP Cache</a> (APC) that is incompatible with vBulletin. Please upgrade APC to version 3.0.0 or newer.';
 $upgradecore_phrases['mmcache_not_supported'] = 'Turck MMCache has been made obsolete by eAccelerator and does not function properly with vBulletin. Please view this <a href="http://www.vbulletin.com/forum/showthread.p' . 'hp?p=979044#post979044">Post</a> for more information.';
 $upgradecore_phrases['altering_x_table'] = 'Altering %1$s Table (%2$d of %3$d)';
+$upgradecore_phrases['wrong_bitfield_xml'] = 'The includes/xml/bitfield_vbulletin.xml file is out of date. Please ensure you have uploaded the correct file.';
 
 // this should contain only characters which will show on the file system
 $upgradecore_phrases['illegal_user_names'] = 'Illegal User Names.txt';
@@ -144,6 +146,12 @@ $phrasetype['inlinemod'] = 'Inline Moderation';
 $phrasetype['reputationlevel'] = 'Reputation Levels';
 $phrasetype['infraction'] = 'User Infractions';
 $phrasetype['infractionlevel'] = 'User Infraction Levels';
+$phrasetype['notice'] = 'Notices';
+$phrasetype['prefix'] = 'Thread Prefixes';
+$phrasetype['prefixadmin'] = 'Thread Prefixes (Admin)';
+$phrasetype['album'] = 'Albums';
+$phrasetype['hvquestion'] = 'Human Verification Questions';
+$phrasetype['socialgroups'] = 'Social Groups';
 
 #####################################
 # phrases for import systems
@@ -192,6 +200,7 @@ $vbphrase['vbulletin_copyright'] = 'vBulletin v' . VERSION . ', Copyright &copy;
 $vbphrase['vbulletin_copyright_orig'] = $vbphrase['vbulletin_copyright'];
 $vbphrase['processing_complete_proceed'] = 'Processing Complete - Proceed';
 $vbphrase['xml_error_x_at_line_y'] = 'XML Error: %1$s at Line %2$s';
+$vbphrase['apply_critical_template_change_to_x'] = 'Applying critical template change to template %1$s in styleid %2$s';
 #####################################
 # upgrade_300b3.php phrases
 #####################################
@@ -242,7 +251,7 @@ $upgrade_phrases['upgrade_300b3.php']['steps'] = array(
 );
 $upgrade_phrases['upgrade_300b3.php']['tableprefix_not_empty'] = '$config[\'Database\'][\'tableprefix\'] is not empty!';
 $upgrade_phrases['upgrade_300b3.php']['tableprefix_not_empty_fix'] = "Within config.php \$config['Database']['tableprefix'] must be empty for the upgrade to proceed.";
-$upgrade_phrases['upgrade_300b3.php']['welcome'] = '<p style="font-size:10pt"><b>Welcome to vBulletin version 3.6</b></p>
+$upgrade_phrases['upgrade_300b3.php']['welcome'] = '<p style="font-size:10pt"><b>Welcome to vBulletin version 3.7</b></p>
 	<p>You are about to upgrade your forum, so it has been automatically shut down.</p>
 	<p>Clicking the <b>[Next Step]</b> button will begin the installation process on your database \'<i>%1$s</i>\'.</p>
 	<p>In order to prevent possible browser crashes during this script, we strongly recommend that you disable any additional toolbars you may be using on your browser, such as the <b>Google</b> toolbar etc.</p>
@@ -510,6 +519,12 @@ $upgrade_phrases['upgrade_300b3.php']['reputation_650'] = 'is a splendid one to 
 $upgrade_phrases['upgrade_300b3.php']['reputation_1000'] = 'has much to be proud of';
 $upgrade_phrases['upgrade_300b3.php']['reputation_1500'] = 'has a brilliant future';
 $upgrade_phrases['upgrade_300b3.php']['reputation_2000'] = 'has a reputation beyond repute';
+$upgrade_phrases['upgrade_300b3.php']['upgrade_from_vb2_not_supported'] = '
+	<p>It is not possible to upgrade directly from vBulletin 2 to vBulletin versions 3.7.x and newer due to incompatabilities in data structures.</p>
+	<p>If you are currently running vBulletin 2 and would like to upgrade to the latest version of vBulletin, please begin by downloading a version of vBulletin 3.6 from the vBulletin Members\' Area.</p>
+	<p>Upload the extracted files from the archive you download over the existing files here and run the upgrade process until it is complete.</p>
+	<p>After completing the upgrade process to 3.6.x, download the most recent version of vBulletin from the Members\' area, and upload the extracted files here, then continue to run the upgrade process until it is completed.</p>
+';
 
 #####################################
 # upgrade_300b4.php phrases
@@ -963,6 +978,89 @@ $upgrade_phrases['upgrade_364.php']['steps'] =& $upgrade_phrases['upgrade_360b2.
 $upgrade_phrases['upgrade_365.php']['steps'] =& $upgrade_phrases['upgrade_360b3.php']['steps'];
 $upgrade_phrases['upgrade_366.php']['steps'] =& $upgrade_phrases['upgrade_360b2.php']['steps'];
 $upgrade_phrases['upgrade_367.php']['steps'] =& $upgrade_phrases['upgrade_360b3.php']['steps'];
+$upgrade_phrases['upgrade_368.php']['steps'] =& $upgrade_phrases['upgrade_360b3.php']['steps'];
+
+$upgrade_phrases['upgrade_370b2.php']['steps'] = array(
+	1 => 'Table Creations',
+	2 => 'Large Table Alterations',
+	3 => 'Misc Table Alterations',
+	4 => 'Default Data Insertion',
+	5 => 'Userlist Rebuilding',
+	6 => 'Upgrade to vBulletin ' . VERSION . ' Complete!'
+);
+
+$upgrade_phrases['upgrade_370b2.php']['build_userlist'] = '<p>Rebuilding userlist for %1$s</p>';
+$upgrade_phrases['upgrade_370b2.php']['build_userlist_complete'] = '<p>Rebuilding of userlists is complete</p>';
+
+$upgrade_phrases['upgrade_370b3.php']['steps'] = array(
+	1 => 'Misc Table Alterations',
+	2 => 'Altering Table Defaults',
+	3 => 'Upgrade to vBulletin ' . VERSION . ' Complete!'
+);
+
+$upgrade_phrases['upgrade_370b4.php']['steps'] = array(
+	1 => 'Misc Table Alterations',
+	2 => 'Table Data Updates',
+	3 => 'Upgrade to vBulletin ' . VERSION . ' Complete!'
+);
+
+$upgrade_phrases['upgrade_370b5.php']['steps'] = array(
+	1 => 'Misc Table Alterations',
+	2 => 'Upgrade to vBulletin ' . VERSION . ' Complete!'
+);
+
+$upgrade_phrases['upgrade_370b6.php']['steps'] = array(
+	1 => 'Misc Table Alterations',
+	2 => 'Inserting New FAQ',
+	3 => 'Delete Old FAQ?',
+	4 => 'Upgrade to vBulletin ' . VERSION . ' Complete!'
+);
+
+$upgrade_phrases['upgrade_370b6']['inserting_vb37_faq_structure'] = 'Inserting vBulletin 3.7.0 FAQ Structure';
+$upgrade_phrases['upgrade_370b6']['delete_selected_faq_items'] = 'Delete Selected FAQ Items';
+$upgrade_phrases['upgrade_370b6']['delete_faq_description'] = '
+	In the previous step, a new vBulletin FAQ tree was added to your board.
+	This means that you now have both the old and new FAQ trees installed.<br />
+	<br />
+	Below is a list of all FAQ items attached to the old FAQ tree.
+	If you have never changed any of these, leave them all selected for deletion.
+	If you have added new FAQ items yourself, or have modified any of the existing entries, simply deselect those items you wish to keep.<br />
+	<br />
+	When you have finished making your selection, click the <strong>' . $upgrade_phrases['upgrade_370b6']['delete_selected_faq_items'] . '</strong> button at the bottom of the list.
+	If no items are selected, none will be deleted and the upgrade process will continue.
+';
+$upgrade_phrases['upgrade_370b6']['reset_selection'] = 'Reset Selection';
+$upgrade_phrases['upgrade_370b6']['selected_faq_items_deleted'] = 'The FAQ items you selected have now been deleted.';
+
+$upgrade_phrases['upgrade_370rc1.php']['steps'] = $upgrade_phrases['upgrade_370b5.php']['steps'];
+
+$upgrade_phrases['upgrade_370rc2.php']['steps'] = array(
+	1 => 'Upgrade to vBulletin ' . VERSION . ' Complete!'
+);
+
+$upgrade_phrases['upgrade_370rc3.php']['dropping_old_table_x'] = 'Dropping Old %1$s Table';
+$upgrade_phrases['upgrade_370rc3.php']['steps'] = array(
+	1 => 'Upgrade to vBulletin ' . VERSION . ' Complete!'
+);
+
+$upgrade_phrases['upgrade_370rc4.php']['steps'] = array(
+	1 => 'Critical Template Changes',
+	2 => 'Upgrade to vBulletin ' . VERSION . ' Complete!'
+);
+
+$upgrade_phrases['upgrade_370rc4.php']['token_added_x_templates'] = 'Adding required security token to %1$s customized template(s)';
+
+$upgrade_phrases['upgrade_370.php']['steps'] = array(
+	1 => 'Upgrade to vBulletin ' . VERSION . ' Complete!'
+);
+
+$upgrade_phrases['upgrade_371.php']['steps'] = array(
+	1 => 'Upgrade to vBulletin ' . VERSION . ' Complete!'
+);
+
+$upgrade_phrases['upgrade_372.php']['steps'] = array(
+	1 => 'Upgrade to vBulletin ' . VERSION . ' Complete!'
+);
 
 #####################################
 # finalupgrade.php phrases
@@ -983,8 +1081,8 @@ $upgrade_phrases['finalupgrade.php']['upgrade_version_mismatch'] = '<p>Your vBul
 
 /*======================================================================*\
 || ####################################################################
-|| # Downloaded: 18:52, Sat Jul 14th 2007
-|| # CVS: $RCSfile$ - $Revision: 17011 $
+|| # Downloaded: 16:21, Sat Apr 6th 2013
+|| # CVS: $RCSfile$ - $Revision: 27004 $
 || ####################################################################
 \*======================================================================*/
 ?>

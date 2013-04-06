@@ -1,9 +1,9 @@
 <?php
 /*======================================================================*\
 || #################################################################### ||
-|| # vBulletin 3.6.7 PL1 - Licence Number VBF2470E4F
+|| # vBulletin 3.7.2 Patch Level 2 - Licence Number VBF2470E4F
 || # ---------------------------------------------------------------- # ||
-|| # Copyright ©2000-2007 Jelsoft Enterprises Ltd. All Rights Reserved. ||
+|| # Copyright ©2000-2013 Jelsoft Enterprises Ltd. All Rights Reserved. ||
 || # This file may not be redistributed in whole or significant part. # ||
 || # ---------------- VBULLETIN IS NOT FREE SOFTWARE ---------------- # ||
 || # http://www.vbulletin.com | http://www.vbulletin.com/license.html # ||
@@ -14,7 +14,7 @@
 error_reporting(E_ALL & ~E_NOTICE);
 
 // ##################### DEFINE IMPORTANT CONSTANTS #######################
-define('CVS_REVISION', '$RCSfile$ - $Revision: 15618 $');
+define('CVS_REVISION', '$RCSfile$ - $Revision: 26229 $');
 
 // #################### PRE-CACHE TEMPLATES AND DATA ######################
 $phrasegroups = array('cphome', 'help_faq', 'fronthelp');
@@ -71,7 +71,7 @@ if ($_POST['do'] == 'kill')
 	");
 
 	// get parent item
-	$parent = $faqcache["$faqname"]['faqparent'];
+	$parent = $faqcache[$vbulletin->GPC['faqname']]['faqparent'];
 
 	define('CP_REDIRECT', "faq.php?faq=$parent");
 	print_stop_message('deleted_faq_item_successfully');
@@ -92,12 +92,9 @@ if ($_REQUEST['do'] == 'delete')
 
 if ($_POST['do'] == 'update')
 {
-	// check that we are not parenting this FAQ item to itself or to one of its children
-	$faqarray = array();
-
 	$vbulletin->input->clean_array_gpc('p', array(
-		'faq' 			=> TYPE_STR,	// Used to be $_faqparent
-		'faqparent' 	=> TYPE_STR,	// Used to be $_faqname
+		'faq' 			=> TYPE_STR,
+		'faqparent' 	=> TYPE_STR,
 		'deftitle'		=> TYPE_STR
 	));
 
@@ -110,28 +107,31 @@ if ($_POST['do'] == 'update')
 		print_stop_message('invalid_faq_varname');
 	}
 
-	$getfaqs = $db->query_read("SELECT faqname, faqparent FROM " . TABLE_PREFIX . "faq");
-	while ($getfaq = $db->fetch_array($getfaqs))
-	{
-		$faqarray["$getfaq[faqname]"] = $getfaq['faqparent'];
-	}
-	$db->free_result($getfaqs);
-
 	if ($vbulletin->GPC['faqparent'] == $vbulletin->GPC['faq'])
 	{
 		print_stop_message('cant_parent_faq_item_to_self');
 	}
 	else
 	{
-		while ($vbulletin->GPC['faqparent'] != 'faqroot' AND $vbulletin->GPC['faqparent'] != '' AND $i++ < 100)
+		$faqarray = array();
+		$getfaqs = $db->query_read("SELECT faqname, faqparent FROM " . TABLE_PREFIX . "faq");
+		while ($getfaq = $db->fetch_array($getfaqs))
 		{
-			if ($faqarray[$vbulletin->GPC['faqparent']] == $vbulletin->GPC['faqname'])
+			$faqarray["$getfaq[faqname]"] = $getfaq['faqparent'];
+		}
+		$db->free_result($getfaqs);
+
+		$parent_item = $vbulletin->GPC['faqparent'];
+		// Traverses up the parent list to check we're not moving an faq item to something already below it
+		while ($parent_item != 'faqroot' AND $parent_item != '' AND $i++ < 100)
+		{
+			$parent_item = $faqarray["$parent_item"];
+			if ($parent_item == $vbulletin->GPC['faq'])
 			{
 				print_stop_message('cant_parent_faq_item_to_child');
 			}
 		}
 	}
-	// end parent validation section
 
 	$db->query_write("
 		DELETE FROM " . TABLE_PREFIX . "phrase
@@ -363,12 +363,6 @@ if ($_REQUEST['do'] == 'edit' OR $_REQUEST['do'] == 'add')
 		{
 			theform.faq.value = theform.faq.value.toLowerCase();
 
-			if (checkvb && theform.faq.value.substring(0, 3) == 'vb_')
-			{
-				alert(" <?php echo $vbphrase['you_may_not_call_your_faq_items_vb_xxx']; ?>");
-				return false;
-			}
-
 			for (i = 0; i < theform.faqparent.options.length; i++)
 			{
 				if (theform.faq.value == theform.faqparent.options[i].value)
@@ -406,8 +400,8 @@ if ($_REQUEST['do'] == 'edit' OR $_REQUEST['do'] == 'add')
 
 	if ($vbulletin->debug OR $defaultlang == 0)
 	{
-		print_input_row($vbphrase['title'], 'deftitle', $faqphrase["$defaultlang"]['title'], 1, 69);
-		print_textarea_row($vbphrase['text'], 'deftext', $faqphrase["$defaultlang"]['text'], 10, 70);
+		print_input_row($vbphrase['title'], 'deftitle', $faqphrase["$defaultlang"]['title'], 1, '70" style="width:100%');
+		print_textarea_row($vbphrase['text'], 'deftext', $faqphrase["$defaultlang"]['text'], 10, '70" style="width:100%');
 	}
 	else
 	{
@@ -556,8 +550,8 @@ print_cp_footer();
 
 /*======================================================================*\
 || ####################################################################
-|| # Downloaded: 18:52, Sat Jul 14th 2007
-|| # CVS: $RCSfile$ - $Revision: 15618 $
+|| # Downloaded: 16:21, Sat Apr 6th 2013
+|| # CVS: $RCSfile$ - $Revision: 26229 $
 || ####################################################################
 \*======================================================================*/
 ?>

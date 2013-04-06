@@ -1,9 +1,9 @@
 <?php
 /*======================================================================*\
 || #################################################################### ||
-|| # vBulletin 3.6.7 PL1 - Licence Number VBF2470E4F
+|| # vBulletin 3.7.2 Patch Level 2 - Licence Number VBF2470E4F
 || # ---------------------------------------------------------------- # ||
-|| # Copyright ©2000-2007 Jelsoft Enterprises Ltd. All Rights Reserved. ||
+|| # Copyright ©2000-2013 Jelsoft Enterprises Ltd. All Rights Reserved. ||
 || # This file may not be redistributed in whole or significant part. # ||
 || # ---------------- VBULLETIN IS NOT FREE SOFTWARE ---------------- # ||
 || # http://www.vbulletin.com | http://www.vbulletin.com/license.html # ||
@@ -14,13 +14,13 @@
 define('VB_AREA', 'AdminCP');
 define('IN_CONTROL_PANEL', true);
 
-if (!is_array($phrasegroups))
+if (!isset($phrasegroups) OR !is_array($phrasegroups))
 {
 	$phrasegroups = array();
 }
 $phrasegroups[] = 'cpglobal';
 
-if (!is_array($specialtemplates))
+if (!isset($specialtemplates) OR !is_array($specialtemplates))
 {
 	$specialtemplates = array();
 }
@@ -36,6 +36,12 @@ require_once(DIR . '/includes/adminfunctions.php');
 
 // ###################### Start headers (send no-cache) #######################
 exec_nocache_headers();
+
+// Emulate IE7 rendering in IE8
+if ($vbulletin->options['ie8render7'])
+{
+	@header('X-UA-Compatible: IE=7');
+}
 
 if ($vbulletin->userinfo['cssprefs'] != '')
 {
@@ -190,6 +196,27 @@ if ($checkpwd OR ($vbulletin->options['timeoutcontrolpanel'] AND !$vbulletin->se
 	{
 		build_forum_permissions();
 	}
+	if (!$check['bookmarksitecache'])
+	{
+		require_once(DIR . '/includes/adminfunctions_bookmarksite.php');
+		build_bookmarksite_datastore();
+	}
+	if (!$check['noticecache'])
+	{
+		build_datastore('noticecache', '', 1);
+	}
+	if (!$check['loadcache'])
+	{
+		update_loadavg();
+	}
+	if (!$check['prefixcache'])
+	{
+		require_once(DIR . '/includes/adminfunctions_prefix.php');
+		build_prefix_datastore();
+	}
+
+	($hook = vBulletinHook::fetch_hook('admin_global_datastore_check')) ? eval($hook) : false;
+
 	// end auto-repair
 	// #############################################################################
 
@@ -204,17 +231,21 @@ if (file_exists(DIR . '/includes/version_vbulletin.php'))
 {
 	include_once(DIR . '/includes/version_vbulletin.php');
 }
-if (!defined('FILE_VERSION_VBULLETIN'))
+if (defined('FILE_VERSION_VBULLETIN') AND FILE_VERSION_VBULLETIN !== '')
 {
-	define('FILE_VERSION_VBULLETIN', $vbulletin->options['templateversion']);
+	define('ADMIN_VERSION_VBULLETIN', FILE_VERSION_VBULLETIN);
+}
+else
+{
+	define('ADMIN_VERSION_VBULLETIN', $vbulletin->options['templateversion']);
 }
 
 ($hook = vBulletinHook::fetch_hook('admin_global')) ? eval($hook) : false;
 
 /*======================================================================*\
 || ####################################################################
-|| # Downloaded: 18:52, Sat Jul 14th 2007
-|| # CVS: $RCSfile$ - $Revision: 16762 $
+|| # Downloaded: 16:21, Sat Apr 6th 2013
+|| # CVS: $RCSfile$ - $Revision: 26608 $
 || ####################################################################
 \*======================================================================*/
 ?>

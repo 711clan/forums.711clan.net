@@ -1,9 +1,9 @@
 <?php
 /*======================================================================*\
 || #################################################################### ||
-|| # vBulletin 3.6.7 PL1 - Licence Number VBF2470E4F
+|| # vBulletin 3.7.2 Patch Level 2 - Licence Number VBF2470E4F
 || # ---------------------------------------------------------------- # ||
-|| # Copyright ©2000-2007 Jelsoft Enterprises Ltd. All Rights Reserved. ||
+|| # Copyright ©2000-2013 Jelsoft Enterprises Ltd. All Rights Reserved. ||
 || # This file may not be redistributed in whole or significant part. # ||
 || # ---------------- VBULLETIN IS NOT FREE SOFTWARE ---------------- # ||
 || # http://www.vbulletin.com | http://www.vbulletin.com/license.html # ||
@@ -14,7 +14,7 @@
 error_reporting(E_ALL & ~E_NOTICE);
 
 // ##################### DEFINE IMPORTANT CONSTANTS #######################
-define('CVS_REVISION', '$RCSfile$ - $Revision: 16652 $');
+define('CVS_REVISION', '$RCSfile$ - $Revision: 26882 $');
 
 // #################### PRE-CACHE TEMPLATES AND DATA ######################
 $phrasegroups = array('subscription', 'cpuser', 'stats');
@@ -277,50 +277,64 @@ if ($_POST['do'] == 'update')
 	$lengths = array('D' => 'days', 'W' => 'weeks', 'M' => 'months', 'Y' => 'years');
 
 	$counter = 0;
-	foreach ($vbulletin->GPC['sub']['time'] AS $key => $moo)
+	if (is_array($vbulletin->GPC['sub']['time']))
 	{
-		$havecurrency = false;
-		$counter++;
-		$moo['length'] = intval($moo['length']);
-		foreach ($moo['cost'] AS $currency => $value)
+		foreach ($vbulletin->GPC['sub']['time'] AS $key => $moo)
 		{
-			if ($value != '0.00')
+			$havecurrency = false;
+			$counter++;
+			$moo['length'] = intval($moo['length']);
+			foreach ($moo['cost'] AS $currency => $value)
 			{
-				$havecurrency = true;
+				if ($value != '0.00')
+				{
+					$havecurrency = true;
+				}
+				$moo['cost']["$currency"] = number_format($value, 2, '.', '');
 			}
-			$moo['cost']["$currency"] = number_format($value, 2, '.', '');
-		}
-		if ($moo['length'] == 0)
-		{
-			if ($havecurrency)
+			if ($moo['length'] == 0)
 			{
-				print_stop_message('enter_subscription_length_for_subscription_x', $counter);
+				if ($havecurrency)
+				{
+					print_stop_message('enter_subscription_length_for_subscription_x', $counter);
+				}
+				continue;
 			}
-			continue;
-		}
-		else if (!$havecurrency)
-		{
-			print_stop_message('enter_cost_information_for_subscription_x', $counter);
-		}
+			else if (!$havecurrency)
+			{
+				print_stop_message('enter_cost_information_for_subscription_x', $counter);
+			}
 
-		if (strtotime("now + $moo[length] " . $lengths["$moo[units]"]) == -1 OR $moo['length'] <= 0)
-		{
-			print_stop_message('invalid_subscription_length');
+			if (strtotime("now + $moo[length] " . $lengths["$moo[units]"]) <= 0 OR $moo['length'] <= 0)
+			{
+				print_stop_message('invalid_subscription_length');
+			}
+			$moo['recurring'] = intval($moo['recurring']);
+			$moo['ccbillsubid'] = intval($moo['ccbillsubid']) ? intval($moo['ccbillsubid']) : '';
+			$clean_times[$key] = $moo;
 		}
-		$moo['recurring'] = intval($moo['recurring']);
-		$moo['ccbillsubid'] = intval($moo['ccbillsubid']) ? intval($moo['ccbillsubid']) : '';
-		$clean_times[$key] = $moo;
+		unset($vbulletin->GPC['sub']['time']);
 	}
-	unset($vbulletin->GPC['sub']['time']);
+	else
+	{
+		print_stop_message('variables_missing_suhosin');
+	}
 	$sub['cost'] = serialize($clean_times);
 
 	$aforums = array();
-	foreach ($vbulletin->GPC['forums'] AS $key => $value)
+	if (is_array($vbulletin->GPC['forums']))
 	{
-		if ($value == 1)
+		foreach ($vbulletin->GPC['forums'] AS $key => $value)
 		{
-			$aforums[] = $key;
+			if ($value == 1)
+			{
+				$aforums[] = $key;
+			}
 		}
+	}
+	else
+	{
+		print_stop_message('variables_missing_suhosin');
 	}
 
 	$sub['membergroupids'] = '';
@@ -348,10 +362,24 @@ if ($_POST['do'] == 'update')
 	{
 		$db->query_write(fetch_query_sql($sub, 'subscription'));
 		$vbulletin->GPC['subscriptionid'] = $db->insert_id();
+		$insert_default_deny_perms = true;
 	}
 	else
 	{
 		$db->query_write(fetch_query_sql($sub, 'subscription', "WHERE subscriptionid=" . $vbulletin->GPC['subscriptionid']));
+		$insert_default_deny_perms = false;
+	}
+
+	if ($insert_default_deny_perms)
+	{
+		// by default, deny buy permission to selected usergroups
+		$db->query_write($q="
+			REPLACE INTO " . TABLE_PREFIX . "subscriptionpermission
+			(usergroupid, subscriptionid)
+			VALUES
+			(3, " . $vbulletin->GPC['subscriptionid'] . "), # Users awaiting email confirmation
+			(4, " . $vbulletin->GPC['subscriptionid'] . ")  # (COPPA) Users Awaiting Moderation
+		");
 	}
 
 	$db->query_write("
@@ -393,7 +421,11 @@ if ($_POST['do'] == 'update')
 // ###################### Start Remove #######################
 if ($_REQUEST['do'] == 'remove')
 {
-	print_delete_confirmation('subscription', $vbulletin->GPC['subscriptionid'], 'subscriptions', 'kill', 'subscription', 0, $vbphrase['doing_this_will_remove_all_of_this_subscriptions_members_and_their_access'], 'subscriptionid');
+	print_delete_confirmation('subscription', $vbulletin->GPC['subscriptionid'],
+		'subscriptions', 'kill', 'subscription', 0,
+		$vbphrase['doing_this_will_remove_additional_access_subscription'],
+		'subscriptionid'
+	);
 }
 
 // ###################### Start Kill #######################
@@ -643,7 +675,7 @@ if ($_POST['do'] == 'status')
 		}
 		else
 		{
-			$subobj->build_user_subscription($vbulletin->GPC['subscriptionid'], -1, $vbulletin->GPC['userid'], $regdate, $expirydate);
+			$subobj->build_user_subscription($vbulletin->GPC['subscriptionid'], -1, $vbulletin->GPC['userid'], $regdate, $expirydate, false);
 		}
 	}
 	else
@@ -659,7 +691,7 @@ if ($_POST['do'] == 'status')
 			print_stop_message('no_users_matched_your_query');
 		}
 
-		$subobj->build_user_subscription($vbulletin->GPC['subscriptionid'], -1, $userinfo['userid'], $regdate, $expirydate);
+		$subobj->build_user_subscription($vbulletin->GPC['subscriptionid'], -1, $userinfo['userid'], $regdate, $expirydate, false);
 
 	}
 
@@ -732,6 +764,10 @@ if ($_REQUEST['do'] == 'adjust')
 		if ($vbulletin->GPC['userid'])
 		{
 			$userinfo = fetch_userinfo($vbulletin->GPC['userid']);
+			if (!$userinfo)
+			{
+				print_stop_message('invalid_user_specified');
+			}
 		}
 		else
 		{
@@ -1161,6 +1197,11 @@ if ($_REQUEST['do'] == 'transdetails')
 
 		print_table_header($vbphrase['transaction_details']);
 		print_table_break();
+		if (!empty($request['vb_error_code']))
+		{
+			print_table_header('API');
+			print_label_row('vb_error_code', htmlspecialchars_uni($request['vb_error_code']));
+		}
 		if ($get = unserialize($request['GET']))
 		{
 			print_table_header('GET');
@@ -1262,7 +1303,7 @@ if ($_REQUEST['do'] == 'transactions')
 	");
 	while ($paymentapi = $db->fetch_array($paymentapis))
 	{
-		$apicache["$paymentapi[paymentapiid]"] = $paymentapi['title'];;
+		$apicache["$paymentapi[paymentapiid]"] = $paymentapi['title'];
 	}
 
 	if (!$vbulletin->GPC['scope'])
@@ -1728,8 +1769,8 @@ function toggle_subs()
 
 /*======================================================================*\
 || ####################################################################
-|| # Downloaded: 18:52, Sat Jul 14th 2007
-|| # CVS: $RCSfile$ - $Revision: 16652 $
+|| # Downloaded: 16:21, Sat Apr 6th 2013
+|| # CVS: $RCSfile$ - $Revision: 26882 $
 || ####################################################################
 \*======================================================================*/
 ?>

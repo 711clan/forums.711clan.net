@@ -1,9 +1,9 @@
 <?php
 /*======================================================================*\
 || #################################################################### ||
-|| # vBulletin 3.6.7 PL1 - Licence Number VBF2470E4F
+|| # vBulletin 3.7.2 Patch Level 2 - Licence Number VBF2470E4F
 || # ---------------------------------------------------------------- # ||
-|| # Copyright ©2000-2007 Jelsoft Enterprises Ltd. All Rights Reserved. ||
+|| # Copyright ©2000-2013 Jelsoft Enterprises Ltd. All Rights Reserved. ||
 || # This file may not be redistributed in whole or significant part. # ||
 || # ---------------- VBULLETIN IS NOT FREE SOFTWARE ---------------- # ||
 || # http://www.vbulletin.com | http://www.vbulletin.com/license.html # ||
@@ -26,8 +26,8 @@ define('ERRDB_MYSQL', 100);
 * This class allows an abstracted method for altering database structure without throwing database errors willy nilly
 *
 * @package 		vBulletin
-* @version		$Revision: 16965 $
-* @date 		$Date: 2007-05-11 05:59:18 -0500 (Fri, 11 May 2007) $
+* @version		$Revision: 25978 $
+* @date 		$Date: 2008-03-05 23:49:13 -0600 (Wed, 05 Mar 2008) $
 * @copyright 	http://www.vbulletin.com/license.html
 *
 */
@@ -499,7 +499,7 @@ class vB_Database_Alter_MySQL extends vB_Database_Alter
 
 		/*
 		// this error is hard to work with, especially with the upgrade script stuff,
-		// so let this case fall through and through a SQL error
+		// so let this case fall through and throw an SQL error
 		$badfields = array();
 		foreach ($fields AS $name)
 		{
@@ -631,7 +631,7 @@ class vB_Database_Alter_MySQL extends vB_Database_Alter
 			}
 			else
 			{
-				if (preg_match('#[^0-9]#', $field['default']))
+				if (preg_match('#[^0-9]#', $field['default']) OR $field['default'] === '')
 				{
 					$field['default'] = "'$field[default]'";
 				}
@@ -641,7 +641,7 @@ class vB_Database_Alter_MySQL extends vB_Database_Alter
 					strtoupper($field['type']) . (!empty($field['length']) ? "($field[length])" : '') . ' ' .
 					$field['attributes'] . ' ' .
 					(!$field['null'] ? 'NOT NULL ' : ' ') .
-					($field['default'] != '' ? "DEFAULT $field[default] " : ' ') .
+					(isset($field['default']) ? "DEFAULT $field[default] " : ' ') .
 					($field['extra'] != '' ? $field['extra'] : '');
 			}
 		}
@@ -847,8 +847,8 @@ class vB_Database_Alter_MySQL extends vB_Database_Alter
 
 /*======================================================================*\
 || ####################################################################
-|| # Downloaded: 18:52, Sat Jul 14th 2007
-|| # CVS: $Revision: 16965 $
+|| # Downloaded: 16:21, Sat Apr 6th 2013
+|| # CVS: $Revision: 25978 $
 || ####################################################################
 \*======================================================================*/
 

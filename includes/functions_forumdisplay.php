@@ -1,9 +1,9 @@
 <?php
 /*======================================================================*\
 || #################################################################### ||
-|| # vBulletin 3.6.7 PL1 - Licence Number VBF2470E4F
+|| # vBulletin 3.7.2 Patch Level 2 - Licence Number VBF2470E4F
 || # ---------------------------------------------------------------- # ||
-|| # Copyright ©2000-2007 Jelsoft Enterprises Ltd. All Rights Reserved. ||
+|| # Copyright ©2000-2013 Jelsoft Enterprises Ltd. All Rights Reserved. ||
 || # This file may not be redistributed in whole or significant part. # ||
 || # ---------------- VBULLETIN IS NOT FREE SOFTWARE ---------------- # ||
 || # http://www.vbulletin.com | http://www.vbulletin.com/license.html # ||
@@ -94,7 +94,7 @@ function process_thread_array($thread, $lastread = -1, $allowicons = -1)
 		)
 	)
 	{
-		$thread['title_editable'] = '<a name="vB::AJAX"></a>';
+		$thread['title_editable'] = '<a rel="vB::AJAX"></a>';
 		$show['ajax_js'] = true;
 	}
 	else
@@ -116,7 +116,7 @@ function process_thread_array($thread, $lastread = -1, $allowicons = -1)
 		)
 	)
 	{
-		$thread['openclose_editable'] = '<a name="vB::AJAX"></a>';
+		$thread['openclose_editable'] = '<a rel="vB::AJAX"></a>';
 		$show['ajax_js'] = true;
 	}
 	else
@@ -159,6 +159,17 @@ function process_thread_array($thread, $lastread = -1, $allowicons = -1)
 
 	$thread['threadtitle'] = fetch_censored_text($thread['threadtitle']);
 
+	if ($thread['prefixid'])
+	{
+		$thread['prefix_plain_html'] = htmlspecialchars_uni($vbphrase["prefix_$thread[prefixid]_title_plain"]);
+		$thread['prefix_rich'] = $vbphrase["prefix_$thread[prefixid]_title_rich"];
+	}
+	else
+	{
+		$thread['prefix_plain_html'] = '';
+		$thread['prefix_rich'] = '';
+	}
+
 	// format thread preview if there is one
 	if ($ignore["$thread[postuserid]"])
 	{
@@ -196,7 +207,7 @@ function process_thread_array($thread, $lastread = -1, $allowicons = -1)
 		if ($foruminfo['allowratings'])
 		{
 			// show votes?
-			if ($thread['votenum'] >= $vbulletin->options['showvotes'])
+			if ($thread['votenum'] AND $thread['votenum'] >= $vbulletin->options['showvotes'])
 			{
 				$thread['voteavg'] = vb_number_format($thread['votetotal'] / $thread['votenum'], 2);
 				$thread['rating'] = intval(round($thread['votetotal'] / $thread['votenum']));
@@ -229,6 +240,7 @@ function process_thread_array($thread, $lastread = -1, $allowicons = -1)
 		if ($thread['visible'] == 2)
 		{
 			$thread['checkbox_value'] += THREAD_FLAG_DELETED;
+			$thread['del_reason'] = fetch_censored_text($thread['del_reason']);
 		}
 
 		// sticky thread?
@@ -435,6 +447,7 @@ function process_thread_array($thread, $lastread = -1, $allowicons = -1)
 	$show['guestuser'] = iif (!$thread['postuserid'], true, false);
 	$show['threadrating'] = iif ($thread['rating'] > 0, true, false);
 	$show['threadcount'] = iif ($thread['dot_count'], true, false);
+	$show['taglist'] = ($vbulletin->options['threadtagging'] AND !empty($thread['taglist']));
 
 	($hook = vBulletinHook::fetch_hook('threadbit_process')) ? eval($hook) : false;
 
@@ -443,8 +456,8 @@ function process_thread_array($thread, $lastread = -1, $allowicons = -1)
 
 /*======================================================================*\
 || ####################################################################
-|| # Downloaded: 18:52, Sat Jul 14th 2007
-|| # CVS: $RCSfile$ - $Revision: 16956 $
+|| # Downloaded: 16:21, Sat Apr 6th 2013
+|| # CVS: $RCSfile$ - $Revision: 26251 $
 || ####################################################################
 \*======================================================================*/
 ?>

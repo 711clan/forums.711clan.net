@@ -1,9 +1,9 @@
 <?php
 /*======================================================================*\
 || #################################################################### ||
-|| # vBulletin 3.6.7 PL1 - Licence Number VBF2470E4F
+|| # vBulletin 3.7.2 Patch Level 2 - Licence Number VBF2470E4F
 || # ---------------------------------------------------------------- # ||
-|| # Copyright ©2000-2007 Jelsoft Enterprises Ltd. All Rights Reserved. ||
+|| # Copyright ©2000-2013 Jelsoft Enterprises Ltd. All Rights Reserved. ||
 || # This file may not be redistributed in whole or significant part. # ||
 || # ---------------- VBULLETIN IS NOT FREE SOFTWARE ---------------- # ||
 || # http://www.vbulletin.com | http://www.vbulletin.com/license.html # ||
@@ -15,10 +15,16 @@ error_reporting(E_ALL & ~E_NOTICE);
 
 // #################### DEFINE IMPORTANT CONSTANTS #######################
 define('THIS_SCRIPT', 'moderation');
+define('CSRF_PROTECTION', true);
 
 // ################### PRE-CACHE TEMPLATES AND DATA ######################
 // get special phrase groups
 $phrasegroups = array('user', 'forumdisplay', 'inlinemod');
+
+if ($_REQUEST['do'] == 'viewpics')
+{
+	$phrasegroups[] = 'album';
+}
 
 // get special data templates from the datastore
 $specialtemplates = array(
@@ -45,6 +51,34 @@ $actiontemplates = array(
 		'moderation_posts',
 		'search_results_postbit',
 		'threadadmin_imod_menu_post',
+	),
+	'viewvms' => array(
+		'moderation_filter',
+		'moderation_visitormessages',
+		'memberinfo_visitormessage',
+		'memberinfo_visitormessage_deleted',
+		'memberinfo_visitormessage_ignored',
+		'memberinfo_css',
+	),
+	'viewgms' => array(
+		'moderation_filter',
+		'moderation_groupmessages',
+		'memberinfo_css',
+		'socialgroups_message',
+		'socialgroups_message_deleted',
+		'socialgroups_message_ignored',
+	),
+	'viewpcs' => array(
+		'moderation_filter',
+		'moderation_picturecomments',
+		'picturecomment_css',
+		'picturecomment_message_moderatedview',
+	),
+	'viewpics' => array(
+		'moderation_filter',
+		'moderation_picturebit',
+		'moderation_pictures',
+		'picturecomment_css',
 	),
 );
 
@@ -119,9 +153,9 @@ if ($_REQUEST['do'] == 'viewthreads')
 			print_no_permission();
 		}
 		$threadselect = '';
-		$threadjoin = '';
+		$threadjoin = "LEFT JOIN " . TABLE_PREFIX . "moderation AS moderation ON(thread.threadid = moderation.primaryid AND moderation.type = 'thread')";
 		$threadfrom = "FROM " . TABLE_PREFIX . "moderation AS moderation
-		INNER JOIN " . TABLE_PREFIX . "thread AS thread ON (moderation.threadid = thread.threadid)";
+		INNER JOIN " . TABLE_PREFIX . "thread AS thread ON (moderation.primaryid = thread.threadid)";
 	}
 
 	if ($vbulletin->options['threadmarking'])
@@ -193,6 +227,8 @@ if ($_REQUEST['do'] == 'viewthreads')
 		$order = array('asc' => 'selected="selected"');
 	}
 
+	$sqlsortfield2 = '';
+
 	switch ($sortfield)
 	{
 		case 'title':
@@ -204,6 +240,7 @@ if ($_REQUEST['do'] == 'viewthreads')
 			break;
 		case 'voteavg':
 			$sqlsortfield = 'voteavg';
+			$sqlsortfield2 = 'votenum';
 			break;
 		default:
 			$handled = false;
@@ -275,7 +312,7 @@ if ($_REQUEST['do'] == 'viewthreads')
 				AND forumid IN (" . implode(', ', $modforums) . ")
 				$datecut
 				$hook_query_where
-			ORDER BY $sqlsortfield $sqlsortorder
+			ORDER BY $sqlsortfield $sqlsortorder" . (!empty($sqlsortfield2) ? ", $sqlsortfield2 $sqlsortorder" : '') . "
 			LIMIT $limitlower, $perpage
 		");
 		while ($thread = $db->fetch_array($threads))
@@ -299,6 +336,7 @@ if ($_REQUEST['do'] == 'viewthreads')
 				$colspan++;
 			}
 		}
+		$limitlower++;
 
 		// get thread preview?
 		if ($vbulletin->options['threadpreview'] > 0 AND $type == 'moderated')
@@ -328,7 +366,7 @@ if ($_REQUEST['do'] == 'viewthreads')
 				IF(votenum >= " . $vbulletin->options['showvotes'] . " AND votenum > 0, votetotal / votenum, 0) AS voteavg,
 				$previewfield thread.threadid, thread.title AS threadtitle, lastpost, forumid, pollid, open, replycount, postusername,
 				postuserid, lastposter, thread.dateline, views, thread.iconid AS threadiconid, notes, thread.visible, thread.attach,
-				hiddencount, deletedcount
+				thread.prefixid, thread.taglist, hiddencount, deletedcount
 				$threadselect
 				" . ($vbulletin->options['threadmarking'] ? ", threadread.readtime AS threadread" : '') . "
 				$hook_query_fields
@@ -339,9 +377,9 @@ if ($_REQUEST['do'] == 'viewthreads')
 			$hook_query_joins
 			WHERE thread.threadid IN (" . implode(', ', $threadids) . ")
 				$hook_query_where
-			ORDER BY $sqlsortfield $sqlsortorder
+			ORDER BY $sqlsortfield $sqlsortorder" . (!empty($sqlsortfield2) ? ", $sqlsortfield2 $sqlsortorder" : '') . "
 		");
-		unset($sqlsortfield, $sqlsortorder);
+		unset($sqlsortfield, $sqlsortorder, $sqlsortfield2);
 
 		require_once(DIR . '/includes/functions_forumdisplay.php');
 
@@ -445,6 +483,9 @@ if ($_REQUEST['do'] == 'viewthreads')
 		$show['havethreads'] = false;
 	}
 
+	$show['delete'] = can_moderate(0, 'canremoveposts');
+	$show['undelete'] = can_moderate(0, 'candeleteposts');
+
 	$navbits[''] = $vbphrase['moderation'];
 	$navbits = construct_navbits($navbits);
 
@@ -509,7 +550,7 @@ if ($_REQUEST['do'] == 'viewposts')
 		$postselect = '';
 		$postjoin = '';
 		$postfrom = "FROM " . TABLE_PREFIX . "moderation AS moderation
-		INNER JOIN " . TABLE_PREFIX . "post AS post ON (moderation.postid = post.postid)";
+		INNER JOIN " . TABLE_PREFIX . "post AS post ON (moderation.primaryid = post.postid)";
 		$posttype = 'reply';
 	}
 
@@ -623,12 +664,12 @@ if ($_REQUEST['do'] == 'viewposts')
 	$limitlower = ($pagenumber - 1) * $perpage;
 	$limitupper = ($pagenumber) * $perpage;
 
-	if ($limitupper > $totalpostss)
+	if ($limitupper > $totalposts)
 	{
 		$limitupper = $totalposts;
 		if ($limitlower > $totalposts)
 		{
-			$limitlower = ($totalpostss - $perpage) - 1;
+			$limitlower = ($totalposts - $perpage) - 1;
 		}
 	}
 	if ($limitlower < 0)
@@ -672,6 +713,7 @@ if ($_REQUEST['do'] == 'viewposts')
 				}
 			}
 		}
+		$limitlower++;
 
 		$hasposts = true;
 		$postbits = '';
@@ -795,7 +837,7 @@ if ($_REQUEST['do'] == 'viewposts')
 			// get info from post
 			$post = process_thread_array($post, $lastread["$post[forumid]"], $post['allowicons']);
 
-			$show['managepost'] = iif(can_moderate($post['forumid'], 'candeleteposts') OR can_moderate($post['forumid'], 'canremoveposts'), true, false);
+			$show['managepost'] = (can_moderate($post['forumid'], 'candeleteposts') OR can_moderate($post['forumid'], 'canremoveposts')) ? true : false;
 			$show['approvepost'] = (can_moderate($post['forumid'], 'canmoderateposts')) ? true : false;
 			$show['managethread'] = (can_moderate($post['forumid'], 'canmanagethreads')) ? true : false;
 			$show['disabled'] = ($show['managethread'] OR $show['managepost'] OR $show['approvepost']) ? false : true;
@@ -806,14 +848,14 @@ if ($_REQUEST['do'] == 'viewposts')
 			{
 				$post['del_username'] =& $post['pdel_username'];
 				$post['del_userid'] =& $post['pdel_userid'];
-				$post['del_reason'] =& $post['pdel_reason'];
+				$post['del_reason'] = fetch_censored_text($post['pdel_reason']);
 				$show['deleted'] = true;
 			}
 			else if ($post['tdel_userid'])
 			{
 				$post['del_username'] =& $post['tdel_username'];
 				$post['del_userid'] =& $post['tdel_userid'];
-				$post['del_reason'] =& $post['tdel_reason'];
+				$post['del_reason'] = fetch_censored_text($post['tdel_reason']);
 				$show['deleted'] = true;
 			}
 			else
@@ -840,6 +882,9 @@ if ($_REQUEST['do'] == 'viewposts')
 		$show['haveposts'] = false;
 	}
 
+	$show['delete'] = can_moderate(0, 'canremoveposts');
+	$show['undelete'] = can_moderate(0, 'candeleteposts');
+
 	$navbits[''] = $vbphrase['moderation'];
 	$navbits = construct_navbits($navbits);
 
@@ -853,10 +898,896 @@ if ($_REQUEST['do'] == 'viewposts')
 	eval('print_output("' . fetch_template('USERCP_SHELL') . '");');
 }
 
+if ($_REQUEST['do'] == 'viewvms')
+{
+	require_once(DIR . '/includes/functions_visitormessage.php');
+
+	// Check whether Visitor Messages are on on this board
+
+	if(!($vbulletin->options['socnet'] & $vbulletin->bf_misc_socnet['enable_visitor_messaging']))
+	{
+		print_no_permission();
+	}
+
+	$vbulletin->input->clean_array_gpc('r', array(
+		'perpage'    => TYPE_UINT,
+		'pagenumber' => TYPE_UINT,
+		'daysprune'  => TYPE_INT,
+		'sortfield'  => TYPE_NOHTML,
+		'sortorder'  => TYPE_NOHTML,
+		'type'       => TYPE_NOHTML,
+	));
+
+	($hook = vBulletinHook::fetch_hook('moderation_visitor_messages_start')) ? eval($hook) : false;
+
+	// Values that are reused in templates
+	$sortfield  =& $vbulletin->GPC['sortfield'];
+	$perpage    =& $vbulletin->GPC['perpage'];
+	$pagenumber =& $vbulletin->GPC['pagenumber'];
+	$daysprune  =& $vbulletin->GPC['daysprune'];
+	$type       =& $vbulletin->GPC['type'];
+	$messagetype = 'viewvms';
+
+	if ($type == 'deleted')
+	{
+		$messagephrase = $vbphrase['deleted_visitor_messages'];
+		$table = 'deletionlog';
+		$permission = '';
+		if (!can_moderate())
+		{
+			print_no_permission();
+		}
+		$postselect = ",deletionlog.userid AS del_userid, deletionlog.username AS del_username, deletionlog.reason AS del_reason";
+		$postfrom = "
+			FROM " . TABLE_PREFIX . "deletionlog AS deletionlog
+			INNER JOIN " . TABLE_PREFIX . "visitormessage AS visitormessage ON (deletionlog.primaryid = visitormessage.vmid AND deletionlog. type = 'visitormessage')
+		";
+		$show['deleted'] = true;
+	}
+	else
+	{
+		$messagephrase = $vbphrase['moderated_visitor_messages'];
+		$type = 'moderated';
+		$table = 'moderation';
+		$permission = 'canmoderatevisitormessages';
+		if (!can_moderate(0, $permission))
+		{
+			print_no_permission();
+		}
+		$postselect = '';
+		$postjoin = '';
+		$postfrom = "
+			FROM " . TABLE_PREFIX . "moderation AS moderation
+			INNER JOIN " . TABLE_PREFIX . "visitormessage AS visitormessage ON (moderation.primaryid = visitormessage.vmid AND moderation.type = 'visitormessage')
+		";
+	}
+
+	$show['inlinemod'] = true;
+	$url = SCRIPTPATH;
+
+	if (!$daysprune)
+	{
+		$daysprune = ($vbulletin->userinfo['daysprune']) ? $vbulletin->userinfo['daysprune'] : 30;
+	}
+	$datecut = ($daysprune != -1) ? "AND $table.dateline >= " . (TIMENOW - ($daysprune * 86400)) : '';
+
+	// complete form fields on page
+	$daysprunesel = iif($daysprune == -1, 'all', $daysprune);
+	$daysprunesel = array($daysprunesel => 'selected="selected"');
+
+	// look at sorting options:
+	if ($vbulletin->GPC['sortorder'] != 'asc')
+	{
+		$vbulletin->GPC['sortorder'] = 'desc';
+		$sqlsortorder = 'DESC';
+		$order = array('desc' => 'selected="selected"');
+	}
+	else
+	{
+		$sqlsortorder = '';
+		$order = array('asc' => 'selected="selected"');
+	}
+
+	switch ($sortfield)
+	{
+		case 'username':
+			$sqlsortfield = 'visitormessage.postusername';
+			break;
+
+		case 'dateline':
+			$sqlsortfield = 'visitormessage.' . $sortfield;
+			break;
+
+		default:
+			$handled = false;
+			($hook = vBulletinHook::fetch_hook('moderation_visitor_messages_sort')) ? eval($hook) : false;
+			if (!$handled)
+			{
+				$sqlsortfield = 'visitormessage.dateline';
+				$sortfield = 'dateline';
+			}
+	}
+	$sort = array($sortfield => 'selected="selected"');
+
+	$hook_query_fields = $hook_query_joins = $hook_query_where = '';
+	($hook = vBulletinHook::fetch_hook('moderation_visitor_messages_query')) ? eval($hook) : false;
+
+	if ($vbulletin->GPC['perpage'] == 0)
+	{
+		$perpage = $vbulletin->options['vm_perpage'];
+	}
+	else if ($vbulletin->GPC['perpage'] > $vbulletin->options['vm_maxperpage'])
+	{
+		$perpage = $vbulletin->options['vm_maxperpage'];
+	}
+
+	require_once(DIR . '/includes/class_bbcode.php');
+	require_once(DIR . '/includes/class_visitormessage.php');
+
+	$bbcode =& new vB_BbCodeParser($vbulletin, fetch_tag_list());
+	$factory =& new vB_Visitor_MessageFactory($vbulletin, $bbcode, $userinfo);
+
+	$messagebits = '';
+	$counter = 0;
+	do
+	{
+		if (!$pagenumber)
+		{
+			$pagenumber = 1;
+		}
+		$start = ($pagenumber - 1) * $perpage;
+
+		$messagebits = '';
+		$messages = $vbulletin->db->query_read("
+			SELECT SQL_CALC_FOUND_ROWS
+				visitormessage.*, user1.*, visitormessage.ipaddress AS messageipaddress, visitormessage.userid AS profileuserid, user2.username AS profileusername
+				$postselect
+				" . ($vbulletin->options['avatarenabled'] ? ",avatar.avatarpath, NOT ISNULL(customavatar.userid) AS hascustomavatar, customavatar.dateline AS avatardateline,customavatar.width AS avwidth,customavatar.height AS avheight" : "") . "
+				$hook_query_fields
+			$postfrom
+			LEFT JOIN " . TABLE_PREFIX . "user AS user1 ON (visitormessage.postuserid = user1.userid)
+			LEFT JOIN " . TABLE_PREFIX . "user AS user2 ON (visitormessage.userid = user2.userid)
+			" . ($vbulletin->options['avatarenabled'] ? "LEFT JOIN " . TABLE_PREFIX . "avatar AS avatar ON(avatar.avatarid = user1.avatarid) LEFT JOIN " . TABLE_PREFIX . "customavatar AS customavatar ON(customavatar.userid = user1.userid)" : "") . "
+			$deljoinsql
+			$hook_query_joins
+			WHERE 1=1
+				$datecut
+				$hook_query_where
+			ORDER BY $sqlsortfield $sqlsortorder
+			LIMIT $start, $perpage
+		");
+		list($messagetotal) = $vbulletin->db->query_first("SELECT FOUND_ROWS()", DBARRAY_NUM);
+
+		if ($start >= $messagetotal)
+		{
+			$pagenumber = ceil($messagetotal / $perpage);
+		}
+	}
+	while ($start >= $messagetotal AND $messagetotal);
+
+	$show['profile'] = true;
+	while ($message = $db->fetch_array($messages))
+	{
+		$response_handler =& $factory->create($message);
+		$response_handler->cachable = false;
+		$response_handler->converse = false;
+		$messagebits .= $response_handler->construct();
+	}
+
+	$pagenavbits = array(
+		"do=viewvms"
+	);
+	if ($perpage != $vbulletin->options['vm_perpage'])
+	{
+		$pagenavbits[] = "pp=$perpage";
+	}
+	if ($daysprune != ($vbulletin->userinfo['daysprune'] ? $vbulletin->userinfo['daysprune'] : 30))
+	{
+		$pagenavbits[] = "daysprune=$daysprune";
+	}
+	if ($sortfield != 'dateline')
+	{
+		$pagenavbits[] = "sortfield=$sortfield";
+	}
+	if ($vbulletin->GPC['sortorder'] == 'asc')
+	{
+		$pagenavbits[] = 'order=' . $vbulletin->GPC['sortorder'];
+	}
+	if ($type == 'deleted')
+	{
+		$pagenavbits[] = 'type=deleted';
+	}
+
+	$pagenavurl = 'moderation.php?' . $vbulletin->session->vars['sessionurl'] . implode('&amp;', $pagenavbits);
+	$pagenav = construct_page_nav($pagenumber, $perpage, $messagetotal, $pagenavurl);
+
+	$show['havemessages'] = $messagetotal ? true : false;
+
+	$first = $messagetotal ? ($pagenumber - 1) * $perpage + 1 : 0;
+	$last = ($last = $perpage * $pagenumber) > $messagetotal ? $messagetotal : $last;
+
+	$hook_query_fields = $hook_query_joins = $hook_query_where = '';
+	unset($sqlsortfield, $sqlsortorder);
+
+	$navbits[''] = $vbphrase['moderation'];
+	$navbits = construct_navbits($navbits);
+
+	construct_usercp_nav($type . 'vms');
+
+	($hook = vBulletinHook::fetch_hook('moderation_visitor_messages_complete')) ? eval($hook) : false;
+
+	eval('$headinclude .= "' . fetch_template('memberinfo_css') . '";');
+	eval('$moderation_filter = "' . fetch_template('moderation_filter') . '";');
+
+	eval('$navbar = "' . fetch_template('navbar') . '";');
+	eval('$HTML = "' . fetch_template('moderation_visitormessages') . '";');
+	eval('print_output("' . fetch_template('USERCP_SHELL') . '");');
+}
+
+if ($_REQUEST['do'] == 'viewgms')
+{
+	require_once(DIR . '/includes/functions_socialgroup.php');
+
+	// Check whether Group Messages are switched on this board
+
+	if (!($vbulletin->options['socnet'] & $vbulletin->bf_misc_socnet['enable_groups']) OR !$vbulletin->options['socnet_groups_msg_enabled'])
+	{
+		print_no_permission();
+	}
+
+	$vbulletin->input->clean_array_gpc('r', array(
+		'perpage'    => TYPE_UINT,
+		'pagenumber' => TYPE_UINT,
+		'daysprune'  => TYPE_INT,
+		'sortfield'  => TYPE_NOHTML,
+		'sortorder'  => TYPE_NOHTML,
+		'type'       => TYPE_NOHTML,
+	));
+
+	($hook = vBulletinHook::fetch_hook('moderation_group_messages_start')) ? eval($hook) : false;
+
+	// Values that are reused in templates
+	$sortfield  =& $vbulletin->GPC['sortfield'];
+	$perpage    =& $vbulletin->GPC['perpage'];
+	$pagenumber =& $vbulletin->GPC['pagenumber'];
+	$daysprune  =& $vbulletin->GPC['daysprune'];
+	$type       =& $vbulletin->GPC['type'];
+	$messagetype = 'viewgms';
+
+	if ($type == 'deleted')
+	{
+		$messagephrase = $vbphrase['deleted_social_group_messages'];
+		$table = 'deletionlog';
+		$permission = '';
+		if (!can_moderate())
+		{
+			print_no_permission();
+		}
+		$postselect = ",deletionlog.userid AS del_userid, deletionlog.username AS del_username, deletionlog.reason AS del_reason";
+		$postfrom = "
+			FROM " . TABLE_PREFIX . "deletionlog AS deletionlog
+			INNER JOIN " . TABLE_PREFIX . "groupmessage AS groupmessage ON (deletionlog.primaryid = groupmessage.gmid AND deletionlog.type = 'groupmessage')
+		";
+		$show['deleted'] = true;
+	}
+	else
+	{
+		$messagephrase = $vbphrase['moderated_social_group_messages'];
+		$type = 'moderated';
+		$table = 'moderation';
+		$permission = 'canmoderategroupmessages';
+		if (!can_moderate(0, $permission))
+		{
+			print_no_permission();
+		}
+		$postselect = '';
+		$postjoin = '';
+		$postfrom = "
+			FROM " . TABLE_PREFIX . "moderation AS moderation
+			INNER JOIN " . TABLE_PREFIX . "groupmessage AS groupmessage ON (moderation.primaryid = groupmessage.gmid AND moderation.type = 'groupmessage')
+		";
+	}
+
+	$show['inlinemod'] = true;
+	$url = SCRIPTPATH;
+
+	if (!$daysprune)
+	{
+		$daysprune = ($vbulletin->userinfo['daysprune']) ? $vbulletin->userinfo['daysprune'] : 30;
+	}
+	$datecut = ($daysprune != -1) ? "AND $table.dateline >= " . (TIMENOW - ($daysprune * 86400)) : '';
+
+	// complete form fields on page
+	$daysprunesel = iif($daysprune == -1, 'all', $daysprune);
+	$daysprunesel = array($daysprunesel => 'selected="selected"');
+
+	// look at sorting options:
+	if ($vbulletin->GPC['sortorder'] != 'asc')
+	{
+		$vbulletin->GPC['sortorder'] = 'desc';
+		$sqlsortorder = 'DESC';
+		$order = array('desc' => 'selected="selected"');
+	}
+	else
+	{
+		$sqlsortorder = '';
+		$order = array('asc' => 'selected="selected"');
+	}
+
+	switch ($sortfield)
+	{
+		case 'username':
+			$sqlsortfield = 'groupmessage.postusername';
+			break;
+
+		case 'dateline':
+			$sqlsortfield = 'groupmessage.' . $sortfield;
+			break;
+
+		default:
+			$handled = false;
+			($hook = vBulletinHook::fetch_hook('moderation_group_messages_sort')) ? eval($hook) : false;
+			if (!$handled)
+			{
+				$sqlsortfield = 'groupmessage.dateline';
+				$sortfield = 'dateline';
+			}
+	}
+	$sort = array($sortfield => 'selected="selected"');
+
+	$hook_query_fields = $hook_query_joins = $hook_query_where = '';
+	($hook = vBulletinHook::fetch_hook('moderation_group_messages_query')) ? eval($hook) : false;
+
+	if ($vbulletin->GPC['perpage'] == 0)
+	{
+		$perpage = $vbulletin->options['vm_perpage'];
+	}
+	else if ($vbulletin->GPC['perpage'] > $vbulletin->options['vm_maxperpage'])
+	{
+		$perpage = $vbulletin->options['vm_maxperpage'];
+	}
+
+	require_once(DIR . '/includes/class_bbcode.php');
+	require_once(DIR . '/includes/class_groupmessage.php');
+
+	$bbcode =& new vB_BbCodeParser($vbulletin, fetch_tag_list());
+	$factory =& new vB_Group_MessageFactory($vbulletin, $bbcode, $null);
+
+	$messagebits = '';
+	$counter = 0;
+	do
+	{
+		if (!$pagenumber)
+		{
+			$pagenumber = 1;
+		}
+		$start = ($pagenumber - 1) * $perpage;
+
+		$messagebits = '';
+		$messages = $vbulletin->db->query_read("
+			SELECT SQL_CALC_FOUND_ROWS
+				groupmessage.*, user.*, groupmessage.ipaddress AS messageipaddress, socialgroup.name
+				$postselect
+				" . ($vbulletin->options['avatarenabled'] ? ",avatar.avatarpath, NOT ISNULL(customavatar.userid) AS hascustomavatar, customavatar.dateline AS avatardateline,customavatar.width AS avwidth,customavatar.height AS avheight" : "") . "
+				$hook_query_fields
+			$postfrom
+			LEFT JOIN " . TABLE_PREFIX . "user AS user ON (groupmessage.postuserid = user.userid)
+			LEFt JOIN " . TABLE_PREFIX . "socialgroup AS socialgroup ON (groupmessage.groupid = socialgroup.groupid)
+			" . ($vbulletin->options['avatarenabled'] ? "LEFT JOIN " . TABLE_PREFIX . "avatar AS avatar ON(avatar.avatarid = user.avatarid) LEFT JOIN " . TABLE_PREFIX . "customavatar AS customavatar ON(customavatar.userid = user.userid)" : "") . "
+			$deljoinsql
+			$hook_query_joins
+			WHERE 1=1
+				$datecut
+				$hook_query_where
+			ORDER BY $sqlsortfield $sqlsortorder
+			LIMIT $start, $perpage
+		");
+		list($messagetotal) = $vbulletin->db->query_first("SELECT FOUND_ROWS()", DBARRAY_NUM);
+
+		if ($start >= $messagetotal)
+		{
+			$pagenumber = ceil($messagetotal / $perpage);
+		}
+	}
+	while ($start >= $messagetotal AND $messagetotal);
+
+	$show['group'] = true;
+	while ($message = $db->fetch_array($messages))
+	{
+		$message['name_html'] = fetch_word_wrapped_string(fetch_censored_text($message['name']));
+		$response_handler =& $factory->create($message);
+		$response_handler->cachable = false;
+		$messagebits .= $response_handler->construct();
+	}
+
+	$pagenavbits = array(
+		"do=viewgms"
+	);
+	if ($perpage != $vbulletin->options['vm_perpage'])
+	{
+		$pagenavbits[] = "pp=$perpage";
+	}
+	if ($daysprune != ($vbulletin->userinfo['daysprune'] ? $vbulletin->userinfo['daysprune'] : 30))
+	{
+		$pagenavbits[] = "daysprune=$daysprune";
+	}
+	if ($sortfield != 'dateline')
+	{
+		$pagenavbits[] = "sortfield=$sortfield";
+	}
+	if ($vbulletin->GPC['sortorder'] == 'asc')
+	{
+		$pagenavbits[] = 'order=' . $vbulletin->GPC['sortorder'];
+	}
+	if ($type == 'deleted')
+	{
+		$pagenavbits[] = 'type=deleted';
+	}
+
+	$pagenavurl = 'moderation.php?' . $vbulletin->session->vars['sessionurl'] . implode('&amp;', $pagenavbits);
+	$pagenav = construct_page_nav($pagenumber, $perpage, $messagetotal, $pagenavurl);
+
+	$show['havemessages'] = $messagetotal ? true : false;
+
+	$first = $messagetotal ? ($pagenumber - 1) * $perpage + 1 : 0;
+	$last = ($last = $perpage * $pagenumber) > $messagetotal ? $messagetotal : $last;
+
+	$hook_query_fields = $hook_query_joins = $hook_query_where = '';
+	unset($sqlsortfield, $sqlsortorder);
+
+	$navbits[''] = $vbphrase['moderation'];
+	$navbits = construct_navbits($navbits);
+
+	construct_usercp_nav($type . 'gms');
+
+	($hook = vBulletinHook::fetch_hook('moderation_group_messages_complete')) ? eval($hook) : false;
+
+	eval('$headinclude .= "' . fetch_template('memberinfo_css') . '";');
+	eval('$moderation_filter = "' . fetch_template('moderation_filter') . '";');
+
+	eval('$navbar = "' . fetch_template('navbar') . '";');
+	eval('$HTML = "' . fetch_template('moderation_groupmessages') . '";');
+	eval('print_output("' . fetch_template('USERCP_SHELL') . '");');
+}
+
+if ($_REQUEST['do'] == 'viewpcs')
+{
+	require_once(DIR . '/includes/functions_picturecomment.php');
+
+	// Check whether PC's are actually on on this board
+
+	if (!($vbulletin->options['socnet'] & $vbulletin->bf_misc_socnet['enable_albums']) OR !$vbulletin->options['pc_enabled'])
+	{
+		print_no_permission();
+	}
+
+	$vbulletin->input->clean_array_gpc('r', array(
+		'perpage'    => TYPE_UINT,
+		'pagenumber' => TYPE_UINT,
+		'daysprune'  => TYPE_INT,
+		'sortfield'  => TYPE_NOHTML,
+		'sortorder'  => TYPE_NOHTML,
+		'type'       => TYPE_NOHTML,
+	));
+
+	($hook = vBulletinHook::fetch_hook('moderation_picture_comments_start')) ? eval($hook) : false;
+
+	// Values that are reused in templates
+	$sortfield  =& $vbulletin->GPC['sortfield'];
+	$perpage    =& $vbulletin->GPC['perpage'];
+	$pagenumber =& $vbulletin->GPC['pagenumber'];
+	$daysprune  =& $vbulletin->GPC['daysprune'];
+	$type       =& $vbulletin->GPC['type'];
+	$messagetype = 'viewpcs';
+
+	if ($type == 'deleted')
+	{
+		$messagephrase = $vbphrase['deleted_picture_comments'];
+		$table = 'deletionlog';
+		$permission = '';
+		if (!can_moderate())
+		{
+			print_no_permission();
+		}
+		$postselect = ",deletionlog.userid AS del_userid, deletionlog.username AS del_username, deletionlog.reason AS del_reason";
+		$postfrom = "
+			FROM " . TABLE_PREFIX . "deletionlog AS deletionlog
+			INNER JOIN " . TABLE_PREFIX . "picturecomment AS picturecomment ON (deletionlog.primaryid = picturecomment.commentid AND deletionlog.type = 'picturecomment')
+		";
+		$show['deleted'] = true;
+	}
+	else
+	{
+		$messagephrase = $vbphrase['moderated_picture_comments'];
+		$type = 'moderated';
+		$table = 'moderation';
+		$permission = 'canmoderatepicturecomments';
+		if (!can_moderate(0, $permission))
+		{
+			print_no_permission();
+		}
+		$postselect = '';
+		$postjoin = '';
+		$postfrom = "
+			FROM " . TABLE_PREFIX . "moderation AS moderation
+			INNER JOIN " . TABLE_PREFIX . "picturecomment AS picturecomment ON (moderation.primaryid = picturecomment.commentid AND moderation.type = 'picturecomment')
+		";
+	}
+
+	$show['inlinemod'] = true;
+	$url = SCRIPTPATH;
+
+	if (!$daysprune)
+	{
+		$daysprune = ($vbulletin->userinfo['daysprune']) ? $vbulletin->userinfo['daysprune'] : 30;
+	}
+	$datecut = ($daysprune != -1) ? "AND $table.dateline >= " . (TIMENOW - ($daysprune * 86400)) : '';
+
+	// complete form fields on page
+	$daysprunesel = iif($daysprune == -1, 'all', $daysprune);
+	$daysprunesel = array($daysprunesel => 'selected="selected"');
+
+	// look at sorting options:
+	if ($vbulletin->GPC['sortorder'] != 'asc')
+	{
+		$vbulletin->GPC['sortorder'] = 'desc';
+		$sqlsortorder = 'DESC';
+		$order = array('desc' => 'selected="selected"');
+	}
+	else
+	{
+		$sqlsortorder = '';
+		$order = array('asc' => 'selected="selected"');
+	}
+
+	switch ($sortfield)
+	{
+		case 'username':
+			$sqlsortfield = 'picturecomment.postusername';
+			break;
+
+		case 'dateline':
+			$sqlsortfield = 'picturecomment.' . $sortfield;
+			break;
+
+		default:
+			$handled = false;
+			($hook = vBulletinHook::fetch_hook('moderation_picture_comments_sort')) ? eval($hook) : false;
+			if (!$handled)
+			{
+				$sqlsortfield = 'picturecomment.dateline';
+				$sortfield = 'dateline';
+			}
+	}
+	$sort = array($sortfield => 'selected="selected"');
+
+	$hook_query_fields = $hook_query_joins = $hook_query_where = '';
+	($hook = vBulletinHook::fetch_hook('moderation_picture_comments_query')) ? eval($hook) : false;
+
+	if ($vbulletin->GPC['perpage'] == 0)
+	{
+		$perpage = $vbulletin->options['vm_perpage'];
+	}
+	else if ($vbulletin->GPC['perpage'] > $vbulletin->options['vm_maxperpage'])
+	{
+		$perpage = $vbulletin->options['vm_maxperpage'];
+	}
+
+	require_once(DIR . '/includes/class_bbcode.php');
+	require_once(DIR . '/includes/class_picturecomment.php');
+
+	$bbcode =& new vB_BbCodeParser($vbulletin, fetch_tag_list());
+
+	$messagebits = '';
+	$counter = 0;
+	do
+	{
+		if (!$pagenumber)
+		{
+			$pagenumber = 1;
+		}
+		$start = ($pagenumber - 1) * $perpage;
+
+		$messagebits = '';
+		$messages = $vbulletin->db->query_read("
+			SELECT SQL_CALC_FOUND_ROWS
+				picturecomment.*, user.*, picturecomment.ipaddress AS messageipaddress, user1.username AS pictureowner_name, user1.userid AS pictureowner_userid, albumpicture.albumid, picture.caption
+				$postselect
+				" . ($vbulletin->options['avatarenabled'] ? ",avatar.avatarpath, NOT ISNULL(customavatar.userid) AS hascustomavatar, customavatar.dateline AS avatardateline,customavatar.width AS avwidth,customavatar.height AS avheight" : "") . "
+				,picture.extension, picture.filesize, picture.idhash,
+				picture.thumbnail_filesize, picture.thumbnail_dateline, picture.thumbnail_width, picture.thumbnail_height
+				$hook_query_fields
+			$postfrom
+			LEFT JOIN " . TABLE_PREFIX . "user AS user ON (picturecomment.postuserid = user.userid)
+			LEFT JOIN " . TABLE_PREFIX . "picture AS picture ON (picture.pictureid = picturecomment.pictureid)
+			LEFT JOIN " . TABLE_PREFIX . "albumpicture AS albumpicture ON (albumpicture.pictureid = picture.pictureid)
+			LEFT JOIN " . TABLE_PREFIX . "user AS user1 ON (picture.userid = user1.userid)
+			" . ($vbulletin->options['avatarenabled'] ? "LEFT JOIN " . TABLE_PREFIX . "avatar AS avatar ON(avatar.avatarid = user.avatarid) LEFT JOIN " . TABLE_PREFIX . "customavatar AS customavatar ON(customavatar.userid = user.userid)" : "") . "
+			$deljoinsql
+			$hook_query_joins
+			WHERE 1=1
+				$datecut
+				$hook_query_where
+			ORDER BY $sqlsortfield $sqlsortorder
+			LIMIT $start, $perpage
+		");
+		list($messagetotal) = $vbulletin->db->query_first("SELECT FOUND_ROWS()", DBARRAY_NUM);
+
+		if ($start >= $messagetotal)
+		{
+			$pagenumber = ceil($messagetotal / $perpage);
+		}
+	}
+	while ($start >= $messagetotal AND $messagetotal);
+
+	require_once(DIR . '/includes/functions_album.php');
+
+	$show['picture'] = true;
+	while ($comment = $db->fetch_array($messages))
+	{
+		// $comment contains comment, picture, and album info
+		$pictureinfo = prepare_pictureinfo_thumb($comment, $comment);
+
+		$factory =& new vB_Picture_CommentFactory($vbulletin, $bbcode, $pictureinfo);
+
+		$response_handler =& new vB_Picture_Comment_ModeratedView($vbulletin, $factory, $bbcode, $pictureinfo, $comment);
+		$response_handler->cachable = false;
+
+		$messagebits .= $response_handler->construct();
+
+		unset($factory);
+		unset($response_handler);
+	}
+
+	$pagenavbits = array(
+		"do=viewpcs"
+	);
+	if ($perpage != $vbulletin->options['vm_perpage'])
+	{
+		$pagenavbits[] = "pp=$perpage";
+	}
+	if ($daysprune != ($vbulletin->userinfo['daysprune'] ? $vbulletin->userinfo['daysprune'] : 30))
+	{
+		$pagenavbits[] = "daysprune=$daysprune";
+	}
+	if ($sortfield != 'dateline')
+	{
+		$pagenavbits[] = "sortfield=$sortfield";
+	}
+	if ($vbulletin->GPC['sortorder'] == 'asc')
+	{
+		$pagenavbits[] = 'order=' . $vbulletin->GPC['sortorder'];
+	}
+	if ($type == 'deleted')
+	{
+		$pagenavbits[] = 'type=deleted';
+	}
+
+	$pagenavurl = 'moderation.php?' . $vbulletin->session->vars['sessionurl'] . implode('&amp;', $pagenavbits);
+	$pagenav = construct_page_nav($pagenumber, $perpage, $messagetotal, $pagenavurl);
+
+	$show['havemessages'] = $messagetotal ? true : false;
+
+	$first = $messagetotal ? ($pagenumber - 1) * $perpage + 1 : 0;
+	$last = ($last = $perpage * $pagenumber) > $messagetotal ? $messagetotal : $last;
+
+	$hook_query_fields = $hook_query_joins = $hook_query_where = '';
+	unset($sqlsortfield, $sqlsortorder);
+
+	$navbits[''] = $vbphrase['moderation'];
+	$navbits = construct_navbits($navbits);
+
+	construct_usercp_nav($type . 'pcs');
+
+	($hook = vBulletinHook::fetch_hook('moderation_picture_comments_complete')) ? eval($hook) : false;
+
+	eval('$headinclude .= "' . fetch_template('picturecomment_css') . '";');
+	eval('$moderation_filter = "' . fetch_template('moderation_filter') . '";');
+
+	eval('$navbar = "' . fetch_template('navbar') . '";');
+	eval('$HTML = "' . fetch_template('moderation_picturecomments') . '";');
+	eval('print_output("' . fetch_template('USERCP_SHELL') . '");');
+}
+
+if ($_REQUEST['do'] == 'viewpics')
+{
+	require_once(DIR . '/includes/functions_picturecomment.php');
+
+	if (!($vbulletin->options['socnet'] & $vbulletin->bf_misc_socnet['enable_albums']))
+	{
+		print_no_permission();
+	}
+
+	$vbulletin->input->clean_array_gpc('r', array(
+		'perpage'    => TYPE_UINT,
+		'pagenumber' => TYPE_UINT,
+		'daysprune'  => TYPE_INT,
+		'sortfield'  => TYPE_NOHTML,
+		'sortorder'  => TYPE_NOHTML,
+	));
+
+	($hook = vBulletinHook::fetch_hook('moderation_picture_start')) ? eval($hook) : false;
+
+	// Values that are reused in templates
+	$sortfield  =& $vbulletin->GPC['sortfield'];
+	$perpage    =& $vbulletin->GPC['perpage'];
+	$pagenumber =& $vbulletin->GPC['pagenumber'];
+	$daysprune  =& $vbulletin->GPC['daysprune'];
+	$messagetype = 'viewpics';
+
+	$messagephrase = $vbphrase['moderated_pictures'];
+	$permission = 'canmoderatepictures';
+	if (!can_moderate(0, $permission))
+	{
+		print_no_permission();
+	}
+
+	$show['inlinemod'] = true;
+	$url = SCRIPTPATH;
+
+	if (!$daysprune)
+	{
+		$daysprune = ($vbulletin->userinfo['daysprune']) ? $vbulletin->userinfo['daysprune'] : 30;
+	}
+	$datecut = ($daysprune != -1) ? "AND albumpicture.dateline >= " . (TIMENOW - ($daysprune * 86400)) : '';
+
+	// complete form fields on page
+	$daysprunesel = iif($daysprune == -1, 'all', $daysprune);
+	$daysprunesel = array($daysprunesel => 'selected="selected"');
+
+	// look at sorting options:
+	if ($vbulletin->GPC['sortorder'] != 'desc')
+	{
+		$vbulletin->GPC['sortorder'] = 'asc';
+		$sqlsortorder = 'ASC';
+		$order = array('asc' => 'selected="selected"');
+	}
+	else
+	{
+		$sqlsortorder = '';
+		$order = array('desc' => 'selected="selected"');
+	}
+
+	switch ($sortfield)
+	{
+		case 'username':
+			$sqlsortfield = 'user.username';
+			break;
+
+		case 'dateline':
+			$sqlsortfield = 'albumpicture.' . $sortfield;
+			break;
+
+		default:
+			$handled = false;
+			($hook = vBulletinHook::fetch_hook('moderation_picture_sort')) ? eval($hook) : false;
+			if (!$handled)
+			{
+				$sqlsortfield = 'albumpicture.dateline';
+				$sortfield = 'dateline';
+			}
+	}
+	$sort = array($sortfield => 'selected="selected"');
+
+	$hook_query_fields = $hook_query_joins = $hook_query_where = '';
+	($hook = vBulletinHook::fetch_hook('moderation_picture_query')) ? eval($hook) : false;
+
+	if ($vbulletin->GPC['perpage'] == 0)
+	{
+		$perpage = $vbulletin->options['vm_perpage'];
+	}
+	else if ($vbulletin->GPC['perpage'] > $vbulletin->options['vm_maxperpage'])
+	{
+		$perpage = $vbulletin->options['vm_maxperpage'];
+	}
+
+	$messagebits = '';
+	$counter = 0;
+	do
+	{
+		if (!$pagenumber)
+		{
+			$pagenumber = 1;
+		}
+		$start = ($pagenumber - 1) * $perpage;
+
+		$picturebits = '';
+		$pictures = $vbulletin->db->query_read("
+			SELECT SQL_CALC_FOUND_ROWS
+				user.*, albumpicture.dateline, albumpicture.albumid, album.title AS albumtitle
+				" . ($vbulletin->options['avatarenabled'] ? ",avatar.avatarpath, NOT ISNULL(customavatar.userid) AS hascustomavatar, customavatar.dateline AS avatardateline,customavatar.width AS avwidth,customavatar.height AS avheight" : "") . "
+				,picture.pictureid, picture.extension, picture.filesize, picture.idhash, picture.caption,
+				picture.thumbnail_filesize, picture.thumbnail_dateline, picture.thumbnail_width, picture.thumbnail_height
+				$hook_query_fields
+			FROM " . TABLE_PREFIX . "picture AS picture
+			LEFT JOIN " . TABLE_PREFIX . "user AS user ON (picture.userid = user.userid)
+			LEFT JOIN " . TABLE_PREFIX . "albumpicture AS albumpicture ON (albumpicture.pictureid = picture.pictureid)
+			LEFT JOIN " . TABLE_PREFIX . "album AS album ON (album.albumid = albumpicture.albumid)
+			" . ($vbulletin->options['avatarenabled'] ? "LEFT JOIN " . TABLE_PREFIX . "avatar AS avatar ON(avatar.avatarid = user.avatarid) LEFT JOIN " . TABLE_PREFIX . "customavatar AS customavatar ON(customavatar.userid = user.userid)" : "") . "
+			$hook_query_joins
+			WHERE picture.state = 'moderation'
+				$datecut
+				$hook_query_where
+			ORDER BY $sqlsortfield $sqlsortorder
+			LIMIT $start, $perpage
+		");
+		list($picturetotal) = $vbulletin->db->query_first("SELECT FOUND_ROWS()", DBARRAY_NUM);
+
+		if ($start >= $picturetotal)
+		{
+			$pagenumber = ceil($picturetotal / $perpage);
+		}
+	}
+	while ($start >= $picturetotal AND $picturetotal);
+
+	require_once(DIR . '/includes/functions_album.php');
+
+	$show['picture'] = true;
+	while ($picture = $db->fetch_array($pictures))
+	{
+		fetch_musername($picture);
+		$picture['albumtitle'] = fetch_word_wrapped_string(fetch_censored_text($picture['albumtitle']));
+		// $picture contains comment, picture, and album info
+		$pictureinfo = prepare_pictureinfo_thumb($picture, $picture);
+		eval('$picturebits .= "' . fetch_template('moderation_picturebit') . '";');
+	}
+
+	$pagenavbits = array(
+		"do=viewpics"
+	);
+	if ($perpage != $vbulletin->options['vm_perpage'])
+	{
+		$pagenavbits[] = "pp=$perpage";
+	}
+	if ($daysprune != ($vbulletin->userinfo['daysprune'] ? $vbulletin->userinfo['daysprune'] : 30))
+	{
+		$pagenavbits[] = "daysprune=$daysprune";
+	}
+	if ($sortfield != 'dateline')
+	{
+		$pagenavbits[] = "sortfield=$sortfield";
+	}
+	if ($vbulletin->GPC['sortorder'] == 'asc')
+	{
+		$pagenavbits[] = 'order=' . $vbulletin->GPC['sortorder'];
+	}
+	if ($type == 'deleted')
+	{
+		$pagenavbits[] = 'type=deleted';
+	}
+
+	$pagenavurl = 'moderation.php?' . $vbulletin->session->vars['sessionurl'] . implode('&amp;', $pagenavbits);
+	$pagenav = construct_page_nav($pagenumber, $perpage, $picturetotal, $pagenavurl);
+
+	$show['havepictures'] = $picturetotal ? true : false;
+
+	$first = $picturetotal ? ($pagenumber - 1) * $perpage + 1 : 0;
+	$last = ($last = $perpage * $pagenumber) > $picturetotal ? $picturetotal : $last;
+
+	$show['delete'] = (can_moderate(0, 'candeletealbumpicture'));
+
+	$hook_query_fields = $hook_query_joins = $hook_query_where = '';
+	unset($sqlsortfield, $sqlsortorder);
+
+	$navbits[''] = $vbphrase['moderation'];
+	$navbits = construct_navbits($navbits);
+
+	construct_usercp_nav('moderatedpics');
+
+	($hook = vBulletinHook::fetch_hook('moderation_picture_complete')) ? eval($hook) : false;
+
+	eval('$headinclude .= "' . fetch_template('picturecomment_css') . '";');
+	eval('$moderation_filter = "' . fetch_template('moderation_filter') . '";');
+
+	eval('$navbar = "' . fetch_template('navbar') . '";');
+	eval('$HTML = "' . fetch_template('moderation_pictures') . '";');
+	eval('print_output("' . fetch_template('USERCP_SHELL') . '");');
+}
+
 /*======================================================================*\
 || ####################################################################
-|| # Downloaded: 18:52, Sat Jul 14th 2007
-|| # CVS: $RCSfile$ - $Revision: 15638 $
+|| # Downloaded: 16:21, Sat Apr 6th 2013
+|| # CVS: $RCSfile$ - $Revision: 26399 $
 || ####################################################################
 \*======================================================================*/
 ?>

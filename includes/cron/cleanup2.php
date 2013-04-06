@@ -1,9 +1,9 @@
 <?php
 /*======================================================================*\
 || #################################################################### ||
-|| # vBulletin 3.6.7 PL1 - Licence Number VBF2470E4F
+|| # vBulletin 3.7.2 Patch Level 2 - Licence Number VBF2470E4F
 || # ---------------------------------------------------------------- # ||
-|| # Copyright ©2000-2007 Jelsoft Enterprises Ltd. All Rights Reserved. ||
+|| # Copyright ©2000-2013 Jelsoft Enterprises Ltd. All Rights Reserved. ||
 || # This file may not be redistributed in whole or significant part. # ||
 || # ---------------- VBULLETIN IS NOT FREE SOFTWARE ---------------- # ||
 || # http://www.vbulletin.com | http://www.vbulletin.com/license.html # ||
@@ -24,7 +24,6 @@ if (!is_object($vbulletin->db))
 $vbulletin->db->query_write("
 	DELETE FROM " . TABLE_PREFIX . "session
 	WHERE lastactivity < " . intval(TIMENOW - $vbulletin->options['cookietimeout']) . "
-	### Delete stale sessions ###
 ");
 
 // posthashes are only valid for 5 minutes
@@ -33,9 +32,14 @@ $vbulletin->db->query_write("
 	WHERE dateline < " . (TIMENOW - 300)
 );
 
+$vbulletin->db->query_write("
+	DELETE FROM " . TABLE_PREFIX . "visitormessage_hash
+	WHERE dateline < " . (TIMENOW - 300)
+);
+
 // expired registration images after 1 hour
 $vbulletin->db->query_write("
-	DELETE FROM " . TABLE_PREFIX . "regimage
+	DELETE FROM " . TABLE_PREFIX . "humanverify
 	WHERE dateline < " . (TIMENOW - 3600)
 );
 
@@ -76,12 +80,14 @@ $vbulletin->db->query_write("
 	WHERE dateline  < " . (TIMENOW - $vbulletin->options['externalcache'] * 60) . "
 ");
 
+($hook = vBulletinHook::fetch_hook('cron_script_cleanup_hourly2')) ? eval($hook) : false;
+
 log_cron_action('', $nextitem, 1);
 
 /*======================================================================*\
 || ####################################################################
-|| # Downloaded: 18:52, Sat Jul 14th 2007
-|| # CVS: $RCSfile$ - $Revision: 14145 $
+|| # Downloaded: 16:21, Sat Apr 6th 2013
+|| # CVS: $RCSfile$ - $Revision: 26900 $
 || ####################################################################
 \*======================================================================*/
 ?>

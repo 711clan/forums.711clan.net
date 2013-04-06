@@ -1,9 +1,9 @@
 <?php
 /*======================================================================*\
 || #################################################################### ||
-|| # vBulletin 3.6.7 PL1 - Licence Number VBF2470E4F
+|| # vBulletin 3.7.2 Patch Level 2 - Licence Number VBF2470E4F
 || # ---------------------------------------------------------------- # ||
-|| # Copyright ©2000-2007 Jelsoft Enterprises Ltd. All Rights Reserved. ||
+|| # Copyright ©2000-2013 Jelsoft Enterprises Ltd. All Rights Reserved. ||
 || # This file may not be redistributed in whole or significant part. # ||
 || # ---------------- VBULLETIN IS NOT FREE SOFTWARE ---------------- # ||
 || # http://www.vbulletin.com | http://www.vbulletin.com/license.html # ||
@@ -15,6 +15,7 @@ error_reporting(E_ALL & ~E_NOTICE);
 
 // #################### DEFINE IMPORTANT CONSTANTS #######################
 define('THIS_SCRIPT', 'faq');
+define('CSRF_PROTECTION', true);
 
 // ################### PRE-CACHE TEMPLATES AND DATA ######################
 // get special phrase groups
@@ -103,7 +104,7 @@ if ($_REQUEST['do'] == 'search')
 	{
 		case 'all':
 			$match = 'all';
-			$search = preg_split('#\s+#', $vbulletin->GPC['q']);
+			$search = preg_split('#[ \r\n\t]+#', $vbulletin->GPC['q']);
 			$matchSql = ' AND ';
 			break;
 		case 'phr':
@@ -113,28 +114,42 @@ if ($_REQUEST['do'] == 'search')
 			break;
 		default: // any
 			$match = 'any';
-			$search = preg_split('#\s+#',$vbulletin->GPC['q']);
+			$search = preg_split('#[ \r\n\t]+#',$vbulletin->GPC['q']);
 			$matchSql = ' OR ';
 			break;
 	}
 
 	foreach ($search AS $word)
 	{
-		$find[] = preg_quote($word, '#'); // = '/(?<=[^\w=])(' . preg_quote($word, '/') . ')(?=[^\w=])/ie';
+		if (strlen($word) == 1)
+		{
+			// searches happen anywhere within a word, so 1 letter searches are useless
+			continue;
+		}
+
+		$find[] = preg_quote($word, '#'); // -> '#(?<=[^\w=]|^)(\w*($word)\w*)(?=[^\w=]|$)#siU'
 
 		$whereText[] = "text LIKE('%" . $db->escape_string_like($word) . "%')";
 	}
 
-	$phrases = $db->query_read_slave("
-		SELECT varname AS faqname, fieldname
-		FROM " . TABLE_PREFIX . "phrase AS phrase
-		WHERE phraseid IN(" . implode(', ', $phraseIds) . ")
-			AND (" . implode($matchSql, $whereText) . ")
-	");
-	if (!$db->num_rows($phrases))
+	if (!empty($whereText))
+	{
+		$phrases = $db->query_read_slave("
+			SELECT varname AS faqname, fieldname
+			FROM " . TABLE_PREFIX . "phrase AS phrase
+			WHERE phraseid IN(" . implode(', ', $phraseIds) . ")
+				AND (" . implode($matchSql, $whereText) . ")
+		");
+		if (!$db->num_rows($phrases))
+		{
+			eval(standard_error(fetch_error('searchnoresults', $displayCommon)));
+		}
+	}
+	else
 	{
 		eval(standard_error(fetch_error('searchnoresults', $displayCommon)));
 	}
+
 	while ($phrase = $db->fetch_array($phrases))
 	{
 		$faqcache["$phrase[faqname]"] = $phrase;
@@ -307,8 +322,8 @@ eval('print_output("' . fetch_template('FAQ') . '");');
 
 /*======================================================================*\
 || ####################################################################
-|| # Downloaded: 18:52, Sat Jul 14th 2007
-|| # CVS: $RCSfile$ - $Revision: 16958 $
+|| # Downloaded: 16:21, Sat Apr 6th 2013
+|| # CVS: $RCSfile$ - $Revision: 26523 $
 || ####################################################################
 \*======================================================================*/
 ?>

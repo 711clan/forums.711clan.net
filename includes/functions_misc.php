@@ -1,9 +1,9 @@
 <?php
 /*======================================================================*\
 || #################################################################### ||
-|| # vBulletin 3.6.7 PL1 - Licence Number VBF2470E4F
+|| # vBulletin 3.7.2 Patch Level 2 - Licence Number VBF2470E4F
 || # ---------------------------------------------------------------- # ||
-|| # Copyright ©2000-2007 Jelsoft Enterprises Ltd. All Rights Reserved. ||
+|| # Copyright ©2000-2013 Jelsoft Enterprises Ltd. All Rights Reserved. ||
 || # This file may not be redistributed in whole or significant part. # ||
 || # ---------------- VBULLETIN IS NOT FREE SOFTWARE ---------------- # ||
 || # http://www.vbulletin.com | http://www.vbulletin.com/license.html # ||
@@ -24,10 +24,20 @@ function fetch_microtime_difference($starttime, $addtime = 0)
 // mktime() workaround for < 1970
 function mktimefix($format, $year)
 {
-	$search = array('%Y', '%y', 'Y', 'y');
-	$replace = array($year, substr($year, 2), $year, substr($year, 2));
+	$two_digit_year = substr($year, 2);
 
-	return str_replace($search, $replace, $format);
+	// note: the ISO (%G) replaces here are not always correct, but it's the best we can do
+	$replace = array(
+		'%Y' => $year,
+		'%y' => $two_digit_year,
+		'%G' => $year,
+		'%g' => $two_digit_year,
+		'Y'  => $year,
+		'y'  => $two_digit_year,
+		'o'  => $year
+	);
+
+	return str_replace(array_keys($replace), $replace, $format);
 }
 
 // ###################### Start getlanguagesarray #######################
@@ -75,7 +85,6 @@ function construct_folder_jump($foldertype = 0, $selectedid = false, $exclusions
 		    $pmcounts = $vbulletin->db->query_read_slave("
 		        SELECT COUNT(*) AS total, folderid
 		        FROM " . TABLE_PREFIX . "pm AS pm
-		        LEFT JOIN " . TABLE_PREFIX . "pmtext AS pmtext USING(pmtextid)
 		        WHERE userid = " . $vbulletin->userinfo['userid'] . "
 		        GROUP BY folderid
 		    ");
@@ -574,6 +583,7 @@ function replace_template_variables($template, $do_outside_regex = false)
 	// straight replacements - for example $scriptpath becomes $GLOBALS['vbulletin']->scriptpath
 	static $str_replace = array(
 		'$scriptpath' => '" . $GLOBALS[\'vbulletin\']->scriptpath . "',
+		'$navbar_reloadurl' => '" . $GLOBALS[\'vbulletin\']->reloadurl . "',
 	);
 	$template = str_replace(array_keys($str_replace), $str_replace, $template);
 
@@ -589,7 +599,7 @@ function construct_post_vars_html()
 {
 	global $vbulletin;
 
-	$vbulletin->input->clean_gpc('p', 'postvars', TYPE_STR);
+	$vbulletin->input->clean_gpc('p', 'postvars', TYPE_BINARY);
 	if ($vbulletin->GPC['postvars'] != '' AND verify_client_string($vbulletin->GPC['postvars']) !== false)
 	{
 		return '<input type="hidden" name="postvars" value="' . htmlspecialchars_uni($vbulletin->GPC['postvars']) . '" />' . "\n";
@@ -634,6 +644,8 @@ function construct_hidden_var_fields($serializedarr)
 
 function construct_hidden_var_field_value($key, $val, $key_prefix = '')
 {
+	global $vbulletin;
+
 	$html = '';
 	if (is_array($val))
 	{
@@ -652,6 +664,11 @@ function construct_hidden_var_field_value($key, $val, $key_prefix = '')
 	}
 	else
 	{
+		if ($key == 's' AND !$key_prefix)
+		{
+			$val = $vbulletin->session->vars['dbsessionhash'];
+		}
+
 		$key = (!empty($key_prefix) ? $key_prefix . "[$key]" : $key);
 		$html .= '<input type="hidden" name="' . htmlspecialchars_uni($key) . '" value="' . htmlspecialchars_uni($val) . '" />' . "\n";
 	}
@@ -685,6 +702,8 @@ function fetch_phrase($phrasename, $fieldname, $strreplace = '', $doquotes = tru
 		}
 	}
 
+	$languageid = intval($languageid);
+
 	if (!isset($phrase_cache["{$fieldname}-{$phrasename}"]))
 	{
 		$getphrases = $vbulletin->db->query_read_slave("
@@ -693,7 +712,7 @@ function fetch_phrase($phrasename, $fieldname, $strreplace = '', $doquotes = tru
 			LEFT JOIN " . TABLE_PREFIX . "phrasetype USING (fieldname)
 			WHERE phrase.fieldname = '" . $vbulletin->db->escape_string($fieldname) . "'
 				AND varname = '" . $vbulletin->db->escape_string($phrasename) . "' "
-				. iif(!$alllanguages, "AND languageid IN (-1, 0, " . intval(LANGUAGEID) . ")")
+				. iif(!$alllanguages, "AND languageid IN (-1, 0, " . ($languageid > 0 ? $languageid : intval(LANGUAGEID)) . ")")
 		);
 		while ($getphrase = $vbulletin->db->fetch_array($getphrases))
 		{
@@ -776,6 +795,7 @@ function fetch_timezone($offset = 'all')
 		'-7'   => 'timezone_gmt_minus_0700',
 		'-6'   => 'timezone_gmt_minus_0600',
 		'-5'   => 'timezone_gmt_minus_0500',
+		'-4.5' => 'timezone_gmt_minus_0430',
 		'-4'   => 'timezone_gmt_minus_0400',
 		'-3.5' => 'timezone_gmt_minus_0330',
 		'-3'   => 'timezone_gmt_minus_0300',
@@ -790,7 +810,9 @@ function fetch_timezone($offset = 'all')
 		'4.5'  => 'timezone_gmt_plus_0430',
 		'5'    => 'timezone_gmt_plus_0500',
 		'5.5'  => 'timezone_gmt_plus_0530',
+		'5.75' => 'timezone_gmt_plus_0545',
 		'6'    => 'timezone_gmt_plus_0600',
+		'6.5'  => 'timezone_gmt_plus_0630',
 		'7'    => 'timezone_gmt_plus_0700',
 		'8'    => 'timezone_gmt_plus_0800',
 		'9'    => 'timezone_gmt_plus_0900',
@@ -812,8 +834,8 @@ function fetch_timezone($offset = 'all')
 
 /*======================================================================*\
 || ####################################################################
-|| # Downloaded: 18:52, Sat Jul 14th 2007
-|| # CVS: $RCSfile$ - $Revision: 16690 $
+|| # Downloaded: 16:21, Sat Apr 6th 2013
+|| # CVS: $RCSfile$ - $Revision: 26021 $
 || ####################################################################
 \*======================================================================*/
 ?>

@@ -1,9 +1,9 @@
 <?php
 /*======================================================================*\
 || #################################################################### ||
-|| # vBulletin 3.6.7 PL1 - Licence Number VBF2470E4F
+|| # vBulletin 3.7.2 Patch Level 2 - Licence Number VBF2470E4F
 || # ---------------------------------------------------------------- # ||
-|| # Copyright ©2000-2007 Jelsoft Enterprises Ltd. All Rights Reserved. ||
+|| # Copyright ©2000-2013 Jelsoft Enterprises Ltd. All Rights Reserved. ||
 || # This file may not be redistributed in whole or significant part. # ||
 || # ---------------- VBULLETIN IS NOT FREE SOFTWARE ---------------- # ||
 || # http://www.vbulletin.com | http://www.vbulletin.com/license.html # ||
@@ -19,8 +19,8 @@ if (!class_exists('vB_DataManager'))
 * Class to do data save/delete operations for pollvotes
 *
 * @package	vBulletin
-* @version	$Revision: 12795 $
-* @date		$Date: 2005-07-21 16:56:09 -0500 (Thu, 21 Jul 2005) $
+* @version	$Revision: 25978 $
+* @date		$Date: 2008-03-05 23:49:13 -0600 (Wed, 05 Mar 2008) $
 */
 class vB_DataManager_PollVote extends vB_DataManager
 {
@@ -30,11 +30,12 @@ class vB_DataManager_PollVote extends vB_DataManager
 	* @var	array
 	*/
 	var $validfields = array(
-		'pollvoteid'	=> array(TYPE_UINT, REQ_INCR, VF_METHOD, 'verify_nonzero'),
-		'pollid'		=> array(TYPE_UINT, REQ_YES),
-		'userid'		=> array(TYPE_UINT, REQ_YES),
-		'votedate'      => array(TYPE_UINT, REQ_AUTO),
-		'voteoption'	=> array(TYPE_UINT, REQ_NO) # Will work with out it, not sure if its required ?
+		'pollvoteid' => array(TYPE_UINT, REQ_INCR, VF_METHOD, 'verify_nonzero'),
+		'pollid'     => array(TYPE_UINT, REQ_YES),
+		'userid'     => array(TYPE_UINT, REQ_YES),
+		'votedate'   => array(TYPE_UINT, REQ_AUTO),
+		'voteoption' => array(TYPE_UINT, REQ_NO),
+		'votetype'   => array(TYPE_UINT, REQ_NO),
 	);
 
 	/**
@@ -127,7 +128,8 @@ class vB_DataManager_PollVote extends vB_DataManager
 			}
 
 			$this->dbobject->query_write("
-				UPDATE " . TABLE_PREFIX . "poll  SET
+				UPDATE " . TABLE_PREFIX . "poll
+				SET
 					votes = '" . $new_votes_array . "'
 					$voters
 					$lastvote_sql
@@ -152,8 +154,8 @@ class vB_DataManager_PollVote extends vB_DataManager
 
 /*======================================================================*\
 || ####################################################################
-|| # Downloaded: 18:52, Sat Jul 14th 2007
-|| # CVS: $RCSfile$ - $Revision: 12795 $
+|| # Downloaded: 16:21, Sat Apr 6th 2013
+|| # CVS: $RCSfile$ - $Revision: 25978 $
 || ####################################################################
 \*======================================================================*/
 ?>

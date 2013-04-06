@@ -1,9 +1,9 @@
 <?php
 /*======================================================================*\
 || #################################################################### ||
-|| # vBulletin 3.6.7 PL1 - Licence Number VBF2470E4F
+|| # vBulletin 3.7.2 Patch Level 2 - Licence Number VBF2470E4F
 || # ---------------------------------------------------------------- # ||
-|| # Copyright ©2000-2007 Jelsoft Enterprises Ltd. All Rights Reserved. ||
+|| # Copyright ©2000-2013 Jelsoft Enterprises Ltd. All Rights Reserved. ||
 || # This file may not be redistributed in whole or significant part. # ||
 || # ---------------- VBULLETIN IS NOT FREE SOFTWARE ---------------- # ||
 || # http://www.vbulletin.com | http://www.vbulletin.com/license.html # ||
@@ -29,7 +29,7 @@ function verify_upload_folder($attachpath)
 			print_stop_message('test_file_write_failed', $attachpath);
 		}
 	}
-	@chmod($vbulletin->options['attachpath'] . '/test', 0777);
+	@chmod($attachpath . '/test', 0777);
 	if ($fp = @fopen($attachpath . '/test/test.attach', 'wb'))
 	{
 		fclose($fp);
@@ -90,8 +90,8 @@ function build_attachment_permissions()
 
 /*======================================================================*\
 || ####################################################################
-|| # Downloaded: 18:52, Sat Jul 14th 2007
-|| # CVS: $RCSfile$ - $Revision: 14787 $
+|| # Downloaded: 16:21, Sat Apr 6th 2013
+|| # CVS: $RCSfile$ - $Revision: 24995 $
 || ####################################################################
 \*======================================================================*/
 ?>
