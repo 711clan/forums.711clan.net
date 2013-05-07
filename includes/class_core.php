@@ -1003,7 +1003,7 @@ class vB_Database
 				log_vbulletin_error($message, 'database');
 			}
 
-			if (1==2$technicalemail != '' AND !$vbulletin->options['disableerroremail'] AND verify_email_vbulletin_error($this->errno, 'database'))
+			if (1==2 AND $technicalemail != '' AND !$vbulletin->options['disableerroremail'] AND verify_email_vbulletin_error($this->errno, 'database'))
 			{
 				// If vBulletinHook is defined then we know that options are loaded, so we can then use vbmail
 				if (class_exists('vBulletinHook'))
