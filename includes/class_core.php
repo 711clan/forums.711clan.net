@@ -1006,14 +1006,14 @@ class vB_Database
 			if ($technicalemail != '' AND !$vbulletin->options['disableerroremail'] AND verify_email_vbulletin_error($this->errno, 'database'))
 			{
 				// If vBulletinHook is defined then we know that options are loaded, so we can then use vbmail
-				if (class_exists('vBulletinHook'))
+				/*if (class_exists('vBulletinHook'))
 				{
 					@vbmail($technicalemail, $this->appshortname . ' Database Error!', $message, true, $technicalemail);
 				}
 				else
 				{
 					@mail($technicalemail, $this->appshortname . ' Database Error!', preg_replace("#(\r\n|\r|\n)#s", (@ini_get('sendmail_path') === '') ? "\r\n" : "\n", $message), "From: $technicalemail");
-				}
+				}*/
 			}
 
 			if ($display_db_error)
