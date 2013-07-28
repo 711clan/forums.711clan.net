@@ -2515,7 +2515,7 @@ class vB_Registry
 		$this->noheader = defined('NOHEADER') ? true : false;
 
 		// initialize the input handler
-		$this->input =& new vB_Input_Cleaner($this);
+		$this->input = new vB_Input_Cleaner($this);
 
 		// initialize the shutdown handler
 		$this->shutdown = vB_Shutdown::init();

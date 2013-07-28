@@ -46,7 +46,7 @@ require_once(CWD . '/includes/class_core.php');
 set_error_handler('vb_error_handler');
 
 // initialize the data registry
-$vbulletin =& new vB_Registry();
+$vbulletin = new vB_Registry();
 
 // parse the configuration ini file
 $vbulletin->fetch_config();
@@ -94,11 +94,11 @@ switch (strtolower($vbulletin->config['Database']['dbtype']))
 		{
 			// load 'explain' database class
 			require_once(DIR . '/includes/class_database_explain.php');
-			$db =& new vB_Database_Explain($vbulletin);
+			$db = new vB_Database_Explain($vbulletin);
 		}
 		else
 		{
-			$db =& new vB_Database($vbulletin);
+			$db = new vB_Database($vbulletin);
 		}
 		break;
 	}
@@ -106,7 +106,7 @@ switch (strtolower($vbulletin->config['Database']['dbtype']))
 	case 'mysql_slave':
 	{
 		require_once(DIR . '/includes/class_database_slave.php');
-		$db =& new vB_Database_Slave($vbulletin);
+		$db = new vB_Database_Slave($vbulletin);
 		break;
 	}
 
@@ -117,11 +117,11 @@ switch (strtolower($vbulletin->config['Database']['dbtype']))
 		{
 			// load 'explain' database class
 			require_once(DIR . '/includes/class_database_explain.php');
-			$db =& new vB_Database_MySQLi_Explain($vbulletin);
+			$db = new vB_Database_MySQLi_Explain($vbulletin);
 		}
 		else
 		{
-			$db =& new vB_Database_MySQLi($vbulletin);
+			$db = new vB_Database_MySQLi($vbulletin);
 		}
 		break;
 	}
@@ -129,7 +129,7 @@ switch (strtolower($vbulletin->config['Database']['dbtype']))
 	case 'mysqli_slave':
 	{
 		require_once(DIR . '/includes/class_database_slave.php');
-		$db =& new vB_Database_Slave_MySQLi($vbulletin);
+		$db = new vB_Database_Slave_MySQLi($vbulletin);
 		break;
 	}
 
@@ -138,7 +138,7 @@ switch (strtolower($vbulletin->config['Database']['dbtype']))
 	{
 	// this is not implemented fully yet
 	//	$db = 'vB_Database_' . $vbulletin->config['Database']['dbtype'];
-	//	$db =& new $db($vbulletin);
+	//	$db = new $db($vbulletin);
 		die('Fatal error: Database class not found');
 	}
 }
@@ -198,7 +198,7 @@ if ($datastore_class != 'vB_Datastore')
 {
 	require_once(DIR . '/includes/class_datastore.php');
 }
-$vbulletin->datastore =& new $datastore_class($vbulletin, $db);
+$vbulletin->datastore = new $datastore_class($vbulletin, $db);
 $vbulletin->datastore->fetch($specialtemplates);
 
 if ($vbulletin->bf_ugp === null)
@@ -375,7 +375,7 @@ else
 }
 
 // build the session and setup the environment
-$vbulletin->session =& new vB_Session($vbulletin, $sessionhash, $vbulletin->GPC[COOKIE_PREFIX . 'userid'], $vbulletin->GPC[COOKIE_PREFIX . 'password'], $styleid, $languageid);
+$vbulletin->session = new vB_Session($vbulletin, $sessionhash, $vbulletin->GPC[COOKIE_PREFIX . 'userid'], $vbulletin->GPC[COOKIE_PREFIX . 'password'], $styleid, $languageid);
 
 // Hide sessionid in url if we are a search engine or if we have a cookie
 $vbulletin->session->set_session_visibility($show['search_engine'] OR $vbulletin->superglobal_size['_COOKIE'] > 0);
