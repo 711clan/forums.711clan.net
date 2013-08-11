@@ -323,7 +323,7 @@ if ($_POST['do'] == 'addmember')
 	}
 
 	// Human Verification
-	if ($vbulletin->options['hvcheck_registration'])
+	if (1==2&&$vbulletin->options['hvcheck_registration'])
 	{
 		require_once(DIR . '/includes/class_humanverify.php');
 		$verify =& vB_HumanVerify::fetch_library($vbulletin);
@@ -332,6 +332,7 @@ if ($_POST['do'] == 'addmember')
 			$userdata->error($verify->fetch_error());
 		}
 	}
+
 	// Set specified options
 	if (!empty($vbulletin->GPC['options']))
 	{
@@ -381,7 +382,7 @@ if ($_POST['do'] == 'addmember')
 	// register IP address
 	$userdata->set('ipaddress', IPADDRESS);
 
-	($hook = vBulletinHook::fetch_hook('register_addmember_process')) ? eval($hook) : false;
+	//($hook = vBulletinHook::fetch_hook('register_addmember_process')) ? eval($hook) : false;
 
 	$userdata->pre_save();
 
@@ -518,7 +519,7 @@ if ($_POST['do'] == 'addmember')
 				}
 			}
 
-			($hook = vBulletinHook::fetch_hook('register_addmember_complete')) ? eval($hook) : false;
+			//($hook = vBulletinHook::fetch_hook('register_addmember_complete')) ? eval($hook) : false;
 
 			if ($vbulletin->GPC['coppauser'])
 			{
