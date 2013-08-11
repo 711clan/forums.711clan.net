@@ -1,9 +1,9 @@
 <?php
 /*======================================================================*\
 || #################################################################### ||
-|| # vBulletin 3.7.2 Patch Level 2 - Licence Number VBF2470E4F
+|| # vBulletin 4.2.1 - Licence Number VBC2DDE4FB
 || # ---------------------------------------------------------------- # ||
-|| # Copyright ©2000-2013 Jelsoft Enterprises Ltd. All Rights Reserved. ||
+|| # Copyright ©2000-2013 vBulletin Solutions Inc. All Rights Reserved. ||
 || # This file may not be redistributed in whole or significant part. # ||
 || # ---------------- VBULLETIN IS NOT FREE SOFTWARE ---------------- # ||
 || # http://www.vbulletin.com | http://www.vbulletin.com/license.html # ||
@@ -14,7 +14,7 @@
 error_reporting(E_ALL & ~E_NOTICE);
 
 // ##################### DEFINE IMPORTANT CONSTANTS #######################
-define('CVS_REVISION', '$RCSfile$ - $Revision: 26706 $');
+define('CVS_REVISION', '$RCSfile$ - $Revision: 56530 $');
 
 // #################### PRE-CACHE TEMPLATES AND DATA ######################
 $phrasegroups = array('cppermission', 'cpuser', 'promotion', 'pm', 'cpusergroup');
@@ -178,7 +178,7 @@ if ($_REQUEST['do'] == 'add' OR $_REQUEST['do'] == 'edit')
 
 	print_input_row($vbphrase['title'], 'usergroup[title]', $usergroup['title']);
 	print_input_row($vbphrase['description'], 'usergroup[description]', $usergroup['description']);
-	print_input_row($vbphrase['usergroup_user_title'], 'usergroup[usertitle]', $usergroup['usertitle']);
+	print_input_row($vbphrase['usergroup_user_title'], 'usergroup[usertitle]', $usergroup['usertitle'], true, 35, 100);
 	print_label_row($vbphrase['username_markup'],
 		'<span style="white-space:nowrap">
 		<input size="15" type="text" class="bginput" name="usergroup[opentag]" value="' . htmlspecialchars_uni($usergroup['opentag']) . '" tabindex="1" />
@@ -488,6 +488,12 @@ if ($_POST['do'] == 'update')
 				$db->query_write(fetch_query_sql($cperm, 'calendarpermission'));
 			}
 		}
+
+		$vbulletin->db->query_write("
+			REPLACE INTO " . TABLE_PREFIX . "prefixpermission (usergroupid, prefixid)
+			SELECT " . $newugid . ", prefixid FROM " . TABLE_PREFIX . "prefix
+			WHERE options & " . $vbulletin->bf_misc_prefixoptions['deny_by_default']
+		);
 	}
 
 	$markups = $db->query_read("
@@ -544,6 +550,7 @@ if ($_POST['do'] == 'kill')
 	// update users who are in this usergroup to be in the registered usergroup
 	$db->query_write("UPDATE " . TABLE_PREFIX . "user SET usergroupid = 2 WHERE usergroupid = " . $vbulletin->GPC['usergroupid']);
 	$db->query_write("UPDATE " . TABLE_PREFIX . "user SET displaygroupid = 0 WHERE displaygroupid = " . $vbulletin->GPC['usergroupid']);
+	$db->query_write("UPDATE " . TABLE_PREFIX . "user SET infractiongroupid = 0 WHERE infractiongroupid = " . $vbulletin->GPC['usergroupid']);
 	$db->query_write("UPDATE " . TABLE_PREFIX . "useractivation SET usergroupid = 2 WHERE usergroupid = " . $vbulletin->GPC['usergroupid']);
 	$db->query_write("UPDATE " . TABLE_PREFIX . "subscription SET nusergroupid = -1 WHERE nusergroupid = " . $vbulletin->GPC['usergroupid']);
 	$db->query_write("UPDATE " . TABLE_PREFIX . "subscriptionlog SET pusergroupid = 2 WHERE pusergroupid = " . $vbulletin->GPC['usergroupid']);
@@ -558,46 +565,85 @@ if ($_POST['do'] == 'kill')
 	$db->query_write("DELETE FROM " . TABLE_PREFIX . "userpromotion WHERE usergroupid = " . $vbulletin->GPC['usergroupid'] . " OR joinusergroupid = " . $vbulletin->GPC['usergroupid']);
 	$db->query_write("DELETE FROM " . TABLE_PREFIX . "imagecategorypermission WHERE usergroupid = " . $vbulletin->GPC['usergroupid']);
 	$db->query_write("DELETE FROM " . TABLE_PREFIX . "attachmentpermission WHERE usergroupid = " . $vbulletin->GPC['usergroupid']);
-
+	$db->query_write("DELETE FROM " . TABLE_PREFIX . "prefixpermission WHERE usergroupid = " . $vbulletin->GPC['usergroupid']);
+    $db->query_write("DELETE FROM " . TABLE_PREFIX . "usergroupleader WHERE usergroupid = " . $vbulletin->GPC['usergroupid']);
+    $db->query_write("DELETE FROM " . TABLE_PREFIX . "infractiongroup WHERE usergroupid = " . $vbulletin->GPC['usergroupid'] . " OR orusergroupid = " . $vbulletin->GPC['usergroupid']);
+    $db->query_write("DELETE FROM " . TABLE_PREFIX . "infractionban WHERE usergroupid = " . $vbulletin->GPC['usergroupid'] . " OR banusergroupid = " . $vbulletin->GPC['usergroupid']);
+    
 	build_ranks();
 	build_forum_permissions();
 
 	require_once(DIR . '/includes/adminfunctions_attachment.php');
 	build_attachment_permissions();
 
-	// remove this group from users who have this group as a membergroup
-	$updateusers = array();
-	$casesql = '';
+	// remove this group from users who have this group as a membergroup or infractiongroupid
+	$casesqlm = $casesqli = '';
+	$updateusersm = $updateusersi = array();
+
 	$users = $db->query_read("
-		SELECT userid, username, membergroupids
+		SELECT userid, username, membergroupids, infractiongroupids
 		FROM " . TABLE_PREFIX . "user
 		WHERE FIND_IN_SET('" . $vbulletin->GPC['usergroupid'] . "', membergroupids)
+		OR FIND_IN_SET('" . $vbulletin->GPC['usergroupid'] . "', infractiongroupids)
 	");
+	
 	if ($db->num_rows($users))
 	{
 		while($user = $db->fetch_array($users))
 		{
-			$membergroups = fetch_membergroupids_array($user, false);
-			foreach($membergroups AS $key => $val)
+			if (!empty($user['membergroupids']))
 			{
-				if ($val == $vbulletin->GPC['usergroupid'])
+				$membergroups = fetch_membergroupids_array($user, false);
+				foreach($membergroups AS $key => $val)
 				{
-					unset($membergroups["$key"]);
+					if ($val == $vbulletin->GPC['usergroupid'])
+					{
+						unset($membergroups["$key"]);
+					}
 				}
+				$user['membergroupids'] = implode(',', $membergroups);
+				$casesqlm .= "WHEN $user[userid] THEN '$user[membergroupids]' ";
+				$updateusersm[] = $user['userid'];
 			}
-			$user['membergroupids'] = implode(',', $membergroups);
-			$casesql .= "WHEN $user[userid] THEN '$user[membergroupids]' ";
-			$updateusers[] = $user['userid'];
+			if (!empty($user['infractiongroupids']))
+			{
+				$infractiongroups = explode(',', str_replace(' ', '', $user['infractiongroupids']));
+				foreach($infractiongroups AS $key => $val)
+				{
+					if ($val == $vbulletin->GPC['usergroupid'])
+					{
+						unset($infractiongroups["$key"]);
+					}
+				}
+				$user['infractiongroupids'] = implode(',', $infractiongroups);
+				$casesqli .= "WHEN $user[userid] THEN '$user[infractiongroupids]' ";
+				$updateusersi[] = $user['userid'];
+			}
 		}
 
-		// do a big update to get rid of this usergroup from matched members' membergroupids
-		$db->query_write("
-			UPDATE " . TABLE_PREFIX . "user SET
-			membergroupids = CASE userid
-			$casesql
-			ELSE '' END
-			WHERE userid IN(" . implode(',', $updateusers) . ")
-		");
+		// do big update to get rid of this usergroup from matched members' membergroupids
+		if (!empty($casesqlm))
+		{
+			$db->query_write("
+				UPDATE " . TABLE_PREFIX . "user SET
+				membergroupids = CASE userid
+				$casesqlm
+				ELSE '' END
+				WHERE userid IN(" . implode(',', $updateusersm) . ")
+			");
+		}
+
+		// do big update to get rid of this usergroup from matched members' infractiongroupids
+		if (!empty($casesqli))
+		{
+			$db->query_write("
+				UPDATE " . TABLE_PREFIX . "user SET
+				infractiongroupids = CASE userid
+				$casesqli
+				ELSE '' END
+				WHERE userid IN(" . implode(',', $updateusersi) . ")
+			");
+		}
 	}
 
 	($hook = vBulletinHook::fetch_hook('admin_usergroup_kill')) ? eval($hook) : false;
@@ -928,6 +974,7 @@ if ($_REQUEST['do'] == 'modify')
 		{
 			print_usergroup_row($usergroup, $options_custom);
 		}
+		print_description_row('<span class="smallfont">' . $vbphrase['note_groups_marked_with_a_asterisk'] . '</span>', 0, 6);
 	}
 	if (is_array($usergroups['public']))
 	{
@@ -1202,6 +1249,8 @@ if ($_POST['do'] == 'processjoinrequests')
 		'request' => TYPE_ARRAY_INT
 	));
 
+	($hook = vBulletinHook::fetch_hook('admin_joinrequest_process_start')) ? eval($hook) : false;
+
 	// check we have some results to process
 	if (empty($vbulletin->GPC['request']))
 	{
@@ -1230,7 +1279,7 @@ if ($_POST['do'] == 'processjoinrequests')
 				break;
 
 			case  1:	// this request will be authorized
-				$auth[] = $requestid;
+				$auth[] = intval($requestid);
 				break;
 
 			case  0:	// this request will be denied
@@ -1277,10 +1326,13 @@ if ($_POST['do'] == 'processjoinrequests')
 		}
 	}
 
+	($hook = vBulletinHook::fetch_hook('admin_joinrequest_process_complete')) ? eval($hook) : false;
+
 	// delete processed join requests
 	if (!empty($vbulletin->GPC['request']))
 	{
-		$deleteQuery = "DELETE FROM " . TABLE_PREFIX . "usergrouprequest WHERE usergrouprequestid IN (" . implode(', ', array_keys($vbulletin->GPC['request'])) . ")";
+		$request = array_map('intval', array_keys($vbulletin->GPC['request']));
+		$deleteQuery = "DELETE FROM " . TABLE_PREFIX . "usergrouprequest WHERE usergrouprequestid IN (" . implode(', ', $request) . ")";
 		$db->query_write($deleteQuery);
 	}
 
@@ -1292,6 +1344,8 @@ if ($_POST['do'] == 'processjoinrequests')
 // show usergroup join requests
 if ($_REQUEST['do'] == 'viewjoinrequests')
 {
+
+	($hook = vBulletinHook::fetch_hook('admin_joinrequest_view_start')) ? eval($hook) : false;
 
 	// first query groups that have join requests
 	$getusergroups = $db->query_read("
@@ -1432,7 +1486,14 @@ if ($_REQUEST['do'] == 'viewjoinrequests')
 					'<label for="d' . $request['usergrouprequestid'] . '" class="smallfont">' . $vbphrase['deny'] . '<input type="radio" name="request[' . $request['usergrouprequestid'] . ']" value="0" id="d' . $request['usergrouprequestid'] . '" tabindex="1" /></label>',
 					'<label for="i' . $request['usergrouprequestid'] . '" class="smallfont">' . $vbphrase['ignore'] . '<input type="radio" name="request[' . $request['usergrouprequestid'] . ']" value="-1" id="i' . $request['usergrouprequestid'] . '" tabindex="1" checked="checked" /></label>'
 				);
-				print_cells_row($cell, 0, '', -5);
+				
+				$printcells = true;
+				($hook = vBulletinHook::fetch_hook('admin_joinrequest_view_bit')) ? eval($hook) : false;
+
+				if ($printcells)
+				{
+					print_cells_row($cell, 0, '', -5);
+				}
 			}
 			unset($request);
 			$db->free_result($requests);
@@ -1446,14 +1507,16 @@ if ($_REQUEST['do'] == 'viewjoinrequests')
 		}
 
 	}
+
+	($hook = vBulletinHook::fetch_hook('admin_joinrequest_view_complete')) ? eval($hook) : false;
 }
 
 print_cp_footer();
 
 /*======================================================================*\
 || ####################################################################
-|| # Downloaded: 16:21, Sat Apr 6th 2013
-|| # CVS: $RCSfile$ - $Revision: 26706 $
+|| # Downloaded: 14:57, Sun Aug 11th 2013
+|| # CVS: $RCSfile$ - $Revision: 56530 $
 || ####################################################################
 \*======================================================================*/
 ?>

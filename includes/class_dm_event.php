@@ -1,16 +1,16 @@
 <?php
 /*======================================================================*\
 || #################################################################### ||
-|| # vBulletin 3.7.2 Patch Level 2 - Licence Number VBF2470E4F
+|| # vBulletin 4.2.1 - Licence Number VBC2DDE4FB
 || # ---------------------------------------------------------------- # ||
-|| # Copyright ©2000-2013 Jelsoft Enterprises Ltd. All Rights Reserved. ||
+|| # Copyright ©2000-2013 vBulletin Solutions Inc. All Rights Reserved. ||
 || # This file may not be redistributed in whole or significant part. # ||
 || # ---------------- VBULLETIN IS NOT FREE SOFTWARE ---------------- # ||
 || # http://www.vbulletin.com | http://www.vbulletin.com/license.html # ||
 || #################################################################### ||
 \*======================================================================*/
 
-if (!class_exists('vB_DataManager'))
+if (!class_exists('vB_DataManager', false))
 {
 	exit;
 }
@@ -20,8 +20,8 @@ if (!class_exists('vB_DataManager'))
 *
 *
 * @package	vBulletin
-* @version	$Revision: 16294 $
-* @date		$Date: 2007-02-07 18:34:20 -0600 (Wed, 07 Feb 2007) $
+* @version	$Revision: 63836 $
+* @date		$Date: 2012-06-22 13:27:39 -0700 (Fri, 22 Jun 2012) $
 */
 class vB_DataManager_Event extends vB_DataManager
 {
@@ -112,9 +112,6 @@ class vB_DataManager_Event extends vB_DataManager
 	*/
 	function verify_title(&$title)
 	{
-
-		$title = fetch_censored_text($title);
-
 		// replace html-encoded spaces with actual spaces
 		$title = preg_replace('/&#(0*32|x0*20);/', ' ', $title);
 
@@ -124,9 +121,9 @@ class vB_DataManager_Event extends vB_DataManager
 			$title = fetch_word_wrapped_string($title);
 		}
 
-		// remove all caps subjects
 		require_once(DIR . '/includes/functions_newpost.php');
-		$title = fetch_no_shouting_text($title);
+		// censor, remove all caps subjects, and htmlspecialchars post title
+		$title = htmlspecialchars_uni(fetch_no_shouting_text(fetch_censored_text($title)));
 
 		$title = trim($title);
 
@@ -272,36 +269,30 @@ class vB_DataManager_Event extends vB_DataManager
 			if ($this->info['type'] != 'single')
 			{
 				// extract the relevant info from from_time and to_time
-				if (!empty($this->info['fromtime']['user']) AND empty($this->info['fromtime']['defined']))
+
+				$time_re = '#^(0?[0-9]|1[012])\s*[:.]\s*([0-5]\d)(\s*[AP]M)?|([01]\d|2[0-3])\s*[:.]\s*([0-5]\d)$#i';
+
+				// match text in field for a valid time
+				if (preg_match($time_re, $this->info['fromtime'], $matches))
 				{
-					// match text in field for a valid time
-					if (preg_match('#^(0?[1-9]|1[012])[:\.]([0-5]\d)(\s*[AP]M)|([01]\d|2[0-3])[:\.]([0-5]\d)$#i', $this->info['fromtime']['user'], $matches))
+					if (count($matches) == 3)
 					{
-						if (count($matches) == 4)
-						{
-							$from_hour = intval($matches[1]);
-							$from_minute = intval($matches[2]);
-							$from_ampm = strtoupper(trim($matches[3]));
-						}
-						else // 24hr time
-						{
-							$from_hour = intval($matches[4]);
-							$from_minute = intval($matches[5]);
-							$from_ampm = ($from_hour <= 11) ? 'AM' : 'PM';
-						}
+						$from_hour = intval($matches[1]);
+						$from_minute = intval($matches[2]);
+						$from_ampm = $matches[1] == '12' ? 'PM' : 'AM';
 					}
-					else
+					else if (count($matches) == 4)
 					{
-						$this->error('calendarbadtime');
-						return false;
+						$from_hour = intval($matches[1]);
+						$from_minute = intval($matches[2]);
+						$from_ampm = strtoupper(trim($matches[3]));
 					}
-				}
-				else if (!empty($this->info['fromtime']['defined']) AND empty($this->info['fromtime']['user']))
-				{
-					$ft = explode('_', $this->info['fromtime']['defined']);
-					$from_hour = intval($ft[0]);
-					$from_minute = intval($ft[1]);
-					$from_ampm = $ft[2];
+					else // 24hr time
+					{
+						$from_hour = intval($matches[4]);
+						$from_minute = intval($matches[5]);
+						$from_ampm = ($from_hour <= 11) ? 'AM' : 'PM';
+					}
 				}
 				else
 				{
@@ -309,36 +300,27 @@ class vB_DataManager_Event extends vB_DataManager
 					return false;
 				}
 
-				if (!empty($this->info['totime']['user']) AND empty($this->info['totime']['defined']))
+				// preg match text in field for a valid time
+				if (preg_match($time_re, $this->info['totime'], $matches))
 				{
-					// preg match text in field for a valid time
-					if (preg_match('#^(0?[1-9]|1[012])[:\.]([0-5]\d)(\s*[AP]M)|([01]\d|2[0-3])[:\.]([0-5]\d)$#i', $this->info['totime']['user'], $matches))
+					if (count($matches) == 3)
 					{
-						if (count($matches) == 4)
-						{
-							$to_hour = intval($matches[1]);
-							$to_minute = intval($matches[2]);
-							$to_ampm = strtoupper(trim($matches[3]));
-						}
-						else // 24hr time
-						{
-							$to_hour = intval($matches[4]);
-							$to_minute = intval($matches[5]);
-							$to_ampm = ($to_hour <= 11) ? 'AM' : 'PM';
-						}
+						$to_hour = intval($matches[1]);
+						$to_minute = intval($matches[2]);
+						$to_ampm = $matches[1] == '12' ? 'PM' : 'AM';
 					}
-					else
+					else if (count($matches) == 4)
 					{
-						$this->error('calendarbadtime');
-						return false;
+						$to_hour = intval($matches[1]);
+						$to_minute = intval($matches[2]);
+						$to_ampm = strtoupper(trim($matches[3]));
 					}
-				}
-				else if (!empty($this->info['totime']['defined']) AND empty($this->info['totime']['user']))
-				{
-					$tt = explode('_', $this->info['totime']['defined']);
-					$to_hour = intval($tt[0]);
-					$to_minute = intval($tt[1]);
-					$to_ampm = $tt[2];
+					else // 24hr time
+					{
+						$to_hour = intval($matches[4]);
+						$to_minute = intval($matches[5]);
+						$to_ampm = ($to_hour <= 11) ? 'AM' : 'PM';
+					}
 				}
 				else
 				{
@@ -379,8 +361,14 @@ class vB_DataManager_Event extends vB_DataManager
 					}
 				}
 
-				$from_hour = $from_hour - $this->fetch_field('utc');
-				$to_hour = $to_hour - $this->fetch_field('utc');
+				$min_offset = $this->fetch_field('utc') - intval($this->fetch_field('utc'));
+
+				$from_hour   -= intval($this->fetch_field('utc'));
+				$from_minute -= intval($min_offset * 60);
+
+				$to_hour   -= intval($this->fetch_field('utc'));
+				$to_minute -= intval($min_offset * 60);
+
 				$dateline_to = gmmktime($to_hour, $to_minute, 0, $this->info['todate']['month'], $this->info['todate']['day'], $this->info['todate']['year']);
 				$dateline_from = gmmktime($from_hour, $from_minute, 0, $this->info['fromdate']['month'], $this->info['fromdate']['day'], $this->info['fromdate']['year']);
 
@@ -533,6 +521,15 @@ class vB_DataManager_Event extends vB_DataManager
 	*/
 	function post_save_each($doquery = true)
 	{
+		if (!$this->condition)
+		{
+			$activity = new vB_ActivityStream_Manage('calendar', 'event');
+			$activity->set('contentid', intval($this->fetch_field('eventid')));
+			$activity->set('userid', intval($this->fetch_field('userid')));
+			$activity->set('dateline', intval($this->fetch_field('dateline')));
+			$activity->set('action', 'create');
+			$activity->save();
+		}
 
 		if ($this->condition AND ($this->fetch_field('dateline_from') - $this->existing['dateline_from']) >= 82800)
 		{
@@ -570,6 +567,9 @@ class vB_DataManager_Event extends vB_DataManager
 	*/
 	function post_delete($doquery = true)
 	{
+		$activity = new vB_ActivityStream_Manage('calendar', 'event');
+		$activity->set('contentid', intval($this->fetch_field('eventid')));
+		$activity->delete();
 
 		$this->dbobject->query_write("DELETE FROM " . TABLE_PREFIX . "subscribeevent WHERE eventid = " . intval($this->fetch_field('eventid')));
 
@@ -584,8 +584,8 @@ class vB_DataManager_Event extends vB_DataManager
 
 /*======================================================================*\
 || ####################################################################
-|| # Downloaded: 16:21, Sat Apr 6th 2013
-|| # CVS: $RCSfile$ - $Revision: 16294 $
+|| # Downloaded: 14:57, Sun Aug 11th 2013
+|| # CVS: $RCSfile$ - $Revision: 63836 $
 || ####################################################################
 \*======================================================================*/
 ?>

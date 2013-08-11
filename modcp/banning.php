@@ -1,9 +1,9 @@
 <?php
 /*======================================================================*\
 || #################################################################### ||
-|| # vBulletin 3.7.2 Patch Level 2 - Licence Number VBF2470E4F
+|| # vBulletin 4.2.1 - Licence Number VBC2DDE4FB
 || # ---------------------------------------------------------------- # ||
-|| # Copyright ©2000-2013 Jelsoft Enterprises Ltd. All Rights Reserved. ||
+|| # Copyright ©2000-2013 vBulletin Solutions Inc. All Rights Reserved. ||
 || # This file may not be redistributed in whole or significant part. # ||
 || # ---------------- VBULLETIN IS NOT FREE SOFTWARE ---------------- # ||
 || # http://www.vbulletin.com | http://www.vbulletin.com/license.html # ||
@@ -14,7 +14,7 @@
 error_reporting(E_ALL & ~E_NOTICE);
 
 // ##################### DEFINE IMPORTANT CONSTANTS #######################
-define('CVS_REVISION', '$RCSfile$ - $Revision: 26706 $');
+define('CVS_REVISION', '$RCSfile$ - $Revision: 51126 $');
 define('NOZIP', 1);
 
 // #################### PRE-CACHE TEMPLATES AND DATA ######################
@@ -37,8 +37,8 @@ if ($_POST['do'] != 'doliftban')
 // ########################################################################
 
 print_cp_header($vbphrase['user_banning']);
-$canbanuser = ($vbulletin->userinfo['permissions']['adminpermissions'] & $vbulletin->bf_ugp_adminpermissions['cancontrolpanel'] OR can_moderate(0, 'canbanusers')) ? true : false;
-$canunbanuser = ($vbulletin->userinfo['permissions']['adminpermissions'] & $vbulletin->bf_ugp_adminpermissions['cancontrolpanel'] OR can_moderate(0, 'canunbanusers')) ? true : false;
+$canbanuser = (can_administer('canadminusers') OR can_moderate(0, 'canbanusers')) ? true : false;
+$canunbanuser = (can_administer('canadminusers') OR can_moderate(0, 'canunbanusers')) ? true : false;
 
 // check banning permissions
 if (!$canbanuser AND !$canunbanuser)
@@ -142,7 +142,7 @@ if ($_POST['do'] == 'doliftban')
 	{
 		$usertitle = $user['banusertitle'];
 	}
-	else if (!$usergroup['banusertitle'])
+	else if (!$usergroup['usertitle'])
 	{
 		$gettitle = $db->query_first("
 			SELECT title
@@ -154,7 +154,7 @@ if ($_POST['do'] == 'doliftban')
 	}
 	else
 	{
-		$usertitle = $usergroup['banusertitle'];
+		$usertitle = $usergroup['usertitle'];
 	}
 
 	$userdm =& datamanager_init('User', $vbulletin, ERRTYPE_CP);
@@ -188,7 +188,7 @@ if ($_POST['do'] == 'doliftban')
 	log_admin_action(!empty($user['username']) ? 'username = ' . $user['username'] : 'userid = ' . $vbulletin->GPC['userid']);
 
 	define('CP_REDIRECT', 'banning.php');
-	print_stop_message('lifted_ban_on_user_x_successfully', "<b>$user[userame]</b>");
+	print_stop_message('lifted_ban_on_user_x_successfully', "<b>$user[username]</b>");
 }
 
 // #############################################################################
@@ -282,7 +282,7 @@ if ($_POST['do'] == 'dobanuser')
 	{
 		if ($liftdate AND $liftdate < $check['liftdate'])
 		{
-			if (!($vbulletin->userinfo['permissions']['adminpermissions'] & $vbulletin->bf_ugp_adminpermissions['cancontrolpanel']) AND !can_moderate(0, 'canunbanusers'))
+			if (!$canunbanuser)
 			{
 				print_stop_message('no_permission_un_ban_users');
 			}
@@ -512,7 +512,7 @@ if ($_REQUEST['do'] == 'modify')
 	}
 	$start = ($vbulletin->GPC['pagenumber'] - 1) * $perpage;
 
-	function construct_banned_user_row($user)
+	function construct_banned_user_row($user, $canunbanuser)
 	{
 		global $vbulletin, $vbphrase;
 
@@ -569,10 +569,10 @@ if ($_REQUEST['do'] == 'modify')
 				$user['banremaining'] = "$remain_days $day_word, $remain_hours $hour_word";
 			}
 		}
-		$cell = array("<a href=\"" . iif(($vbulletin->userinfo['permissions']['adminpermissions'] & $vbulletin->bf_ugp_adminpermissions['cancontrolpanel']), '../' . $vbulletin->config['Misc']['admincpdir'] . '/') . 'user.php?' . $vbulletin->session->vars['sessionurl'] . "do=edit&amp;u=$user[userid]\"><b>$user[username]</b></a>");
+		$cell = array("<a href=\"" . iif(can_administer('canadminusers'), '../' . $vbulletin->config['Misc']['admincpdir'] . '/') . 'user.php?' . $vbulletin->session->vars['sessionurl'] . "do=edit&amp;u=$user[userid]\"><b>$user[username]</b></a>");
 		if ($user['bandate'])
 		{
-			$cell[] = iif($user['adminid'], "<a href=\"" . iif(($vbulletin->userinfo['permissions']['adminpermissions'] & $vbulletin->bf_ugp_adminpermissions['cancontrolpanel']), '../' . $vbulletin->config['Misc']['admincpdir'] . '/') . 'user.php?' . $vbulletin->session->vars['sessionurl'] . "do=edit&amp;u=$user[adminid]\">$user[adminname]</a>", $vbphrase['n_a']);
+			$cell[] = iif($user['adminid'], "<a href=\"" . iif(can_administer('canadminusers'), '../' . $vbulletin->config['Misc']['admincpdir'] . '/') . 'user.php?' . $vbulletin->session->vars['sessionurl'] . "do=edit&amp;u=$user[adminid]\">$user[adminname]</a>", $vbphrase['n_a']);
 			$cell[] = vbdate($vbulletin->options['dateformat'], $user['bandate']);
 		}
 		else
@@ -583,7 +583,7 @@ if ($_REQUEST['do'] == 'modify')
 		$cell[] = $user['banperiod'];
 		$cell[] = $user['banlift'];
 		$cell[] = $user['banremaining'];
-		if (($vbulletin->userinfo['permissions']['adminpermissions'] & $vbulletin->bf_ugp_adminpermissions['cancontrolpanel']) OR can_moderate(0, 'canunbanusers'))
+		if ($canunbanuser)
 		{
 			$cell[] = construct_link_code($vbphrase['lift_ban'], 'banning.php?' . $vbulletin->session->vars['sessionurl'] . "do=liftban&amp;u=$user[userid]");
 		}
@@ -615,7 +615,7 @@ if ($_REQUEST['do'] == 'modify')
 		$vbphrase['ban_will_be_lifted_on'],
 		$vbphrase['ban_time_remaining']
 	);
-	if (($vbulletin->userinfo['permissions']['adminpermissions'] & $vbulletin->bf_ugp_adminpermissions['cancontrolpanel']) OR can_moderate(0, 'canunbanusers'))
+	if ($canunbanuser)
 	{
 		$headercell[] = $vbphrase['lift_ban'];
 	}
@@ -649,7 +649,7 @@ if ($_REQUEST['do'] == 'modify')
 			print_cells_row($headercell, 1);
 			while ($user = $db->fetch_array($tempusers))
 			{
-				print_cells_row(construct_banned_user_row($user));
+				print_cells_row(construct_banned_user_row($user, $canunbanuser));
 			}
 			print_description_row("<div class=\"smallfont\" align=\"center\">$vbphrase[all_times_are_gmt_x_time_now_is_y]</div>", 0, 8, 'thead');
 			if ($canbanuser)
@@ -719,7 +719,7 @@ if ($_REQUEST['do'] == 'modify')
 		print_cells_row($headercell, 1);
 		while ($user = $db->fetch_array($permusers))
 		{
-			print_cells_row(construct_banned_user_row($user));
+			print_cells_row(construct_banned_user_row($user, $canunbanuser));
 		}
 		print_submit_row($vbphrase['ban_user'], 0, 8);
 	}
@@ -742,8 +742,8 @@ print_cp_footer();
 
 /*======================================================================*\
 || ####################################################################
-|| # Downloaded: 16:21, Sat Apr 6th 2013
-|| # CVS: $RCSfile$ - $Revision: 26706 $
+|| # Downloaded: 14:57, Sun Aug 11th 2013
+|| # CVS: $RCSfile$ - $Revision: 51126 $
 || ####################################################################
 \*======================================================================*/
 ?>

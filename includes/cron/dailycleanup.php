@@ -1,9 +1,9 @@
 <?php
 /*======================================================================*\
 || #################################################################### ||
-|| # vBulletin 3.7.2 Patch Level 2 - Licence Number VBF2470E4F
+|| # vBulletin 4.2.1 - Licence Number VBC2DDE4FB
 || # ---------------------------------------------------------------- # ||
-|| # Copyright ©2000-2013 Jelsoft Enterprises Ltd. All Rights Reserved. ||
+|| # Copyright ©2000-2013 vBulletin Solutions Inc. All Rights Reserved. ||
 || # This file may not be redistributed in whole or significant part. # ||
 || # ---------------- VBULLETIN IS NOT FREE SOFTWARE ---------------- # ||
 || # http://www.vbulletin.com | http://www.vbulletin.com/license.html # ||
@@ -51,11 +51,11 @@ $announcements = $vbulletin->db->query_write("
 
 $vbulletin->db->query_write("DELETE FROM " . TABLE_PREFIX . "postlog WHERE dateline < " . (TIMENOW - ($vbulletin->options['postlog_maxage'] * 60 * 60 * 24)));
 
-if ($vbulletin->options['tagcloud_history'])
+if ($vbulletin->options['tagcloud_searchhistory'])
 {
 	$vbulletin->db->query_write("
 		DELETE FROM " . TABLE_PREFIX . "tagsearch
-		WHERE dateline < " . (TIMENOW - ($vbulletin->options['tagcloud_history'] * 60 * 60 * 24))
+		WHERE dateline < " . (TIMENOW - ($vbulletin->options['tagcloud_searchhistory'] * 60 * 60 * 24))
 	);
 }
 
@@ -66,7 +66,7 @@ if ($vbulletin->options['profilemaxvisitors'] < 2)
 }
 
 // remove profile visits beyond the first $vbulletin->options['profilemaxvisitors']
-$rebuild_db = $vbulletin->db->query_read("
+$rebuild_db = $vbulletin->db->query_read_slave("
 	SELECT userid
 	FROM " . TABLE_PREFIX . "profilevisitor
 	WHERE visible = 1
@@ -93,14 +93,44 @@ while ($user = $vbulletin->db->fetch_array($rebuild_db))
 	}
 }
 
+if ($vbulletin->options['contentread_cleandays'])
+{
+	$clean_date = TIMENOW - ($vbulletin->options['contentread_cleandays'] * 86400);
+	
+	$vbulletin->db->query_write("
+		DELETE contentread, ipdata
+		FROM " . TABLE_PREFIX . "contentread AS contentread
+		INNER JOIN " . TABLE_PREFIX . "ipdata AS ipdata USING (ipid)
+		WHERE contentread.dateline < $clean_date
+	");
+}
+
+// Remove expired activity
+if ($vbulletin->options['as_expire'])
+{
+	$value = intval($vbulletin->options['as_expire']);
+	if (!$value)
+	{
+		$value = 3;
+	}
+	if ($value > 180)
+	{
+		$value = 180;
+	}
+	$vbulletin->db->query_write("
+		DELETE FROM " . TABLE_PREFIX . "activitystream
+		WHERE dateline < " . (TIMENOW - ($value * 60 * 60 * 24))
+	);
+}
+
 ($hook = vBulletinHook::fetch_hook('cron_script_cleanup_daily')) ? eval($hook) : false;
 
 log_cron_action('', $nextitem, 1);
 
 /*======================================================================*\
 || ####################################################################
-|| # Downloaded: 16:21, Sat Apr 6th 2013
-|| # CVS: $RCSfile$ - $Revision: 25396 $
+|| # Downloaded: 14:57, Sun Aug 11th 2013
+|| # CVS: $RCSfile$ - $Revision: 62620 $
 || ####################################################################
 \*======================================================================*/
 ?>

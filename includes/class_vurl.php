@@ -1,9 +1,9 @@
 <?php
 /*======================================================================*\
 || #################################################################### ||
-|| # vBulletin 3.7.2 Patch Level 2 - Licence Number VBF2470E4F
+|| # vBulletin 4.2.1 - Licence Number VBC2DDE4FB
 || # ---------------------------------------------------------------- # ||
-|| # Copyright ©2000-2013 Jelsoft Enterprises Ltd. All Rights Reserved. ||
+|| # Copyright ©2000-2013 vBulletin Solutions Inc. All Rights Reserved. ||
 || # This file may not be redistributed in whole or significant part. # ||
 || # ---------------- VBULLETIN IS NOT FREE SOFTWARE ---------------- # ||
 || # http://www.vbulletin.com | http://www.vbulletin.com/license.html # ||
@@ -42,14 +42,18 @@ define('VURL_ERROR_NOLIB',         8);
 define('VURL_HANDLED',             1);
 define('VURL_NEXT',                2);
 
+define('VURL_STATE_HEADERS',  1);
+define('VURL_STATE_LOCATION', 2);
+define('VURL_STATE_BODY',     3);
+
 /**
 * vBulletin remote url class
 *
 * This class handles sending and returning data to remote urls via cURL and fsockopen
 *
 * @package 		vBulletin
-* @version		$Revision: 26813 $
-* @date 		$Date: 2008-06-03 11:25:58 -0500 (Tue, 03 Jun 2008) $
+* @version		$Revision: 63865 $
+* @date 		$Date: 2012-06-25 14:04:44 -0700 (Mon, 25 Jun 2012) $
 *
 */
 class vB_vURL
@@ -128,7 +132,8 @@ class vB_vURL
 			VURL_URL        => '',
 			VURL_HTTPHEADER => array(),
 			VURL_MAXREDIRS  => 5,
-			VURL_USERAGENT  => 'vBulletin via PHP'
+			VURL_USERAGENT  => 'vBulletin via PHP',
+			VURL_DIEONMAXSIZE => 1
 		);
 
 		foreach (array_keys($this->transports) AS $tname)
@@ -159,9 +164,9 @@ class vB_vURL
 		foreach ($this->classnames AS $classname)
 		{
 			$fullclass = 'vB_vURL_' . $classname;
-			if (class_exists($fullclass))
+			if (class_exists($fullclass, false))
 			{
-				$this->transports["$classname"] =& new $fullclass($this);
+				$this->transports["$classname"] = new $fullclass($this);
 			}
 		}
 		$this->reset();
@@ -285,7 +290,7 @@ class vB_vURL
 	/**
 	* The function which formats the response array, removing what isn't required
 	*
-	* @param	array		response containng headers and body / body_file
+	* @param	array		response containing headers and body / body_file
 	*
 	* @return	mixed		true or array depending on response requested
 	*/
@@ -295,11 +300,11 @@ class vB_vURL
 		{
 			if ($this->bitoptions & VURL_HEADER)
 			{
-				$headers = $this->build_headers($response['headers']);
+				$response['headers'] = $this->build_headers($response['headers']);
 
 				if ($this->bitoptions & VURL_NOBODY)
 				{
-					return $headers;
+					return $response['headers'];
 				}
 				else
 				{
@@ -333,7 +338,7 @@ class vB_vURL
 	{
 		if ($this->registry->options['safeupload'])
 		{
-			$this->tmpfile = @tempnam($this->registry->options['tmppath'] . '/', 'vbupload');
+			$this->tmpfile = $this->registry->options['tmppath'] . '/vbupload' . $this->registry->userinfo['userid'] . substr(TIMENOW, -4);
 		}
 		else
 		{
@@ -357,10 +362,6 @@ class vB_vURL
 		foreach (array_keys($this->transports) AS $tname)
 		{
 			$transport =& $this->transports[$tname];
-			if (PHP_VERSION < 5)
-			{
-				$transport->vurl =& $this;
-			}
 			if (($result = $transport->exec()) === VURL_HANDLED  AND !$this->fetch_error())
 			{
 				return $this->format_response(array('headers' => $transport->response_header, 'body' => $transport->response_text, 'body_file' => $this->tmpfile));
@@ -370,7 +371,6 @@ class vB_vURL
 			{
 				return false;
 			}
-
 		}
 
 		@unlink($this->tmpfile);
@@ -472,11 +472,33 @@ class vB_vURL
 		{
 			$this->set_option(VURL_HEADER, true);
 		}
-		if ($dieonmaxsize)
+		if (!$dieonmaxsize)
 		{
-			$this->set_option(VURL_DIEONMAXSIZE, true);
+			$this->set_option(VURL_DIEONMAXSIZE, false);
 		}
 		return $this->exec();
+	}
+
+	/**
+	 * Tests the transports for ssl support.
+	 *
+	 * @return	bool	Success
+	 *
+	 */
+	function test_ssl()
+	{
+		$ssl_support = false;
+		foreach (array_keys($this->transports) AS $tname)
+		{
+			$transport =& $this->transports[$tname];
+			if ($transport->test_ssl())
+			{
+				$ssl_support = true;
+				break;
+			}
+		}
+
+		return $ssl_support;
 	}
 }
 
@@ -525,11 +547,18 @@ class vB_vURL_cURL
 	var $response_length = 0;
 
 	/**
-	* Private variable when we request headers
+	* Private variable when we request headers. Values are one of VURL_STATE_* constants.
 	*
-	* @var	boolean
+	* @var	int
 	*/
-	var $__finished_headers = false;
+	var $__finished_headers = VURL_STATE_HEADERS;
+
+	/**
+	* If the current result is when the max limit is reached
+	*
+	* @var	integer
+	*/
+	var $max_limit_reached = false;
 
 	/**
 	* Constructor
@@ -543,6 +572,24 @@ class vB_vURL_cURL
 			trigger_error('Direct Instantiation of ' . __CLASS__ . ' prohibited.', E_USER_ERROR);
 		}
 		$this->vurl =& $vurl_registry;
+	}
+
+	/**
+	 * Tests cURL for ssl support.
+	 *
+	 * @return	bool	Success
+	 *
+	 */
+	function test_ssl()
+	{
+		if (!function_exists('curl_init') OR ($ch = curl_init()) === false)
+		{
+			return false;
+		}
+		curl_close($ch);
+
+		$curlinfo = curl_version();
+		return !empty($curlinfo['ssl_version']);
 	}
 
 	/**
@@ -577,12 +624,28 @@ class vB_vURL_cURL
 		/* We receive both headers + body */
 		if ($this->vurl->bitoptions & VURL_HEADER)
 		{
-			if (!$this->__finished_headers)
+			if ($this->__finished_headers != VURL_STATE_BODY)
 			{
+				if ($this->vurl->bitoptions & VURL_FOLLOWLOCATION AND preg_match('#(?<=\r\n|^)Location:#i', $response))
+				{
+					$this->__finished_headers = VURL_STATE_LOCATION;
+				}
+
 				if ($response === "\r\n")
 				{
-					$this->__finished_headers = true;
+					if ($this->__finished_headers == VURL_STATE_LOCATION)
+					{
+						// found a location -- still following it; reset the headers so they only match the new request
+						$this->response_header = '';
+						$this->__finished_headers = VURL_STATE_HEADERS;
+					}
+					else
+					{
+						// no location -- we're done
+						$this->__finished_headers = VURL_STATE_BODY;
+					}
 				}
+
 				return $chunk_length;
 			}
 		}
@@ -611,6 +674,7 @@ class vB_vURL_cURL
 
 		if ($this->vurl->options[VURL_MAXSIZE] AND $this->response_length > $this->vurl->options[VURL_MAXSIZE])
 		{
+			$this->max_limit_reached = true;
 			$this->vurl->set_error(VURL_ERROR_MAXSIZE);
 			return false;
 		}
@@ -626,7 +690,8 @@ class vB_vURL_cURL
 		$this->response_text = '';
 		$this->response_header = '';
 		$this->response_length = 0;
-		$this->__finished_headers = false;
+		$this->__finished_headers = VURL_STATE_HEADERS;
+		$this->max_limit_reached = false;
 	}
 
 	/**
@@ -636,7 +701,7 @@ class vB_vURL_cURL
 	*/
 	function exec()
 	{
-		$urlinfo = @parse_url($this->vurl->options[VURL_URL]);
+		$urlinfo = $this->vurl->registry->input->parse_url($this->vurl->options[VURL_URL]);
 		if (empty($urlinfo['port']))
 		{
 			if ($urlinfo['scheme'] == 'https')
@@ -707,8 +772,7 @@ class vB_vURL_cURL
 			@curl_setopt($this->ch, CURLOPT_ENCODING, $this->vurl->options[VURL_ENCODING]); // this will work on versions of cURL after 7.10, though was broken on PHP 4.3.6/Win32
 		}
 
-		$this->response_text = '';
-		$this->response_header = '';
+		$this->reset();
 
 		curl_setopt($this->ch, CURLOPT_WRITEFUNCTION, array(&$this, 'curl_callback_response'));
 		curl_setopt($this->ch, CURLOPT_HEADERFUNCTION, array(&$this, 'curl_callback_header'));
@@ -734,7 +798,7 @@ class vB_vURL_cURL
 			$this->fp = null;
 		}
 
-		if ($result !== false)
+		if ($result !== false OR (!$this->vurl->options[VURL_DIEONMAXSIZE] AND $this->max_limit_reached))
 		{
 			return VURL_HANDLED;
 		}
@@ -780,6 +844,13 @@ class vB_vURL_fsockopen
 	var $response_length = 0;
 
 	/**
+	* If the current result is when the max limit is reached
+	*
+	* @var	integer
+	*/
+	var $max_limit_reached = false;
+
+	/**
 	* Constructor
 	*
 	* @param	object	Instance of a vB_vURL Object
@@ -794,6 +865,17 @@ class vB_vURL_fsockopen
 	}
 
 	/**
+	 * Tests sockets for ssl support.
+	 *
+	 * @return	bool	Success
+	 *
+	 */
+	function test_ssl()
+	{
+		return function_exists('openssl_open');
+	}
+
+	/**
 	* Clears all previous request info
 	*/
 	function reset()
@@ -801,6 +883,7 @@ class vB_vURL_fsockopen
 		$this->response_text = '';
 		$this->response_header = '';
 		$this->response_length = 0;
+		$this->max_limit_reached = false;
 	}
 
 	/**
@@ -901,6 +984,7 @@ class vB_vURL_fsockopen
 
 		if ($this->vurl->options[VURL_MAXSIZE] AND $this->response_length > $this->vurl->options[VURL_MAXSIZE])
 		{
+			$this->max_limit_reached = true;
 			$this->vurl->set_error(VURL_ERROR_MAXSIZE);
 			return false;
 		}
@@ -917,7 +1001,7 @@ class vB_vURL_fsockopen
 	{
 		static $location_following_count = 0;
 
-		$urlinfo = @parse_url($this->vurl->options[VURL_URL]);
+		$urlinfo = $this->vurl->registry->input->parse_url($this->vurl->options[VURL_URL]);
 		if (empty($urlinfo['port']))
 		{
 			if ($urlinfo['scheme'] == 'https')
@@ -928,6 +1012,11 @@ class vB_vURL_fsockopen
 			{
 				$urlinfo['port'] = 80;
 			}
+		}
+
+		if (empty($urlinfo['path']))
+		{
+			$urlinfo['path'] = '/';
 		}
 
 		if ($urlinfo['scheme'] == 'https')
@@ -1048,9 +1137,9 @@ class vB_vURL_fsockopen
 				$this->fp = null;
 			}
 
-			if ($result !== false)
+			if ($result !== false OR (!$this->vurl->options[VURL_DIEONMAXSIZE] AND $this->max_limit_reached))
 			{
-				if ($this->vurl->bitoptions & VURL_FOLLOWLOCATION AND preg_match("#\r\nLocation: (.*)\r\n#siU", $this->response_header, $location) AND $location_following_count < $this->vurl->options[VURL_MAXREDIRS])
+				if ($this->vurl->bitoptions & VURL_FOLLOWLOCATION AND preg_match("#\r\nLocation: (.*)(\r\n|$)#siU", $this->response_header, $location) AND $location_following_count < $this->vurl->options[VURL_MAXREDIRS])
 				{
 					$location_following_count++;
 					$this->vurl->set_option(VURL_URL, trim($location[1]));
@@ -1081,8 +1170,8 @@ class vB_vURL_fsockopen
 
 /*======================================================================*\
 || ####################################################################
-|| # Downloaded: 16:21, Sat Apr 6th 2013
-|| # CVS: $RCSfile$ - $Revision: 26813 $
+|| # Downloaded: 14:57, Sun Aug 11th 2013
+|| # CVS: $RCSfile$ - $Revision: 63865 $
 || ####################################################################
 \*======================================================================*/
 ?>

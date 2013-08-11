@@ -1,9 +1,9 @@
 <?php
 /*======================================================================*\
 || #################################################################### ||
-|| # vBulletin 3.7.2 Patch Level 2 - Licence Number VBF2470E4F
+|| # vBulletin 4.2.1 - Licence Number VBC2DDE4FB
 || # ---------------------------------------------------------------- # ||
-|| # Copyright Â©2000-2013 Jelsoft Enterprises Ltd. All Rights Reserved. ||
+|| # Copyright ©2000-2013 vBulletin Solutions Inc. All Rights Reserved. ||
 || # This file may not be redistributed in whole or significant part. # ||
 || # ---------------- VBULLETIN IS NOT FREE SOFTWARE ---------------- # ||
 || # http://www.vbulletin.com | http://www.vbulletin.com/license.html # ||
@@ -47,13 +47,22 @@ require_once(DIR . '/includes/functions_log_error.php');
 // ######################## START MAIN SCRIPT ############################
 // #######################################################################
 
+$types = vB_Types::instance();
+$contenttypeid = $types->getContentTypeID('vBForum_Album');
+
+if (($current_memory_limit = ini_size_to_bytes(@ini_get('memory_limit'))) < 128 * 1024 * 1024 AND $current_memory_limit > 0)
+{
+	@ini_set('memory_limit', 128 * 1024 * 1024);
+}
+@set_time_limit(0);
+
 $itemlimit = 200;
 
 // This is a list of ids that were checked on the page we submitted from
 $vbulletin->input->clean_array_gpc('p', array(
 	'picturecommentlist' => TYPE_ARRAY_KEYS_INT,
 	'picturelist'        => TYPE_ARRAY_KEYS_INT,
-	'pictureid'          => TYPE_UINT,
+	'attachmentid'       => TYPE_UINT,
 ));
 
 $vbulletin->input->clean_array_gpc('c', array(
@@ -136,38 +145,6 @@ switch ($_POST['do'])
 			standard_error(fetch_error('you_are_limited_to_working_with_x_messages', $itemlimit));
 		}
 		break;
-
-	case 'pictureapprove':
-	case 'picturedelete':
-
-		if (empty($vbulletin->GPC['picturelist']))
-		{
-			standard_error(fetch_error('you_did_not_select_any_valid_pictures'));
-		}
-
-		if (count($vbulletin->GPC['picturelist']) > $itemlimit)
-		{
-			standard_error(fetch_error('you_are_limited_to_working_with_x_pictures', $itemlimit));
-		}
-
-		$pictureids = implode(', ', $vbulletin->GPC['picturelist']);
-		break;
-
-	case 'dopicturedelete':
-
-		require_once(DIR . '/includes/functions_album.php');
-
-		$vbulletin->input->clean_array_gpc('p', array(
-			'pictureids' => TYPE_STR,
-		));
-		$pictureids = explode(',', $vbulletin->GPC['pictureids']);
-		$pictureids = $vbulletin->input->clean($pictureids, TYPE_ARRAY_UINT);
-
-		if (count($pictureids) > $itemlimit)
-		{
-			standard_error(fetch_error('you_are_limited_to_working_with_x_pictures', $itemlimit));
-		}
-		break;
 }
 
 // set forceredirect for IIS
@@ -181,14 +158,14 @@ if ($_POST['do'] == 'clearpicture')
 {
 	setcookie('vbulletin_inlinepicture', '', TIMENOW - 3600, '/');
 
-	eval(print_standard_redirect('redirect_inline_messagelist_cleared', true, $forceredirect));
+	print_standard_redirect('redirect_inline_messagelist_cleared', true, $forceredirect);  
 }
 
 if ($_POST['do'] == 'clearmessage')
 {
 	setcookie('vbulletin_inlinepicturecomment', '', TIMENOW - 3600, '/');
 
-	eval(print_standard_redirect('redirect_inline_messagelist_cleared', true, $forceredirect));
+	print_standard_redirect('redirect_inline_messagelist_cleared', true, $forceredirect);  
 }
 
 if ($_POST['do'] == 'inlineapprove' OR $_POST['do'] == 'inlineunapprove')
@@ -199,17 +176,22 @@ if ($_POST['do'] == 'inlineapprove' OR $_POST['do'] == 'inlineunapprove')
 
 	// Validate Messages
 	$messages = $db->query_read_slave("
-		SELECT picturecomment.*, picture.userid AS picture_userid, picture.caption AS picture_caption
+		SELECT
+			picturecomment.*, a.userid AS picture_userid, a.caption AS picture_caption, a.attachmentid
 		FROM " . TABLE_PREFIX . "picturecomment AS picturecomment
-		INNER JOIN " . TABLE_PREFIX . "picture AS picture ON (picture.pictureid = picturecomment.pictureid)
-		WHERE picturecomment.commentid IN ($messageids)
-			AND picturecomment.state IN (" . ($approve ? "'moderation'" : "'visible', 'deleted'") . ")
+		INNER JOIN " . TABLE_PREFIX . "attachment AS a ON (a.filedataid = picturecomment.filedataid AND a.userid = picturecomment.userid)
+		WHERE
+			a.contenttypeid = $contenttypeid
+				AND
+			picturecomment.commentid IN ($messageids)
+				AND
+			picturecomment.state IN (" . ($approve ? "'moderation'" : "'visible', 'deleted'") . ")
 	");
 	while ($message = $db->fetch_array($messages))
 	{
 		$pictureinfo = array(
-			'pictureid' => $message['pictureid'],
-			'userid'    => $message['picture_userid']
+			'attachmentid' => $message['attachmentid'],
+			'userid'       => $message['picture_userid']
 		);
 
 		if ($message['state'] == 'deleted' AND !can_moderate(0, 'candeletepicturecomments'))
@@ -285,179 +267,12 @@ if ($_POST['do'] == 'inlineapprove' OR $_POST['do'] == 'inlineunapprove')
 
 	if ($approve)
 	{
-		eval(print_standard_redirect('redirect_inline_approvedmessages', true, $forceredirect));
+		print_standard_redirect('redirect_inline_approvedmessages', true, $forceredirect);  
 	}
 	else
 	{
-		eval(print_standard_redirect('redirect_inline_unapprovedmessages', true, $forceredirect));
+		print_standard_redirect('redirect_inline_unapprovedmessages', true, $forceredirect);  
 	}
-}
-
-if ($_POST['do'] == 'pictureapprove')
-{
-	if (!can_moderate(0, 'canmoderatepictures'))
-	{
-		standard_error(fetch_error('you_do_not_have_permission_to_moderate_pictures'));
-	}
-
-	$albumarray = array();
-	$picturearray = array();
-
-	// Validate Pictures
-	$pictures = $db->query_read_slave("
-		SELECT picture.pictureid, picture.state, picture.caption,
-			albumpicture.albumid,
-			album.title AS album_title, album.coverpictureid,
-			user.username
-		FROM " . TABLE_PREFIX . "picture AS picture
-		INNER JOIN " . TABLE_PREFIX . "albumpicture AS albumpicture ON (albumpicture.pictureid = picture.pictureid)
-		INNER JOIN " . TABLE_PREFIX . "album AS album ON (album.albumid = albumpicture.albumid)
-		LEFT JOIN " . TABLE_PREFIX . "user AS user ON (user.userid = album.userid)
-		WHERE picture.pictureid IN ($pictureids)
-			AND picture.state = 'moderation'
-	");
-	while ($picture = $db->fetch_array($pictures))
-	{
-		$picturearray["$picture[pictureid]"] = $picture;
-		if (!isset($albumarray["$picture[albumid]"]))
-		{
-			$albumarray["$picture[albumid]"] = array(
-				'coverpictureid' => $picture['coverpictureid'],
-				'pictureid' => $picture['pictureid']
-			);
-		}
-	}
-
-	if (empty($picturearray))
-	{
-		standard_error(fetch_error('you_did_not_select_any_valid_pictures'));
-	}
-
-	// Set message state
-	$db->query_write("
-		UPDATE " . TABLE_PREFIX . "picture
-		SET state = 'visible'
-		WHERE pictureid IN (" . implode(',', array_keys($picturearray)) . ")
-	");
-
-	foreach ($albumarray AS $albumid => $coverinfo)
-	{
-		$albuminfo = array('albumid' => $albumid);
-		$albumdata =& datamanager_init('Album', $vbulletin, ERRTYPE_SILENT);
-		$albumdata->set_existing($albuminfo);
-
-		if (!$coverinfo['coverpictureid'])
-		{
-			// no cover yet, so pick the first picture
-			$albumdata->set('coverpictureid', $coverinfo['pictureid']);
-		}
-
-		$albumdata->rebuild_counts();
-		$albumdata->save();
-		unset($albumdata);
-	}
-
-	foreach ($picturearray AS $picture)
-	{
-		log_moderator_action($picture, 'picture_x_in_y_by_z_approved',
-			array(fetch_trimmed_title($picture['caption'], 50), $picture['album_title'], $picture['username'])
-		);
-	}
-
-	setcookie('vbulletin_inlinepicture', '', TIMENOW - 3600, '/');
-
-	($hook = vBulletinHook::fetch_hook('picture_inlinemod_approve')) ? eval($hook) : false;
-
-	eval(print_standard_redirect('redirect_inline_approvedpictures', true, $forceredirect));
-}
-
-if ($_POST['do'] == 'picturedelete')
-{
-	$picturearray = $albumarray = array();
-
-	$pictures = $db->query_read_slave("
-		SELECT picture.pictureid, albumpicture.albumid, picture.state
-		FROM " . TABLE_PREFIX . "picture AS picture
-		LEFT JOIN " . TABLE_PREFIX . "albumpicture AS albumpicture ON (albumpicture.pictureid = picture.pictureid)
-		WHERE picture.pictureid IN ($pictureids)
-	");
-	while ($picture = $db->fetch_array($pictures))
-	{
-		if ($picture['state'] == 'moderation' AND !can_moderate(0, 'canmoderatepictures'))
-		{
-			standard_error(fetch_error('you_do_not_have_permission_to_moderate_pictures'));
-		}
-		else if (!can_moderate(0, 'candeletealbumpicture'))
-		{
-			standard_error(fetch_error('you_do_not_have_permission_to_delete_pictures'));
-		}
-
-		$picturearray["$picture[pictureid]"] = $picture;
-		$albumarray["$picture[albumid]"] = true;
-	}
-
-	if (empty($picturearray))
-	{
-		standard_error(fetch_error('you_did_not_select_any_valid_pictures'));
-	}
-
-	$albumcount = count($albumarray);
-	$picturecount = count($picturearray);
-
-	$url =& $vbulletin->url;
-
-	$navbits = array('' => $vbphrase['delete_pictures']);
-	$navbits = construct_navbits($navbits);
-	eval('$navbar = "' . fetch_template('navbar') . '";');
-
-	($hook = vBulletinHook::fetch_hook('picture_inlinemod_delete')) ? eval($hook) : false;
-
-	eval('print_output("' . fetch_template('moderation_deletepictures') . '");');
-
-}
-
-if ($_POST['do'] == 'dopicturedelete')
-{
-	$picturearray = $albumarray = array();
-
-	$pictures = $db->query_read_slave("
-		SELECT picture.pictureid, picture.state, picture.caption,
-			albumpicture.albumid, album.title AS album_title,
-			user.username
-		FROM " . TABLE_PREFIX . "picture AS picture
-		LEFT JOIN " . TABLE_PREFIX . "albumpicture AS albumpicture ON (albumpicture.pictureid = picture.pictureid)
-		LEFT JOIN " . TABLE_PREFIX . "album AS album ON (album.albumid = albumpicture.albumid)
-		LEFT JOIN " . TABLE_PREFIX . "user AS user ON (user.userid = album.userid)
-		WHERE picture.pictureid IN (" . implode(',', $pictureids) . ")
-	");
-	while ($picture = $db->fetch_array($pictures))
-	{
-		if ($picture['state'] == 'moderation' AND !can_moderate(0, 'canmoderatepictures'))
-		{
-			standard_error(fetch_error('you_do_not_have_permission_to_moderate_pictures'));
-		}
-		else if (!can_moderate(0, 'candeletealbumpicture'))
-		{
-			standard_error(fetch_error('you_do_not_have_permission_to_delete_pictures'));
-		}
-
-		$picturedata =& datamanager_init(fetch_picture_dm_name(), $vbulletin, ERRTYPE_SILENT, 'picture');
-		$picturedata->set_existing($picture);
-		$picturedata->delete();
-		unset($picturedata);
-
-		log_moderator_action($picture, 'picture_x_in_y_by_z_deleted',
-			array(fetch_trimmed_title($picture['caption'], 50), $picture['album_title'], $picture['username'])
-		);
-	}
-
-	// empty cookie
-	setcookie('vbulletin_inlinepicture', '', TIMENOW - 3600, '/');
-
-	($hook = vBulletinHook::fetch_hook('picture_inlinemod_dodelete')) ? eval($hook) : false;
-
-	eval(print_standard_redirect('redirect_inline_deletedpictures', true, $forceredirect));
-
 }
 
 if ($_POST['do'] == 'inlinedelete')
@@ -470,16 +285,17 @@ if ($_POST['do'] == 'inlinedelete')
 
 	// Validate Messages
 	$messages = $db->query_read_slave("
-		SELECT picturecomment.*, picture.userid AS picture_userid
+		SELECT
+			picturecomment.*, a.userid AS picture_userid
 		FROM " . TABLE_PREFIX . "picturecomment AS picturecomment
-		INNER JOIN " . TABLE_PREFIX . "picture AS picture ON (picture.pictureid = picturecomment.pictureid)
+		INNER JOIN " . TABLE_PREFIX . "attachment AS a ON (a.filedataid = picturecomment.filedataid AND a.userid = picturecomment.userid AND a.contenttypeid = " . intval($contenttypeid) . ")
 		WHERE picturecomment.commentid IN ($messageids)
 	");
 	while ($message = $db->fetch_array($messages))
 	{
 		$pictureinfo = array(
-			'pictureid' => $message['pictureid'],
-			'userid' => $message['picture_userid']
+			'attachmentid' => $message['attachmentid'],
+			'userid'       => $message['picture_userid']
 		);
 
 		$canmoderatemessages = fetch_user_picture_message_perm('canmoderatemessages', $pictureinfo, $message);
@@ -517,7 +333,7 @@ if ($_POST['do'] == 'inlinedelete')
 		}
 
 		$messagearray["$message[commentid]"] = $message;
-		$picturelist["$message[pictureid]"] = true;
+		$picturelist["$message[attachmentid]"] = true;
 		$userlist["$pictureinfo[userid]"] = true;
 	}
 
@@ -533,11 +349,19 @@ if ($_POST['do'] == 'inlinedelete')
 
 	$navbits = array('' => $vbphrase['delete_messages']);
 	$navbits = construct_navbits($navbits);
-	eval('$navbar = "' . fetch_template('navbar') . '";');
+	$navbar = render_navbar_template($navbits);
 
 	($hook = vBulletinHook::fetch_hook('picturecomment_inlinemod_delete')) ? eval($hook) : false;
 
-	eval('print_output("' . fetch_template('picturecomment_deletemessages') . '");');
+	$templater = vB_Template::create('picturecomment_deletemessages');
+		$templater->register_page_templates();
+		$templater->register('checked', $checked);
+		$templater->register('messagecount', $messagecount);
+		$templater->register('messageids', $messageids);
+		$templater->register('navbar', $navbar);
+		$templater->register('picturecount', $picturecount);
+		$templater->register('url', $url);
+	print_output($templater->render());
 
 }
 
@@ -553,16 +377,17 @@ if ($_POST['do'] == 'doinlinedelete')
 
 	// Validate Messages
 	$messages = $db->query_read_slave("
-		SELECT picturecomment.*, picture.userid AS picture_userid, picture.caption AS picture_caption
+		SELECT
+			picturecomment.*, a.userid AS picture_userid, a.caption AS picture_caption
 		FROM " . TABLE_PREFIX . "picturecomment AS picturecomment
-		INNER JOIN " . TABLE_PREFIX . "picture AS picture ON (picture.pictureid = picturecomment.pictureid)
+		INNER JOIN " . TABLE_PREFIX . "attachment AS a ON (a.filedataid = picturecomment.filedataid AND a.userid = picturecomment.userid AND a.contenttypeid = " . intval($contenttypeid) . ")
 		WHERE picturecomment.commentid IN (" . implode(',', $messageids) . ")
 	");
 	while ($message = $db->fetch_array($messages))
 	{
 		$pictureinfo = array(
-			'pictureid' => $message['pictureid'],
-			'userid' => $message['picture_userid']
+			'attachmentid' => $message['attachmentid'],
+			'userid'       => $message['picture_userid']
 		);
 
 		$canmoderatemessages = fetch_user_picture_message_perm('canmoderatemessages', $pictureinfo, $message);
@@ -603,10 +428,13 @@ if ($_POST['do'] == 'doinlinedelete')
 		$dataman->delete();
 		unset($dataman);
 
-		log_moderator_action($message,
-			($physicaldel ? 'pc_by_x_on_y_removed' : 'pc_by_x_on_y_soft_deleted'),
-			array($message['postusername'], fetch_trimmed_title($message['picture_caption'], 50))
-		);
+		if (can_moderate(0, 'candeletepicturecomments'))
+		{
+			log_moderator_action($message,
+				($physicaldel ? 'pc_by_x_on_y_removed' : 'pc_by_x_on_y_soft_deleted'),
+				array($message['postusername'], fetch_trimmed_title($message['picture_caption'], 50))
+			);
+		}
 	}
 
 	foreach(array_keys($userlist) AS $userid)
@@ -619,24 +447,24 @@ if ($_POST['do'] == 'doinlinedelete')
 
 	($hook = vBulletinHook::fetch_hook('picturecomment_inlinemod_dodelete')) ? eval($hook) : false;
 
-	eval(print_standard_redirect('redirect_inline_deletedmessages', true, $forceredirect));
+	print_standard_redirect('redirect_inline_deletedmessages', true, $forceredirect);  
 }
 
 if ($_POST['do'] == 'inlineundelete')
 {
 	// Validate Messages
 	$messages = $db->query_read_slave("
-		SELECT picturecomment.*, picture.userid AS picture_userid, picture.caption AS picture_caption
+		SELECT picturecomment.*, a.userid AS picture_userid, a.caption AS picture_caption
 		FROM " . TABLE_PREFIX . "picturecomment AS picturecomment
-		INNER JOIN " . TABLE_PREFIX . "picture AS picture ON (picture.pictureid = picturecomment.pictureid)
+		INNER JOIN " . TABLE_PREFIX . "attachment AS a ON (a.filedataid = picturecomment.filedataid AND a.userid = picturecomment.userid AND a.contenttypeid = " . intval($contenttypeid) . ")
 		WHERE picturecomment.commentid IN ($messageids)
 			AND picturecomment.state = 'deleted'
 	");
 	while ($message = $db->fetch_array($messages))
 	{
 		$pictureinfo = array(
-			'pictureid' => $message['pictureid'],
-			'userid' => $message['picture_userid']
+			'attachmentid' => $message['attachmentid'],
+			'userid'       => $message['picture_userid']
 		);
 		if (!can_moderate(0, 'candeletepicturecomments'))
 		{
@@ -668,11 +496,14 @@ if ($_POST['do'] == 'inlineundelete')
 		build_picture_comment_counters($userid);
 	}
 
-	foreach ($messagearray AS $message)
+	if (can_moderate(0, 'candeletepicturecomments'))
 	{
-		log_moderator_action($message, 'pc_by_x_on_y_undeleted',
-			array($message['postusername'], fetch_trimmed_title($message['picture_caption'], 50))
-		);
+		foreach ($messagearray AS $message)
+		{
+			log_moderator_action($message, 'pc_by_x_on_y_undeleted',
+				array($message['postusername'], fetch_trimmed_title($message['picture_caption'], 50))
+			);
+		}
 	}
 
 	// empty cookie
@@ -680,12 +511,12 @@ if ($_POST['do'] == 'inlineundelete')
 
 	($hook = vBulletinHook::fetch_hook('picturecomment_inlinemod_undelete')) ? eval($hook) : false;
 
-	eval(print_standard_redirect('redirect_inline_undeletedmessages', true, $forceredirect));
+	print_standard_redirect('redirect_inline_undeletedmessages', true, $forceredirect);  
 }
 
 /*======================================================================*\
 || ####################################################################
-|| # Downloaded: 16:21, Sat Apr 6th 2013
-|| # SVN: $Revision: 26399 $
+|| # Downloaded: 14:57, Sun Aug 11th 2013
+|| # SVN: $Revision: 63231 $
 || ####################################################################
 \*======================================================================*/

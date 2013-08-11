@@ -1,14 +1,21 @@
 <?php
 /*======================================================================*\
 || #################################################################### ||
-|| # vBulletin 3.7.2 Patch Level 2 - Licence Number VBF2470E4F
+|| # vBulletin 4.2.1 - Licence Number VBC2DDE4FB
 || # ---------------------------------------------------------------- # ||
-|| # Copyright ©2000-2013 Jelsoft Enterprises Ltd. All Rights Reserved. ||
+|| # Copyright ©2000-2013 vBulletin Solutions Inc. All Rights Reserved. ||
 || # This file may not be redistributed in whole or significant part. # ||
 || # ---------------- VBULLETIN IS NOT FREE SOFTWARE ---------------- # ||
 || # http://www.vbulletin.com | http://www.vbulletin.com/license.html # ||
 || #################################################################### ||
 \*======================================================================*/
+
+global 	$_CALENDAROPTIONS,
+		$_CALENDARHOLIDAYS,
+		$months,
+		$days,
+		$period,
+		$reminder;
 
 // Defined constants used for calendars
 $_CALENDAROPTIONS = array(
@@ -22,6 +29,7 @@ $_CALENDAROPTIONS = array(
 	'weekly'        => 128,
 	'yearly'        => 256,
 	'showupcoming'  => 512, # Display upcoming events from this calendar on the front page
+	'allowvideocode'=> 1024,
 );
 
 // Defined constants for pre-defined holidays
@@ -85,8 +93,14 @@ $reminders = array(
 // ###################### Start setdatetime #######################
 function fetch_event_date_time($info)
 {
-	global $timerange, $vbulletin, $vbphrase, $months, $days, $day, $month, $year, $holiday, $eventdate;
-	global $titlecolor, $date1, $date2, $time1, $time2, $recurcriteria, $allday, $show;
+	//these don't appear to get used
+	global $timerange, $vbphrase, $months, $holiday, $days;
+
+	//these are read from
+	global $vbulletin, $day, $month, $year;
+
+	//these are written to
+	global $titlecolor, $date1, $date2, $time1, $time2, $recurcriteria, $allday, $show, $eventdate;
 
 	require_once(DIR . '/includes/functions_misc.php');
 
@@ -95,13 +109,12 @@ function fetch_event_date_time($info)
 	$show['recuroption'] = false;
 	$titlecolor = 'alt1';
 
-	$info['title'] = htmlspecialchars_uni($info['title']);
 	if ($wordwrap != 0)
 	{
 		$info['title'] = fetch_word_wrapped_string($info['title']);
 	}
 
-	$info['event'] = iif(empty($info['event']), '&nbsp', parse_calendar_bbcode($info['event'], $info['allowsmilies']));
+	$info['event'] = iif(empty($info['event']), '&nbsp;', parse_calendar_bbcode($info['event'], $info['allowsmilies']));
 
 	if (!$info['recurring'] AND !$info['singleday'])
 	{
@@ -268,9 +281,10 @@ function cache_events_day($month, $day, $year)
 }
 
 // ###################### Start getcalendarbits #######################
-function construct_calendar_output($today, $usertoday, $calendarinfo, $fullcalendar = 0, $weekrange = '')
+function construct_calendar_output($today, $usertoday, $calendarinfo, $fullcalendar = 0,
+		$weekrange = '', $thismonth_only = false)
 {
-	global $birthdaycache, $eventcache, $vbulletin, $vbphrase, $stylevar, $show, $colspan, $days, $months;
+	global $birthdaycache, $eventcache, $vbulletin, $vbphrase, $show, $colspan, $days, $months;
 
 	$calendarid = $calendarinfo['calendarid'];
 	$month = $usertoday['month'];
@@ -300,7 +314,6 @@ function construct_calendar_output($today, $usertoday, $calendarinfo, $fullcalen
 	$displaymonth['month'] = gmdate('n', $displaymonth['starttime']);
 	$displaymonth['year'] = gmdate('Y', $displaymonth['starttime']);
 	$todaylink = "$today[year]-$today[mon]-$today[mday]";
-
 	// get an array of days starting with the user's chosen week start
 	static $userweek;
 	if (!is_array($userweek))
@@ -365,23 +378,24 @@ function construct_calendar_output($today, $usertoday, $calendarinfo, $fullcalen
 	// fetch special holiday events
 	$eastercache = fetch_easter_array($usertoday['year']);
 
-	if (!$fullcalendar)
+	// set up which days will be shown
+	for ($i = 0; $i < 7; $i++)
 	{
-		// set up which days will be shown
-		for ($i = 0; $i < 7; $i++)
+		$dayvarname = 'day' . ($i + 1);
+		if ($userweek["$i"])
 		{
-			$dayvarname = 'day' . ($i + 1);
-			if ($userweek["$i"])
-			{
-				$$dayvarname = $vbphrase[ $days[ $userweek[$i] ] . '_short'];
-				$show["$dayvarname"] = true;
-			}
-			else
-			{
-				$show["$dayvarname"] = false;
-			}
+			${$dayvarname} = array(
+				'full'  => $vbphrase[ $days [ $userweek[$i] ] ],
+				'short' => $vbphrase[ $days[ $userweek[$i] ] . '_short']
+			);
+			$show["$dayvarname"] = true;
+		}
+		else
+		{
+			$show["$dayvarname"] = false;
 		}
 	}
+
 
 	// now start creating the week rows
 	$rows = 0;
@@ -396,12 +410,14 @@ function construct_calendar_output($today, $usertoday, $calendarinfo, $fullcalen
 		$calendardaybits = '';
 		foreach ($userweek AS $daycount => $curday)
 		{
+
 			$datestamp = gmmktime(0, 0, 0, $displaymonth['month'], $startday++, $displaymonth['year']);
 			$dayname = $vbphrase["$days[$curday]_abbr"];
 			$year = gmdate('Y', $datestamp);
 			$month = gmdate('n', $datestamp);
 			$day = gmdate('j', $datestamp);
 			$daylink = "$year-$month-$day";
+
 
 			if (!$daycount)
 			{
@@ -450,13 +466,11 @@ function construct_calendar_output($today, $usertoday, $calendarinfo, $fullcalen
 					unset($age);
 					unset($birthdaydesc);
 					$bdaycount = 0;
-					foreach ($birthdaycache["$month"]["$day"] AS $index => $value)
+					foreach ($birthdaycache["$month"]["$day"] AS $index => $userinfo)
 					{
-						$userday = explode('-', $value['birthday']);
+						$userday = explode('-', $userinfo['birthday']);
 						$bdaycount++;
-						$username = $value['username'];
-						$userid = $value['userid'];
-						if ($year > $userday[2] AND $userday[2] != '0000' AND $value['showbirthday'] == 2)
+						if ($year > $userday[2] AND $userday[2] != '0000' AND $userinfo['showbirthday'] == 2)
 						{
 							$age = '(' . ($year - $userday[2]) . ')';
 						}
@@ -464,8 +478,11 @@ function construct_calendar_output($today, $usertoday, $calendarinfo, $fullcalen
 						{
 							unset($age);
 						}
-						$birthdaydesc .= iif($birthdaydesc, ', ') . $value['username'];
-						eval ('$userbdays .= "' . fetch_template('calendar_monthly_birthday') . '";');
+						$birthdaydesc .= iif($birthdaydesc, ', ') . $userinfo['username'];
+						$templater = vB_Template::create('calendar_monthly_birthday');
+							$templater->register('age', $age);
+							$templater->register('userinfo', $userinfo);
+						$userbdays .= $templater->render();
 					}
 					if ($bdaycount > $calendarinfo['birthdaycount'])
 					{
@@ -489,7 +506,13 @@ function construct_calendar_output($today, $usertoday, $calendarinfo, $fullcalen
 
 						($hook = vBulletinHook::fetch_hook('calendar_displaymonth_event')) ? eval($hook) : false;
 
-						eval ('$userevents .= "' . fetch_template('calendar_monthly_event') . '";');
+						$templater = vB_Template::create('calendar_monthly_event');
+							$templater->register('calendarid', $calendarid);
+							$templater->register('day', $day);
+							$templater->register('event', $event);
+							$templater->register('month', $month);
+							$templater->register('year', $year);
+						$userevents .= $templater->render();
 					}
 				}
 
@@ -502,7 +525,7 @@ function construct_calendar_output($today, $usertoday, $calendarinfo, $fullcalen
 					{
 						$eventtotal++;
 						$show['daylink'] = true;
-						$eventdesc .= iif($eventdesc, "\r\n") .	htmlspecialchars_uni($event['title']);
+						$eventdesc .= iif($eventdesc, "\r\n") .	$event['title'];
 						if ($fullcalendar)
 						{
 							$eventid = $event['eventid'];
@@ -514,13 +537,18 @@ function construct_calendar_output($today, $usertoday, $calendarinfo, $fullcalen
 							$show['subscribed'] = iif($event['subscribed'], true, false);
 							if ($calendarinfo['cutoff'] AND strlen($event['title']) > $calendarinfo['cutoff'] AND !$event['holidayid'])
 							{
-								$event['title'] = substr($event['title'], 0, $calendarinfo['cutoff']) . ' (...)';
+								$event['title'] = fetch_trimmed_title($event['title'], $calendarinfo['cutoff']);
 							}
-							$event['title'] =  htmlspecialchars_uni($event['title']);
 
 							($hook = vBulletinHook::fetch_hook('calendar_displaymonth_event')) ? eval($hook) : false;
 
-							eval ('$userevents .= "' . fetch_template('calendar_monthly_event') . '";');
+							$templater = vB_Template::create('calendar_monthly_event');
+								$templater->register('calendarid', $calendarid);
+								$templater->register('day', $day);
+								$templater->register('event', $event);
+								$templater->register('month', $month);
+								$templater->register('year', $year);
+							$userevents .= $templater->render();
 						}
 					}
 					if ($eventtotal > $calendarinfo['eventcount'])
@@ -531,9 +559,34 @@ function construct_calendar_output($today, $usertoday, $calendarinfo, $fullcalen
 			}
 
 			$show['holiday'] = $showholiday;
+			$show['weeklink'] = ($daycount == 0);
 			($hook = vBulletinHook::fetch_hook('calendar_displaymonth_daybit')) ? eval($hook) : false;
 
-			eval('$calendardaybits .= "' . fetch_template($daytemplatename) . '";');
+			//Hide this if set to only show links for this month
+			if ($thismonth_only AND ($month !=  $usertoday['month']))
+			{
+				$show['daylink'] = false;
+				$daytemplatename = $template['day'];
+			}
+
+
+			$templater = vB_Template::create($daytemplatename);
+				$templater->register('bdaycount', $bdaycount);
+				$templater->register('birthdaydesc', $birthdaydesc);
+				$templater->register('calendarid', $calendarid);
+				$templater->register('day', $day);
+				$templater->register('dayname', $dayname);
+				$templater->register('daywidth', $daywidth);
+				$templater->register('eventdesc', $eventdesc);
+				$templater->register('eventtotal', $eventtotal);
+				$templater->register('month', $month);
+				$templater->register('otherday', $otherday);
+				$templater->register('otherdayname', $otherdayname);
+				$templater->register('userbdays', $userbdays);
+				$templater->register('userevents', $userevents);
+				$templater->register('year', $year);
+				$templater->register('firstweek', $firstweek);
+			$calendardaybits .= $templater->render();
 
 			// if no weekends, bump on the counter to compensate
 			if (!$calendarinfo['showweekends'] AND $daycount >= 4)
@@ -544,7 +597,13 @@ function construct_calendar_output($today, $usertoday, $calendarinfo, $fullcalen
 
 		($hook = vBulletinHook::fetch_hook('calendar_displaymonth_weekbit')) ? eval($hook) : false;
 
-		eval('$calendarrowbits .= "' . fetch_template($template['week']) . '";');
+		$templater = vB_Template::create($template['week']);
+			$templater->register('calendardaybits', $calendardaybits);
+			$templater->register('calendarid', $calendarid);
+			$templater->register('firstweek', $firstweek);
+			$templater->register('linkwidth', $linkwidth);
+			$templater->register('month', $month);
+		$calendarrowbits .= $templater->render();
 	}
 
 	$year = $displaymonth['year'];
@@ -553,9 +612,21 @@ function construct_calendar_output($today, $usertoday, $calendarinfo, $fullcalen
 
 	($hook = vBulletinHook::fetch_hook('calendar_displaymonth_month')) ? eval($hook) : false;
 
-	eval('$calendarrowbits = "' . fetch_template($template['header']) . '";');
-
-	return $calendarrowbits;
+	$templater = vB_Template::create($template['header']);
+		$templater->register('calendarid', $calendarid);
+		$templater->register('calendarrowbits', $calendarrowbits);
+		$templater->register('colspan', $colspan);
+		$templater->register('day1', $day1);
+		$templater->register('day2', $day2);
+		$templater->register('day3', $day3);
+		$templater->register('day4', $day4);
+		$templater->register('day5', $day5);
+		$templater->register('day6', $day6);
+		$templater->register('day7', $day7);
+		$templater->register('month', $month);
+		$templater->register('monthname', $monthname);
+		$templater->register('year', $year);
+	return $templater->render();
 }
 
 // ###################### Start iscalmoderator #######################
@@ -688,21 +759,28 @@ function cache_events($range)
 		}
 	}
 
+	require_once(DIR . '/includes/functions_user.php');
 	$events = $vbulletin->db->query_read_slave("
 		SELECT event.*,
 		user.username, IF(user.displaygroupid = 0, user.usergroupid, user.displaygroupid) AS displaygroupid,
+		user.adminoptions, user.usergroupid, user.usertitle, user.membergroupids, user.infractiongroupids, IF(options & " . $vbulletin->bf_misc_useroptions['hasaccessmask'] . ", 1, 0) AS hasaccessmask,
 		IF(dateline_to = 0, 1, 0) AS singleday
 		" . iif($vbulletin->userinfo['userid'], ", subscribeevent.eventid AS subscribed") . "
+		" . ($vbulletin->options['avatarenabled'] ?
+			",avatar.avatarpath, NOT ISNULL(customavatar.userid) AS hascustomavatar, customavatar.dateline AS avatardateline,
+				customavatar.width AS avwidth,customavatar.height AS avheight, customavatar.width_thumb AS avwidth_thumb, user.avatarrevision,
+				customavatar.height_thumb AS avheight_thumb, customavatar.filedata_thumb, NOT ISNULL(customavatar.userid) AS hascustom" :
+			"") . "
 		FROM " . TABLE_PREFIX . "event AS event
 		LEFT JOIN " . TABLE_PREFIX . "user AS user ON (user.userid = event.userid)
 		" . iif($vbulletin->userinfo['userid'], "LEFT JOIN " . TABLE_PREFIX . "subscribeevent AS subscribeevent ON (subscribeevent.eventid = event.eventid AND subscribeevent.userid = " . $vbulletin->userinfo['userid'] . ")") . "
+		" . ($vbulletin->options['avatarenabled'] ? "LEFT JOIN " . TABLE_PREFIX . "avatar AS avatar ON(avatar.avatarid = user.avatarid) LEFT JOIN " . TABLE_PREFIX . "customavatar AS customavatar ON(customavatar.userid = user.userid)" : "") . "
 		WHERE calendarid = $calendarinfo[calendarid] AND
 			((dateline_to >= $beginday AND dateline_from < $endday) OR (dateline_to = 0 AND dateline_from >= $beginday AND dateline_from <= $endday ))	AND
-			visible = 1
+			event.visible = 1
 		ORDER BY dateline_from
 	");
 	// Cache Events
-
 	if ($vbulletin->db->num_rows($events))
 	{
 		while ($ev = $vbulletin->db->fetch_array($events))
@@ -711,6 +789,11 @@ function cache_events($range)
 			{
 				continue;
 			}
+
+			$ev = array_merge($ev, convert_bits_to_array($ev['options'], $vbulletin->bf_misc_useroptions));
+			$ev  = array_merge($ev, convert_bits_to_array($ev['adminoptions'], $vbulletin->bf_misc_adminoptions));
+			cache_permissions($ev, false);
+			fetch_avatar_from_userinfo($ev, true);
 
 			$ev['preview'] = strip_quotes($ev['event']);
 			$ev['preview'] = htmlspecialchars_uni(strip_bbcode(fetch_trimmed_title($ev['preview'], 300), false, true));
@@ -825,7 +908,7 @@ function cache_birthdays($weekly = 0)
 // ###################### Start makecalendarjump #######################
 function construct_calendar_jump($currentcalendarid, $month, $year)
 {
-	global $calendarcache, $vbulletin, $gobutton, $stylevar, $today, $vbphrase, $calendarinfo, $monthselected;
+	global $calendarcache, $vbulletin, $gobutton, $today, $vbphrase, $calendarinfo, $monthselected;
 
 	foreach ($calendarcache AS $calendarid => $title)
 	{
@@ -835,36 +918,19 @@ function construct_calendar_jump($currentcalendarid, $month, $year)
 		{
 			continue;
 		}
-		else
-		{
-			$optionvalue = $calendarid;
-			$optiontitle = $title;
 
-			if ($currentcalendarid == $optionvalue)
-			{
-				$optionselected = 'selected="selected"';
-				$optionclass = 'fjsel';
-				$selectedone = 1;
-			}
-			else
-			{
-				$optionselected = '';
-				$optionclass = '';
-			}
-			eval('$jumpcalendarbits .= "' . fetch_template('option') . '";');
-		}
+		$templater = vB_Template::create('calendarjumpbit');
+			$templater->register('calendarid', $calendarid);
+			$templater->register('calendartitle', $title);
+		$jumpcalendarbits .= $templater->render();
 	}
 
-	for ($gyear = $calendarinfo['startyear']; $gyear <= $calendarinfo['endyear']; $gyear++)
-	{
-		$selected = iif($year == $gyear, 'selected="selected"');
-		$yearbits .= "\t\t<option value=\"$gyear\" $selected>$gyear</option>\n";
-	}
-
-	eval('$calendarjump = "' . fetch_template('calendarjump') . '";');
+	$templater = vB_Template::create('calendarjump');
+		$templater->register('calendarinfo', $calendarinfo);
+		$templater->register('jumpcalendarbits', $jumpcalendarbits);
+	$calendarjump = $templater->render();
 
 	return $calendarjump;
-
 }
 
 // ###################### Start getfirstday #######################
@@ -1031,7 +1097,7 @@ function parse_calendar_bbcode($bbcode, $smilies = true)
 	global $calendarinfo, $vbulletin;
 
 	require_once(DIR . '/includes/class_bbcode.php');
-	$bbcode_parser =& new vB_BbCodeParser($vbulletin, fetch_tag_list());
+	$bbcode_parser = new vB_BbCodeParser($vbulletin, fetch_tag_list());
 
 	$bbcode = $bbcode_parser->parse($bbcode, 'calendar', $smilies);
 
@@ -1155,7 +1221,7 @@ function cache_event_info(&$event, $month, $day, $year, $adjust = 1, $cache = tr
 
 	$eventid = $event['eventid'];
 
-	if ($event['holidayid'] AND $foundholiday["$month-$day-$year"]["$event[holidayid]"] AND $cache)
+	if (isset($event['holidayid']) AND $event['holidayid'] AND $foundholiday["$month-$day-$year"]["$event[holidayid]"] AND $cache)
 	{
 		return true;
 	}
@@ -1356,7 +1422,7 @@ function cache_event_info(&$event, $month, $day, $year, $adjust = 1, $cache = tr
 				return false;
 			}
 
-			if (empty($e["$eventid"]['currentmonth']))
+			if (empty($e["$eventid"]['currentmonth']) OR $e["$eventid"]['currentmonth'] > $thismonth)
 			{
 				if ($e["$eventid"]['startday'] > gmmktime(0, 0, 0, gmdate('n', $event['dateline_from_user']), $monthbit[0], gmdate('Y', $event['dateline_from_user'])))
 				{
@@ -1445,7 +1511,7 @@ function cache_event_info(&$event, $month, $day, $year, $adjust = 1, $cache = tr
 		}
 		else if ($event['recurring'] == 6)
 		{
-			if (gmdate('w', $event['dateline_from_user']) != gmdate('w', $event['dateline_from'] + ($event['utc'] * 3600)) AND $adjust AND !$event['holidayid'])
+			if (empty($event['holidayid']) AND gmdate('w', $event['dateline_from_user']) != gmdate('w', $event['dateline_from'] + ($event['utc'] * 3600)) AND $adjust)
 			{
 				if ($event['dateline_from_user'] > $event['dateline_from'] + ($event['utc'] * 3600))
 				{
@@ -1550,93 +1616,18 @@ function cache_event_info(&$event, $month, $day, $year, $adjust = 1, $cache = tr
 }
 
 // ###################### Start fetch time options #######################
-function fetch_time_options($giAH, $use24hour = false, &$customtime)
+function fetch_time_options($giAH, $use24hour = false)
 {
-	global $vbulletin, $stylevar, $vbphrase;
-	static $timearray;
-
-	if (!is_array($timearray))
+	if ($use24hour)
 	{
-		$timearray = array();
-
-		if ($use24hour)
-		{
-			for ($hour = 0; $hour < 24; $hour++)
-			{
-				for ($mins = 0; $mins <= 30; $mins += 30)
-				{
-					$hh = str_pad($hour, 2, 0, STR_PAD_LEFT);
-					$mm = str_pad($mins, 2, 0, STR_PAD_LEFT);
-					$timearray["{$hour}_{$mm}"] = "$hh:$mm";
-				}
-			}
-			$timearray['0_00'] = $vbphrase['midnight'];
-			$timearray['12_00'] = $vbphrase['midday'];
-		}
-		else
-		{
-			$ampm_array = array(
-				'AM' => 'am',
-				'PM' => 'pm'
-			);
-			$hour_array = array(
-				12, 1, 2, 3,
-				4, 5, 6, 7,
-				8, 9, 10, 11
-			);
-			foreach ($ampm_array AS $AMPM => $ampm)
-			{
-				foreach ($hour_array AS $hour)
-				{
-					for ($mins = 0; $mins <= 30; $mins += 30)
-					{
-						$hh = str_pad($hour, 2, 0, STR_PAD_LEFT);
-						$mm = str_pad($mins, 2, 0, STR_PAD_LEFT);
-						$timearray["{$hour}_{$mm}_{$AMPM}"] = "$hh:$mm $ampm";
-					}
-				}
-			}
-			$timearray['12_00_AM'] = $vbphrase['midnight'];
-			$timearray['12_00_PM'] = $vbphrase['midday'];
-		}
-	}
-
-	if (is_array($giAH))
-	{
-		if ($giAH[1] != '00' AND $giAH[1] != '30')
-		{
-			if ($use24hour)
-			{
-				$customtime = "$giAH[3]:$giAH[1]";
-			}
-			else
-			{
-				$customtime = "$giAH[0]:$giAH[1] $giAH[2]";
-			}
-		}
-		else if ($use24hour)
-		{
-			$selectedindex = intval($giAH[3]) . '_' . $giAH[1];
-		}
-		else
-		{
-			$selectedindex = intval($giAH[0]) . '_' . $giAH[1] . '_' . $giAH[2];
-		}
+		$customtime = "$giAH[3]:$giAH[1]";
 	}
 	else
 	{
-		$selectedindex = false;
+		$customtime = "$giAH[0]:$giAH[1] $giAH[2]";
 	}
 
-	$output = '';
-	eval('$output .= "' . fetch_template('option') . '";');
-	foreach ($timearray AS $optionvalue => $optiontitle)
-	{
-		$optionselected = iif($optionvalue == $selectedindex, 'selected="selected"', '');
-		eval('$output .= "' . fetch_template('option') . '";');
-	}
-
-	return $output;
+	return $customtime;
 }
 
 // ###################### Start getevents #######################
@@ -1659,6 +1650,17 @@ function build_events()
 	// check if we have at least one calendar with holidays enabled
 	if ($vbulletin->options['showholidays'])
 	{
+		$holiday_calendarids = array();
+		$holiday_calendars = $vbulletin->db->query_read_slave("
+			SELECT calendarid
+			FROM " . TABLE_PREFIX . "calendar
+			WHERE options & " . intval($_CALENDAROPTIONS['showholidays'])
+		);
+		while ($holiday_calendar = $vbulletin->db->fetch_array($holiday_calendars))
+		{
+			$holiday_calendarids[] = $holiday_calendar['calendarid'];
+		}
+
 		$holidays = $vbulletin->db->query_read_slave("
 			SELECT *
 			FROM " . TABLE_PREFIX . "holiday
@@ -1669,6 +1671,7 @@ function build_events()
 			$holiday['dateline_to'] = $endday;
 			$holiday['visible'] = 1;
 			$holiday['eventid'] = 'h' . $holiday['holidayid'];
+			$holiday['holiday_calendarids'] = $holiday_calendarids;
 			$storeevents["$holiday[eventid]"] = $holiday;
 		}
 	}
@@ -1686,7 +1689,6 @@ function build_events()
 
 	while ($event = $vbulletin->db->fetch_array($events))
 	{
-		$event['title'] = htmlspecialchars_uni($event['title']);
 		$storeevents["$event[eventid]"] = $event;
 	}
 
@@ -1698,8 +1700,7 @@ function build_events()
 
 /*======================================================================*\
 || ####################################################################
-|| # Downloaded: 16:21, Sat Apr 6th 2013
-|| # CVS: $RCSfile$ - $Revision: 26274 $
+|| # Downloaded: 14:57, Sun Aug 11th 2013
+|| # CVS: $RCSfile$ - $Revision: 63836 $
 || ####################################################################
 \*======================================================================*/
-?>

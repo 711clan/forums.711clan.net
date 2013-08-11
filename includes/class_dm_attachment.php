@@ -1,16 +1,16 @@
 <?php
 /*======================================================================*\
 || #################################################################### ||
-|| # vBulletin 3.7.2 Patch Level 2 - Licence Number VBF2470E4F
+|| # vBulletin 4.2.1 - Licence Number VBC2DDE4FB
 || # ---------------------------------------------------------------- # ||
-|| # Copyright ©2000-2013 Jelsoft Enterprises Ltd. All Rights Reserved. ||
+|| # Copyright ©2000-2013 vBulletin Solutions Inc. All Rights Reserved. ||
 || # This file may not be redistributed in whole or significant part. # ||
 || # ---------------- VBULLETIN IS NOT FREE SOFTWARE ---------------- # ||
 || # http://www.vbulletin.com | http://www.vbulletin.com/license.html # ||
 || #################################################################### ||
 \*======================================================================*/
 
-if (!class_exists('vB_DataManager'))
+if (!class_exists('vB_DataManager', false))
 {
 	exit;
 }
@@ -20,46 +20,19 @@ require_once(DIR . '/includes/functions_file.php');
 
 /**
 * Abstract class to do data save/delete operations for ATTACHMENTS.
-* You should call the fetch_library() function to instantiate the correct
-* object based on how attachments are being stored unless calling the multiple
-* datamanager. There is no support for manipulating the FS via the multiple
-* datamanager at the present.
 *
 * @package	vBulletin
-* @version	$Revision: 26884 $
-* @date		$Date: 2008-06-09 09:13:59 -0500 (Mon, 09 Jun 2008) $
+* @version	$Revision: 62619 $
+* @date		$Date: 2012-05-15 16:54:47 -0700 (Tue, 15 May 2012) $
 */
-class vB_DataManager_Attachment extends vB_DataManager
+abstract class vB_DataManager_AttachData extends vB_DataManager
 {
 	/**
-	* Array of recognized and required fields for attachment inserts
+	* Array of field names that are bitfields, together with the name of the variable in the registry with the definitions.
 	*
 	* @var	array
 	*/
-	var $validfields = array(
-		'attachmentid'       => array(TYPE_UINT,     REQ_INCR, VF_METHOD, 'verify_nonzero'),
-		'userid'             => array(TYPE_UINT,     REQ_YES),
-		'postid'             => array(TYPE_UINT,     REQ_NO),
-		'dateline'           => array(TYPE_UNIXTIME, REQ_AUTO),
-		'filename'           => array(TYPE_STR,      REQ_YES, VF_METHOD, 'verify_filename'),
-		'filedata'           => array(TYPE_BINARY,   REQ_NO, VF_METHOD),
-		'filesize'           => array(TYPE_UINT,     REQ_YES),
-		'visible'            => array(TYPE_UINT,     REQ_NO),
-		'counter'            => array(TYPE_UINT,     REQ_NO),
-		'filehash'           => array(TYPE_STR,      REQ_YES, VF_METHOD, 'verify_md5'),
-		'posthash'           => array(TYPE_STR,      REQ_NO, VF_METHOD, 'verify_md5_alt'),
-		'thumbnail'          => array(TYPE_BINARY,   REQ_NO, VF_METHOD),
-		'thumbnail_dateline' => array(TYPE_UNIXTIME, REQ_AUTO),
-		'thumbnail_filesize' => array(TYPE_UINT,     REQ_NO),
-		'extension'          => array(TYPE_STR,      REQ_YES),
-	);
-
-	/**
-	* The main table this class deals with
-	*
-	* @var	string
-	*/
-	var $table = 'attachment';
+	var $bitfields = array();
 
 	/**
 	* Storage holder
@@ -69,19 +42,11 @@ class vB_DataManager_Attachment extends vB_DataManager
 	var $lists = array();
 
 	/**
-	* Switch to control modlog update
+	* Storage Type
 	*
-	* @var  boolean
+	* @var  string
 	*/
-	var $log = true;
-
-	/**
-	* Condition template for update query
-	* This is for use with sprintf(). First key is the where clause, further keys are the field names of the data to be used.
-	*
-	* @var	array
-	*/
-	var $condition_construct = array('attachmentid = %1$d', 'attachmentid');
+	var $storage = 'db';
 
 	/**
 	* Constructor - checks that the registry object has been passed correctly.
@@ -89,38 +54,13 @@ class vB_DataManager_Attachment extends vB_DataManager
 	* @param	vB_Registry	Instance of the vBulletin data registry object - expected to have the database object as one of its $this->db member.
 	* @param	integer		One of the ERRTYPE_x constants
 	*/
-	function vB_DataManager_Attachment(&$registry, $errtype = ERRTYPE_STANDARD)
+	public function __construct(&$registry, $errtype = ERRTYPE_STANDARD)
 	{
 		parent::vB_DataManager($registry, $errtype);
 
+		$this->storage = $registry->options['attachfile'] ? 'fs' : 'db';
+
 		($hook = vBulletinHook::fetch_hook('attachdata_start')) ? eval($hook) : false;
-	}
-
-	/**
-	* Fetches the appropriate subclassed based on how attachments are being stored.
-	*
-	* @param	vB_Registry	Instance of the vBulletin data registry object - expected to have the database object as one of its $this->db member.
-	* @param	integer		One of the ERRTYPE_x constants
-	*
-	* @return	vB_DataManager_Attachment	Subclass of vB_DataManager_Attachment
-	*/
-	function &fetch_library(&$registry, $errtype = ERRTYPE_ARRAY)
-	{
-
-		// Library
-		$selectclass = ($registry->options['attachfile']) ? 'vB_DataManager_Attachment_Filesystem' : 'vB_DataManager_Attachment_Database';
-		return new $selectclass($registry, $errtype);
-	}
-
-	/**
-	* Verify that posthash is either md5 or empty
-	* @param	string the md5
-	*
-	* @return	boolean
-	*/
-	function verify_md5_alt(&$md5)
-	{
-		return (empty($md5) OR (strlen($md5) == 32 AND preg_match('#^[a-f0-9]{32}$#', $md5)));
 	}
 
 	/**
@@ -144,7 +84,10 @@ class vB_DataManager_Attachment extends vB_DataManager
 			$extension = '';
 		}
 
-		$this->set('extension', strtolower($extension));
+		if ($this->validfields['extension'])
+		{
+			$this->set('extension', strtolower($extension));
+		}
 		return true;
 	}
 
@@ -183,94 +126,304 @@ class vB_DataManager_Attachment extends vB_DataManager
 	}
 
 	/**
-	* Saves the data from the object into the specified database tables
-	* Overwrites parent
+	* Verify that posthash is either md5 or empty
+	* @param	string the md5
 	*
-	* @return	mixed	If this was an INSERT query, the INSERT ID is returned
+	* @return	boolean
 	*/
-	function save($doquery = true, $delayed = false)
+	function verify_md5_alt(&$md5)
 	{
-		if ($this->has_errors())
-		{
-			return false;
-		}
-
-		if (!$this->pre_save($doquery))
-		{
-			return false;
-		}
-
-		if ($this->condition === null)
-		{
-			$return = $this->db_insert(TABLE_PREFIX, $this->table, $doquery);
-			$this->set('attachmentid', $return);
-		}
-		else
-		{
-			$return = $this->db_update(TABLE_PREFIX, $this->table, $this->condition, $doquery, $delayed);
-		}
-
-		if ($return AND $this->post_save_each($doquery) AND $this->post_save_once($doquery))
-		{
-			return $return;
-		}
-		else
-		{
-			return false;
-		}
+		return (empty($md5) OR (strlen($md5) == 32 AND preg_match('#^[a-f0-9]{32}$#', $md5)));
 	}
 
 	/**
-	* Any checks to run immediately before saving. If returning false, the save will not take place.
+	* database pre_save method that only applies to subclasses that have filedata fields
 	*
 	* @param	boolean	Do the query?
 	*
 	* @return	boolean	True on success; false if an error occurred
 	*/
-	function pre_save($doquery = true)
+	function pre_save_filedata($doquery = true)
 	{
-		if ($this->presave_called !== null)
+		if ($this->condition === null)
 		{
-			return $this->presave_called;
-		}
-
-		// Update an existing attachment (on insert) of the same name so that it maintains its current attachmentid
-		if ($this->condition === null AND $this->fetch_field('filename') AND !$this->fetch_field('postid'))
-		{
-			if ($foo = $this->dbobject->query_first("
-				SELECT attachmentid
-				FROM " . TABLE_PREFIX . "attachment AS attachment
-				WHERE filename = '" . $this->dbobject->escape_string($this->fetch_field('filename')) . "'
-					AND posthash = '" . $this->dbobject->escape_string($this->fetch_field('posthash')) . "'
-					AND userid = " . intval($this->fetch_field('userid')) . "
-			"))
+			if ($this->fetch_field('filehash', 'filedata'))
 			{
-				$this->condition = "attachmentid = $foo[attachmentid]";
-				$this->existing['attachmentid'] = $foo['attachmentid'];
-				$this->set('counter', 0);
-				$this->set('postid', 0);
+				$filehash = $this->fetch_field('filehash', 'filedata');
 			}
-			// this is an edit
-			else if ($this->info['postid'] AND $foo = $this->dbobject->query_first("
-				SELECT attachmentid
-				FROM " . TABLE_PREFIX . "attachment AS attachment
-				WHERE filename = '" . $this->dbobject->escape_string($this->fetch_field('filename')) . "'
-					AND postid = " . intval($this->info['postid']) . "
+			else if (!empty($this->info['filedata_location']) AND file_exists($this->info['filedata_location']))
+			{
+				$filehash = md5_file(($this->info['filedata_location']));
+			}
+			else if (!empty($this->info['filedata']))
+			{
+				$filehash = md5($this->info['filedata']);
+			}
+			else if ($this->fetch_field('filedata', 'filedata'))
+			{
+				$filehash = md5($this->fetch_field('filedata', 'filedata'));
+			}
+
+			// Does filedata already exist?
+			if ($filehash AND $fd = $this->registry->db->query_first("
+				SELECT filedataid
+				FROM " . TABLE_PREFIX . "filedata
+				WHERE filehash = '" . $this->registry->db->escape_string($filehash) . "'
 			"))
 			{
-				$this->condition = "attachmentid = $foo[attachmentid]";
-				$this->existing['attachmentid'] = $foo['attachmentid'];
-				$this->set('counter', 0);
-				$this->set('postid', 0);
-				$this->info['update_existing'] = intval($this->info['postid']);
+				// file already exists so we are not going to insert a new one
+				return $fd['filedataid'];
 			}
 		}
 
-		$return_value = true;
-		($hook = vBulletinHook::fetch_hook('attachdata_presave')) ? eval($hook) : false;
+		if ($this->storage == 'db')
+		{
+			if (!empty($this->info['filedata_location']) AND file_exists($this->info['filedata_location']))
+			{
+				$this->set_info('filedata', file_get_contents($this->info['filedata_location']));
+			}
 
-		$this->presave_called = $return_value;
-		return $return_value;
+			if (!empty($this->info['filedata']))
+			{
+				$this->setr('filedata', $this->info['filedata']);
+			}
+
+			if (!empty($this->info['thumbnail']))
+			{
+				$this->setr('thumbnail', $this->info['thumbnail']);
+			}
+		}
+		else	// Saving in the filesystem
+		{
+			// make sure we don't have the binary data set
+			// if so move it to an information field
+			// benefit of this is that when we "move" files from DB to FS,
+			// the filedata/thumbnail fields are not blanked in the database
+			// during the update.
+			if ($file =& $this->fetch_field('filedata', 'filedata'))
+			{
+				$this->setr_info('filedata', $file);
+				$this->do_unset('filedata', 'filedata');
+			}
+
+			if ($thumb =& $this->fetch_field('thumbnail', 'filedata'))
+			{
+				$this->setr_info('thumbnail', $thumb);
+				$this->do_unset('thumbnail', 'filedata');
+			}
+
+			if (!empty($this->info['filedata']))
+			{
+				$this->set('filehash', md5($this->info['filedata']), true, true, 'filedata');
+				$this->set('filesize', strlen($this->info['filedata']), true, true, 'filedata');
+			}
+			else if (!empty($this->info['filedata_location']) AND file_exists($this->info['filedata_location']))
+			{
+				$this->set('filehash', md5_file($this->info['filedata_location']), true, true, 'filedata');
+				$this->set('filesize', filesize($this->info['filedata_location']), true, true, 'filedata');
+			}
+
+			if (!empty($this->info['thumbnail']))
+			{
+				$this->set('thumbnail_filesize', strlen($this->info['thumbnail']), true, true, 'filedata');
+			}
+
+			if (!empty($this->info['filedata']) OR !empty($this->info['thumbnail']) OR !empty($this->info['filedata_location']))
+			{
+				$path = $this->verify_attachment_path($this->fetch_field('userid', 'filedata'));
+				if (!$path)
+				{
+					$this->error('attachpathfailed');
+					return false;
+				}
+
+				if (!is_writable($path))
+				{
+					$this->error('upload_file_system_is_not_writable_path', htmlspecialchars($path));
+					return false;
+				}
+			}
+		}
+
+		return true;
+	}
+
+	/**
+	* Additional data to update after a save call (such as denormalized values in other tables).
+	* In batch updates, is executed for each record updated.
+	*
+	* @param	boolean	Do the query?
+	*/
+	function post_save_each_filedata($doquery = true)
+	{
+		if ($this->storage == 'fs')
+		{
+			$filedataid =& $this->fetch_field('filedataid', 'filedata');
+			$userid =& $this->fetch_field('userid', 'filedata');
+			$failed = false;
+
+			// Check for filedata in an information field
+			if (!empty($this->info['filedata']))
+			{
+				$filename = fetch_attachment_path($userid, $filedataid);
+				if ($fp = fopen($filename, 'wb'))
+				{
+					if (!fwrite($fp, $this->info['filedata']))
+					{
+						$failed = true;
+					}
+					fclose($fp);
+					#remove possible existing thumbnail in case no thumbnail is written in the next step.
+					if (file_exists(fetch_attachment_path($userid, $filedataid, true)))
+					{
+						@unlink(fetch_attachment_path($userid, $filedataid, true));
+					}
+				}
+				else
+				{
+					$failed = true;
+				}
+			}
+			else if (!empty($this->info['filedata_location']))
+			{
+				$filename = fetch_attachment_path($userid, $filedataid);
+				if (@rename($this->info['filedata_location'], $filename))
+				{
+					$mask = 0777 & ~umask();
+					@chmod($filename, $mask);
+
+ 					if (file_exists(fetch_attachment_path($userid, $filedataid, true)))
+					{
+						@unlink(fetch_attachment_path($userid, $filedataid, true));
+					}
+				}
+				else
+				{
+
+					$failed = true;
+				}
+			}
+
+			if (!$failed AND !empty($this->info['thumbnail']))
+			{
+				// write out thumbnail now
+				$filename = fetch_attachment_path($userid, $filedataid, true);
+				if ($fp = fopen($filename, 'wb'))
+				{
+					if (!fwrite($fp, $this->info['thumbnail']))
+					{
+						$failed = true;
+					}
+					fclose($fp);
+				}
+				else
+				{
+					$failed = true;
+				}
+			}
+
+			($hook = vBulletinHook::fetch_hook('attachdata_postsave')) ? eval($hook) : false;
+
+			if ($failed)
+			{
+				if ($this->condition === null) // Insert, delete filedata
+				{
+					$this->registry->db->query_write("
+						DELETE FROM " . TABLE_PREFIX . "filedata
+						WHERE filedataid = $filedataid
+					");
+					$this->registry->db->query_write("
+						DELETE FROM " . TABLE_PREFIX . "attachmentcategoryuser
+						WHERE filedataid = $filedataid
+					");
+				}
+
+				// $php_errormsg is automatically set if track_vars is enabled
+				$this->error('upload_copyfailed', htmlspecialchars_uni($php_errormsg), fetch_attachment_path($userid));
+				return false;
+			}
+			else
+			{
+				return true;
+			}
+		}
+	}
+
+	/**
+	* Any code to run before deleting.
+	*
+	* @param	string	What are we deleteing?
+	*/
+	function pre_delete($type = 'attachment', $doquery = true, $checkperms = true)
+	{
+		$this->lists['content'] = array();
+		$this->lists['filedataids'] = array();
+		$this->lists['attachmentids'] = array();
+		$this->lists['picturecomments'] = array();
+		$this->lists['userids'] = array();
+		$this->set_info('type', $type);
+
+		if ($type == 'filedata')
+		{
+			$ids = $this->registry->db->query_read("
+				SELECT a.attachmentid, fd.userid, fd.filedataid, a.userid AS auserid, a.contenttypeid
+				FROM " . TABLE_PREFIX . "filedata AS fd
+				LEFT JOIN " . TABLE_PREFIX . "attachment AS a ON (a.filedataid = fd.filedataid)
+				WHERE " . $this->condition
+			);
+		}
+		else
+		{
+			$ids = $this->registry->db->query_read("
+				SELECT a.attachmentid, fd.userid, fd.filedataid, a.userid AS auserid, a.contenttypeid
+				FROM " . TABLE_PREFIX . "attachment AS a
+				LEFT JOIN " . TABLE_PREFIX . "filedata AS fd ON (a.filedataid = fd.filedataid)
+				WHERE " . $this->condition
+			);
+		}
+		while ($id = $this->registry->db->fetch_array($ids))
+		{
+			if ($id['attachmentid'])
+			{
+				$this->lists['content']["$id[contenttypeid]"][] = $id['attachmentid'];
+				$this->lists['attachmentids'][] = $id['attachmentid'];
+				$this->lists['userids']["$id[auserid]"] = 1;
+				if ($id['filedataid'] AND $id['auserid'])
+				{
+					$this->lists['picturecomments'][] = "(filedataid = $id[filedataid] AND userid = $id[auserid])";
+				}
+			}
+			if ($id['filedataid'])
+			{
+				$this->lists['filedataids']["$id[filedataid]"] = $id['userid'];
+			}
+		}
+
+		require_once(DIR . '/packages/vbattach/attach.php');
+		if ($this->registry->db->num_rows($ids) == 0)
+		{	// nothing to delete
+			return false;
+		}
+		else
+		{
+			foreach ($this->lists['content'] AS $contenttypeid => $list)
+			{
+				if ($attach =& vB_Attachment_Dm_Library::fetch_library($this->registry, $contenttypeid))
+				{
+					if (!$attach->pre_delete($list, $checkperms, $this))
+					{
+						return false;
+					}
+				}
+				else
+				{
+					// This means we have an unrecognized contenttypeid, just delete the attachments..
+				}
+				unset($attach);
+			}
+		}
+
+		return parent::pre_delete($doquery);
 	}
 
 	/**
@@ -281,123 +434,16 @@ class vB_DataManager_Attachment extends vB_DataManager
 	*/
 	function post_save_each($doquery = true)
 	{
-		if (!empty($this->info['update_existing']))
+		if ($contenttypeid = intval($this->fetch_field('contenttypeid')))
 		{
-			// we're updating an existing attachment that has already been counted
-			// in the thread/post.attach fields. We need to decrement those fields
-			// because they will be incremented on save.
-			$this->registry->db->query_write("
-				UPDATE " . TABLE_PREFIX . "post SET
-					attach = IF(attach > 0, attach - 1, 0)
-				WHERE postid = " . intval($this->info['update_existing'])
-			);
-			$this->registry->db->query_write("
-				UPDATE " . TABLE_PREFIX . "post AS post, " . TABLE_PREFIX . "thread AS thread SET
-					thread.attach = IF(thread.attach > 0, thread.attach - 1, 0)
-				WHERE thread.threadid = post.threadid
-					AND post.postid = " . intval($this->info['update_existing'])
-			);
+			require_once(DIR . '/packages/vbattach/attach.php');
+			if (!($attach =& vB_Attachment_Dm_Library::fetch_library($this->registry, $contenttypeid)))
+			{
+				return false;
+			}
+			$attach->post_save_each($this);
 		}
-
-		($hook = vBulletinHook::fetch_hook('attachdata_postsave')) ? eval($hook) : false;
 		return parent::post_save_each($doquery);
-	}
-
-	/**
-	* Any code to run before deleting. Builds lists and updates mod log
-	*
-	* @param	Boolean Do the query?
-	*/
-	function pre_delete($doquery = true)
-	{
-		@ignore_user_abort(true);
-
-		// init lists
-		$this->lists = array(
-			'idlist'     => array(),
-			'postlist'   => array(),
-			'threadlist' => array()
-		);
-
-		$replaced = array();
-
-		$ids = $this->registry->db->query_read("
-			SELECT
-				attachment.attachmentid,
-				attachment.userid,
-				post.postid,
-				post.threadid,
-				post.dateline AS post_dateline,
-				post.userid AS post_userid,
-				thread.forumid,
-				editlog.hashistory
-			FROM " . TABLE_PREFIX . "attachment AS attachment
-			LEFT JOIN " . TABLE_PREFIX . "post AS post ON (post.postid = attachment.postid)
-			LEFT JOIN " . TABLE_PREFIX . "thread AS thread ON (thread.threadid = post.threadid)
-			LEFT JOIN " . TABLE_PREFIX . "editlog AS editlog ON (editlog.postid = post.postid)
-			WHERE " . $this->condition
-		);
-		while ($id = $this->registry->db->fetch_array($ids))
-		{
-			$this->lists['idlist']["{$id['attachmentid']}"] = $id['userid'];
-
-			if ($id['postid'])
-			{
-				$this->lists['postlist']["{$id['postid']}"]++;
-
-				if ($this->log)
-				{
-					if (($this->registry->userinfo['permissions']['genericoptions'] & $this->registry->bf_ugp_genericoptions['showeditedby']) AND $id['post_dateline'] < (TIMENOW - ($this->registry->options['noeditedbytime'] * 60)))
-					{
-						if (empty($replaced["$id[postid]"]))
-						{
-							/*insert query*/
-							$this->registry->db->query_write("
-								REPLACE INTO " . TABLE_PREFIX . "editlog
-										(postid, userid, username, dateline, hashistory)
-								VALUES
-									($id[postid],
-									" . $this->registry->userinfo['userid'] . ",
-									'" . $this->registry->db->escape_string($this->registry->userinfo['username']) . "',
-									" . TIMENOW . ",
-									" . intval($id['hashistory']) . ")
-							");
-							$replaced["$id[postid]"] = true;
-						}
-					}
-					if ($this->registry->userinfo['userid'] != $id['post_userid'] AND can_moderate($threadinfo['forumid'], 'caneditposts'))
-					{
-						$postinfo['forumid'] =& $foruminfo['forumid'];
-
-						$postinfo = array(
-							'postid'       =>& $id['postid'],
-							'threadid'     =>& $id['threadid'],
-							'forumid'      =>& $id['forumid'],
-							'attachmentid' =>& $id['attachmentid'],
-						);
-						require_once(DIR . '/includes/functions_log_error.php');
-						log_moderator_action($postinfo, 'attachment_removed');
-					}
-				}
-			}
-			if ($id['threadid'])
-			{
-				$this->lists['threadlist']["{$id['threadid']}"]++;
-			}
-		}
-
-		if ($this->registry->db->num_rows($ids) == 0)
-		{	// nothing to delete
-			return false;
-		}
-		else
-		{
-			// condition needs to have any attachment. replaced with TABLE_PREFIX . attachment
-			// since DELETE doesn't suport table aliasing in some versions of MySQL
-			// we needed the attachment. for the query run above at the start of this function
-			$this->condition = preg_replace('#(attachment\.)#si', TABLE_PREFIX . '\1', $this->condition);
-			return true;
-		}
 	}
 
 	/**
@@ -407,274 +453,67 @@ class vB_DataManager_Attachment extends vB_DataManager
 	*/
 	function post_delete($doquery = true)
 	{
-		// A little cheater function..
-		if (!empty($this->lists['idlist']) AND $this->registry->options['attachfile'])
+		foreach ($this->lists['content'] AS $contenttypeid => $list)
 		{
-			require_once(DIR . '/includes/functions_file.php');
-			// Delete attachments from the FS
-			foreach ($this->lists['idlist'] AS $attachmentid => $userid)
+			if (!($attach =& vB_Attachment_Dm_Library::fetch_library($this->registry, $contenttypeid)))
 			{
-				@unlink(fetch_attachment_path($userid, $attachmentid));
-				@unlink(fetch_attachment_path($userid, $attachmentid, true));
-			}
-		}
-
-		// Build MySQL CASE Statement to update post/thread attach counters
-		// future: examine using subselect option for MySQL 4.1
-
-		foreach($this->lists['postlist'] AS $postid => $count)
-		{
-			$postidlist .= ",$postid";
-			$postcasesql .= " WHEN postid = $postid THEN $count";
-		}
-
-		if ($postcasesql)
-		{
-			$this->registry->db->query_write("
-				UPDATE " . TABLE_PREFIX . "post
-				SET attach = attach -
-				CASE
-					$postcasesql
-					ELSE 0
-				END
-				WHERE postid IN (-1$postidlist)
-			");
-		}
-
-		foreach($this->lists['threadlist'] AS $threadid => $count)
-		{
-			$threadidlist .= ",$threadid";
-			$threadcasesql .= " WHEN threadid = $threadid THEN $count";
-		}
-
-		if ($threadcasesql)
-		{
-			$this->registry->db->query_write("
-				UPDATE " . TABLE_PREFIX . "thread
-				SET attach = attach -
-				CASE
-					$threadcasesql
-					ELSE 0
-				END
-				WHERE threadid IN (-1$threadidlist)
-			");
-		}
-
-		($hook = vBulletinHook::fetch_hook('attachdata_delete')) ? eval($hook) : false;
-	}
-}
-
-/**
-* Class to do data save/delete operations for ATTACHMENTS in the DATABASE.
-*
-* @package	vBulletin
-* @version	$Revision: 26884 $
-* @date		$Date: 2008-06-09 09:13:59 -0500 (Mon, 09 Jun 2008) $
-*/
-
-class vB_DataManager_Attachment_Database extends vB_DataManager_Attachment
-{
-	/**
-	* Any checks to run immediately before saving. If returning false, the save will not take place.
-	*
-	* @param	boolean	Do the query?
-	*
-	* @return	boolean	True on success; false if an error occurred
-	*/
-
-	function pre_save($doquery = true)
-	{
-		if ($this->presave_called !== null)
-		{
-			return $this->presave_called;
-		}
-
-		if (!empty($this->info['filedata_location']) AND file_exists($this->info['filedata_location']))
-		{
-			$this->set_info('filedata', file_get_contents($this->info['filedata_location']));
-		}
-
-		if (!empty($this->info['filedata']))
-		{
-			$this->setr('filedata', $this->info['filedata']);
-		}
-
-		if (!empty($this->info['thumbnail']))
-		{
-			$this->setr('thumbnail', $this->info['thumbnail']);
-		}
-
-		return parent::pre_save($doquery);
-	}
-}
-
-
-/**
-* Class to do data save/delete operations for ATTACHMENTS in the FILE SYSTEM.
-*
-* @package	vBulletin
-* @version	$Revision: 26884 $
-* @date		$Date: 2008-06-09 09:13:59 -0500 (Mon, 09 Jun 2008) $
-*/
-class vB_DataManager_Attachment_Filesystem extends vB_DataManager_Attachment
-{
-	/**
-	* Any checks to run immediately before saving. If returning false, the save will not take place.
-	*
-	* @param	boolean	Do the query?
-	*
-	* @return	boolean	True on success; false if an error occurred
-	*/
-	function pre_save($doquery = true)
-	{
-		if ($this->presave_called !== null)
-		{
-			return $this->presave_called;
-		}
-
-		// make sure we don't have the binary data set
-		// if so move it to an information field
-		// benefit of this is that when we "move" files from DB to FS,
-		// the filedata/thumbnail fields are not blanked in the database
-		// during the update.
-		if ($file =& $this->fetch_field('filedata'))
-		{
-			$this->setr_info('filedata', $file);
-			$this->do_unset('filedata');
-		}
-
-		if ($thumb =& $this->fetch_field('thumbnail'))
-		{
-			$this->setr_info('thumbnail', $thumb);
-			$this->do_unset('thumbnail');
-		}
-
-		if (!empty($this->info['filedata']))
-		{
-			$this->set('filehash', md5($this->info['filedata']));
-			$this->set('filesize', strlen($this->info['filedata']));
-		}
-		else if (!empty($this->info['filedata_location']) AND file_exists($this->info['filedata_location']))
-		{
-			$this->set('filehash', md5_file($this->info['filedata_location']));
-			$this->set('filesize', filesize($this->info['filedata_location']));
-		}
-
-		if (!empty($this->info['thumbnail']))
-		{
-			$this->set('thumbnail_filesize', strlen($this->info['thumbnail']));
-		}
-
-		if (!empty($this->info['filedata']) OR !empty($this->info['thumbnail']) OR !empty($this->info['filedata_location']))
-		{
-			$path = $this->verify_attachment_path($this->fetch_field('userid'));
-			if (!$path)
-			{
-				$this->error('attachpathfailed');
 				return false;
 			}
-
-			if (!is_writable($path))
-			{
-				$this->error('upload_file_system_is_not_writable');
-				return false;
-			}
+			$attach->post_delete($this);
+			unset($attach);
+		}
+		// Update the refcount in the filedata table
+		if (!empty($this->lists['filedataids']))
+		{
+			$this->registry->db->query_write("
+				UPDATE " . TABLE_PREFIX . "filedata AS fd
+				SET fd.refcount = (
+					SELECT COUNT(*)
+					FROM " . TABLE_PREFIX . "attachment AS a
+					WHERE fd.filedataid = a.filedataid
+				)
+				WHERE fd.filedataid IN (" . implode(", ", array_keys($this->lists['filedataids'])) . ")
+			");		
 		}
 
-		return parent::pre_save($doquery);
-	}
-
-	/**
-	* Additional data to update after a save call (such as denormalized values in other tables).
-	* In batch updates, is executed for each record updated.
-	*
-	* @param	boolean	Do the query?
-	*/
-	function post_save_each($doquery = true)
-	{
-
-		$attachmentid =& $this->fetch_field('attachmentid');
-		$userid =& $this->fetch_field('userid');
-		$failed = false;
-
-		// Check for filedata in an information field
-		if (!empty($this->info['filedata']))
+		// Below here only applies to attachments in pictures/groups but I forsee all attachments gaining the ability to have comments
+		if ($this->info['type'] == 'filedata')
 		{
-			$filename = fetch_attachment_path($userid, $attachmentid);
-			if ($fp = fopen($filename, 'wb'))
+			if (!empty($this->lists['filedataids']))
 			{
-				if (!fwrite($fp, $this->info['filedata']))
-				{
-					$failed = true;
-				}
-				fclose($fp);
-				#remove possible existing thumbnail in case no thumbnail is written in the next step.
-				if (file_exists(fetch_attachment_path($userid, $attachmentid, true)))
-				{
-					@unlink(fetch_attachment_path($userid, $attachmentid, true));
-				}
-			}
-			else
-			{
-				$failed = true;
+				$this->registry->db->query_write("
+					DELETE FROM " . TABLE_PREFIX . "picturecomment
+					WHERE filedataid IN (" . implode(", ", array_keys($this->lists['filedataids'])) . ")
+				");
 			}
 		}
-		else if (!empty($this->info['filedata_location']))
+		else if (!empty($this->lists['picturecomments']))	// deletion type is by attachment
 		{
-			$filename = fetch_attachment_path($userid, $attachmentid);
-			if (@rename($this->info['filedata_location'], $filename))
+			foreach ($this->lists['picturecomments'] AS $sql)
 			{
-				$mask = 0777 & ~umask();
-				@chmod($filename, $mask);
-
-				if (file_exists(fetch_attachment_path($userid, $attachmentid, true)))
+				if (!($results = $this->registry->db->query_first("
+					SELECT a.attachmentid
+					FROM " . TABLE_PREFIX . "attachment AS a
+					WHERE
+						$sql
+				")))
 				{
-					@unlink(fetch_attachment_path($userid, $attachmentid, true));
+					$this->registry->db->query_write("
+						DELETE FROM " . TABLE_PREFIX . "picturecomment
+						WHERE
+							$sql
+					");
 				}
 			}
-			else
-			{
-				$failed = true;
-			}
 		}
 
-		if (!$failed AND !empty($this->info['thumbnail']))
+		require_once(DIR . '/includes/functions_picturecomment.php');
+		foreach (array_keys($this->lists['userids']) AS $userid)
 		{
-			// write out thumbnail now
-			$filename = fetch_attachment_path($userid, $attachmentid, true);
-			if ($fp = fopen($filename, 'wb'))
-			{
-				if (!fwrite($fp, $this->info['thumbnail']))
-				{
-					$failed = true;
-				}
-				fclose($fp);
-			}
-			else
-			{
-				$failed = true;
-			}
+			build_picture_comment_counters($userid);
 		}
 
-		($hook = vBulletinHook::fetch_hook('attachdata_postsave')) ? eval($hook) : false;
-
-		if ($failed)
-		{
-			if ($this->condition === null) // Insert, delete attachment
-			{
-				$this->condition = "attachmentid = $attachmentid";
-				$this->log = false;
-				$this->delete();
-			}
-
-			// $php_errormsg is automatically set if track_vars is enabled
-			$this->error('upload_copyfailed', htmlspecialchars_uni($php_errormsg), fetch_attachment_path($userid));
-			return false;
-		}
-		else
-		{
-			return true;
-		}
+		return parent::post_delete($doquery);
 	}
 
 	/**
@@ -699,10 +538,712 @@ class vB_DataManager_Attachment_Filesystem extends vB_DataManager_Attachment
 	}
 }
 
+/**
+* Class to do data save/delete operations for just the Attachment table
+*
+* @package	vBulletin
+* @version	$Revision: 62619 $
+* @date		$Date: 2012-05-15 16:54:47 -0700 (Tue, 15 May 2012) $
+*/
+
+class vB_DataManager_Attachment extends vB_DataManager_AttachData
+{
+	/**
+	* Array of recognized and required fields for attachment inserts
+	*
+	* @var	array
+	*/
+	var $validfields = array(
+		'attachmentid'   => array(TYPE_UINT,       REQ_INCR),
+		'filedataid'     => array(TYPE_UINT,       REQ_YES),
+		'userid'         => array(TYPE_UINT,       REQ_YES),
+		'filename'       => array(TYPE_STR,        REQ_YES,  VF_METHOD, 'verify_filename'),
+		'dateline'       => array(TYPE_UNIXTIME,   REQ_AUTO),
+		'state'          => array(TYPE_STR,        REQ_NO),
+		'counter'        => array(TYPE_UINT,       REQ_NO),
+		'posthash'       => array(TYPE_STR,        REQ_NO,   VF_METHOD, 'verify_md5_alt'),
+		'contenttypeid'  => array(TYPE_UINT,       REQ_YES),
+		'contentid'      => array(TYPE_UINT,       REQ_NO),
+		'caption'        => array(TYPE_NOHTMLCOND, REQ_NO),
+		'reportthreadid' => array(TYPE_UINT,       REQ_NO),
+		'displayorder'   => array(TYPE_UINT,       REQ_NO),
+		'settings'       => array(TYPE_STR,        REQ_NO),
+	);
+
+	/**
+	* The main table this class deals with
+	*
+	* @var	string
+	*/
+	var $table = 'attachment';
+
+	/**
+	* Condition template for update query
+	* This is for use with sprintf(). First key is the where clause, further keys are the field names of the data to be used.
+	*
+	* @var	array
+	*/
+	var $condition_construct = array('attachmentid = %1$d', 'attachmentid');
+
+	/**
+	* Constructor - checks that the registry object has been passed correctly.
+	*
+	* @param	vB_Registry	Instance of the vBulletin data registry object - expected to have the database object as one of its $this->db member.
+	* @param	integer		One of the ERRTYPE_x constants
+	*/
+	public function __construct(&$registry, $errtype = ERRTYPE_STANDARD)
+	{
+		parent::__construct($registry, $errtype);
+
+		($hook = vBulletinHook::fetch_hook('attachdata_start')) ? eval($hook) : false;
+	}
+
+	public function pre_delete($doquery = true, $checkperms = true)
+	{
+		return parent::pre_delete('attachment', $doquery, $checkperms);
+	}
+
+	/**
+	* Delete from the attachment table
+	*
+	*/
+	public function delete($doquery = true, $checkperms = true, $activitysection = '', $activitytype = '')
+	{
+		if (!$this->pre_delete($doquery, $checkperms) OR empty($this->lists['attachmentids']))
+		{
+			return false;
+		}
+
+		$this->registry->db->query_write("
+			DELETE FROM " . TABLE_PREFIX . "attachment
+			WHERE attachmentid IN (" . implode(", ", $this->lists['attachmentids']) . ")
+		");
+
+		if ($activitysection AND $activitytype)
+		{
+			$activity = new vB_ActivityStream_Manage($activitysection, $activitytype);
+			$activity->set('contentid', $this->lists['attachmentids']);
+			$activity->delete();
+		}
+		
+		$this->post_delete($doquery);
+
+		return true;
+	}
+
+	/**
+	* Any code to run before approving
+	*
+	* @param	bool	Verify permissions
+	*/
+	function pre_moderate($checkperms = true, $type = 'approve')
+	{
+		$this->lists['content'] = array();
+		$this->lists['attachmentids'] = array();
+		$this->lists['userids'] = array();
+
+		$ids = $this->registry->db->query_read("
+			SELECT a.attachmentid, a.userid AS auserid, a.contenttypeid
+			FROM " . TABLE_PREFIX . "attachment AS a
+			WHERE " . $this->condition . "
+		");
+		while ($id = $this->registry->db->fetch_array($ids))
+		{
+			if ($id['attachmentid'])
+			{
+				$this->lists['content']["$id[contenttypeid]"][] = $id['attachmentid'];
+				$this->lists['attachmentids'][] = $id['attachmentid'];
+				$this->lists['userids']["$id[auserid]"] = 1;
+			}
+		}
+
+		require_once(DIR . '/packages/vbattach/attach.php');
+		if ($this->registry->db->num_rows($ids) == 0)
+		{	// nothing to approve
+			return false;
+		}
+		else
+		{
+			foreach ($this->lists['content'] AS $contenttypeid => $list)
+			{
+				if (!($attach =& vB_Attachment_Dm_Library::fetch_library($this->registry, $contenttypeid)))
+				{
+					return false;
+				}
+				if ($type == 'approve')
+				{
+					if (!$attach->pre_approve($list, $checkperms, $this))
+					{
+						return false;
+					}
+				}
+				else
+				{
+					if (!$attach->pre_unapprove($list, $checkperms, $this))
+					{
+						return false;
+					}
+				}
+				unset($attach);
+			}
+		}
+
+		return true;
+	}
+
+	/**
+	* Approve in the attachment table
+	*
+	*/
+	public function approve($checkperms = true)
+	{
+		if (!$this->pre_moderate($checkperms, 'approve') OR empty($this->lists['attachmentids']))
+		{
+			return false;
+		}
+
+		$this->registry->db->query_write("
+			UPDATE " . TABLE_PREFIX . "attachment
+			SET state = 'visible'
+			WHERE attachmentid IN (" . implode(", ", $this->lists['attachmentids']) . ")
+		");
+
+		$this->post_moderate('approve');
+
+		return true;
+	}
+
+	/**
+	* Unapprove in the attachment table
+	*
+	*/
+	public function unapprove($checkperms = true)
+	{
+		if (!$this->pre_moderate($checkperms, 'unapprove') OR empty($this->lists['attachmentids']))
+		{
+			return false;
+		}
+
+		$this->registry->db->query_write("
+			UPDATE " . TABLE_PREFIX . "attachment
+			SET state = 'moderation'
+			WHERE attachmentid IN (" . implode(", ", $this->lists['attachmentids']) . ")
+		");
+
+		$this->post_moderate('unapprove');
+
+		return true;
+	}
+
+	/**
+	* Any code to run after approving
+	*
+	*/
+	function post_moderate($type = 'approve')
+	{
+		foreach ($this->lists['content'] AS $contenttypeid => $list)
+		{
+			if (!($attach =& vB_Attachment_Dm_Library::fetch_library($this->registry, $contenttypeid)))
+			{
+				return false;
+			}
+			if ($type == 'approve')
+			{
+				$attach->post_approve($this);
+			}
+			else
+			{
+				$attach->post_unapprove($this);
+			}
+			unset($attach);
+		}
+
+		return true;
+	}
+
+	/**
+	* Saves the data from the object into the specified database tables
+	* Overwrites parent
+	*
+ 	* @param	boolean	Do the query?
+	* @param	mixed	Whether to run the query now; see db_update() for more info
+	* @param bool 	Whether to return the number of affected rows.
+	* @param bool		Perform REPLACE INTO instead of INSERT
+	* @param bool		Perfrom INSERT IGNORE instead of INSERT
+	*
+	* @return	mixed	If this was an INSERT query, the INSERT ID is returned
+	*/
+	function save($doquery = true, $delayed = false, $affected_rows = false, $replace = false, $ignore = false)
+	{
+		if ($this->has_errors())
+		{
+			return false;
+		}
+
+		if (!$this->pre_save($doquery))
+		{
+			return false;
+		}
+
+		if ($this->condition === null)
+		{
+			$return = $this->db_insert(TABLE_PREFIX, $this->table, $doquery);
+			// If no displayorder is set then default displayorder to be order of attachment insertion
+			if (!$this->fetch_field('displayorder'))
+			{
+				$this->registry->db->query_write("
+					UPDATE " . TABLE_PREFIX . "attachment SET displayorder = $return WHERE attachmentid = $return
+				");
+			}
+			$this->set('attachmentid', $return);
+		}
+		else
+		{
+			$return = $this->db_update(TABLE_PREFIX, $this->table, $this->condition, $doquery, $delayed, $affected_rows);
+		}
+
+		if ($return AND $this->post_save_each($doquery) AND $this->post_save_once($doquery))
+		{
+			return $return;
+		}
+		else
+		{
+			return false;
+		}
+	}
+
+	/**
+	* Additional data to update after a save call (such as denormalized values in other tables).
+	* In batch updates, is executed for each record updated.
+	*
+	* @param	boolean	Do the query?
+	*/
+	function post_save_each($doquery = true)
+	{
+		if ($filedataid = intval($this->attachment['filedataid']) AND $this->condition === null)
+		{
+			// Update the refcount in the filedata table
+			$this->registry->db->query_write("
+				UPDATE " . TABLE_PREFIX . "filedata AS fd
+				SET fd.refcount = (
+					SELECT COUNT(*)
+					FROM " . TABLE_PREFIX . "attachment AS a
+					WHERE fd.filedataid = a.filedataid
+					GROUP BY a.filedataid
+				)
+				WHERE fd.filedataid = $filedataid
+			");
+		}
+
+		return parent::post_save_each($doquery);
+	}
+}
+
+/**
+* Class to do data save/delete operations for just the Filedata table
+*
+* @package	vBulletin
+* @version	$Revision: 62619 $
+* @date		$Date: 2012-05-15 16:54:47 -0700 (Tue, 15 May 2012) $
+*/
+class vB_DataManager_Filedata extends vB_DataManager_AttachData
+{
+	/**
+	* Array of recognized and required fields for attachment inserts
+	*
+	* @var	array
+	*/
+	var $validfields = array(
+		'filedataid'         => array(TYPE_UINT,     REQ_INCR),
+		'userid'             => array(TYPE_UINT,     REQ_YES),
+		'dateline'           => array(TYPE_UNIXTIME, REQ_AUTO),
+		'filedata'           => array(TYPE_BINARY,   REQ_NO,   VF_METHOD),
+		'filesize'           => array(TYPE_UINT,     REQ_YES),
+		'filehash'           => array(TYPE_STR,      REQ_YES,  VF_METHOD, 'verify_md5'),
+		'thumbnail'          => array(TYPE_BINARY,   REQ_NO,   VF_METHOD),
+		'thumbnail_dateline' => array(TYPE_UNIXTIME, REQ_AUTO),
+		'thumbnail_filesize' => array(TYPE_UINT,     REQ_NO),
+		'extension'          => array(TYPE_STR,      REQ_YES),
+		'refcount'           => array(TYPE_UINT,     REQ_NO),
+		'width'              => array(TYPE_UINT,     REQ_NO),
+		'height'             => array(TYPE_UINT,     REQ_NO),
+		'thumbnail_width'    => array(TYPE_UINT,     REQ_NO),
+		'thumbnail_height'   => array(TYPE_UINT,     REQ_NO),
+	);
+
+	/**
+	* The main table this class deals with
+	*
+	* @var	string
+	*/
+	var $table = 'filedata';
+
+	/**
+	* Condition template for update query
+	* This is for use with sprintf(). First key is the where clause, further keys are the field names of the data to be used.
+	*
+	* @var	array
+	*/
+	var $condition_construct = array('filedataid = %1$d', 'filedataid');
+
+	/**
+	* Constructor - checks that the registry object has been passed correctly.
+	*
+	* @param	vB_Registry	Instance of the vBulletin data registry object - expected to have the database object as one of its $this->db member.
+	* @param	integer		One of the ERRTYPE_x constants
+	*/
+	public function __construct(&$registry, $errtype = ERRTYPE_STANDARD)
+	{
+		parent::__construct($registry, $errtype);
+
+		($hook = vBulletinHook::fetch_hook('attachdata_start')) ? eval($hook) : false;
+	}
+
+	public function pre_delete($doquery = true)
+	{
+		return parent::pre_delete('filedata', $doquery);
+	}
+
+	public function delete($doquery = true)
+	{
+		if (!$this->pre_delete($doquery) OR empty($this->lists['filedataids']))
+		{
+			return $false;
+		}
+
+		if (!empty($this->lists['filedataids']))
+		{
+			$this->registry->db->query_write("
+				DELETE FROM " . TABLE_PREFIX . "filedata
+				WHERE filedataid IN (" . implode(", ", array_keys($this->lists['filedataids'])) . ")
+			");
+
+			$this->registry->db->query_write("
+				DELETE FROM " . TABLE_PREFIX . "attachmentcategoryuser
+				WHERE filedataid IN (" . implode(", ", array_keys($this->lists['filedataids'])) . ")
+			");
+
+			if ($this->storage == 'fs')
+			{
+				require_once(DIR . '/includes/functions_file.php');
+				foreach ($this->lists['filedataids'] AS $filedataid => $userid)
+				{
+					@unlink(fetch_attachment_path($userid, $filedataid));
+					@unlink(fetch_attachment_path($userid, $filedataid, true));
+				}
+			}
+
+			// unset filedataids so that the post_delete function doesn't bother calculating refcount for the records that we just removed
+			unset($this->lists['filedataids']);
+		}
+
+		if (!empty($this->lists['attachmentids']))
+		{
+			$this->registry->db->query_write("
+				DELETE FROM " . TABLE_PREFIX . "attachment
+				WHERE attachmentid IN (" . implode(", ", $this->lists['attachmentids']) . ")
+			");
+		}
+
+		$this->post_delete();
+
+		return true;
+	}
+
+	/**
+	* Saves the data from the object into the specified database tables
+	* Overwrites parent
+	*
+	* @return	mixed	If this was an INSERT query, the INSERT ID is returned
+	*/
+	function save($doquery = true, $delayed = false)
+	{
+		if ($this->has_errors())
+		{
+			return false;
+		}
+
+		if (!$this->pre_save($doquery))
+		{
+			return false;
+		}
+
+		if ($filedataid = $this->pre_save_filedata($doquery))
+		{
+			if (!$filedataid)
+			{
+				return false;
+			}
+
+			if ($filedataid !== true)
+			{
+				// this is an insert and file already exists
+				$this->attachment['filedataid'] = $this->filedata['filedataid'] = $filedataid;
+
+				$this->post_save_each($doquery);
+				$this->post_save_once($doquery);
+
+				// this is an insert and file already exists
+				return $filedataid;
+			}
+		}
+
+		if ($this->condition === null)
+		{
+			$return = $this->db_insert(TABLE_PREFIX, $this->table, $doquery);
+			$this->set('filedataid', $return);
+		}
+		else
+		{
+			$return = $this->db_update(TABLE_PREFIX, $this->table, $this->condition, $doquery, $delayed);
+		}
+
+		if ($return AND $this->post_save_each($doquery) AND $this->post_save_once($doquery) AND $this->post_save_each_filedata($doquery))
+		{
+			return $return;
+		}
+		else
+		{
+			return false;
+		}
+	}
+}
+
+/**
+* Class to do data save/delete operations for Attachment/Filedata table
+*
+* @package	vBulletin
+* @version	$Revision: 62619 $
+* @date		$Date: 2012-05-15 16:54:47 -0700 (Tue, 15 May 2012) $
+*/
+class vB_DataManager_AttachmentFiledata extends vB_DataManager_Attachment
+{
+	var $validfields = array(
+		//attachment fields
+		'attachmentid'       => array(TYPE_UINT,       REQ_INCR),
+		'state'              => array(TYPE_STR,        REQ_NO),
+		'counter'            => array(TYPE_UINT,       REQ_NO),
+		'posthash'           => array(TYPE_STR,        REQ_NO,   VF_METHOD, 'verify_md5_alt'),
+		'contenttypeid'      => array(TYPE_UINT,       REQ_YES),
+		'contentid'          => array(TYPE_UINT,       REQ_NO),
+		'caption'            => array(TYPE_NOHTMLCOND, REQ_NO),
+		'reportthreadid'     => array(TYPE_UINT,       REQ_NO),
+		'displayorder'       => array(TYPE_UINT,       REQ_NO),
+
+		// Shared fields
+		'userid'             => array(TYPE_UINT,       REQ_YES),
+		'dateline'           => array(TYPE_UNIXTIME,   REQ_AUTO),
+		'filename'           => array(TYPE_STR,        REQ_YES,  VF_METHOD, 'verify_filename'),
+
+		// filedata fields
+		'filedata'           => array(TYPE_BINARY,     REQ_NO,   VF_METHOD),
+		'filesize'           => array(TYPE_UINT,       REQ_YES),
+		'filehash'           => array(TYPE_STR,        REQ_YES,  VF_METHOD, 'verify_md5'),
+		'thumbnail'          => array(TYPE_BINARY,     REQ_NO,   VF_METHOD),
+		'thumbnail_dateline' => array(TYPE_UNIXTIME,   REQ_AUTO),
+		'thumbnail_filesize' => array(TYPE_UINT,       REQ_NO),
+		'extension'          => array(TYPE_STR,        REQ_YES),
+		'refcount'           => array(TYPE_UINT,       REQ_NO),
+		'width'              => array(TYPE_UINT,       REQ_NO),
+		'height'             => array(TYPE_UINT,       REQ_NO),
+		'thumbnail_width'    => array(TYPE_UINT,       REQ_NO),
+		'thumbnail_height'   => array(TYPE_UINT,       REQ_NO),
+	);
+
+	/**
+	* Constructor - checks that the registry object has been passed correctly.
+	*
+	* @param	vB_Registry	Instance of the vBulletin data registry object - expected to have the database object as one of its $this->db member.
+	* @param	integer		One of the ERRTYPE_x constants
+	*/
+	public function __construct(&$registry, $errtype = ERRTYPE_STANDARD)
+	{
+		parent::__construct($registry, $errtype);
+
+		($hook = vBulletinHook::fetch_hook('attachdata_start')) ? eval($hook) : false;
+	}
+
+	/**
+	* Takes valid data and sets it as part of the data to be saved
+	*
+	* @param	string	The name of the field to which the supplied data should be applied
+	* @param	mixed	The data itself
+	*/
+	function do_set($fieldname, &$value)
+	{
+		$this->setfields["$fieldname"] = true;
+
+		$tables = array();
+
+		switch ($fieldname)
+		{
+			case 'userid':
+			case 'dateline' :
+			{
+				$tables = array('attachment', 'filedata');
+			}
+			break;
+
+			case 'filedata':
+			case 'filesize':
+			case 'filehash':
+			case 'thumbnail':
+			case 'thumbnail_dateline':
+			case 'thumbnail_filesize':
+			case 'extension':
+			case 'refcount':
+			case 'width':
+			case 'height':
+			case 'thumbnail_width':
+			case 'thumbnail_height':
+			{
+				$tables = array('filedata');
+			}
+			break;
+
+			default:
+			{
+				$tables = array('attachment');
+			}
+		}
+
+		($hook = vBulletinHook::fetch_hook('attachdata_doset')) ? eval($hook) : false;
+
+		foreach ($tables AS $table)
+		{
+			$this->{$table}["$fieldname"] =& $value;
+		}
+	}
+
+	/**
+	* Saves attachment to the database
+	*
+	* @return	mixed
+	*/
+	public function save($doquery = true)
+	{
+		if ($this->has_errors())
+		{
+			return false;
+		}
+
+		if (!$this->pre_save($$doquery))
+		{
+			return 0;
+		}
+
+		$insertfiledata = true;
+		if ($filedataid = $this->pre_save_filedata($doquery))
+		{
+			if (!$filedataid)
+			{
+				return false;
+			}
+
+			if ($filedataid !== true)
+			{
+				// this is an insert and file already exists
+				// Check if file is already attached to this content
+				if ($info = $this->registry->db->query_first(
+					($this->info['contentid'] ? "(" : "") .
+						"SELECT filedataid, attachmentid
+						FROM " . TABLE_PREFIX . "attachment
+						WHERE
+							filedataid = " . intval($filedataid) . "
+								AND
+							posthash = '" . $this->registry->db->escape_string($this->fetch_field('posthash')) . "'
+								AND
+							contentid = 0
+					" . ($this->info['contentid'] ? ") UNION (" : "") . "
+					" . ($this->info['contentid'] ? "
+						SELECT filedataid, attachmentid
+						FROM " . TABLE_PREFIX . "attachment
+						WHERE
+							filedataid = " . intval($filedataid) . "
+								AND
+							contentid = " . intval($this->info['contentid']) . "
+								AND
+							contenttypeid = " . intval($this->fetch_field('contenttypeid')) . "
+					)
+						" : "") . "
+				"))
+				{
+					// really just do nothing since this file is already attached to this content
+					return $info['attachmentid'];
+				}
+
+				$this->attachment['filedataid'] = $filedataid;
+				$insertfiledata = false;
+				unset($this->validfields['filedata'], $this->validfields['filesize'],
+					$this->validfields['filehash'], $this->validfields['thumbnail'], $this->validfields['thumbnail_dateline'],
+					$this->validfields['thumbnail_filesize'], $this->validfields['extension'], $this->validfields['refcount']
+				);
+			}
+		}
+
+		if ($this->condition)
+		{
+			$return = $this->db_update(TABLE_PREFIX, 'thread', $this->condition, $doquery);
+			if ($return)
+			{
+				$this->db_update(TABLE_PREFIX, 'filedataid', 'filedataid = ' . $this->fetch_field('filedataid'), $doquery);
+			}
+		}
+		else
+		{
+			// insert query
+			$return = $this->attachment['attachmentid'] = $this->db_insert(TABLE_PREFIX, 'attachment', $doquery);
+
+			if ($return)
+			{
+				$this->do_set('attachmentid', $return);
+
+				if ($insertfiledata)
+				{
+					$filedataid = $this->filedata['filedataid'] = $this->attachment['filedataid'] = $this->db_insert(TABLE_PREFIX, 'filedata', $doquery);
+				}
+				if ($doquery)
+				{
+					$this->dbobject->query_write("UPDATE " . TABLE_PREFIX . "attachment SET filedataid = $filedataid WHERE attachmentid = $return");
+					// Verify categoryid
+					if (!intval($this->info['categoryid']) OR $this->dbobject->query_first("
+						SELECT categoryid
+						FROM " . TABLE_PREFIX . "attachmentcategory
+						WHERE
+							userid = " . $this->fetch_field('userid') . "
+								AND
+							categoryid = " . intval($this->info['categoryid']) . "
+					"))
+					{
+						$this->dbobject->query_write("
+							INSERT IGNORE INTO " . TABLE_PREFIX . "attachmentcategoryuser
+								(userid, filedataid, categoryid, filename, dateline)
+							VALUES
+								(" . $this->fetch_field('userid') . ", $filedataid, " . intval($this->info['categoryid']) . ", '" . $this->dbobject->escape_string($this->fetch_field('filename')) . "', " . TIMENOW . ")
+						");
+					}
+				}
+			}
+		}
+
+		if ($return)
+		{
+			$this->post_save_each($doquery);
+			$this->post_save_once($doquery);
+			if ($insertfiledata)
+			{
+				$this->post_save_each_filedata($doquery);
+			}
+		}
+
+		return $return;
+	}
+}
+
 /*======================================================================*\
 || ####################################################################
-|| # Downloaded: 16:21, Sat Apr 6th 2013
-|| # CVS: $RCSfile$ - $Revision: 26884 $
+|| # Downloaded: 14:57, Sun Aug 11th 2013
+|| # CVS: $RCSfile$ - $Revision: 62619 $
 || ####################################################################
 \*======================================================================*/
 ?>

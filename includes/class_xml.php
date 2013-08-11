@@ -1,9 +1,9 @@
 <?php
 /*======================================================================*\
 || #################################################################### ||
-|| # vBulletin 3.7.2 Patch Level 2 - Licence Number VBF2470E4F
+|| # vBulletin 4.2.1 - Licence Number VBC2DDE4FB
 || # ---------------------------------------------------------------- # ||
-|| # Copyright ©2000-2013 Jelsoft Enterprises Ltd. All Rights Reserved. ||
+|| # Copyright ©2000-2013 vBulletin Solutions Inc. All Rights Reserved. ||
 || # This file may not be redistributed in whole or significant part. # ||
 || # ---------------- VBULLETIN IS NOT FREE SOFTWARE ---------------- # ||
 || # http://www.vbulletin.com | http://www.vbulletin.com/license.html # ||
@@ -17,7 +17,7 @@ error_reporting(E_ALL & ~E_NOTICE);
 if (!function_exists('xml_set_element_handler'))
 {
 	$extension_dir = ini_get('extension_dir');
-	if (strtoupper(substr(PHP_OS, 0, 3) == 'WIN'))
+	if (strtoupper(substr(PHP_OS, 0, 3)) == 'WIN')
 	{
 		$extension_file = 'php_xml.dll';
 	}
@@ -44,8 +44,8 @@ if (!function_exists('ini_size_to_bytes') OR (($current_memory_limit = ini_size_
 *
 * @package 		vBulletin
 * @author		Scott MacVicar
-* @version		$Revision: 26624 $
-* @date 		$Date: 2008-05-13 08:43:17 -0500 (Tue, 13 May 2008) $
+* @version		$Revision: 59788 $
+* @date 		$Date: 2012-02-29 16:39:09 -0800 (Wed, 29 Feb 2012) $
 * @copyright 	http://www.vbulletin.com/license.html
 *
 */
@@ -122,16 +122,62 @@ class vB_XML_Parser
 	var $error_line = 0;
 
 	/**
+	 * Whether to behave in legacy mode for compatibility.
+	 * @TODO: Update dependencies and remove legacy support
+	 *
+	 * @var bool
+	 */
+	var $legacy_mode = true;
+
+	/**
+	 * The encoding of the input xml.
+	 * This can be overridden by the client code.
+	 * @see vB_XML_Parser::set_encoding()
+	 *
+	 * @var string
+	 */
+	var $encoding;
+
+	/**
+	 * Specified target encoding.
+	 * If this is not set then the target encoding will be resolved from language settings.
+	 * @see vB_XML_Parser::set_target_encoding()
+	 *
+	 * @var string
+	 */
+	var $target_encoding;
+
+	/**
+	 * Specifies whether to NCR encode multibyte.
+	 * By default this is disabled and out of range characters will be displayed incorrectly.
+	 *
+	 * @var bool
+	 */
+	var $ncr_encode;
+
+	/**
+	 * Whether to escape html in cdata.
+	 *
+	 * @var bool
+	 */
+	var $escape_html;
+
+	/**
 	* Constructor
 	*
 	* @param	mixed	XML data or boolean false
 	* @param	string	Path to XML file to be parsed
+	* @param	bool	Read encoding from XML header
 	*/
-	function vB_XML_Parser($xml, $path = '')
+	function vB_XML_Parser($xml, $path = '', $readencoding = false)
 	{
 		if ($xml !== false)
 		{
 			$this->xmldata = $xml;
+			if ($readencoding AND preg_match('#(<?xml.*encoding=[\'"])(.*?)([\'"].*?>)#m', $this->xmldata, $match))
+			{
+				$this->set_encoding(strtoupper($match[2]));
+			}
 		}
 		else
 		{
@@ -149,19 +195,32 @@ class vB_XML_Parser
 	/**
 	* Parses XML document into an array
 	*
-	* @param	string	Encoding of the inputted XML file
+	* @param	string	Encoding of the input XML
 	* @param	bool	Empty the XML data string after parsing
 	*
 	* @return	mixed	array or false on error
 	*/
 	function &parse($encoding = 'ISO-8859-1', $emptydata = true)
 	{
+		// Set our own encoding to that passed
+		if (!$this->encoding)
+		{
+			$this->encoding = $encoding;
+		}
+
+		// Ensure the target encoding is set
+		if (!$this->legacy_mode)
+		{
+			$this->resolve_target_encoding();
+		}
+
 		if (empty($this->xmldata) OR $this->error_no > 0)
 		{
+			$this->error_code = XML_ERROR_NO_ELEMENTS + (version_compare(PHP_VERSION, '5.2.8') > 0 ? 0 : 1);
 			return false;
 		}
 
-		if (!($this->xml_parser = xml_parser_create($encoding)))
+		if (!($this->xml_parser = xml_parser_create($this->encoding)))
 		{
 			return false;
 		}
@@ -171,7 +230,7 @@ class vB_XML_Parser
 		xml_set_character_data_handler($this->xml_parser, array(&$this, 'handle_cdata'));
 		xml_set_element_handler($this->xml_parser, array(&$this, 'handle_element_start'), array(&$this, 'handle_element_end'));
 
-		xml_parse($this->xml_parser, $this->xmldata);
+		xml_parse($this->xml_parser, $this->xmldata, true);
 		$err = xml_get_error_code($this->xml_parser);
 
 		if ($emptydata)
@@ -201,8 +260,72 @@ class vB_XML_Parser
 	*/
 	function parse_xml()
 	{
-		global $stylevar;
+		if ($this->legacy_mode)
+		{
+			return $this->legacy_parse_xml();
+		}
 
+		if (preg_match('#(<?xml.*encoding=[\'"])(.*?)([\'"].*?>)#m', $this->xmldata, $match))
+		{
+			$encoding = strtoupper($match[2]);
+
+			if ($encoding != 'UTF-8')
+			{
+				// XML will always be UTF-8 at parse time
+				$this->xmldata = str_replace($match[0], "$match[1]UTF-8$match[3]", $this->xmldata);
+			}
+
+			if (!$this->encoding)
+			{
+				$this->encoding = $encoding;
+			}
+		}
+		else
+		{
+			if (!$this->encoding)
+			{
+				$this->encoding = 'UTF-8';
+			}
+
+			if (strpos($this->xmldata, '<?xml') === false)
+			{
+				// no xml tag, force one
+				$this->xmldata = '<?xml version="1.0" encoding="UTF-8"?>' . "\n" . $this->xmldata;
+			}
+			else
+			{
+				// xml tag doesn't have an encoding, which is bad
+				$this->xmldata = preg_replace(
+					'#(<?xml.*)(\?>)#',
+					'\\1 encoding="UTF-8" \\2',
+					$this->xmldata
+				);
+			}
+		}
+
+		// Ensure the XML is UTF-8
+		if ('UTF-8' !== $this->encoding)
+		{
+			$this->xmldata = to_utf8($this->xmldata, $this->encoding);
+			$this->encoding = 'UTF-8';
+		}
+
+		// Parse the XML as UTF-8
+		if (!$this->parse())
+		{
+			return false;
+		}
+
+		return true;
+	}
+
+	/**
+	* Handle encoding issues as well as parsing the XML into an array
+	*
+	* @return	boolean	Success
+	*/
+	function legacy_parse_xml()
+	{
 		// in here we should do conversion from the input to the output.
 		if (preg_match('#(<?xml.*encoding=[\'"])(.*?)([\'"].*?>)#m', $this->xmldata, $match))
 		{
@@ -213,7 +336,7 @@ class vB_XML_Parser
 				$in_encoding = 'WINDOWS-1252';
 			}
 
-			if (PHP_VERSION >= '5' AND ($in_encoding != 'UTF-8' OR strtoupper($stylevar['charset']) != 'UTF-8'))
+			if (($in_encoding != 'UTF-8' OR strtoupper(vB_Template_Runtime::fetchStyleVar('charset')) != 'UTF-8'))
 			{
 				// this is necessary in PHP5 when try to output a non-support encoding
 				$this->xmldata = str_replace($match[0], "$match[1]ISO-8859-1$match[3]", $this->xmldata);
@@ -223,34 +346,31 @@ class vB_XML_Parser
 		{
 			$in_encoding = 'UTF-8';
 
-			if (PHP_VERSION >= '5')
+			if (strpos($this->xmldata, '<?xml') === false)
 			{
-				if (strpos($this->xmldata, '<?xml') === false)
-				{
-					// this is necessary if there's no XML tag, as PHP5 doesn't know what character set it's in,
-					// so special characters die
-					$this->xmldata = '<?xml version="1.0" encoding="ISO-8859-1"?>' . "\n" . $this->xmldata;
-				}
-				else
-				{
-					// xml tag doesn't have an encoding, which is bad
-					$this->xmldata = preg_replace(
-						'#(<?xml.*)(\?>)#',
-						'\\1 encoding="ISO-8859-1" \\2',
-						$this->xmldata
-					);
-				}
-
-				$in_encoding = 'ISO-8859-1';
+				// this is necessary if there's no XML tag, as PHP5 doesn't know what character set it's in,
+				// so special characters die
+				$this->xmldata = '<?xml version="1.0" encoding="ISO-8859-1"?>' . "\n" . $this->xmldata;
 			}
+			else
+			{
+				// xml tag doesn't have an encoding, which is bad
+				$this->xmldata = preg_replace(
+					'#(<?xml.*)(\?>)#',
+					'\\1 encoding="ISO-8859-1" \\2',
+					$this->xmldata
+				);
+			}
+
+			$in_encoding = 'ISO-8859-1';
 		}
 
 		$orig_string = $this->xmldata;
 
 		// this is the current user if its the admincp or the guest session for cron
 		// should we stick with this or query the DB for the default language?
-		$target_encoding = (strtolower($stylevar['charset']) == 'iso-8859-1' ? 'WINDOWS-1252' : $stylevar['charset']);
-		$xml_encoding = (($in_encoding != 'UTF-8' OR strtoupper($stylevar['charset']) != 'UTF-8') ? 'ISO-8859-1' : 'UTF-8');
+		$target_encoding = (strtolower(vB_Template_Runtime::fetchStyleVar('charset')) == 'iso-8859-1' ? 'WINDOWS-1252' : vB_Template_Runtime::fetchStyleVar('charset'));
+		$xml_encoding = (($in_encoding != 'UTF-8' OR strtoupper(vB_Template_Runtime::fetchStyleVar('charset')) != 'UTF-8') ? 'ISO-8859-1' : 'UTF-8');
 		$iconv_passed = false;
 
 		if (strtoupper($in_encoding) !== strtoupper($target_encoding))
@@ -290,6 +410,7 @@ class vB_XML_Parser
 			return false;
 		}
 	}
+
 
 	/**
 	* XML parser callback. Handles CDATA values.
@@ -467,7 +588,98 @@ class vB_XML_Parser
 			$replace = array('<![CDATA[', ']]>', "\n", "\r\n");
 		}
 
+		if (!$this->legacy_mode AND ($this->encoding != $this->target_encoding))
+		{
+			$xml = $this->encode($xml);
+		}
+
 		return str_replace($find, $replace, $xml);
+	}
+
+
+	/**
+	 * Overrides the character encoding for the input XML.
+	 *
+	 * @param	string	charset
+	 */
+	function set_encoding($encoding)
+	{
+		$this->encoding = $encoding;
+	}
+
+
+	/**
+	 * Sets the target charset encoding for the parsed XML.
+	 *
+	 * @param	string	Target charset
+	 * @param	bool	Whether to ncr encode non ASCII
+	 * @param	bool	Whether to escape HTML
+	 */
+	function set_target_encoding($target_encoding, $ncr_encode = false, $escape_html = false)
+	{
+		$this->target_encoding = $target_encoding;
+		$this->ncr_encode = $ncr_encode;
+		$this->escape_html = $escape_html;
+	}
+
+
+	/**
+	 * Resolves the target encoding of the output.
+	 */
+	function resolve_target_encoding()
+	{
+		if (!$this->target_encoding)
+		{
+			$this->target_encoding = vB_Template_Runtime::fetchStyleVar('charset');
+		}
+
+		$this->target_encoding = strtoupper($this->target_encoding);
+
+		// Prefer WINDOWS-1252 over ISO-8859-1
+		if ('ISO-8859-1' == $this->target_encoding)
+		{
+			$this->target_encoding = 'WINDOWS-1252';
+		}
+	}
+
+	/**
+	 * Encodes data to the target encoding.
+	 *
+	 * @param	string	UTF-8 string to reencode
+	 * @return	string	The reencoded string
+	 */
+	function encode($data)
+	{
+		if ($this->encoding == $this->target_encoding)
+		{
+			return $data;
+		}
+
+		// Escape HTML
+		if ($this->escape_html)
+		{
+			$data = @htmlspecialchars($data, ENT_COMPAT, $this->encoding);
+		}
+
+		// NCR encode
+		if ($this->ncr_encode)
+		{
+			$data = ncrencode($data, true);
+		}
+
+		// Convert to the target charset
+		return to_charset($data, $this->encoding, $this->target_encoding);
+	}
+
+
+	/**
+	 * Disables legacy mode.
+	 * With legacy mode disabled character encoding is handled correctly however
+	 * legacy dependencies will break.
+	 */
+	function disable_legacy_mode($disable = true)
+	{
+		$this->legacy_mode = !$disable;
 	}
 }
 
@@ -500,7 +712,7 @@ class vB_XML_Builder
 
 		if ($charset == null)
 		{
-			$charset = $this->registry->userinfo['lang_charset'];
+			$charset = $this->registry->userinfo['lang_charset'] ? $this->registry->userinfo['lang_charset'] : vB_Template_Runtime::fetchStyleVar('charset');
 		}
 
 		$this->charset = (strtolower($charset) == 'iso-8859-1') ? 'windows-1252' : $charset;
@@ -573,6 +785,7 @@ class vB_XML_Builder
 
 	function add_tag($tag, $content = '', $attr = array(), $cdata = false, $htmlspecialchars = false)
 	{
+		$this->data[$tag] = $content;
 		$this->doc .= $this->tabs . $this->build_tag($tag, $attr, ($content === ''));
 		if ($content !== '')
 		{
@@ -637,6 +850,18 @@ class vB_XML_Builder
 	*/
 	function print_xml($full_shutdown = false)
 	{
+		if (class_exists('vBulletinHook', false))
+		{
+			($hook = vBulletinHook::fetch_hook('xml_print_output')) ? eval($hook) : false;
+		}
+
+		if (defined('VB_API') AND VB_API === true)
+		{
+			print_output($this->data);
+		}
+
+		//run any registered shutdown functions
+		$GLOBALS['vbulletin']->shutdown->shutdown();
 		if (defined('NOSHUTDOWNFUNC'))
 		{
 			if ($full_shutdown)
@@ -650,8 +875,109 @@ class vB_XML_Builder
 		}
 
 		$this->send_content_type_header();
-		echo $this->fetch_xml_tag() . $this->output();
+
+		if ($this->fetch_send_content_length_header())
+		{
+			// this line is causing problems with mod_gzip/deflate, but is needed for some IIS setups
+			$this->send_content_length_header();
+		}
+
+		echo $this->fetch_xml();
 		exit;
+	}
+
+	/**
+	* Prints XML header, use this if you need to output data that can't be easily queued. It won't work properly if content-length is required
+	*
+	* @param	boolean	If not using shut down functions, whether to do a full shutdown (session updates, etc) or to just close the DB
+	*/
+	function print_xml_header()
+	{
+		// Can't use this is we need to send a content length header as we don't know how much bogus data is going to be sent
+		if ($this->fetch_send_content_length_header())
+		{
+			if (!defined('SUPPRESS_KEEPALIVE_ECHO'))
+			{
+				define('SUPPRESS_KEEPALIVE_ECHO', true);
+			}
+			return false;
+		}
+
+		if (class_exists('vBulletinHook', false))
+		{
+			($hook = vBulletinHook::fetch_hook('xml_print_output')) ? eval($hook) : false;
+		}
+		
+		$this->send_content_type_header();
+		echo $this->fetch_xml_tag();
+	}
+
+	/**
+	* Prints out the queued XML and then exits. Use in combination with print_xml_header();
+	*
+	* @param	boolean	If not using shut down functions, whether to do a full shutdown (session updates, etc) or to just close the DB
+	*/
+	function print_xml_end($full_shutdown = false)
+	{
+		// Can't use this is we need to send a content length header as we don't know how much bogus data is going to be sent
+		if ($this->fetch_send_content_length_header())
+		{
+			return $this->print_xml();
+		}
+
+		//run any registered shutdown functions
+		$GLOBALS['vbulletin']->shutdown->shutdown();
+		if (defined('NOSHUTDOWNFUNC'))
+		{
+			if ($full_shutdown)
+			{
+				exec_shut_down();
+			}
+			else
+			{
+				$this->registry->db->close();
+			}
+		}		
+
+		echo $this->output();
+	}
+
+	/**
+	 * Determine if we send the content length header
+	 *
+	 * @return boolean
+	 */
+	function fetch_send_content_length_header()	
+	{
+		if (VB_AREA == 'Install' OR VB_AREA == 'Upgrade')
+		{
+			return (strpos($_SERVER['SERVER_SOFTWARE'], 'Microsoft-IIS') !== false);
+		}
+		else
+		{
+			switch($this->registry->options['ajaxheader'])
+			{
+				case 0 :
+					return true;
+					
+				case 1 :
+					return false;
+					
+				case 2 :
+				default:
+					return (strpos($_SERVER['SERVER_SOFTWARE'], 'Microsoft-IIS') !== false);
+			}
+		}
+	}
+
+	/**
+	 * Fetches the queued XML
+	 *
+	 * @return string
+	 */
+	function fetch_xml()
+	{
+		return $this->fetch_xml_tag() . $this->output();
 	}
 }
 
@@ -679,9 +1005,7 @@ class XMLexporter extends vB_XML_Builder
 
 /*======================================================================*\
 || ####################################################################
-|| # Downloaded: 16:21, Sat Apr 6th 2013
-|| # CVS: $RCSfile$ - $Revision: 26624 $
+|| # Downloaded: 14:57, Sun Aug 11th 2013
+|| # CVS: $RCSfile$ - $Revision: 59788 $
 || ####################################################################
 \*======================================================================*/
-
-?>

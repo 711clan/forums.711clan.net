@@ -1,9 +1,9 @@
 <?php
 /*======================================================================*\
 || #################################################################### ||
-|| # vBulletin 3.7.2 Patch Level 2 - Licence Number VBF2470E4F
+|| # vBulletin 4.2.1 - Licence Number VBC2DDE4FB
 || # ---------------------------------------------------------------- # ||
-|| # Copyright ©2000-2013 Jelsoft Enterprises Ltd. All Rights Reserved. ||
+|| # Copyright ©2000-2013 vBulletin Solutions Inc. All Rights Reserved. ||
 || # This file may not be redistributed in whole or significant part. # ||
 || # ---------------- VBULLETIN IS NOT FREE SOFTWARE ---------------- # ||
 || # http://www.vbulletin.com | http://www.vbulletin.com/license.html # ||
@@ -27,6 +27,7 @@ define('NOHEADER', 1);
 define('NOZIP', 1);
 define('NOCOOKIES', 1);
 define('NOPMPOPUP', 1);
+define('NONOTICES', 1);
 
 // attachment.php/$attachmentid/file.mp3 -- for podcast and confused clients that determine file type in <enclosure> by the url extension <iTunes, I'm looking in your direction>
 if (!$_REQUEST['attachmentid'])
@@ -50,7 +51,7 @@ if (empty($_REQUEST['attachmentid']))
 	}
 	else
 	{
-		header('HTTP/1.1 404 Not Found');
+		header($_SERVER['SERVER_PROTOCOL'] . ' 404 Not Found');
 	}
 	exit;
 }
@@ -71,7 +72,7 @@ if (!isset($_SERVER['HTTP_RANGE']) AND (!empty($_SERVER['HTTP_IF_MODIFIED_SINCE'
 	}
 	else
 	{
-		header('HTTP/1.1 304 Not Modified');
+		header($_SERVER['SERVER_PROTOCOL'] . ' 304 Not Modified');
 	}
 	// remove the content-type and X-Powered headers to emulate a 304 Not Modified response as close as possible
 	header('Content-Type:');
@@ -112,6 +113,7 @@ header('Vary: User-Agent');
 
 // ########################## REQUIRE BACK-END ############################
 require_once('./global.php');
+require_once(DIR . '/packages/vbattach/attach.php');
 
 // ########################################################################
 // ######################### START MAIN SCRIPT ############################
@@ -120,7 +122,7 @@ require_once('./global.php');
 $vbulletin->input->clean_array_gpc('r', array(
 	'attachmentid' => TYPE_UINT,
 	'thumb'        => TYPE_BOOL,
-	'postid'       => TYPE_UINT,
+	'cid'          => TYPE_UINT,
 ));
 
 $vbulletin->input->clean_array_gpc('p', array(
@@ -128,91 +130,84 @@ $vbulletin->input->clean_array_gpc('p', array(
 	'uniqueid' => TYPE_UINT
 ));
 
-$hook_query_fields = $hook_query_joins = $hook_query_where = '';
-($hook = vBulletinHook::fetch_hook('attachment_start')) ? eval($hook) : false;
-
-$idname = $vbphrase['attachment'];
-
-$imagetype = !empty($vbulletin->GPC['thumb']) ? 'thumbnail' : 'filedata';
-
-if (!$attachmentinfo = $db->query_first_slave("
-	SELECT filename, attachment.postid, attachment.userid, attachmentid, attachment.extension,
-		" . ((!empty($vbulletin->GPC['thumb'])
-			? 'thumbnail_dateline AS dateline, thumbnail_filesize AS filesize,'
-			: 'attachment.dateline, filesize,')) . "
-		attachment.visible, attachmenttype.newwindow, mimetype, thread.forumid, thread.threadid, thread.postuserid,
-		post.visible AS post_visible, thread.visible AS thread_visible
-		$hook_query_fields
-	FROM " . TABLE_PREFIX . "attachment AS attachment
-	LEFT JOIN " . TABLE_PREFIX . "attachmenttype AS attachmenttype ON (attachmenttype.extension = attachment.extension)
-	LEFT JOIN " . TABLE_PREFIX . "post AS post ON (post.postid = attachment.postid)
-	LEFT JOIN " . TABLE_PREFIX . "thread AS thread ON (post.threadid = thread.threadid)
-	$hook_query_joins
-	WHERE " . ($vbulletin->GPC['postid'] ? "attachment.postid = " . $vbulletin->GPC['postid'] : "attachmentid = " . $vbulletin->GPC['attachmentid']) . "
-		$hook_query_where
-"))
+if (!($attach =& vB_Attachment_Display_Single_Library::fetch_library($vbulletin, $vbulletin->GPC['cid'], $vbulletin->GPC['thumb'], $vbulletin->GPC['attachmentid'])))
 {
-	eval(standard_error(fetch_error('invalidid', $idname, $vbulletin->options['contactuslink'])));
+	eval(standard_error(fetch_error('invalidid', $vbphrase['attachment'], $vbulletin->options['contactuslink'])));
 }
 
-if ($attachmentinfo['postid'] == 0)
-{	// Attachment that is in progress but hasn't been finalized
-	if ($vbulletin->userinfo['userid'] != $attachmentinfo['userid'] AND !can_moderate($attachmentinfo['forumid'], 'caneditposts'))
-	{	// Person viewing did not upload it
-		eval(standard_error(fetch_error('invalidid', $idname, $vbulletin->options['contactuslink'])));
-	}
-	// else allow user to view the attachment (from the attachment manager for example)
-}
-else
+$result = $attach->verify_attachment();
+if ($result === false)
 {
-	$forumperms = fetch_permissions($attachmentinfo['forumid']);
+	eval(standard_error(fetch_error('invalidid', $vbphrase['attachment'], $vbulletin->options['contactuslink'])));
+}
+else if ($result === 0)
+{
+	header('Content-type: image/gif');
+	readfile(DIR . '/' . $vbulletin->options['cleargifurl']);
+	exit;
+}
+else if ($result === -1)
+{
+	print_no_permission();
+}
 
-	$threadinfo = array('threadid' => $attachmentinfo['threadid']); // used for session.inthread
-	$foruminfo = array('forumid' => $attachmentinfo['forumid']); // used for session.inforum
-
-	# Block attachments belonging to soft deleted posts and threads
-	if (!can_moderate($attachmentinfo['forumid']) AND ($attachmentinfo['post_visible'] == 2 OR $attachmentinfo['thread_visible'] == 2))
+$attachmentinfo = $attach->fetch_attachmentinfo();
+// this convoluted mess sets the $threadinfo/$foruminfo arrays for the session.inthread and session.inforum values
+if ($browsinginfo = $attach->fetch_browsinginfo())
+{
+	foreach ($browsinginfo AS $arrayname => $values)
 	{
-		eval(standard_error(fetch_error('invalidid', $idname, $vbulletin->options['contactuslink'])));
-	}
-
-	# Block attachments belonging to moderated posts and threads
-	if (!can_moderate($attachmentinfo['forumid'], 'canmoderateposts') AND ($attachmentinfo['post_visible'] == 0 OR $attachmentinfo['thread_visible'] == 0))
-	{
-		eval(standard_error(fetch_error('invalidid', $idname, $vbulletin->options['contactuslink'])));
-	}
-
-	if (!($forumperms & $vbulletin->bf_ugp_forumpermissions['canview']) OR !($forumperms & $vbulletin->bf_ugp_forumpermissions['canviewthreads']) OR !($forumperms & $vbulletin->bf_ugp_forumpermissions['cangetattachment'])  OR (!($forumperms & $vbulletin->bf_ugp_forumpermissions['canviewothers']) AND ($attachmentinfo['postuserid'] != $vbulletin->userinfo['userid'] OR $vbulletin->userinfo['userid'] == 0)))
-	{
-		print_no_permission();
-	}
-
-	// check if there is a forum password and if so, ensure the user has it set
-	verify_forum_password($attachmentinfo['forumid'], $vbulletin->forumcache["$attachmentinfo[forumid]"]['password']);
-
-	if (!$attachmentinfo['visible'] AND !can_moderate($attachmentinfo['forumid'], 'canmoderateattachments') AND $attachmentinfo['userid'] != $vbulletin->userinfo['userid'])
-	{
-		eval(standard_error(fetch_error('invalidid', $idname, $vbulletin->options['contactuslink'])));
+		$$arrayname = array();
+		foreach ($values AS $index => $value)
+		{
+			$$arrayname[$$index] = $value;
+		}
 	}
 }
 
 // handle lightbox requests
 if ($_REQUEST['do'] == 'lightbox')
 {
+	$vbulletin->input->clean_array_gpc('r', array(
+		'width'   => TYPE_UINT,
+		'height'  => TYPE_UINT,
+		'first'   => TYPE_BOOL,
+	  'last'    => TYPE_BOOL,
+		'current' => TYPE_UINT,
+	  'total'   => TYPE_UINT
+	));
+	$width = $vbulletin->GPC['width'];
+	$height = $vbulletin->GPC['height'];
+	$first = $vbulletin->GPC['first'];
+	$last = $vbulletin->GPC['last'];
+	$current = $vbulletin->GPC['current'];
+	$total = $vbulletin->GPC['total'];
+
 	require_once(DIR . '/includes/class_xml.php');
 	$xml = new vB_AJAX_XML_Builder($vbulletin, 'text/xml');
 
-	if (in_array(strtolower($attachmentinfo['extension']), array('jpg', 'jpeg', 'jpe', 'gif', 'png')))
+	if (in_array(strtolower($attachmentinfo['extension']), array('jpg', 'jpeg', 'jpe', 'gif', 'png', 'bmp')))
 	{
 		$uniqueid = $vbulletin->GPC['uniqueid'];
 		$imagelink = 'attachment.php?' . $vbulletin->session->vars['sessionurl'] . 'attachmentid=' . $attachmentinfo['attachmentid'] . '&d=' . $attachmentinfo['dateline'];
 		$attachmentinfo['date_string'] = vbdate($vbulletin->options['dateformat'], $attachmentinfo['dateline']);
 		$attachmentinfo['time_string'] = vbdate($vbulletin->options['timeformat'], $attachmentinfo['dateline']);
+		$attachmentinfo['filename'] = fetch_censored_text(htmlspecialchars_uni($attachmentinfo['filename'], false));
 		$show['newwindow'] = ($attachmentinfo['newwindow'] ? true : false);
 
 		($hook = vBulletinHook::fetch_hook('attachment_lightbox')) ? eval($hook) : false;
 
-		eval('$html = "' . fetch_template('lightbox', 0, 0) . '";');
+		$templater = vB_Template::create('lightbox');
+			$templater->register('attachmentinfo', $attachmentinfo);
+			$templater->register('current', $current);
+			$templater->register('first', $first);
+			$templater->register('height', $height);
+			$templater->register('imagelink', $imagelink);
+			$templater->register('last', $last);
+			$templater->register('total', $total);
+			$templater->register('uniqueid', $uniqueid);
+			$templater->register('width', $width);
+		$html = $templater->render(true);
 
 		$xml->add_group('img');
 		$xml->add_tag('html', process_replacement_vars($html));
@@ -229,10 +224,7 @@ if ($_REQUEST['do'] == 'lightbox')
 		$xml->add_tag('extension', $attachmentinfo['extension']);
 		$xml->close_group();
 	}
-
 	$xml->print_xml();
-
-	exit;
 }
 
 if ($attachmentinfo['extension'])
@@ -249,11 +241,11 @@ if ($vbulletin->options['attachfile'])
 	require_once(DIR . '/includes/functions_file.php');
 	if ($vbulletin->GPC['thumb'])
 	{
-		$attachpath = fetch_attachment_path($attachmentinfo['userid'], $attachmentinfo['attachmentid'], true);
+		$attachpath = fetch_attachment_path($attachmentinfo['uploader'], $attachmentinfo['filedataid'], true);
 	}
 	else
 	{
-		$attachpath = fetch_attachment_path($attachmentinfo['userid'], $attachmentinfo['attachmentid']);
+		$attachpath = fetch_attachment_path($attachmentinfo['uploader'], $attachmentinfo['filedataid']);
 	}
 
 	if ($permissions['adminpermissions'] & $vbulletin->bf_ugp_adminpermissions['cancontrolpanel'])
@@ -265,7 +257,7 @@ if ($vbulletin->options['attachfile'])
 	}
 	else if (!($fp = @fopen($attachpath, 'rb')))
 	{
-		$filedata = base64_decode('R0lGODlhAQABAIAAAMDAwAAAACH5BAEAAAAALAAAAAABAAEAAAICRAEAOw==');
+		$filedata = vb_base64_decode('R0lGODlhAQABAIAAAMDAwAAAACH5BAEAAAAALAAAAAABAAEAAAICRAEAOw==');
 		$filesize = strlen($filedata);
 		header('Expires: Mon, 26 Jul 1997 05:00:00 GMT');             // Date in the past
 		header('Last-Modified: ' . gmdate('D, d M Y H:i:s') . ' GMT'); // always modified
@@ -308,7 +300,7 @@ if (isset($_SERVER['HTTP_RANGE']))
 		}
 		else
 		{
-			header('HTTP/1.1 416 Requested Range Not Satisfiable');
+			header($_SERVER['SERVER_PROTOCOL'] . ' 416 Requested Range Not Satisfiable');
 		}
 		header('Accept-Ranges: bytes');
 		header('Content-Range: bytes */'. $attachmentinfo['filesize']);
@@ -327,6 +319,9 @@ else
 	$mimetype = unserialize($attachmentinfo['mimetype']);
 }
 
+($hook = vBulletinHook::fetch_hook('attachment_process_start')) ? eval($hook) : false;
+
+header('Pragma:'); // VBIV-8269
 header('Cache-control: max-age=31536000, private');
 header('Expires: ' . gmdate("D, d M Y H:i:s", TIMENOW + 31536000) . ' GMT');
 header('Last-Modified: ' . gmdate('D, d M Y H:i:s', $attachmentinfo['dateline']) . ' GMT');
@@ -340,7 +335,7 @@ if (preg_match('~&#([0-9]+);~', $filename))
 {
 	if (function_exists('iconv'))
 	{
-		$filename_conv = @iconv($stylevar['charset'], 'UTF-8//IGNORE', $filename);
+		$filename_conv = @iconv(vB_Template_Runtime::fetchStyleVar('charset'), 'UTF-8//IGNORE', $filename);
 		if ($filename_conv !== false)
 		{
 			$filename = $filename_conv;
@@ -356,7 +351,7 @@ if (preg_match('~&#([0-9]+);~', $filename))
 }
 else
 {
-	$filename_charset = $stylevar['charset'];
+	$filename_charset = vB_Template_Runtime::fetchStyleVar('charset');
 }
 
 $filename = preg_replace('#[\r\n]#', '', $filename);
@@ -365,7 +360,6 @@ $filename = preg_replace('#[\r\n]#', '', $filename);
 if (is_browser('mozilla'))
 {
 	$filename = "filename*=" . $filename_charset . "''" . rawurlencode($filename);
-	//$filename = "filename==?$stylevar[charset]?B?" . base64_encode($filename) . "?=";
 }
 else
 {
@@ -410,7 +404,7 @@ if ($startbyte != 0 OR $lastbyte != ($attachmentinfo['filesize'] - 1))
 	}
 	else
 	{
-		header('HTTP/1.1 206 Partial Content');
+		header($_SERVER['SERVER_PROTOCOL'] . ' 206 Partial Content');
 	}
 	header('Content-Range: bytes '. $startbyte .'-'. $lastbyte .'/'. $attachmentinfo['filesize']);
 }
@@ -431,6 +425,12 @@ else
 {
 	header('Content-type: unknown/unknown');
 }
+
+// This is new in IE8 and tells the browser not to try and guess
+header('X-Content-Type-Options: nosniff');
+
+// prevent flash from ever considering this to be a cross domain file
+header('X-Permitted-Cross-Domain-Policies: none');
 
 ($hook = vBulletinHook::fetch_hook('attachment_display')) ? eval($hook) : false;
 
@@ -494,9 +494,9 @@ else
 		$readsize = ($size > 2097152) ? 2097152 : $size + 1;
 
 		$attachmentinfo = $db->query_first_slave("
-			SELECT attachmentid, SUBSTRING(" . ((!empty($vbulletin->GPC['thumb']) ? 'thumbnail' : 'filedata')) . ", $startbyte + 1, $readsize) AS filedata
-			FROM " . TABLE_PREFIX . "attachment
-			WHERE attachmentid = $attachmentinfo[attachmentid]
+			SELECT filedataid, SUBSTRING(" . ((!empty($vbulletin->GPC['thumb']) ? 'thumbnail' : 'filedata')) . ", $startbyte + 1, $readsize) AS filedata
+			FROM " . TABLE_PREFIX . "filedata
+			WHERE filedataid = $attachmentinfo[filedataid]
 		");
 		echo $attachmentinfo['filedata'];
 		$startbyte += $readsize;
@@ -520,8 +520,8 @@ else
 
 /*======================================================================*\
 || ####################################################################
-|| # Downloaded: 16:21, Sat Apr 6th 2013
-|| # CVS: $RCSfile$ - $Revision: 26399 $
+|| # Downloaded: 14:57, Sun Aug 11th 2013
+|| # CVS: $RCSfile$ - $Revision: 62621 $
 || ####################################################################
 \*======================================================================*/
 ?>

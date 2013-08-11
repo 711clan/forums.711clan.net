@@ -23,8 +23,8 @@
 	<spider ident="Lycos">
 		<name>Lycos</name>
 	</spider>
-	<spider ident="MSNBOT">
-		<name>MSNBot</name>
+	<spider ident="BingBot">
+		<name>BingBot</name>
 	</spider>
 	<spider ident="NPBot">
 		<name>NameProtect</name>
@@ -38,6 +38,10 @@
 	<spider ident="scooter">
 		<name>AltaVista</name>
 	</spider>
+	<spider ident="Baiduspider">
+		<name>Baidu</name>
+		<info>http://www.baidu.jp/spider/</info>
+    </spider>
 </searchspiders>
 
-<!-- CVS: $RCSfile$ - $Revision: 12069 $ -->
+<!-- CVS: $RCSfile$ - $Revision: 44825 $ -->

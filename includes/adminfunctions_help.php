@@ -1,9 +1,9 @@
 <?php
 /*======================================================================*\
 || #################################################################### ||
-|| # vBulletin 3.7.2 Patch Level 2 - Licence Number VBF2470E4F
+|| # vBulletin 4.2.1 - Licence Number VBC2DDE4FB
 || # ---------------------------------------------------------------- # ||
-|| # Copyright ©2000-2013 Jelsoft Enterprises Ltd. All Rights Reserved. ||
+|| # Copyright ©2000-2013 vBulletin Solutions Inc. All Rights Reserved. ||
 || # This file may not be redistributed in whole or significant part. # ||
 || # ---------------- VBULLETIN IS NOT FREE SOFTWARE ---------------- # ||
 || # http://www.vbulletin.com | http://www.vbulletin.com/license.html # ||
@@ -17,6 +17,121 @@ error_reporting(E_ALL & ~E_NOTICE);
 function fetch_help_phrase_short_name($item, $suffix = '')
 {
 	return $item['script'] . iif($item['action'], '_' . str_replace(',', '_', $item['action'])) . iif($item['optionname'], "_$item[optionname]") . $suffix;
+}
+
+
+
+function get_help_export_xml($product)
+{
+	global $vbulletin;
+
+	if ($product == 'vbulletin')
+	{
+		$product_sql = "product IN ('vbulletin', '')";
+	}
+	else
+	{
+		$product_sql = "product = '" . $vbulletin->db->escape_string($product) . "'";
+	}
+
+	// query topics
+	$helptopics = array();
+	$phrase_names = array();
+	$topics = $vbulletin->db->query_read("
+		SELECT adminhelp.*
+		FROM " . TABLE_PREFIX . "adminhelp AS adminhelp
+		WHERE adminhelp.volatile = 1
+			AND adminhelp.$product_sql
+		ORDER BY adminhelp.script, adminhelp.action, adminhelp.displayorder, adminhelp.optionname
+	");
+	while ($topic = $vbulletin->db->fetch_array($topics))
+	{
+		$topic['phrase_name'] = fetch_help_phrase_short_name($topic);
+		$phrase_names[] = $vbulletin->db->escape_string($topic['phrase_name'] . '_title');
+		$phrase_names[] = $vbulletin->db->escape_string($topic['phrase_name'] . '_text');
+
+		$helptopics["$topic[script]"][] = $topic;
+	}
+	unset($topic);
+	$vbulletin->db->free_result($topics);
+
+	$phrases = array();
+	$phrase_results = $vbulletin->db->query_read("
+		SELECT *
+		FROM " . TABLE_PREFIX . "phrase
+		WHERE languageid = -1
+			AND varname IN ('" . implode("', '", $phrase_names) . "')
+	");
+	while ($phrase = $vbulletin->db->fetch_array($phrase_results))
+	{
+		$phrases["$phrase[varname]"] = $phrase;
+	}
+
+	require_once(DIR . '/includes/class_xml.php');
+	$xml = new vB_XML_Builder($vbulletin);
+
+	$version = str_replace('"', '\"', $vbulletin->options['templateversion']);
+	$xml->add_group('helptopics', 
+		array('vbversion' => $version, 
+		'product' => $product, 
+		'hasphrases' => 1)
+	);
+
+	ksort($helptopics);
+	foreach($helptopics AS $script => $scripttopics)
+	{
+		$xml->add_group('helpscript', array('name' => $script));
+		foreach($scripttopics AS $topic)
+		{
+			$attr = array('disp' => $topic['displayorder']);
+			if ($topic['action'])
+			{
+				$attr['act'] = $topic['action'];
+			}
+			if ($topic['optionname'])
+			{
+				$attr['opt'] = $topic['optionname'];
+			}
+
+			$title =& $phrases[$topic['phrase_name'] . '_title'];
+			$text =& $phrases[$topic['phrase_name'] . '_text'];
+
+			if (!empty($title) OR !empty($text))
+			{
+				$xml->add_group('helptopic', $attr);
+
+				$title_attributes = array(
+					'date' => $title['dateline'],
+					'username' => $title['username'],
+					'version' => htmlspecialchars_uni($title['version'])
+				);
+				$xml->add_tag('title', $title['text'], $title_attributes);
+
+				$text_attributes = array(
+					'date' => $text['dateline'],
+					'username' => $text['username'],
+					'version' => htmlspecialchars_uni($text['version'])
+				);
+				$xml->add_tag('text', $text['text'], $text_attributes);
+
+				$xml->close_group();
+			}
+			else
+			{
+				$xml->add_tag('helptopic', '', $attr);
+			}
+		}
+		$xml->close_group();
+	}
+
+	$xml->close_group();
+
+	$doc = "<?xml version=\"1.0\" encoding=\"ISO-8859-1\"?>\r\n\r\n";
+
+	$doc .= $xml->output();
+	$xml = null;
+
+	return $doc;
 }
 
 // ###################### Start xml_import_helptopics #######################
@@ -182,8 +297,8 @@ function xml_import_help_topics($xml = false)
 						" . implode(",\n\t", $help_sql)
 				);
 
-				$help_sql_len = array();
-				$help_sql = 0;
+				$help_sql = array();
+				$help_sql_len = 0;
 			}
 		}
 
@@ -219,8 +334,8 @@ function xml_import_help_topics($xml = false)
 
 /*======================================================================*\
 || ####################################################################
-|| # Downloaded: 16:21, Sat Apr 6th 2013
-|| # CVS: $RCSfile$ - $Revision: 26319 $
+|| # Downloaded: 14:57, Sun Aug 11th 2013
+|| # CVS: $RCSfile$ - $Revision: 37624 $
 || ####################################################################
 \*======================================================================*/
 ?>

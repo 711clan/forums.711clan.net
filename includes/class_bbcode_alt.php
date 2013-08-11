@@ -1,9 +1,9 @@
 <?php
 /*======================================================================*\
 || #################################################################### ||
-|| # vBulletin 3.7.2 Patch Level 2 - Licence Number VBF2470E4F
+|| # vBulletin 4.2.1 - Licence Number VBC2DDE4FB
 || # ---------------------------------------------------------------- # ||
-|| # Copyright ©2000-2013 Jelsoft Enterprises Ltd. All Rights Reserved. ||
+|| # Copyright ©2000-2013 vBulletin Solutions Inc. All Rights Reserved. ||
 || # This file may not be redistributed in whole or significant part. # ||
 || # ---------------- VBULLETIN IS NOT FREE SOFTWARE ---------------- # ||
 || # http://www.vbulletin.com | http://www.vbulletin.com/license.html # ||
@@ -21,12 +21,20 @@ require_once(DIR . '/includes/class_bbcode.php');
 * BB code parser for the WYSIWYG editor
 *
 * @package 		vBulletin
-* @version		$Revision: 26966 $
-* @date 		$Date: 2008-06-18 04:38:54 -0500 (Wed, 18 Jun 2008) $
+* @version		$Revision: 57655 $
+* @date 		$Date: 2012-01-09 12:08:39 -0800 (Mon, 09 Jan 2012) $
 *
 */
 class vB_BbCodeParser_Wysiwyg extends vB_BbCodeParser
 {
+	/**
+	 * When set, look for tags with this option to disable at runtime (for the wysiwyg parser)
+	 * For tags defined at runtime (plugins)
+	 * 
+	 * @var boolean
+	 */
+	var $handle_wysiwyg_no_parse = true;
+	
 	/**
 	* List of tags the WYSIWYG BB code parser should not parse.
 	*
@@ -38,6 +46,7 @@ class vB_BbCodeParser_Wysiwyg extends vB_BbCodeParser
 		'quote',
 		'highlight',
 		'noparse',
+		'video',
 
 		// leave these parsed, because <space><space> needs to be replaced to emulate pre tags
 		//'php',
@@ -92,6 +101,76 @@ class vB_BbCodeParser_Wysiwyg extends vB_BbCodeParser
 	}
 
 	/**
+	* Object to provide the implementation of the table helper to use.
+	* See setTableHelper and getTableHelper.
+	*
+	* @var	vBForum_BBCodeHelper_Table
+	*/
+	protected $table_helper = null;
+
+	/**
+	* External method to set/change the table helper implementation if necessary.
+	* Generally won't be used.
+	*
+	* @param	vBForum_BBCodeHelper_Table	Alternative helper
+	*/
+	public function setTableHelper(vBForum_BBCodeHelper_Table $helper)
+	{
+		$this->table_helper = $helper;
+	}
+
+	/**
+	* Fetches the table helper in use. It also acts as a lazy initializer.
+	* If no table helper has been explicitly set, it will instantiate
+	* the class's default.
+	*
+	* @return	vBForum_BBCodeHelper_Table	Table helper object
+	*/
+	public function getTableHelper()
+	{
+		if (!$this->table_helper)
+		{
+			require_once DIR . '/packages/vbforum/bbcodehelper/table/wysiwyg.php' ;
+			$this->table_helper = new vBForum_BBCodeHelper_Table_Wysiwyg($this);
+		}
+
+		return $this->table_helper;
+	}
+
+	protected function parsePageTag($page_title)
+	{
+		return '<h3 class="wysiwyg_pagebreak">' . $page_title . '</h3>';
+	}
+
+	protected function parsePreviewBreakTag($text)
+	{
+		return '<hr class="previewbreak" />' . $text;
+	}
+
+	protected function parseTableTag($content, $params = '')
+	{
+		$helper = $this->getTableHelper();
+		return $helper->parseTableTag($content, $params);
+	}
+
+	protected function rematchIELinebreaks($match)
+	{
+		$text = $match[3];
+		$open = $match[1];
+		$close = $match[2];
+
+		if (strpos($text, "\n") !== false)
+		{
+			$text = str_replace("</p>\n<p>", "<br>\n", $text);
+			return '[' . $open . ']' . $text . '[/' . $close . ']';
+		}
+		else
+		{
+			return $match[0];
+		}
+	}
+
+	/**
 	* Loads any user specified custom BB code tags into the $tag_list. These tags
 	* will not be parsed. They are loaded simply for directive parsing.
 	*/
@@ -116,8 +195,8 @@ class vB_BbCodeParser_Wysiwyg extends vB_BbCodeParser
 					'callback' => 'handle_wysiwyg_unparsable',
 					'strip_empty' 		=> $customtag['strip_empty'],
 					'stop_parse'		=> $customtag['stop_parse'],
-					'disable_smilies'	=> $custontag['disable_smilies'],
-					'disable_wordwrap'	=> $custontag['disable_wordwrap'],
+					'disable_smilies'	=> $customtag['disable_smilies'],
+					'disable_wordwrap'	=> $customtag['disable_wordwrap'],
 				);
 			}
 		}
@@ -149,10 +228,102 @@ class vB_BbCodeParser_Wysiwyg extends vB_BbCodeParser
 	* @param	string	The text to search for an image in.
 	* @param	string	Whether to parse matching images into pictures or just links.
 	*
-	* @return	string	HTML representation of the tag.
+	* @return	string	Text representation of the tag.
 	*/
 	function handle_bbcode_img($bbcode, $do_imgcode, $has_img_code = false)
 	{
+		global $vbphrase, $vbulletin;
+
+		if (($has_img_code == 2 OR $has_img_code == 3) AND preg_match_all('#\[attach=config\](\d+)\[/attach\]#i', $bbcode, $matches))
+		{
+			$search = array();
+			$replace = array();
+
+			$ids = array();
+			$attachments = $vbulletin->db->query_read_slave("
+				SELECT a.settings, a.attachmentid, a.filename
+				FROM " . TABLE_PREFIX . "attachment AS a
+				WHERE
+					a.attachmentid IN (" . implode(',', $matches[1]) . ")			
+				LIMIT 50
+			");
+			while ($attachment = $vbulletin->db->fetch_array($attachments))
+			{
+				$attachment['settings'] = @unserialize($attachment['settings']);
+				$ids[$attachment['attachmentid']] = $attachment;
+			}
+
+			foreach($matches[1] AS $attachmentid)
+			{
+				$fullsize = false;
+				$class = array('previewthumb');
+				$attribs = array(
+					'src'          => $vbulletin->options['bburl'] . '/attachment.php?attachmentid=' . $attachmentid . '&amp;stc=1',
+					'attachmentid' => $attachmentid,
+					'alt'          => '',
+					'id'           => 'vbattach_' . $attachmentid,
+				);
+				
+				$extension = strtolower(file_extension($ids[$attachmentid]['filename']));
+				if ($extension == 'pdf')
+				{
+					$attribs['src'] .= '&amp;thumb=1';
+				}
+				
+				if ($setting = $ids[$attachmentid]['settings'])
+				{
+					if ($setting['styles'])
+					{
+						$attribs['style'] = $setting['styles'];
+					}
+					if ($setting['alignment'])
+					{
+						switch ($setting['alignment'])
+						{
+								case 'left':
+									$class[] = 'align_left';
+									break;
+								case 'center':
+									$class[] = 'align_center';
+									break;
+								case 'right':
+									$class[] = 'align_right';
+									break;							
+						}
+					}
+					if ($setting['size'])
+					{
+						switch ($setting['size'])
+						{
+							case 'thumbnail':
+								$class[] = 'size_thumbnail';
+								break;
+							case 'medium':
+								$class[] = 'size_medium';
+								break;
+							case 'large':
+								$class[] = 'size_large';
+								break;
+							case 'fullsize':
+								$class[] = 'size_fullsize';
+								break;
+						}						
+					}
+				}
+				$attribs['class'] = implode(' ', $class);
+				$imgtag = '';
+				foreach ($attribs AS $tag => $value)
+				{
+					$imgtag .= "$tag=\"$value\" ";
+				}
+				
+				$search[] = '#\[attach=config\](' . $attachmentid . ')\[/attach\]#i';
+				$replace[] = '<img ' . $imgtag . '/>';
+			}
+
+			$bbcode = preg_replace($search, $replace, $bbcode);
+		}
+
 		if ($has_img_code == 1 OR $has_img_code == 3)
 		{
 			if ($do_imgcode AND ($this->registry->userinfo['userid'] == 0 OR $this->registry->userinfo['showimages']))
@@ -176,8 +347,9 @@ class vB_BbCodeParser_Wysiwyg extends vB_BbCodeParser
 	function handle_preformatted_tag($code)
 	{
 		$current_tag =& $this->current_tag;
+		$tag_name = (isset($current_tag['name_orig']) ? $current_tag['name_orig'] : $current_tag['name']);
 
-		return "[$current_tag[name]]" . $this->emulate_pre_tag($code) . "[/$current_tag[name]]";
+		return "[$tag_name]" . $this->emulate_pre_tag($code) . "[/$tag_name]";
 	}
 
 	/**
@@ -220,7 +392,7 @@ class vB_BbCodeParser_Wysiwyg extends vB_BbCodeParser
 	function parse_whitespace_newlines($text, $do_nl2br = true)
 	{
 		$whitespacefind = array(
-			'#(\r\n|\n|\r)?( )*(\[\*\]|\[/list|\[list|\[indent)#si',
+			'#(\r\n|\n|\r)?( )*(\[\*(=[0-9]+)?\]|\[/list|\[list|\[indent)#si',
 			'#(/list\]|/indent\])( )*(\r\n|\n|\r)?#si'
 		);
 		$whitespacereplace = array(
@@ -229,6 +401,7 @@ class vB_BbCodeParser_Wysiwyg extends vB_BbCodeParser
 		);
 		$text = preg_replace($whitespacefind, $whitespacereplace, $text);
 
+		/*
 		if ($this->is_wysiwyg('ie'))
 		{
 			// this fixes an issue caused by odd nesting of tags. This causes IE's
@@ -259,12 +432,37 @@ class vB_BbCodeParser_Wysiwyg extends vB_BbCodeParser
 			$text = preg_replace('#<p>\s*</p>(?!\s*\[list|$)#i', '<p>&nbsp;</p>', $text);
 
 			$text = str_replace('<p></p>', '', $text);
+
+			// heading tags that span multiple lines shouldn't have p tags within
+			// and they can't be split into multiple tags
+			$text = preg_replace_callback(
+				array(
+					'#\[((h)=.*)\](.*)\[/\\2\]#siU',
+					'#\[((page))\](.*)\[/\\2\]#siU',
+				),
+				array($this, 'rematchIELinebreaks'),
+				$text
+			);
+
+			// close any open p tags that come up to heading tags
+			$text = preg_replace(
+				array(
+					'#(\[h=[1-6]\].*\[/h\])#siU',
+					'#(\[page\].*\[/page\])#siU',
+				),
+				'</p>\\1<p>',
+				$text
+			);
+
+			$text = str_replace('<p></p>', '', $text);
 		}
 		else
 		{
 			$text = nl2br($text);
 		}
+*/
 
+		$text = nl2br($text);
 		// convert tabs to four &nbsp;
 		$text = str_replace("\t", '&nbsp;&nbsp;&nbsp;&nbsp;', $text);
 
@@ -276,13 +474,14 @@ class vB_BbCodeParser_Wysiwyg extends vB_BbCodeParser
 	*
 	* @param	string	Input Text (BB code)
 	* @param	bool	Whether to parse smilies
+	* @param	bool	Whether to parse img code (for the video bbcodes)
 	* @param	bool	Whether to allow HTML (for smilies)
 	*
 	* @return	string	Ouput Text (HTML)
 	*/
-	function parse_bbcode($input_text, $do_smilies, $do_html = false)
+	function parse_bbcode($input_text, $do_smilies, $do_imgcode, $do_html = false)
 	{
-		$text = $this->parse_array($this->fix_tags($this->build_parse_array($input_text)), $do_smilies, $do_html);
+		$text = $this->parse_array($this->fix_tags($this->build_parse_array($input_text)), $do_smilies, $do_imgcode, $do_html);
 
 		if ($this->is_wysiwyg('ie'))
 		{
@@ -304,6 +503,20 @@ class vB_BbCodeParser_Wysiwyg extends vB_BbCodeParser
 			$text = preg_replace('#<p></p>#siU', '', $text);
 		}
 
+		// table
+		if (substr($text, -8) == '</table>')
+		{
+			// must add a trailing line break to a table that ends the text
+			if ($this->is_wysiwyg('ie'))
+			{
+				$text .= "<p></p>";
+			}
+			else
+			{
+				$text .= "<br />";
+			}
+		}
+
 		// need to display smilies in code/php/html tags as literals
 		$text = preg_replace('#\[(code|php|html)\](.*)\[/\\1\]#siUe', "\$this->strip_smilies(str_replace('\\\"', '\"', '\\0'), true)", $text);
 
@@ -322,21 +535,24 @@ class vB_BbCodeParser_Wysiwyg extends vB_BbCodeParser
 	*/
 	function handle_wysiwyg_unparsable($text)
 	{
-		return '[' . $this->current_tag['name'] .
+		$tag_name = (isset($this->current_tag['name_orig']) ? $this->current_tag['name_orig'] : $this->current_tag['name']);
+		return '[' . $tag_name .
 			($this->current_tag['option'] !== false ?
 				('=' . $this->current_tag['delimiter'] . $this->current_tag['option'] . $this->current_tag['delimiter']) :
 				''
-			) . ']' . $text . '[/' . $this->current_tag['name'] . ']';
+			) . ']' . $text . '[/' . $tag_name . ']';
 	}
 
 	/**
 	* Handles a single bullet of a list
 	*
 	* @param	string	Text of bullet
+	* @param	int		Indent Value
+	* @param	string	Align
 	*
 	* @return	string	HTML for bullet
 	*/
-	function handle_bbcode_list_element($text)
+	function handle_bbcode_list_element($text, $indentvalue = 0, $align = '')
 	{
 		$bad_tag_list = '(br|p|li|ul|ol)';
 
@@ -358,11 +574,34 @@ class vB_BbCodeParser_Wysiwyg extends vB_BbCodeParser
 				$output .= "$value\n";
 			}
 		}
-		$output = preg_replace('#<br />+\s*$#i', '', $output);
+		$output = preg_replace('#<br ?/?>+\s*$#i', '', $output);
 
-		return "<li>$output</li>";
-	}
-
+		$indent = '';
+		$indentvalue = intval($indentvalue);
+		$styleattr = array();
+		if ($indentvalue)
+		{
+			$dir = $this->registry->stylevars['textdirection']['string'] == 'rtl' ? 'right' : 'left';
+			$styleattr[] = "margin-{$dir}: {$indentvalue}px";
+		}
+		if ($align)
+		{
+			$styleattr[] = "text-align: {$align}";
+		}
+		
+		$style = ' style="' . implode("; ", $styleattr) . '"';
+			
+		if ($style)
+		{
+			return "<li{$style}>$output</li>\n";
+		}
+		else
+		{
+			return "<li>$output</li>\n";
+		}
+	}	
+	
+	
 	/**
 	* Returns whether this parser is a WYSIWYG parser if no type is specified.
 	* If a type is specified, it checks whether our type matches
@@ -409,7 +648,7 @@ class vB_BbCodeParser_Wysiwyg extends vB_BbCodeParser
 	}
 
 	/**
-	* Removes IE's WYSIWYG breaks from within a list.
+	* Removes IE's WYSIWYG breaks from within a list. -- this function is no longer called..
 	*
 	* @param	string	Text to remove breaks from. Should start with [list] and end with [/list]
 	*
@@ -418,7 +657,7 @@ class vB_BbCodeParser_Wysiwyg extends vB_BbCodeParser
 	function remove_wysiwyg_breaks($fulltext)
 	{
 		$fulltext = str_replace('\"', '"', $fulltext);
-		preg_match('#^(\[list(=(&quot;|"|\'|)(.*)\\3)?\])(.*?)(\[/list(=\\3\\4\\3)?\])$#siU', $fulltext, $matches);
+		preg_match('#^(\[list(=(&quot;|"|\'|)(.*)\\3(?:|INDENT=(?:[0-9+])?)?\])(.*?)(\[/list(=\\3\\4\\3)?\])$#siU', $fulltext, $matches);
 		$prepend = $matches[1];
 		$innertext = $matches[5];
 
@@ -438,12 +677,12 @@ class vB_BbCodeParser_Wysiwyg extends vB_BbCodeParser
 }
 
 /**
-* BB code parser for the image checks. Only [img] and [attach] tags are actually
+* BB code parser for the image checks. Only [img], [attach], [video] tags are actually
 * parsed with this parser to prevent user-added <img> tags from counting.
 *
 * @package 		vBulletin
-* @version		$Revision: 26966 $
-* @date 		$Date: 2008-06-18 04:38:54 -0500 (Wed, 18 Jun 2008) $
+* @version		$Revision: 57655 $
+* @date 		$Date: 2012-01-09 12:08:39 -0800 (Mon, 09 Jan 2012) $
 *
 */
 class vB_BbCodeParser_ImgCheck extends vB_BbCodeParser
@@ -459,10 +698,18 @@ class vB_BbCodeParser_ImgCheck extends vB_BbCodeParser
 	{
 		parent::vB_BbCodeParser($registry, $tag_list, $append_custom_tags);
 
+		$skiplist_option = array(
+			'video'
+		);
+
 		// change all unparsable tags to use the unparsable callback
 		// [img] and [attach] tags are not parsed via the normal parser
 		foreach ($this->tag_list['option'] AS $tagname => $info)
 		{
+			if (in_array($tagname, $skiplist_option))
+			{
+				continue;
+			}
 			if (isset($this->tag_list['option']["$tagname"]))
 			{
 				$this->tag_list['option']["$tagname"]['callback'] = 'handle_unparsable';
@@ -505,8 +752,8 @@ class vB_BbCodeParser_ImgCheck extends vB_BbCodeParser
 					'callback' 		=> 'handle_unparsable',
 					'strip_empty' 		=> $customtag['strip_empty'],
 					'stop_parse'		=> $customtag['stop_parse'],
-					'disable_smilies'	=> $custontag['disable_smilies'],
-					'disable_wordwrap'	=> $custontag['disable_wordwrap'],
+					'disable_smilies'	=> $customtag['disable_smilies'],
+					'disable_wordwrap'	=> $customtag['disable_wordwrap'],
 				);
 			}
 		}
@@ -549,6 +796,30 @@ class vB_BbCodeParser_ImgCheck extends vB_BbCodeParser
 				"=$current_tag[delimiter]$current_tag[option]$current_tag[delimiter]" :
 				''
 			) . "]$text [/$current_tag[name]]";
+	}
+
+	/**
+	* Handles a [video] tag. Displays a movie.
+	*
+	* @param	string	The code to display
+	*
+	* @return	string	<video /> - expectation that occurrences of <video> are checked
+	*/
+	function handle_bbcode_video($url, $option)
+	{
+		global $vbulletin, $vbphrase, $show;
+
+		$params = array();
+		$options = explode(';', $option, 2);
+		$provider = strtolower($options[0]);
+		$code = $options[1];
+
+		if (!$code OR !$provider)
+		{
+			return '[video=' . $option . ']' . $url . '[/video]';
+		}
+
+		return '<video />';
 	}
 
 	/**
@@ -600,9 +871,9 @@ class vB_BbCodeParser_PrintableThread extends vB_BbCodeParser
 	*
 	* @return	string	Parsed text
 	*/
-	function do_parse($text, $do_html = false, $do_smilies = true, $do_bbcode = true , $do_imgcode = true, $do_nl2br = true, $cachable = false)
+	function do_parse($text, $do_html = false, $do_smilies = true, $do_bbcode = true , $do_imgcode = true, $do_nl2br = true, $cachable = false, $htmlstate = null, $minimal = false, $do_videocode = true)
 	{
-		return parent::do_parse($text, $do_html, $do_smilies, $do_bbcode, false, $do_nl2br, $cachable);
+		return parent::do_parse($text, $do_html, $do_smilies, $do_bbcode, false, $do_nl2br, $cachable, $htmlstate, $minimal, false);
 	}
 }
 
@@ -610,8 +881,8 @@ class vB_BbCodeParser_PrintableThread extends vB_BbCodeParser
 * BB code parser that generates plain text. This is basically useful for emails.
 *
 * @package 		vBulletin
-* @version		$Revision: 26966 $
-* @date 		$Date: 2008-06-18 04:38:54 -0500 (Wed, 18 Jun 2008) $
+* @version		$Revision: 57655 $
+* @date 		$Date: 2012-01-09 12:08:39 -0800 (Mon, 09 Jan 2012) $
 *
 */
 class vB_BbCodeParser_PlainText extends vB_BbCodeParser
@@ -708,26 +979,38 @@ class vB_BbCodeParser_PlainText extends vB_BbCodeParser
 	{
 		parent::vB_BbCodeParser($registry, $tag_list, $append_custom_tags);
 
+
+		$forum_path_full = '';
+		if ($registry->options['vbforum_url'])
+		{
+			$forum_path_full = rtrim($registry->options['vbforum_url'], '/') . '/';
+		}
+
+		if (strpos($forum_path_full, '://') === false)
+		{
+			$forum_path_full =  rtrim($registry->options['bburl'], '/') . '/' . $forum_path_full; 
+		}	
+
 		// add thread and post tags as parsed -- this can't be done above
 		// because I need to use a variable in $registry
 		$this->plaintext_tags['option']['thread']  = array(
-			'html' => '%1$s (' . $registry->options['bburl'] . '/showthread.php?t=%2$s)',
+			'html' => '%1$s (' . $forum_path_full . 'showthread.php?t=%2$s)',
 			'option_regex' => '#^\d+$#',
 			'strip_empty' => true
 		);
 		$this->plaintext_tags['no_option']['thread']  = array(
-			'html' => $registry->options['bburl'] . '/showthread.php?t=%1$s',
+			'html' => $forum_path_full . 'showthread.php?t=%1$s',
 			'data_regex' => '#^\d+$#',
 			'strip_empty' => true
 		);
 
 		$this->plaintext_tags['option']['post']  = array(
-			'html' => '%1$s (' . $registry->options['bburl'] . '/showthread.php?p=%2$s#post%2$s)',
+			'html' => '%1$s (' . $forum_path_full . 'showthread.php?p=%2$s#post%2$s)',
 			'option_regex' => '#^\d+$#',
 			'strip_empty' => true
 		);
 		$this->plaintext_tags['no_option']['post']  = array(
-			'html' => $registry->options['bburl'] . '/showthread.php?p=%1$s#post%1$s',
+			'html' => $forum_path_full . 'showthread.php?p=%1$s#post%1$s',
 			'data_regex' => '#^\d+$#',
 			'strip_empty' => true
 		);
@@ -864,8 +1147,8 @@ class vB_BbCodeParser_PlainText extends vB_BbCodeParser
 					'html' 			=> '%1$s',
 					'strip_empty' 		=> $customtag['strip_empty'],
 					'stop_parse'		=> $customtag['stop_parse'],
-					'disable_smilies'	=> $custontag['disable_smilies'],
-					'disable_wordwrap'	=> $custontag['disable_wordwrap'],
+					'disable_smilies'	=> $customtag['disable_smilies'],
+					'disable_wordwrap'	=> $customtag['disable_wordwrap'],
 				);
 			}
 		}
@@ -929,7 +1212,7 @@ class vB_BbCodeParser_PlainText extends vB_BbCodeParser
 	*
 	* @return	string	Parsed text
 	*/
-	function do_parse($text, $do_html = false, $do_smilies = true, $do_bbcode = true , $do_imgcode = true, $do_nl2br = true, $cachable = false)
+	function do_parse($text, $do_html = false, $do_smilies = true, $do_bbcode = true , $do_imgcode = true, $do_nl2br = true, $cachable = false, $htmlstate = null, $minimal = false, $do_videocode = true)
 	{
 		global $html_allowed;
 
@@ -940,12 +1223,13 @@ class vB_BbCodeParser_PlainText extends vB_BbCodeParser
 		$cachable = false;
 
 		$this->options = array(
-			'do_html' => $do_html,
-			'do_smilies' => $do_smilies,
-			'do_bbcode' => $do_bbcode,
-			'do_imgcode' => $do_imgcode,
-			'do_nl2br' => $do_nl2br,
-			'cachable' => $cachable
+			'do_html'      => $do_html,
+			'do_smilies'   => $do_smilies,
+			'do_bbcode'    => $do_bbcode,
+			'do_imgcode'   => $do_imgcode,
+			'do_videocode' => $do_videocode,
+			'do_nl2br'     => $do_nl2br,
+			'cachable'     => $cachable
 		);
 		$this->cached = array('text' => '', 'has_images' => 0);
 
@@ -957,7 +1241,7 @@ class vB_BbCodeParser_PlainText extends vB_BbCodeParser
 		// ********************* PARSE BBCODE TAGS ***************************
 		if ($do_bbcode)
 		{
-			$text = $this->parse_bbcode($text, $do_smilies, $do_html);
+			$text = $this->parse_bbcode($text, $do_smilies, $do_videocode, $do_html);
 		}
 
 		// parse out nasty active scripting codes
@@ -1061,7 +1345,7 @@ class vB_BbCodeParser_PlainText extends vB_BbCodeParser
 	*/
 	function handle_bbcode_quote($message, $username = '')
 	{
-		global $vbulletin, $vbphrase, $stylevar;
+		global $vbulletin, $vbphrase;
 
 		$message = $this->strip_front_back_whitespace($message, 1);
 
@@ -1180,7 +1464,7 @@ class vB_BbCodeParser_PlainText extends vB_BbCodeParser
 			}
 		}
 
-		$bullets = preg_split('#\s*\[\*\]#s', trim($text), -1, PREG_SPLIT_NO_EMPTY);
+		$bullets = preg_split('#\s*\[\*(=[0-9]+)?]#s', trim($text), -1, PREG_SPLIT_NO_EMPTY);
 		if (empty($bullets))
 		{
 			return "\n\n";
@@ -1192,6 +1476,9 @@ class vB_BbCodeParser_PlainText extends vB_BbCodeParser
 		$total_bullets = count($bullets);
 		$length_letters = ceil(log($total_bullets) / log(26));
 		$length_decimal = ceil(log($total_bullets) / log(10));
+
+		$options = explode('|', $type);
+		$type = $options[0];
 
 		foreach ($bullets AS $bullet)
 		{
@@ -1273,7 +1560,7 @@ class vB_BbCodeParser_PlainText extends vB_BbCodeParser
 	{
 		global $vbphrase;
 
-		if (($has_img_code == 2 OR $has_img_code == 3) AND preg_match_all('#\[attach(?:=(right|left))?\](\d+)\[/attach\]#i', $bbcode, $matches))
+		if (($has_img_code == 2 OR $has_img_code == 3) AND preg_match_all('#\[attach(?:=(right|left|config))?\](\d+)\[/attach\]#i', $bbcode, $matches))
 		{
 			$search = array();
 			$replace = array();
@@ -1314,10 +1601,159 @@ class vB_BbCodeParser_PlainText extends vB_BbCodeParser
 	}
 }
 
+/**
+* BB code parser for the Video tag, this parser converts the [video]host[/video] tag into the [video=XYZ]host[/video] tag. Is only executed after a
+* post is made.
+*
+* @package 		vBulletin
+* @version		$Revision: 57655 $
+* @date 		$Date: 2012-01-09 12:08:39 -0800 (Mon, 09 Jan 2012) $
+*
+*/
+class vB_BbCodeParser_Video_PreParse extends vB_BbCodeParser
+{
+
+	/**
+	* Constructor. Sets up the tag list.
+	*
+	* @param	vB_Registry	Reference to registry object
+	* @param	array		List of tags to parse
+	* @param	boolean		Whether to append custom tags (they will not be parsed anyway)
+	*/
+	function vB_BbCodeParser_Video_PreParse(&$registry, $tag_list = array(), $append_custom_tags = true)
+	{
+		parent::vB_BbCodeParser($registry, $tag_list, $append_custom_tags);
+		$this->tag_list = array();
+
+		// [NOPARSE]-- doesn't need a callback, just some flags
+		$this->tag_list['no_option']['noparse'] = array(
+			//'html'            => '[noparse]%1$s[/noparse]',
+			'strip_empty'     => false,
+			'stop_parse'      => true,
+			'disable_smilies' => true,
+			'callback'        => 'handle_noparse',
+		);
+
+		// [VIDEO]
+		$this->tag_list['no_option']['video'] = array(
+			'callback'    => 'handle_bbcode_video',
+			'strip_empty' => true
+		);
+	}
+
+	function handle_noparse($bbcode)
+	{
+		return '[noparse]' . str_replace(array('&#91;', '&#93;'), array('[', ']'), $bbcode) . '[/noparse]';
+	}
+
+	/**
+	* Handles an [img] tag. Send it back as is
+	*
+	* @param	string	The text to search for an image in.
+	*
+	* @return	string	HTML representation of the tag.
+	*/
+	function handle_bbcode_img($bbcode)
+	{
+		return $bbcode;
+	}
+
+
+	/**
+	* Collect parser options and misc data and fully parse the string into an HTML version- disable images
+	*
+	* @param	string	Unparsed text
+	*
+	* @return	string	Parsed text
+	* @param	int|str	ID number of the forum whose parsing options should be used or a "special" string
+	*/
+	function parse($text, $forumid = 0)
+	{
+		return parent::parse($text, $forumid, false, false, '', false);
+	}
+
+	/**
+	* Parse the string with the selected options
+	*
+	* @param	string	Unparsed text
+	* @param	bool	Whether to allow HTML (true) or not (false)
+	*
+	* @return	string	Parsed text
+	*/
+	function do_parse($text)
+	{
+		return parent::do_parse($text, true, false, true, true, false, false, null, true);
+	}
+
+	/**
+	* Handles a [video] tag. Displays a movie.
+	*
+	* @param	string	The code to display
+	*
+	* @return	string	HTML representation of the tag.
+	*/
+	function handle_bbcode_video($url, $option)
+	{
+		global $vbulletin, $vbphrase, $show;
+
+		static $providers = array();
+		static $scraped = 0;
+
+		$search = $replace = array();
+		($hook = vBulletinHook::fetch_hook('data_preparse_bbcode_video_start')) ? eval($hook) : false;
+
+		if (!$providers)
+		{
+			$bbcodes = $vbulletin->db->query_read_slave("
+				SELECT
+					provider, url, regex_url, regex_scrape, tagoption
+				FROM " . TABLE_PREFIX . "bbcode_video
+				ORDER BY priority
+			");
+			while ($bbcode = $vbulletin->db->fetch_array($bbcodes))
+			{
+				$providers["$bbcode[tagoption]"] = $bbcode;
+			}
+		}
+
+		if (!empty($providers))
+		{
+			$match = false;
+			foreach ($providers AS $provider)
+			{
+				$addcaret = ($provider['regex_url'][0] != '^') ? '^' : '';
+				if (preg_match('#' . $addcaret . $provider['regex_url'] . '#si', $url, $match))
+				{
+					break;
+				}
+			}
+			if ($match)
+			{
+				if (!$provider['regex_scrape'] AND $match[1])
+				{
+					return '[video=' . $provider['tagoption'] . ';' . $match[1] . ']' . $url . '[/video]';
+				}
+				else if ($provider['regex_scrape'] AND $vbulletin->options['bbcode_video_scrape'] > 0 AND $scraped < $vbulletin->options['bbcode_video_scrape'])
+				{
+					require_once(DIR . '/includes/functions_file.php');
+					$result = fetch_body_request($url);
+					if (preg_match('#' . $provider['regex_scrape'] . '#si', $result, $scrapematch))
+					{
+						return '[video=' . $provider['tagoption'] . ';' . $scrapematch[1] . ']' . $url . '[/video]';
+					}
+					$scraped++;
+				}
+			}
+		}
+
+		return '[video]' . $url . '[/video]';
+	}
+}
+
 /*======================================================================*\
 || ####################################################################
-|| # Downloaded: 16:21, Sat Apr 6th 2013
-|| # CVS: $RCSfile$ - $Revision: 26966 $
+|| # Downloaded: 14:57, Sun Aug 11th 2013
+|| # CVS: $RCSfile$ - $Revision: 57655 $
 || ####################################################################
 \*======================================================================*/
 ?>

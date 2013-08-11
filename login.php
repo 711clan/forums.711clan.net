@@ -1,9 +1,9 @@
 <?php
 /*======================================================================*\
 || #################################################################### ||
-|| # vBulletin 3.7.2 Patch Level 2 - Licence Number VBF2470E4F
+|| # vBulletin 4.2.1 - Licence Number VBC2DDE4FB
 || # ---------------------------------------------------------------- # ||
-|| # Copyright ©2000-2013 Jelsoft Enterprises Ltd. All Rights Reserved. ||
+|| # Copyright ©2000-2013 vBulletin Solutions Inc. All Rights Reserved. ||
 || # This file may not be redistributed in whole or significant part. # ||
 || # ---------------- VBULLETIN IS NOT FREE SOFTWARE ---------------- # ||
 || # http://www.vbulletin.com | http://www.vbulletin.com/license.html # ||
@@ -17,6 +17,7 @@ error_reporting(E_ALL & ~E_NOTICE);
 define('THIS_SCRIPT', 'login');
 define('CSRF_PROTECTION', true);
 define('CSRF_SKIP_LIST', 'login');
+define('CONTENT_PAGE', false);
 
 // ################### PRE-CACHE TEMPLATES AND DATA ######################
 // get special phrase groups
@@ -31,7 +32,8 @@ $globaltemplates = array();
 // pre-cache templates used by specific actions
 $actiontemplates = array(
 	'lostpw' => array(
-		'lostpw'
+		'lostpw',
+		'humanverify'
 	)
 );
 
@@ -47,19 +49,28 @@ $vbulletin->input->clean_gpc('r', 'a', TYPE_STR);
 
 if (empty($_REQUEST['do']) AND empty($vbulletin->GPC['a']))
 {
-	exec_header_redirect($vbulletin->options['forumhome'] . '.php');
+	exec_header_redirect(fetch_seo_url('forumhome|nosession', array()));
 }
 
 // ############################### start logout ###############################
 if ($_REQUEST['do'] == 'logout')
 {
+	// process facebook logout first if applicable
+	if (is_facebookenabled())
+	{
+		do_facebooklogout();
+	}
+
 	define('NOPMPOPUP', true);
 
-	$vbulletin->input->clean_gpc('r', 'logouthash', TYPE_STR);
-
-	if ($vbulletin->userinfo['userid'] != 0 AND !verify_security_token($vbulletin->GPC['logouthash'], $vbulletin->userinfo['securitytoken_raw']))
+	if (!VB_API)
 	{
-		eval(standard_error(fetch_error('logout_error', $vbulletin->session->vars['sessionurl'], $vbulletin->userinfo['securitytoken'])));
+		$vbulletin->input->clean_gpc('r', 'logouthash', TYPE_STR);
+
+		if ($vbulletin->userinfo['userid'] != 0 AND !verify_security_token($vbulletin->GPC['logouthash'], $vbulletin->userinfo['securitytoken_raw']))
+		{
+			eval(standard_error(fetch_error('logout_error', $vbulletin->session->vars['sessionurl'], $vbulletin->userinfo['securitytoken'])));
+		}
 	}
 
 	process_logout();
@@ -67,11 +78,13 @@ if ($_REQUEST['do'] == 'logout')
 	$vbulletin->url = fetch_replaced_session_url($vbulletin->url);
 	if (strpos($vbulletin->url, 'do=logout') !== false)
 	{
-		$vbulletin->url = $vbulletin->options['forumhome'] . '.php' . $vbulletin->session->vars['sessionurl_q'];
+		$vbulletin->url = fetch_seo_url('forumhome', array());
 	}
 	$show['member'] = false;
-	eval(standard_error(fetch_error('cookieclear', create_full_url($vbulletin->url), $vbulletin->options['forumhome'], $vbulletin->session->vars['sessionurl_q']), '', false));
+	$show['registerbutton'] = (!$show['search_engine'] AND $vbulletin->options['allowregistration']);
+	$show['pmmainlink'] = false;
 
+	eval(standard_error(fetch_error('cookieclear', create_full_url($vbulletin->url),  fetch_seo_url('forumhome', array())), '', false));
 }
 
 // ############################### start do login ###############################
@@ -87,6 +100,7 @@ if ($_POST['do'] == 'login')
 		'cookieuser'               => TYPE_BOOL,
 		'logintype'                => TYPE_STR,
 		'cssprefs'                 => TYPE_STR,
+		'inlineverify'             => TYPE_BOOL,
 	));
 
 	// can the user login?
@@ -115,20 +129,41 @@ if ($_POST['do'] == 'login')
 		}
 		$vbulletin->userinfo = $original_userinfo;
 
-		if ($vbulletin->options['usestrikesystem'])
+		// For vB_API we need to unlogin the users we logged in before
+		if (defined('VB_API') AND VB_API === true)
 		{
-			eval(standard_error(fetch_error('badlogin_strikes', $vbulletin->options['bburl'], $vbulletin->session->vars['sessionurl'], $strikes)));
+			$vbulletin->session->set('userid', 0);
+			$vbulletin->session->set('loggedin', 0);
+		}
+
+		if ($vbulletin->GPC['inlineverify'] AND $vbulletin->userinfo)
+		{
+			require_once(DIR . '/includes/modfunctions.php');
+			show_inline_mod_login(true);
 		}
 		else
 		{
-			eval(standard_error(fetch_error('badlogin', $vbulletin->options['bburl'], $vbulletin->session->vars['sessionurl'])));
+			define('VB_ERROR_PERMISSION', true);
+			$show['useurl'] = true;
+			$show['specificerror'] = true;
+			$url = $vbulletin->url;
+			if ($vbulletin->options['usestrikesystem'])
+			{
+				eval(standard_error(fetch_error('badlogin_strikes_passthru', $vbulletin->options['bburl'], $vbulletin->session->vars['sessionurl'], $strikes)));
+			}
+			else
+			{
+				eval(standard_error(fetch_error('badlogin_passthru', $vbulletin->options['bburl'], $vbulletin->session->vars['sessionurl'])));
+			}
 		}
 	}
 
 	exec_unstrike_user($vbulletin->GPC['vb_login_username']);
 
+	$_postvars = @unserialize(verify_client_string($vbulletin->GPC['postvars']));
+
 	// create new session
-	process_new_login($vbulletin->GPC['logintype'], $vbulletin->GPC['cookieuser'], $vbulletin->GPC['cssprefs']);
+	process_new_login(($_postvars['logintype'] ? $_postvars['logintype'] : $vbulletin->GPC['logintype']), $vbulletin->GPC['cookieuser'], $vbulletin->GPC['cssprefs']);
 
 	// do redirect
 	do_login_redirect();
@@ -137,7 +172,7 @@ if ($_POST['do'] == 'login')
 else if ($_GET['do'] == 'login')
 {
 	// add consistency with previous behavior
-	exec_header_redirect($vbulletin->options['forumhome'] . '.php');
+	exec_header_redirect(fetch_seo_url('forumhome|nosession', array()));
 }
 
 // ############################### start lost password ###############################
@@ -146,18 +181,29 @@ if ($_REQUEST['do'] == 'lostpw')
 	$vbulletin->input->clean_gpc('r', 'email', TYPE_NOHTML);
 	$email = $vbulletin->GPC['email'];
 
-	if ($permissions['forumpermissions'] & $vbulletin->bf_ugp_forumpermissions['canview'])
+	$navbits = construct_navbits(array('' => $vbphrase['lost_password_recovery_form']));
+	$navbar = render_navbar_template($navbits);
+
+	// human verification
+	if (fetch_require_hvcheck('lostpw'))
 	{
-		$navbits = construct_navbits(array('' => $vbphrase['lost_password_recovery_form']));
-		eval('$navbar = "' . fetch_template('navbar') . '";');
+		require_once(DIR . '/includes/class_humanverify.php');
+		$verification =& vB_HumanVerify::fetch_library($vbulletin);
+		$human_verify = $verification->output_token();
 	}
 	else
 	{
-		$navbar = '';
+		$human_verify = '';
 	}
 
 	$url =& $vbulletin->url;
-	eval('print_output("' . fetch_template('lostpw') . '");');
+	$templater = vB_Template::create('lostpw');
+		$templater->register_page_templates();
+		$templater->register('email', $email);
+		$templater->register('human_verify', $human_verify);
+		$templater->register('navbar', $navbar);
+		$templater->register('url', $url);
+	print_output($templater->render());
 }
 
 // ############################### start email password ###############################
@@ -167,11 +213,22 @@ if ($_POST['do'] == 'emailpassword')
 	$vbulletin->input->clean_array_gpc('p', array(
 		'email' => TYPE_STR,
 		'userid' => TYPE_UINT,
+		'humanverify'  => TYPE_ARRAY,
 	));
 
 	if ($vbulletin->GPC['email'] == '')
 	{
 		eval(standard_error(fetch_error('invalidemail', $vbulletin->options['contactuslink'])));
+	}
+
+	if (fetch_require_hvcheck('lostpw'))
+	{
+		require_once(DIR . '/includes/class_humanverify.php');
+		$verify =& vB_HumanVerify::fetch_library($vbulletin);
+		if (!$verify->verify_token($vbulletin->GPC['humanverify']))
+		{
+	  		standard_error(fetch_error($verify->fetch_error()));
+	  	}
 	}
 
 	require_once(DIR . '/includes/functions_user.php');
@@ -198,7 +255,7 @@ if ($_POST['do'] == 'emailpassword')
 		}
 
 		$vbulletin->url = str_replace('"', '', $vbulletin->url);
-		eval(print_standard_redirect('redirect_lostpw', true, true));
+		print_standard_redirect('redirect_lostpw', true, true);
 	}
 	else
 	{
@@ -213,8 +270,8 @@ if ($vbulletin->GPC['a'] == 'pwd' OR $_REQUEST['do'] == 'resetpassword')
 	$vbulletin->input->clean_array_gpc('r', array(
 		'userid'       => TYPE_UINT,
 		'u'            => TYPE_UINT,
-		'activationid' => TYPE_UINT,
-		'i'            => TYPE_UINT
+		'activationid' => TYPE_STR,
+		'i'            => TYPE_STR
 	));
 
 	if (!$vbulletin->GPC['userid'])
@@ -239,7 +296,7 @@ if ($vbulletin->GPC['a'] == 'pwd' OR $_REQUEST['do'] == 'resetpassword')
 	if (!$user)
 	{
 		// no activation record, probably got back here after a successful request, back to home
-		exec_header_redirect($vbulletin->options['forumhome'] . '.php');
+		exec_header_redirect(fetch_seo_url('forumhome|nosession', array()));
 	}
 
 	if ($user['dateline'] < (TIMENOW - 24 * 60 * 60))
@@ -255,8 +312,7 @@ if ($vbulletin->GPC['a'] == 'pwd' OR $_REQUEST['do'] == 'resetpassword')
 	// delete old activation id
 	$db->query_write("DELETE FROM " . TABLE_PREFIX . "useractivation WHERE userid = $userinfo[userid] AND type = 1");
 
-	// make random number
-	$newpassword = vbrand(0, 100000000);
+	$newpassword = fetch_random_password(8);
 
 	// init user data manager
 	$userdata =& datamanager_init('User', $vbulletin, ERRTYPE_STANDARD);
@@ -273,10 +329,11 @@ if ($vbulletin->GPC['a'] == 'pwd' OR $_REQUEST['do'] == 'resetpassword')
 
 }
 
+exec_header_redirect(fetch_seo_url('forumhome|nosession', array()));
 /*======================================================================*\
 || ####################################################################
-|| # Downloaded: 16:21, Sat Apr 6th 2013
-|| # CVS: $RCSfile$ - $Revision: 26512 $
+|| # Downloaded: 14:57, Sun Aug 11th 2013
+|| # CVS: $RCSfile$ - $Revision: 63389 $
 || ####################################################################
 \*======================================================================*/
 ?>

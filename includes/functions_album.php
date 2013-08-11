@@ -1,9 +1,9 @@
 <?php
 /*======================================================================*\
 || #################################################################### ||
-|| # vBulletin 3.7.2 Patch Level 2 - Licence Number VBF2470E4F
+|| # vBulletin 4.2.1 - Licence Number VBC2DDE4FB
 || # ---------------------------------------------------------------- # ||
-|| # Copyright ©2000-2013 Jelsoft Enterprises Ltd. All Rights Reserved. ||
+|| # Copyright ©2000-2013 vBulletin Solutions Inc. All Rights Reserved. ||
 || # This file may not be redistributed in whole or significant part. # ||
 || # ---------------- VBULLETIN IS NOT FREE SOFTWARE ---------------- # ||
 || # http://www.vbulletin.com | http://www.vbulletin.com/license.html # ||
@@ -55,19 +55,22 @@ function fetch_albuminfo($albumid)
 *
 * @return	array	Array of picture information
 */
-function fetch_pictureinfo($pictureid, $albumid)
+function fetch_pictureinfo($attachmentid, $albumid)
 {
 	global $vbulletin;
 
 	$pictureinfo = $vbulletin->db->query_first("
-		SELECT picture.pictureid, picture.userid, picture.caption, picture.extension, picture.filesize,
-			picture.width, picture.height, picture.reportthreadid, picture.state,
-			picture.idhash, picture.thumbnail_filesize, albumpicture.dateline, albumpicture.albumid
-		FROM " . TABLE_PREFIX . "albumpicture AS albumpicture
-		INNER JOIN " . TABLE_PREFIX . "picture AS picture ON (picture.pictureid = albumpicture.pictureid)
-		WHERE albumpicture.albumid = " . intval($albumid) . "
-			AND albumpicture.pictureid = " . intval($pictureid)
-	);
+		SELECT
+			a.attachmentid, a.userid, a.caption, a.reportthreadid, a.state, a.dateline, a.contentid AS albumid,
+			fd.filedataid, fd.filesize, fd.width, fd.height, fd.thumbnail_filesize, IF(fd.thumbnail_filesize > 0, 1, 0) AS hasthumbnail
+		FROM " . TABLE_PREFIX . "attachment AS a
+		INNER JOIN " . TABLE_PREFIX . "filedata AS fd ON (a.filedataid = fd.filedataid)
+		INNER JOIN " . TABLE_PREFIX . "album AS album ON (a.contentid = album.albumid)
+		WHERE
+			a.attachmentid = " . intval($attachmentid) . "
+				AND
+			album.albumid = " . intval($albumid) . "
+	");
 
 	if (!$pictureinfo)
 	{
@@ -85,11 +88,10 @@ function fetch_pictureinfo($pictureid, $albumid)
 * Prepares a picture array for thumbnail display.
 *
 * @param	array	Array of picture info
-* @param	array	Container info (either for a group or album); changes thumbnail URL
 *
 * @return	array	Array of picture info modified
 */
-function prepare_pictureinfo_thumb($pictureinfo, $displaytypeinfo)
+function prepare_pictureinfo_thumb($pictureinfo)
 {
 	global $vbulletin;
 
@@ -98,10 +100,9 @@ function prepare_pictureinfo_thumb($pictureinfo, $displaytypeinfo)
 		$vbulletin->options['album_captionpreviewlen']
 	));
 
-	$pictureinfo['thumburl'] = ($pictureinfo['thumbnail_filesize'] ? fetch_picture_url($pictureinfo, $displaytypeinfo, true) : '');
 	$pictureinfo['dimensions'] = ($pictureinfo['thumbnail_width'] ? "width=\"$pictureinfo[thumbnail_width]\" height=\"$pictureinfo[thumbnail_height]\"" : '');
 	$pictureinfo['date'] = vbdate($vbulletin->options['dateformat'], $pictureinfo['dateline'], true);
-	$pictureinfo['time'] = vbdate($vbulletin->options['dateformat'], $pictureinfo['dateline']);
+	$pictureinfo['time'] = vbdate($vbulletin->options['timeformat'], $pictureinfo['dateline']);
 
 	($hook = vBulletinHook::fetch_hook('album_prepare_thumb')) ? eval($hook) : false;
 
@@ -118,7 +119,7 @@ function prepare_pictureinfo_thumb($pictureinfo, $displaytypeinfo)
 *
 * @return	array		Information about previous/next pictures (including phrases)
 */
-function fetch_picture_location_info($navpictures_sql, $pictureid)
+function fetch_picture_location_info($navpictures_sql, $attachmentid)
 {
 	global $vbphrase, $show, $vbulletin;
 
@@ -129,9 +130,9 @@ function fetch_picture_location_info($navpictures_sql, $pictureid)
 	$key = 0;
 	while ($navpicture = $vbulletin->db->fetch_array($navpictures_sql))
 	{
-		$navpictures["$key"] = $navpicture['pictureid'];
+		$navpictures["$key"] = $navpicture['attachmentid'];
 
-		if ($navpicture['pictureid'] == $pictureid)
+		if ($navpicture['attachmentid'] == $attachmentid)
 		{
 			$cur_pic_position = $key;
 		}
@@ -154,31 +155,31 @@ function fetch_picture_location_info($navpictures_sql, $pictureid)
 		if (isset($navpictures[$cur_pic_position - 1]))
 		{
 			// have a previous pic
-			$output['prev_pictureid'] = $navpictures[$cur_pic_position - 1];
+			$output['prev_attachmentid'] = $navpictures[$cur_pic_position - 1];
 			$output['prev_text'] = $vbphrase['previous_picture'];
-			$output['prev_text_short'] = $vbphrase['prev'];
+			$output['prev_text_short'] = $vbphrase['prev_picture_short'];
 		}
 		else
 		{
 			// go to end
-			$output['prev_pictureid'] = end($navpictures);
+			$output['prev_attachmentid'] = end($navpictures);
 			$output['prev_text'] = $vbphrase['last_picture'];
-			$output['prev_text_short'] = $vbphrase['last'];
+			$output['prev_text_short'] = $vbphrase['last_picture_short'];
 		}
 
 		if (isset($navpictures[$cur_pic_position + 1]))
 		{
 			// have a next pic
-			$output['next_pictureid'] = $navpictures[$cur_pic_position + 1];
+			$output['next_attachmentid'] = $navpictures[$cur_pic_position + 1];
 			$output['next_text'] = $vbphrase['next_picture'];
-			$output['next_text_short'] = $vbphrase['next'];
+			$output['next_text_short'] = $vbphrase['next_picture_short'];
 		}
 		else
 		{
 			// go to beginning
-			$output['next_pictureid'] = $navpictures[0];
+			$output['next_attachmentid'] = $navpictures[0];
 			$output['next_text'] = $vbphrase['first_picture'];
-			$output['next_text_short'] = $vbphrase['first'];
+			$output['next_text_short'] = $vbphrase['first_picture_short'];
 		}
 	}
 
@@ -196,7 +197,7 @@ function fetch_picture_location_info($navpictures_sql, $pictureid)
 *
 * @return	integer	Amount of overage; <= 0 means no overage
 */
-function fetch_count_overage($userid, $maxpics, $upload_count = 1)
+function fetch_count_overage($userid, $albumid, $maxpics, $upload_count = 1)
 {
 	global $vbulletin;
 
@@ -206,11 +207,20 @@ function fetch_count_overage($userid, $maxpics, $upload_count = 1)
 		return -1;
 	}
 
+	$types = vB_Types::instance();
+	$contenttypeid = intval($types->getContentTypeID('vBForum_Album'));
+
 	$count = $vbulletin->db->query_first("
-		SELECT COUNT(*) AS total
-		FROM " . TABLE_PREFIX . "picture
-		WHERE userid = " . intval($userid)
-	);
+		SELECT 
+			COUNT(*) AS total
+		FROM " . TABLE_PREFIX . "attachment AS a
+		WHERE
+			a.contentid =  " . intval($albumid) . "
+				AND
+			a.contenttypeid = $contenttypeid
+				AND
+			a.userid = " . intval($userid) . "
+	");
 
 	return $count['total'] + $upload_count - $maxpics;
 }
@@ -234,11 +244,18 @@ function fetch_size_overage($userid, $maxsize, $upload_bytes = 0)
 		return -1;
 	}
 
+	$types = vB_Types::instance();
+	$contenttypeid = intval($types->getContentTypeID('vBForum_Album'));
+
 	$size = $vbulletin->db->query_first("
-		SELECT SUM(filesize) AS totalsize
-		FROM " . TABLE_PREFIX . "picture
-		WHERE userid = " . intval($userid)
-	);
+		SELECT SUM(fd.filesize) AS totalsize
+		FROM " . TABLE_PREFIX . "attachment AS a
+		INNER JOIN " . TABLE_PREFIX . "filedata AS fd ON (a.filedataid = fd.filedataid)
+		WHERE
+			a.userid = " . intval($userid) . "
+				AND
+			a.contenttypeid = $contenttypeid
+	");
 
 	return $size['totalsize'] + $upload_bytes - $maxsize;
 }
@@ -248,10 +265,11 @@ function fetch_size_overage($userid, $maxsize, $upload_bytes = 0)
 * for the specified album owner.
 *
 * @param	integer	Album owner user ID
+* @param	bool	Send in buddy status to avoid the query at the end of this function
 *
 * @return	boolean True if yes
 */
-function can_view_private_albums($albumuserid)
+function can_view_private_albums($albumuserid, $buddy = false)
 {
 	global $vbulletin;
 	static $albumperms_cache = array();
@@ -271,6 +289,10 @@ function can_view_private_albums($albumuserid)
 		$can_see_private = false;
 	}
 	else if (can_moderate(0, 'caneditalbumpicture') OR can_moderate(0, 'candeletealbumpicture'))
+	{
+		$can_see_private = true;
+	}
+	else if ($buddy)
 	{
 		$can_see_private = true;
 	}
@@ -310,135 +332,90 @@ function can_view_profile_albums($albumuserid)
 }
 
 /**
-* Fetches the file system path for a specified picture.
+* Checks an album and adds it to the recently updated albums list
+* if it is generally viewable by other users.
 *
-* @param	array	Array of picture info
-* @param	boolean	True if we want to fetch the thumb URL
-* @param	boolean	True if we want to return the filename (not just the dir path)
-*
-* @return	string	FS Path
+* @param array mixed $userinfo					Info array of the album owner
+* @param array mixed $albuminfo					Info array of the album
 */
-function fetch_picture_fs_path($pictureinfo, $thumb = false, $with_filename = true)
+function exec_album_updated($userinfo, $albuminfo)
 {
 	global $vbulletin;
 
-	if ($vbulletin->options['album_dataloc'] == 'fs_directthumb' AND $thumb == true)
+	cache_permissions($userinfo);
+
+	if (4 == $userinfo['usergroupid'])
 	{
-		$filepath = $vbulletin->options['album_thumbpath'];
-	}
-	else
-	{
-		$filepath = $vbulletin->options['album_picpath'];
+		return;
 	}
 
-	$path = $filepath . '/' . floor($pictureinfo['pictureid'] / 1000);
-
-	if ($with_filename)
+	if (!($userinfo['permissions']['albumpermissions'] & $vbulletin->bf_ugp_albumpermissions['canalbum']))
 	{
-		if ($thumb)
-		{
-			$path .= "/$pictureinfo[idhash]_$pictureinfo[pictureid].$pictureinfo[extension]";
-		}
-		else
-		{
-			$path .= "/$pictureinfo[pictureid].picture";
-		}
+		return;
 	}
 
-	return $path;
+	if (!$albuminfo['albumid'])
+	{
+		return;
+	}
+
+	$vbulletin->db->query_write("
+		REPLACE INTO " . TABLE_PREFIX . "albumupdate
+			(albumid, dateline)
+		VALUES
+			(" . intval($albuminfo['albumid']) . ", " . TIMENOW . ")
+	");
 }
 
 /**
-* Verifies that the picture filesystem path is created as necessary.
-*
-* @param	array	Array of picture info (to deduce the path)
-* @param	boolean	True if you want to verify the thunbnail path
-*
-* @return	string|bool	Path if successful, false otherwise
-*/
-function verify_picture_fs_path($pictureinfo, $thumb = false)
+ * Rebuilds Album Update cache
+ */
+function exec_rebuild_album_updates()
 {
 	global $vbulletin;
 
-	if (!function_exists('vbmkdir'))
+	$vbulletin->db->query_write("TRUNCATE " . TABLE_PREFIX . "albumupdate");
+
+	if (!$vbulletin->options['album_recentalbumdays'])
 	{
-		require_once(DIR . '/includes/functions_file.php');
+		return;
 	}
 
-	$path = fetch_picture_fs_path($pictureinfo, $thumb, false);
-	if (vbmkdir($path))
+	$results = $vbulletin->db->query_read("
+		SELECT album.albumid, album.userid, album.lastpicturedate, user.usergroupid, user.infractiongroupids, user.infractiongroupid
+		FROM " . TABLE_PREFIX . "album AS album
+		INNER JOIN " . TABLE_PREFIX . "user AS user ON (album.userid = user.userid)
+		WHERE lastpicturedate > " . (TIMENOW - $vbulletin->options['album_recentalbumdays'] * 86400) . "
+			AND state = 'public'
+			AND visible > 0
+	");
+
+	$recent_updates = array();
+	while ($result = $vbulletin->db->fetch_array($results))
 	{
-		return $path;
+		cache_permissions($result, false);
+
+		if ((4 != $result['permissions']['usergroupid']) AND (4 != $result['infractiongroupid']) AND ($result['permissions']['albumpermissions'] & $vbulletin->bf_ugp_albumpermissions['canalbum']))
+		{
+			$recent_updates[] = "($result[albumid], $result[lastpicturedate])";
+		}
 	}
-	else
+	$vbulletin->db->free_result($results);
+
+	if (sizeof($recent_updates))
 	{
-		return false;
+		$vbulletin->db->query_write("
+			INSERT INTO " . TABLE_PREFIX . "albumupdate
+				(albumid, dateline)
+			VALUES
+				" . implode (',', $recent_updates) . "
+		");
 	}
 }
-
-/**
-* Fetches the URL used to display a picture.
-*
-* @param	array	Array of picture info
-* @param	array	Array of container info (eg, group or album info array)
-* @param	boolean	True if you want the thumbnail URL
-*
-* @return	string	Picture URL. Generally relative to the main vB directory.
-*/
-function fetch_picture_url($pictureinfo, $displaytypeinfo, $thumb = false)
-{
-	global $vbulletin;
-
-	if ($vbulletin->options['album_dataloc'] == 'fs_directthumb' AND $thumb == true)
-	{
-		return $vbulletin->options['album_thumburl'] . '/' . floor($pictureinfo['pictureid'] / 1000)
-			. "/$pictureinfo[idhash]_$pictureinfo[pictureid].$pictureinfo[extension]?dl=$pictureinfo[thumbnail_dateline]";
-	}
-	else
-	{
-		if (isset($displaytypeinfo['albumid']))
-		{
-			$displaybit = "&amp;albumid=$displaytypeinfo[albumid]";
-		}
-		else if (isset($displaytypeinfo['groupid']))
-		{
-			$displaybit = "&amp;groupid=$displaytypeinfo[groupid]";
-		}
-		else
-		{
-			$displaybit = '';
-		}
-
-		return 'picture.php?' . $vbulletin->session->vars['sessionurl']
-			. "pictureid=$pictureinfo[pictureid]$displaybit&amp;dl=$pictureinfo[thumbnail_dateline]"
-			. ($thumb ? '&amp;thumb=1' : '');
-	}
-}
-
-/**
-* Mini-factory method to create the correct data manager based
-* the format pictures are stored in.
-*
-* @return	string	Name of DM to instantiate
-*/
-function fetch_picture_dm_name()
-{
-	global $vbulletin;
-
-	if ($vbulletin->options['album_dataloc'] == 'db')
-	{
-		return 'Picture_Database';
-	}
-	else
-	{
-		return 'Picture_Filesystem';
-	}
-}
-
 /*======================================================================*\
 || ####################################################################
-|| # Downloaded: 16:21, Sat Apr 6th 2013
-|| # CVS: $RCSfile$ - $Revision: 26051 $
+|| # Downloaded: 14:57, Sun Aug 11th 2013
+|| # CVS: $RCSfile$ - $Revision: 62619 $
 || ####################################################################
 \*======================================================================*/
 ?>

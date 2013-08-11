@@ -1,9 +1,9 @@
 <?php
 /*======================================================================*\
 || #################################################################### ||
-|| # vBulletin 3.7.2 Patch Level 2 - Licence Number VBF2470E4F
+|| # vBulletin 4.2.1 - Licence Number VBC2DDE4FB
 || # ---------------------------------------------------------------- # ||
-|| # Copyright ©2000-2013 Jelsoft Enterprises Ltd. All Rights Reserved. ||
+|| # Copyright ©2000-2013 vBulletin Solutions Inc. All Rights Reserved. ||
 || # This file may not be redistributed in whole or significant part. # ||
 || # ---------------- VBULLETIN IS NOT FREE SOFTWARE ---------------- # ||
 || # http://www.vbulletin.com | http://www.vbulletin.com/license.html # ||
@@ -14,7 +14,7 @@
 error_reporting(E_ALL & ~E_NOTICE);
 
 // ##################### DEFINE IMPORTANT CONSTANTS #######################
-define('CVS_REVISION', '$RCSfile$ - $Revision: 26275 $');
+define('CVS_REVISION', '$RCSfile$ - $Revision: 42666 $');
 
 // #################### PRE-CACHE TEMPLATES AND DATA ######################
 $phrasegroups = array('logging', 'threadmanage');
@@ -171,7 +171,7 @@ if ($_REQUEST['do'] == 'view')
 		}
 
 		print_form_header('modlog', 'remove');
-		print_description_row(construct_link_code($vbphrase['restart'], "modlog.php?" . $vbulletin->session->vars['sessionurl'] . ""), 0, 6, 'thead', $stylevar['right']);
+		print_description_row(construct_link_code($vbphrase['restart'], "modlog.php?" . $vbulletin->session->vars['sessionurl'] . ""), 0, 6, 'thead', vB_Template_Runtime::fetchStyleVar('right'));
 		print_table_header(construct_phrase($vbphrase['moderator_log_viewer_page_x_y_there_are_z_total_log_entries'], vb_number_format($vbulletin->GPC['pagenumber']), vb_number_format($totalpages), vb_number_format($counter['total'])), 6);
 
 		$headings = array();
@@ -219,6 +219,11 @@ if ($_REQUEST['do'] == 'view')
 			reset($princids);
 			foreach ($princids AS $sqlfield => $output)
 			{
+				if ($sqlfield == 'post_title' AND $log['post_title'] == '' AND !empty($log['postid']))
+				{
+					$log['post_title'] = $vbphrase['untitled'];
+				}
+
 				if ($log["$sqlfield"])
 				{
 					if ($celldata)
@@ -229,16 +234,20 @@ if ($_REQUEST['do'] == 'view')
 					switch($sqlfield)
 					{
 						case 'post_title':
-							$celldata .= construct_link_code($log["$sqlfield"], "../showthread.php?" . $vbulletin->session->vars['sessionurl'] . "p=$log[postid]#$log[postid]", true);
+							$celldata .= construct_link_code($log["$sqlfield"], 
+								fetch_seo_url('thread|bburl', $log, array('p' => $log['postid']), 'threadid', 'thread_title') . "#post$log[postid]",
+								true);
 							break;
 						case 'thread_title':
-							$celldata .= construct_link_code($log["$sqlfield"], "../showthread.php?" . $vbulletin->session->vars['sessionurl'] . "t=$log[threadid]", true);
+							$celldata .= construct_link_code($log["$sqlfield"], 
+								fetch_seo_url('thread|bburl', $log, null, 'threadid', 'thread_title'), true);
 							break;
 						case 'forum_title':
-							$celldata .= construct_link_code($log["$sqlfield"], "../forumdisplay.php?" . $vbulletin->session->vars['sessionurl'] . "f=$log[forumid]", true);
+							$celldata .= construct_link_code($log["$sqlfield"], 
+								fetch_seo_url('forum|bburl', $log, null, 'forumid', 'forum_title'), true);
 							break;
 						case 'attachment_title':
-							$celldata .= construct_link_code(htmlspecialchars_uni($log["$sqlfield"]), "../attachment.php?" . $vbulletin->session->vars['sessionurl'] . "attachmentid=$log[attachmentid]&amp;nocache=" . vbrand(0,1000000), true);
+							$celldata .= construct_link_code(htmlspecialchars_uni($log["$sqlfield"]), "../attachment.php?" . $vbulletin->session->vars['sessionurl'] . "attachmentid=$log[attachmentid]&amp;nocache=" . TIMENOW, true);
 							break;
 						default:
 							$handled = false;
@@ -410,8 +419,8 @@ print_cp_footer();
 
 /*======================================================================*\
 || ####################################################################
-|| # Downloaded: 16:21, Sat Apr 6th 2013
-|| # CVS: $RCSfile$ - $Revision: 26275 $
+|| # Downloaded: 14:57, Sun Aug 11th 2013
+|| # CVS: $RCSfile$ - $Revision: 42666 $
 || ####################################################################
 \*======================================================================*/
 ?>

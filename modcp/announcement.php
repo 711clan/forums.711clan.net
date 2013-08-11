@@ -1,9 +1,9 @@
 <?php
 /*======================================================================*\
 || #################################################################### ||
-|| # vBulletin 3.7.2 Patch Level 2 - Licence Number VBF2470E4F
+|| # vBulletin 4.2.1 - Licence Number VBC2DDE4FB
 || # ---------------------------------------------------------------- # ||
-|| # Copyright ©2000-2013 Jelsoft Enterprises Ltd. All Rights Reserved. ||
+|| # Copyright ©2000-2013 vBulletin Solutions Inc. All Rights Reserved. ||
 || # This file may not be redistributed in whole or significant part. # ||
 || # ---------------- VBULLETIN IS NOT FREE SOFTWARE ---------------- # ||
 || # http://www.vbulletin.com | http://www.vbulletin.com/license.html # ||
@@ -14,7 +14,7 @@
 error_reporting(E_ALL & ~E_NOTICE);
 
 // ##################### DEFINE IMPORTANT CONSTANTS #######################
-define('CVS_REVISION', '$RCSfile$ - $Revision: 16085 $');
+define('CVS_REVISION', '$RCSfile$ - $Revision: 34547 $');
 
 // #################### PRE-CACHE TEMPLATES AND DATA ######################
 $phrasegroups = array('posting');
@@ -97,20 +97,19 @@ if ($_REQUEST['do'] == 'add' OR $_REQUEST['do'] == 'edit')
 if ($_POST['do'] == 'update')
 {
 	$vbulletin->input->clean_array_gpc('p', array(
-		'startdate' => TYPE_UNIXTIME,
-		'enddate' => TYPE_UNIXTIME,
-		'forumid' => TYPE_INT,
-		'title' => TYPE_STR,
-		'pagetext' => TYPE_STR,
+		'startdate'           => TYPE_UNIXTIME,
+		'enddate'             => TYPE_UNIXTIME,
+		'forumid'             => TYPE_INT,
+		'title'               => TYPE_STR,
+		'pagetext'            => TYPE_STR,
 		'announcementoptions' => TYPE_ARRAY_BOOL,
-		'reset_views' => TYPE_BOOL,
+		'reset_views'         => TYPE_BOOL,
 	));
 
 	if ($retval = fetch_announcement_permission_error($vbulletin->GPC['announcement']['forumid']))
 	{
 		print_stop_message(fetch_announcement_permission_error_phrase($retval));
 	}
-
 
 	// query original data
 	if ($vbulletin->GPC['announcementid'] AND (!$original_data = $db->query_first("SELECT * FROM " . TABLE_PREFIX . "announcement WHERE announcementid = " . $vbulletin->GPC['announcementid'])))
@@ -148,7 +147,7 @@ if ($_POST['do'] == 'update')
 	$anncdata->set('pagetext', $vbulletin->GPC['pagetext']);
 	$anncdata->set('forumid', $vbulletin->GPC['forumid']);
 	$anncdata->set('startdate', $vbulletin->GPC['startdate']);
-	$anncdata->set('enddate', $vbulletin->GPC['enddate']);
+	$anncdata->set('enddate', $vbulletin->GPC['enddate'] + 86399);
 
 	foreach ($vbulletin->GPC['announcementoptions'] AS $key => $val)
 	{
@@ -221,8 +220,8 @@ print_cp_footer();
 
 /*======================================================================*\
 || ####################################################################
-|| # Downloaded: 16:21, Sat Apr 6th 2013
-|| # CVS: $RCSfile$ - $Revision: 16085 $
+|| # Downloaded: 14:57, Sun Aug 11th 2013
+|| # CVS: $RCSfile$ - $Revision: 34547 $
 || ####################################################################
 \*======================================================================*/
 

@@ -2,16 +2,21 @@
 
 <navgroups product="vbulletin" master="true">
 
-	<navgroup phrase="vbulletin_options" permissions="canadminsettings" hr="true" displayorder="10">
+	<navgroup phrase="settings" permissions="canadminsettings" hr="true" displayorder="10">
 
 		<navoption displayorder="10">
-			<phrase>vbulletin_options</phrase>
+			<phrase>options</phrase>
 			<link>options.php?null=0</link>
 		</navoption>
 
 		<navoption displayorder="20">
 			<phrase>search_type</phrase>
 			<link>options.php?do=searchtype</link>
+		</navoption>
+
+		<navoption permissions="canadminstyles" displayorder="25">
+			<phrase>navigation_manager</phrase>
+			<link>navigation.php</link>
 		</navoption>
 
 		<navoption displayorder="30">
@@ -28,9 +33,42 @@
 			<phrase>admin_help_manager</phrase>
 		</navoption>
 
-		<navoption debug="1" displayorder="60">
+		<navoption permissions="canadminmaintain" displayorder="90">
+			<phrase>run_upgrade</phrase>
+			<link>../install/upgrade.php</link>
+		</navoption>
+
+	</navgroup>
+
+	<navgroup debug="1" phrase="rebuild" permissions="canadminsettings" hr="true" displayorder="11">
+
+		<navoption displayorder="10">
 			<phrase>rebuild_bitfields</phrase>
 			<link>index.php?do=buildbitfields</link>
+		</navoption>
+
+		<navoption displayorder="20">
+			<phrase>rebuild_video_bbcode</phrase>
+			<link>index.php?do=buildvideo</link>
+		</navoption>
+
+		<navoption displayorder="30">
+			<phrase>rebuild_style_information</phrase>
+			<link>template.php?do=rebuild&amp;goto=index.php</link>
+		</navoption>
+
+	</navgroup>
+
+	<navgroup phrase="advertising" permissions="canadminads" displayorder="19">
+
+		<navoption displayorder="20">
+			<phrase>manage_ads</phrase>
+			<link>ad.php</link>
+		</navoption>
+
+		<navoption displayorder="30">
+			<phrase>add_new_ad</phrase>
+			<link>ad.php?do=locate</link>
 		</navoption>
 
 	</navgroup>
@@ -43,21 +81,26 @@
 		</navoption>
 
 		<navoption displayorder="20">
+			<phrase>style_generator</phrase>
+			<link>template.php?do=stylegenerator</link>
+		</navoption>
+
+		<navoption displayorder="30">
 			<phrase>search_in_templates</phrase>
 			<link>template.php?do=search</link>
 		</navoption>
 
-		<navoption displayorder="30">
+		<navoption displayorder="40">
 			<phrase>replacement_variable_manager</phrase>
 			<link>replacement.php?do=modify</link>
 		</navoption>
 
-		<navoption displayorder="40">
+		<navoption displayorder="50">
 			<phrase>download_upload_styles</phrase>
 			<link>template.php?do=files</link>
 		</navoption>
 
-		<navoption displayorder="50">
+		<navoption displayorder="60">
 			<phrase>find_updated_templates</phrase>
 			<link>template.php?do=findupdates</link>
 		</navoption>
@@ -166,6 +209,11 @@
 			<link>prefix.php</link>
 		</navoption>
 
+		<navoption displayorder="70" permissions="canadminblocks">
+			<phrase>forum_blocks</phrase>
+			<link>block.php</link>
+		</navoption>
+
 	</navgroup>
 
 	<navgroup phrase="calendars" permissions="canadmincalendars" hr="true" displayorder="70">
@@ -219,9 +267,9 @@
 			<link>thread.php?do=votes</link>
 		</navoption>
 
-		<navoption displayorder="60">
-			<phrase>tags</phrase>
-			<link>thread.php?do=tags</link>
+		<navoption displayorder="70">
+			<phrase>prune_post_edit_history</phrase>
+			<link>thread.php?do=pruneedit</link>
 		</navoption>
 
 	</navgroup>
@@ -233,10 +281,16 @@
 			<link>prefix.php</link>
 		</navoption>
 
-		<navoption displayorder="10">
+		<navoption displayorder="20">
 			<phrase>add_new_prefix_set</phrase>
 			<link>prefix.php?do=addset</link>
 		</navoption>
+
+		<navoption displayorder="30">
+			<phrase>duplicate_permissions</phrase>
+			<link>prefix.php?do=duplicate</link>
+		</navoption>
+
 
 	</navgroup>
 
@@ -365,6 +419,11 @@
 			<link>email.php?do=genlist</link>
 		</navoption>
 
+		<navoption displayorder="115">
+			<phrase>check_vulnerable_passwords</phrase>
+			<link>passwordcheck.php</link>
+		</navoption>
+
 		<navoption displayorder="120">
 			<phrase>access_masks</phrase>
 			<link>accessmask.php?do=modify</link>
@@ -404,9 +463,28 @@
 			<link>adminpermissions.php?do=modify</link>
 		</navoption>
 
-		<navoption displayorder="70">
-			<phrase>prune_social_groups</phrase>
-			<link>socialgroups.php</link>
+	</navgroup>
+
+	<navgroup phrase="social_groups" permissions="canadminthreads" displayorder="121">
+
+		<navoption displayorder="10">
+			<phrase>search_social_groups</phrase>
+			<link>socialgroups.php?do=search</link>
+		</navoption>
+
+		<navoption displayorder="20">
+			<phrase>social_group_categories</phrase>
+			<link>socialgroups.php?do=categories</link>
+		</navoption>
+
+		<navoption displayorder="30">
+			<phrase>add_new_social_group_category</phrase>
+			<link>socialgroups.php?do=editcategory</link>
+		</navoption>
+
+		<navoption displayorder="40">
+			<phrase>social_group_icon_storage_type</phrase>
+			<link>socialgroup_icon.php</link>
 		</navoption>
 
 	</navgroup>
@@ -492,20 +570,6 @@
 
 	</navgroup>
 
-	<navgroup phrase="user_albums" permissions="canadminusers" displayorder="155">
-
-		<navoption displayorder="10">
-			<phrase>album_picture_storage_type</phrase>
-			<link>album.php?do=storage</link>
-		</navoption>
-
-		<navoption displayorder="20">
-			<phrase>rebuild_thumbnails</phrase>
-			<link>album.php?do=thumb</link>
-		</navoption>
-
-	</navgroup>
-
 	<navgroup phrase="user_titles" permissions="canadminusers" displayorder="160">
 
 		<navoption displayorder="10">
@@ -516,6 +580,20 @@
 		<navoption displayorder="20">
 			<phrase>add_new_user_title</phrase>
 			<link>usertitle.php?do=add</link>
+		</navoption>
+
+	</navgroup>
+
+	<navgroup phrase="email_tools" permissions="canadminusers"  displayorder="165">
+
+		<navoption displayorder="10">
+			<phrase>verticalresponse</phrase>
+			<link>http://www.verticalresponse.com/vbulletin/</link>
+		</navoption>
+
+		<navoption displayorder="20">
+			<phrase>upload_list</phrase>
+			<link>verticalresponse.php?do=upload</link>
 		</navoption>
 
 	</navgroup>
@@ -562,6 +640,14 @@
 			<link>diagnostic.php?do=payments</link>
 		</navoption>
 
+	</navgroup>
+
+
+	<navgroup phrase="tagging" permissions="canadmintags" hr='true' displayorder="175">
+		<navoption displayorder="10">
+			<phrase>tags</phrase>
+			<link>tag.php</link>
+		</navoption>
 	</navgroup>
 
 	<navgroup phrase="avatars" permissions="canadminimages" displayorder="180">
@@ -731,8 +817,13 @@
 	<navgroup phrase="maintenance" permissions="canadminmaintain" hr="true" displayorder="250">
 
 		<navoption displayorder="10">
-			<phrase>database_backup</phrase>
-			<link>backup.php?do=choose</link>
+			<phrase>clear_system_cache</phrase>
+			<link>misc.php?do=clear_cache</link>
+		</navoption>
+
+		<navoption displayorder="15">
+			<phrase>clear_autosave</phrase>
+			<link>misc.php?do=clearauto</link>
 		</navoption>
 
 		<navoption displayorder="20">
@@ -758,6 +849,38 @@
 		<navoption displayorder="60">
 			<phrase>view_php_info</phrase>
 			<link>index.php?do=phpinfo</link>
+		</navoption>
+
+	</navgroup>
+
+	<navgroup phrase="xml_sitemap" permissions="cansitemap" hr="true" displayorder="270">
+
+		<navoption displayorder="10">
+			<phrase>manage_content_priority</phrase>
+			<link>sitemap.php</link>
+		</navoption>
+
+		<navoption displayorder="20">
+			<phrase>rebuild_sitemap</phrase>
+			<link>sitemap.php?do=buildsitemap</link>
+		</navoption>
+	</navgroup>
+
+	<navgroup phrase="api" hr="true" displayorder="280">
+
+		<navoption displayorder="10">
+			<phrase>api_key</phrase>
+			<link>api.php</link>
+		</navoption>
+
+		<navoption displayorder="20">
+			<phrase>api_log</phrase>
+			<link>apilog.php?do=choose</link>
+		</navoption>
+
+		<navoption displayorder="30">
+			<phrase>api_stats</phrase>
+			<link>apistats.php?do=index</link>
 		</navoption>
 
 	</navgroup>

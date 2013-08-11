@@ -1,9 +1,9 @@
 <?php
 /*======================================================================*\
 || #################################################################### ||
-|| # vBulletin 3.7.2 Patch Level 2 - Licence Number VBF2470E4F
+|| # vBulletin 4.2.1 - Licence Number VBC2DDE4FB
 || # ---------------------------------------------------------------- # ||
-|| # Copyright ©2000-2013 Jelsoft Enterprises Ltd. All Rights Reserved. ||
+|| # Copyright ©2000-2013 vBulletin Solutions Inc. All Rights Reserved. ||
 || # This file may not be redistributed in whole or significant part. # ||
 || # ---------------- VBULLETIN IS NOT FREE SOFTWARE ---------------- # ||
 || # http://www.vbulletin.com | http://www.vbulletin.com/license.html # ||
@@ -14,7 +14,7 @@
 error_reporting(E_ALL & ~E_NOTICE);
 
 // ##################### DEFINE IMPORTANT CONSTANTS #######################
-define('CVS_REVISION', '$RCSfile$ - $Revision: 15085 $');
+define('CVS_REVISION', '$RCSfile$ - $Revision: 32878 $');
 define('NOZIP', 1);
 
 // #################### PRE-CACHE TEMPLATES AND DATA ######################
@@ -117,9 +117,9 @@ if ($_POST['do'] == 'doview')
 		print_table_header($vbphrase['deleted_threads']);
 		print_table_break();
 
-		while($thread = $db->fetch_array($threads))
+		while ($thread = $db->fetch_array($threads))
 		{
-				print_label_row('<b>' . $vbphrase['thread'] . '</b>', construct_link_code($thread['title'], '../showthread.php?' . $vbulletin->session->vars['sessionurl'] . "t=$thread[threadid]", 1));
+				print_label_row('<b>' . $vbphrase['thread'] . '</b>', construct_link_code($thread['title'], '../' . fetch_seo_url('thread', $thread), 1));
 				print_label_row('<b>' . $vbphrase['posted_by'] . '</b>', "$thread[postusername] (" . vbdate($vbulletin->options['dateformat'] . ' ' . $vbulletin->options['timeformat'], $thread['postdateline']) . ')');
 				print_label_row('<b>' . $vbphrase['deleted_by'] . '</b>', $thread['del_username']);
 				print_label_row('<b>' . $vbphrase['reason'] . '</b>', $thread['del_reason']);
@@ -150,8 +150,8 @@ if ($_POST['do'] == 'doview')
 
 		while($post = $db->fetch_array($posts))
 		{
-			print_label_row('<b>' . $vbphrase['post'] . '</b>', construct_link_code(iif($post['title'], $post['title'], $vbphrase['n_a']), '../showthread.php?' . $vbulletin->session->vars['sessionurl'] . "p=$post[postid]", 1));
-			print_label_row('<b>' . $vbphrase['thread'] . '</b>', construct_link_code($post['threadtitle'], '../showthread.php?' . $vbulletin->session->vars['sessionurl'] . "t=$post[threadid]", 1));
+			print_label_row('<b>' . $vbphrase['post'] . '</b>', construct_link_code(iif($post['title'], $post['title'], $vbphrase['n_a']), '../' . fetch_seo_url('thread', $post, array('p' => $postinfo['postid']), 'threadid', 'threadtitle') . '#post$post[postid]', 1));
+			print_label_row('<b>' . $vbphrase['thread'] . '</b>', construct_link_code($post['threadtitle'], '../' . fetch_seo_url('thread', $post, null, 'threadid', 'threadtitle'), 1));
 			print_label_row('<b>' . $vbphrase['posted_by'] . '</b>', "$post[postusername] (" . vbdate($vbulletin->options['dateformat'] . ' ' . $vbulletin->options['timeformat'], $post['postdateline']) . ')');
 			print_label_row('<b>' . $vbphrase['deleted_by'] . '</b>', $post['del_username']);
 			print_label_row('<b>' . $vbphrase['reason'] . '</b>', $post['del_reason']);
@@ -167,8 +167,8 @@ print_cp_footer();
 
 /*======================================================================*\
 || ####################################################################
-|| # Downloaded: 16:21, Sat Apr 6th 2013
-|| # CVS: $RCSfile$ - $Revision: 15085 $
+|| # Downloaded: 14:57, Sun Aug 11th 2013
+|| # CVS: $RCSfile$ - $Revision: 32878 $
 || ####################################################################
 \*======================================================================*/
 ?>

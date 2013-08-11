@@ -1,9 +1,9 @@
 <?php
 /*======================================================================*\
 || #################################################################### ||
-|| # vBulletin 3.7.2 Patch Level 2 - Licence Number VBF2470E4F
+|| # vBulletin 4.2.1 - Licence Number VBC2DDE4FB
 || # ---------------------------------------------------------------- # ||
-|| # Copyright ©2000-2013 Jelsoft Enterprises Ltd. All Rights Reserved. ||
+|| # Copyright ©2000-2013 vBulletin Solutions Inc. All Rights Reserved. ||
 || # This file may not be redistributed in whole or significant part. # ||
 || # ---------------- VBULLETIN IS NOT FREE SOFTWARE ---------------- # ||
 || # http://www.vbulletin.com | http://www.vbulletin.com/license.html # ||
@@ -40,6 +40,13 @@ class vB_ProfileBlockFactory
 	var $cache = array();
 
 	/**
+	 * Cache of each block's privacy requirements
+	 *
+	 * @var	array integer
+	 */
+	var $privacy_requirements;
+
+	/**
 	* Constructor
 	*
 	* @param	vB_Registry
@@ -61,7 +68,7 @@ class vB_ProfileBlockFactory
 		if (!isset($this->cache["$class"]) OR !is_object($this->cache["$class"]))
 		{
 			$classname = "vB_ProfileBlock_$class";
-			$this->cache["$class"] =& new $classname($this->registry, $this->profile, $this);
+			$this->cache["$class"] = new $classname($this->registry, $this->profile, $this);
 		}
 
 		return $this->cache["$class"];
@@ -124,6 +131,27 @@ class vB_ProfileBlock
 	var $block_data = array();
 
 	/**
+	* Whether to skip privacy checking.
+	*
+	* @var boolean
+	*/
+	var $skip_privacy_check = false;
+
+	/**
+	 * The default privacy requirement to view the block if one was not set by the user
+	 *
+	 * @var integer
+	 */
+	var $default_privacy_requirement = 0;
+
+	/**
+	 * Whether to wrap output in standard block template.
+	 *
+	 * @var boolean
+	 */
+	var $nowrap;
+
+	/**
 	* Constructor - Prepares the block, and automatically prepares needed data
 	*
 	* @param	vB_Registry
@@ -170,23 +198,35 @@ class vB_ProfileBlock
 	* @param	string	The title of the Block
 	* @param	string	The id of the Block
 	* @param	array	Options specific to the block
+	* @param	array	Userinfo of the visiting user
 	*
 	* @return	string	The Block's output to be shown on the profile page
 	*/
-	function fetch($title, $id = '', $options = array())
+	function fetch($title, $id = '', $options = array(), $visitor)
 	{
 		if ($this->block_is_enabled($id))
 		{
+			if (!$this->visitor_can_view($id, $visitor))
+			{
+				return '';
+			}
+
 			$html = $this->fetch_unwrapped($title, $id, $options);
 
 			if (trim($html) === '' AND !$this->confirm_empty_wrap())
 			{
-
 				return '';
 			}
 			else
 			{
-				return $this->wrap($title, $id, $html);
+				if ($this->nowrap)
+				{
+					return $html;
+				}
+				else
+				{
+					return $this->wrap($title, $id, $html);
+				}
 			}
 		}
 		else
@@ -234,7 +274,7 @@ class vB_ProfileBlock
 	*/
 	function fetch_unwrapped($title, $id = '', $options = array())
 	{
-		global $show, $vbphrase, $stylevar, $vbcollapse;
+		global $show, $vbphrase, $vbcollapse, $selected_tab;
 
 		$this->prepare_output($id, $options);
 
@@ -248,9 +288,16 @@ class vB_ProfileBlock
 		$block_data = $this->block_data;
 
 		($hook = vBulletinHook::fetch_hook('member_profileblock_fetch_unwrapped')) ? eval($hook) : false;
-
-		eval('$output = "' . fetch_template($this->template_name) . '";');
-		return $output;
+		$templater = vB_Template::create($this->template_name);
+			$templater->register('block_data', $block_data);
+			$templater->register('id', $id);
+			$templater->register('selected_tab', $selected_tab);
+			$templater->register('prepared', $prepared);
+			$templater->register('template_hook', $template_hook);
+			$templater->register('userinfo', $userinfo);
+			$templater->register('title', $title);
+			$templater->register('nowrap', $this->nowrap);
+		return $templater->render();
 	}
 
 	/**
@@ -264,12 +311,68 @@ class vB_ProfileBlock
 	*/
 	function wrap($title, $id = '', $html = '')
 	{
-		global $show, $vbphrase, $stylevar, $vbcollapse;
+		global $show, $vbphrase, $vbcollapse, $selected_tab;
 
-		$template = 'memberinfo_block';
 
-		eval('$wrapped = "' . fetch_template($template) . '";');
-		return $wrapped;
+		$templater = vB_Template::create('memberinfo_block');
+			$templater->register('html', $html);
+			$templater->register('id', $id);
+			$templater->register('title', $title);
+			$templater->register('show', $show);
+			$templater->register('selected_tab', $selected_tab);
+		return $templater->render();
+	}
+
+	/**
+	* Determines whether the visitor is allowed to view a block based on their
+	* relationship to the subject user, and what the subject user has configured.
+	*
+	* @param	integer	Id of the block
+	* @param	array	Userinfo of the visitor
+	*/
+	function visitor_can_view($id, $visitor)
+	{
+		// Some blocks should always be shown
+		if ($this->skip_privacy_check)
+		{
+			return true;
+		}
+
+		if (!$this->registry->options['profileprivacy'] OR (!($this->profile->prepared['userperms']['usercsspermissions'] & $this->registry->bf_ugp_usercsspermissions['caneditprivacy'])))
+		{
+			$requirement = $this->default_privacy_requirement;
+		}
+		else
+		{
+			if (!isset($this->factory->privacy_requirements))
+			{
+				$this->fetch_privacy_requirements();
+			}
+
+			$requirement = (isset($this->factory->privacy_requirements[$id]) ? $this->factory->privacy_requirements[$id] : $this->default_privacy_requirement);
+		}
+
+		return (fetch_user_relationship($this->profile->userinfo['userid'], $this->registry->userinfo['userid']) >= $requirement);
+	}
+
+	/**
+	* Fetches the privacy requirements for the current user.
+	*/
+	function fetch_privacy_requirements()
+	{
+		$this->factory->privacy_requirements = array();
+
+		$requirements = $this->registry->db->query_read_slave("
+			SELECT blockid, requirement
+			FROM " . TABLE_PREFIX . "profileblockprivacy
+			WHERE userid = " . intval($this->profile->userinfo['userid']) . "
+		");
+
+		while ($requirement = $this->registry->db->fetch_array($requirements))
+		{
+			$this->factory->privacy_requirements[$requirement['blockid']] = $requirement['requirement'];
+		}
+		$this->registry->db->free_result($requirements);
 	}
 }
 
@@ -324,6 +427,8 @@ class vB_ProfileBlock_Friends extends vB_ProfileBlock
 		'friendcount'
 	);
 
+	var $nowrap = true;
+
 	/**
 	* Sets/Fetches the default options for the block
 	*
@@ -359,7 +464,7 @@ class vB_ProfileBlock_Friends extends vB_ProfileBlock
 	*/
 	function fetch_unwrapped($title, $id = '', $options = array())
 	{
-		global $show, $vbphrase, $stylevar, $vbcollapse;
+		global $show, $vbphrase, $vbcollapse;
 
 		$this->prepare_output($id, $options);
 
@@ -381,8 +486,12 @@ class vB_ProfileBlock_Friends extends vB_ProfileBlock
 			$templatename = $this->template_name;
 		}
 
-		eval('$output = "' . fetch_template($templatename) . '";');
-		return $output;
+		$templater = vB_Template::create($templatename);
+			$templater->register('block_data', $block_data);
+			$templater->register('prepared', $prepared);
+			$templater->register('template_hook', $template_hook);
+			$templater->register('userinfo', $userinfo);
+		return $templater->render();
 	}
 
 	/**
@@ -413,9 +522,9 @@ class vB_ProfileBlock_Friends extends vB_ProfileBlock
 	*/
 	function prepare_output($id = '', $options = array())
 	{
-		global $show, $vbphrase, $stylevar;
+		global $show, $vbphrase;
 
-		if ($this->profile->prepared['friendcount'] != 0)
+		if ($this->profile->userinfo['friendcount'] != 0)
 		{
 			require_once(DIR . '/includes/functions_bigthree.php');
 
@@ -455,12 +564,12 @@ class vB_ProfileBlock_Friends extends vB_ProfileBlock
 			{
 				$pagenumber = 1;
 			}
-			else if ($pagenumber > ceil(($this->profile->prepared['friendcount']) / $perpage))
+			else if ($pagenumber > ceil(($this->profile->userinfo['friendcount']) / $perpage))
 			{
-				$pagenumber = ceil(($this->profile->prepared['friendcount']) / $perpage);
+				$pagenumber = ceil(($this->profile->userinfo['friendcount']) / $perpage);
 			}
 			$limitstart = ($pagenumber - 1) * $perpage;
-			$limitamount = max(1, min($perpage, ($this->profile->prepared['friendcount'] - $limitstart)));
+			$limitamount = max(1, min($perpage, ($this->profile->userinfo['friendcount'] - $limitstart)));
 
 			$hook_query_fields = $hook_query_joins = $hook_query_where = '';
 			($hook = vBulletinHook::fetch_hook('member_profileblock_friends_query')) ? eval($hook) : false;
@@ -517,19 +626,20 @@ class vB_ProfileBlock_Friends extends vB_ProfileBlock
 
 				($hook = vBulletinHook::fetch_hook('member_profileblock_friendbit')) ? eval($hook) : false;
 
-				eval('$friendbits .= "' . fetch_template($options['membertemplate']) . '";');
+				$templater = vB_Template::create($options['membertemplate']);
+					$templater->register('remove', $remove);
+					$templater->register('user', $user);
+				$friendbits .= $templater->render();
 			}
 
-			$pagenavbits = array(
-				"tab=" . $id . "&amp;u=" . $this->profile->userinfo['userid']
+			$pageinfo = array(
+				'tab' => $id,
 			);
 
 			if ($perpage != $this->registry->options['friends_perpage'])
 			{
-				$pagenavbits[] = "pp=$perpage";
+				$paginfo['pp'] = $perpage;
 			}
-
-			$pagenavurl = 'member.php?' . $this->registry->session->vars['sessionurl'] . implode('&amp;', $pagenavbits);
 
 
 			$this->block_data['start_friends'] = $limitstart + 1;
@@ -537,10 +647,36 @@ class vB_ProfileBlock_Friends extends vB_ProfileBlock
 			$this->block_data['showtotal'] = vb_number_format($this->registry->db->num_rows($friends_sql));
 			$this->block_data['end_friends'] = $limitstart + $this->block_data['showtotal'];
 
-			sanitize_pageresults($this->profile->prepared['friendcount'], $pagenumber, $perpage, 100, 5);
+			sanitize_pageresults($this->profile->userinfo['friendcount'], $pagenumber, $perpage, 100, 5);
 
-			$this->block_data['pagenav'] = construct_page_nav($pagenumber, $perpage, $this->profile->prepared['friendcount'], $pagenavurl, '', $id);
+			$this->block_data['pagenav'] = construct_page_nav(
+				$pagenumber,
+				$perpage,
+				$this->profile->userinfo['friendcount'],
+				'',
+				'',
+				$id,
+				'member',
+				$this->profile->userinfo,
+				$pageinfo
+			);
 		}
+	}
+
+	/**
+	* Fudge to share value between 'friends' and 'friends_mini' blocks.
+	*
+	* @param	integer	Id of the block
+	* @param	array	Userinfo of the visitor
+	*/
+	function visitor_can_view($id, $visitor)
+	{
+		if ('friends_mini' == $id)
+		{
+			return parent::visitor_can_view('friends', $visitor);
+		}
+
+		return parent::visitor_can_view($id, $visitor);
 	}
 }
 
@@ -625,6 +761,11 @@ class vB_ProfileBlock_ProfileFields extends vB_ProfileBlock
 		$this->categories = array(0 => array());
 		$this->locations = array();
 
+		if (!isset($this->factory->privacy_requirements))
+		{
+			$this->fetch_privacy_requirements();
+		}
+
 		$profilefields_result = $this->registry->db->query_read_slave("
 			SELECT pf.profilefieldcategoryid, pfc.location, pf.*
 			FROM " . TABLE_PREFIX . "profilefield AS pf
@@ -635,8 +776,16 @@ class vB_ProfileBlock_ProfileFields extends vB_ProfileBlock
 		");
 		while ($profilefield = $this->registry->db->fetch_array($profilefields_result))
 		{
-			$this->categories["$profilefield[profilefieldcategoryid]"][] = $profilefield;
-			$this->locations["$profilefield[profilefieldcategoryid]"] = $profilefield['location'];
+			$requirement = (isset($this->factory->privacy_requirements["profile_cat$profilefield[profilefieldcategoryid]"])
+				? $this->factory->privacy_requirements["profile_cat$profilefield[profilefieldcategoryid]"]
+				: $this->default_privacy_requirement
+			);
+
+			if (fetch_user_relationship($this->profile->userinfo['userid'], $this->registry->userinfo['userid']) >= $requirement)
+			{
+				$this->categories["$profilefield[profilefieldcategoryid]"][] = $profilefield;
+				$this->locations["$profilefield[profilefieldcategoryid]"] = $profilefield['location'];
+			}
 		}
 
 		$this->data_built = true;
@@ -650,7 +799,7 @@ class vB_ProfileBlock_ProfileFields extends vB_ProfileBlock
 	*/
 	function prepare_output($id = '', $options = array())
 	{
-		global $show, $vbphrase, $stylevar;
+		global $show, $vbphrase;
 
 		if (is_array($options))
 		{
@@ -703,6 +852,7 @@ class vB_ProfileBlock_ProfileFields extends vB_ProfileBlock
 				$show['profilefield_edit'] = (!$options['simple'] AND $enable_ajax_edit
 					AND $this->registry->userinfo['userid'] == $this->profile->userinfo['userid']
 					AND ($profilefield['editable'] == 1 OR ($profilefield['editable'] == 2 AND empty($field_value)))
+					AND ($this->registry->userinfo['permissions']['genericpermissions'] & $this->registry->bf_ugp_genericpermissions['canmodifyprofile'])
 				);
 				if ($show['profilefield_edit'] AND $profilefield['value'] == '')
 				{
@@ -716,7 +866,9 @@ class vB_ProfileBlock_ProfileFields extends vB_ProfileBlock
 				{
 					$show['extrainfo'] = true;
 
-					eval('$category[\'fields\'] .= "' . fetch_template('memberinfo_profilefield') . '";');
+					$templater = vB_Template::create('memberinfo_profilefield');
+						$templater->register('profilefield', $profilefield);
+					$category['fields'] .= $templater->render();
 				}
 			}
 
@@ -724,7 +876,9 @@ class vB_ProfileBlock_ProfileFields extends vB_ProfileBlock
 
 			if ($category['fields'])
 			{
-				eval('$profilefields .= "' . fetch_template('memberinfo_profilefield_category') . '";');
+				$templater = vB_Template::create('memberinfo_profilefield_category');
+					$templater->register('category', $category);
+				$profilefields .= $templater->render();
 			}
 		}
 
@@ -751,7 +905,12 @@ class vB_ProfileBlock_AboutMe extends vB_ProfileBlock
 	*
 	* @var array
 	*/
-	var $auto_prepare = array('signature');
+	var $auto_prepare = array(
+		'signature',
+		'profileurl'
+	);
+
+	var $nowrap = true;
 
 	/**
 	* Whether to return an empty wrapper if there is no content in the blocks
@@ -770,7 +929,7 @@ class vB_ProfileBlock_AboutMe extends vB_ProfileBlock
 	*/
 	function confirm_display()
 	{
-		return (!empty($this->profile->prepared['signature']) OR $this->block_data['fields']);
+		return true;
 	}
 
 	/**
@@ -784,10 +943,14 @@ class vB_ProfileBlock_AboutMe extends vB_ProfileBlock
 		global $show;
 
 		$show['simple_link'] = (!$options['simple'] AND $this->registry->userinfo['userid'] == $this->profile->userinfo['userid']);
-		$show['edit_link'] = ($options['simple'] AND $this->registry->userinfo['userid'] == $this->profile->userinfo['userid']);
+		$show['edit_link'] = ($options['simple'] AND $this->registry->userinfo['userid'] == $this->profile->userinfo['userid']
+							AND ($this->registry->userinfo['permissions']['genericpermissions'] & $this->registry->bf_ugp_genericpermissions['canmodifyprofile']));
 		$blockobj =& $this->factory->fetch('ProfileFields');
 		$blockobj->prepare_output($id, $options);
 		$this->block_data['fields'] = $blockobj->block_data['fields'];
+		$this->block_data['pageinfo_aboutme_view'] = array('tab' => 'aboutme', 'simple' => 1);
+		$this->block_data['pageinfo_aboutme_edit'] = array('tab' => 'aboutme');
+		$this->block_data['pageinfo_vcard'] = array('do' => 'vcard');
 	}
 }
 
@@ -826,7 +989,7 @@ class vB_ProfileBlock_Albums extends vB_ProfileBlock
 		return (
 			$this->registry->options['socnet'] & $this->registry->bf_misc_socnet['enable_albums']
 			AND $this->registry->userinfo['permissions']['albumpermissions'] & $this->registry->bf_ugp_albumpermissions['canviewalbum']
-			AND ($this->profile->prepared['userperms']['albumpermissions'] & $this->registry->bf_ugp_albumpermissions['canalbum'] OR can_moderate())
+			AND ($this->profile->prepared['userperms']['albumpermissions'] & $this->registry->bf_ugp_albumpermissions['canalbum'] OR can_moderate(0, 'canmoderatepictures'))
 		);
 	}
 
@@ -858,7 +1021,7 @@ class vB_ProfileBlock_Albums extends vB_ProfileBlock
 	*/
 	function prepare_output($id = '', $options = array())
 	{
-		global $show, $vbphrase, $stylevar;
+		global $show, $vbphrase;
 
 		if (is_array($options))
 		{
@@ -902,14 +1065,17 @@ class vB_ProfileBlock_Albums extends vB_ProfileBlock
 
 		$albums = $this->registry->db->query_read_slave("
 			SELECT album.*,
-				picture.pictureid, picture.extension, picture.idhash, album.moderation,
-				picture.thumbnail_dateline, picture.thumbnail_width, picture.thumbnail_height
+				a.attachmentid, album.moderation,
+				fd.thumbnail_dateline, fd.thumbnail_width, fd.thumbnail_height, IF(fd.thumbnail_filesize > 0, 1, 0) AS hasthumbnail
 				$hook_query_fields
 			FROM " . TABLE_PREFIX . "album AS album
-			LEFT JOIN " . TABLE_PREFIX . "picture AS picture ON (album.coverpictureid = picture.pictureid AND picture.thumbnail_filesize > 0)
+			LEFT JOIN " . TABLE_PREFIX . "attachment AS a ON (album.coverattachmentid = a.attachmentid)
+			LEFT JOIN " . TABLE_PREFIX . "filedata AS fd ON (fd.filedataid = a.filedataid)
 			$hook_query_joins
-			WHERE album.userid = ". $this->profile->userinfo['userid'] . "
-				AND album.state IN ('" . implode("', '", $state) . "')
+			WHERE
+				album.userid = ". $this->profile->userinfo['userid'] . "
+					AND
+				album.state IN ('" . implode("', '", $state) . "')
 				$sql
 				$hook_query_where
 			ORDER BY album.lastpicturedate DESC
@@ -920,10 +1086,7 @@ class vB_ProfileBlock_Albums extends vB_ProfileBlock
 		{
 			$album['picturedate'] = vbdate($this->registry->options['dateformat'], $album['lastpicturedate'], true);
 			$album['picturetime'] = vbdate($this->registry->options['timeformat'], $album['lastpicturedate']);
-
 			$album['title_html'] = fetch_word_wrapped_string(fetch_censored_text($album['title']));
-
-			$album['coverthumburl'] = ($album['pictureid'] ? fetch_picture_url($album, $album, true) : '');
 			$album['coverdimensions'] = ($album['thumbnail_width'] ? "width=\"$album[thumbnail_width]\" height=\"$album[thumbnail_height]\"" : '');
 
 			if ($album['moderation'])
@@ -936,7 +1099,9 @@ class vB_ProfileBlock_Albums extends vB_ProfileBlock
 				$show['moderated'] = false;
 			}
 
-			eval('$albumbits .= "' . fetch_template('memberinfo_albumbit') . '";');
+			$templater = vB_Template::create('memberinfo_albumbit');
+				$templater->register('album', $album);
+			$albumbits .= $templater->render();
 		}
 
 		$this->block_data['albumbits'] = $albumbits;
@@ -975,7 +1140,7 @@ class vB_ProfileBlock_RecentVisitors extends vB_ProfileBlock
 	*/
 	function prepare_output($id = '', $options = array())
 	{
-		global $show, $vbphrase, $stylevar;
+		global $show, $vbphrase;
 
 		// don't include yourself in the visit count
 		if ($this->profile->userinfo['userid'] != $this->registry->userinfo['userid'])
@@ -1016,7 +1181,7 @@ class vB_ProfileBlock_RecentVisitors extends vB_ProfileBlock
 		($hook = vBulletinHook::fetch_hook('member_profileblock_recentvisitors_query')) ? eval($hook) : false;
 
 		$visitors_db = $this->registry->db->query_read_slave("
-			SELECT user.userid, user.username, user.usergroupid, user.displaygroupid, profilevisitor.visible
+			SELECT user.userid, user.username, user.usergroupid, user.displaygroupid, profilevisitor.visible, user.infractiongroupid
 				$hook_query_fields
 			FROM " . TABLE_PREFIX . "profilevisitor AS profilevisitor
 			INNER JOIN " . TABLE_PREFIX . "user AS user ON (user.userid = profilevisitor.visitorid)
@@ -1048,17 +1213,27 @@ class vB_ProfileBlock_RecentVisitors extends vB_ProfileBlock
 			}
 		}
 
-		$visitorbits = '';
+		$visitorcount = 0;
+		$visitorbits = array();
 		foreach ($visitors AS $user)
 		{
 			fetch_musername($user);
 			$user['invisiblemark'] = !$user['visible'] ? '*' : '';
 			$user['buddymark'] = in_array($user['userid'], $buddylist) ? '+' : '';
-			eval('$visitorbits .= "' . fetch_template('memberinfo_visitorbit') . '";');
+
+			$visitorcount++;
+			$user['comma'] = $vbphrase['comma_space'];
+			$visitorbits[$visitorcount] = $user;
+		}
+
+		// Last element
+		if ($visitorcount)
+		{
+			$visitorbits[$visitorcount]['comma'] = '';
 		}
 
 		$this->block_data['visitorbits'] = $visitorbits;
-		$this->block_data['visitorcount'] = vb_number_format($this->registry->db->num_rows($visitors_db));
+		$this->block_data['visitorcount'] = $visitorcount;
 	}
 }
 
@@ -1104,7 +1279,7 @@ class vB_ProfileBlock_Groups extends vB_ProfileBlock
 	*/
 	function prepare_output($id = '', $options = array())
 	{
-		global $show, $vbphrase, $stylevar;
+		global $show, $vbphrase;
 
 		$this->block_data = array();
 
@@ -1118,7 +1293,9 @@ class vB_ProfileBlock_Groups extends vB_ProfileBlock
 			$usergroup = $this->registry->usergroupcache["$usergroupid"];
 			if ($usergroup['ispublicgroup'])
 			{
-				eval('$membergroupbits .= "' . fetch_template('memberinfo_publicgroupbit') . '";');
+				$templater = vB_Template::create('memberinfo_publicgroupbit');
+					$templater->register('usergroup', $usergroup);
+				$membergroupbits .= $templater->render();
 				$this->block_data['membergroupcount']++;
 			}
 		}
@@ -1128,23 +1305,46 @@ class vB_ProfileBlock_Groups extends vB_ProfileBlock
 		if ($this->registry->options['socnet'] & $this->registry->bf_misc_socnet['enable_groups'])
 		{
 			$socialgroups = $this->registry->db->query_read_slave("
-				SELECT socialgroup.*
+				SELECT socialgroup.groupid, socialgroup.name, socialgroup.description, socialgroup.dateline, sgicon.dateline AS icondateline,
+					sgicon.thumbnail_width AS iconthumb_width, sgicon.thumbnail_height AS iconthumb_height
 				FROM " . TABLE_PREFIX . "socialgroupmember AS socialgroupmember
 				INNER JOIN " . TABLE_PREFIX . "socialgroup AS socialgroup ON
 					(socialgroup.groupid = socialgroupmember.groupid)
+				LEFT JOIN " . TABLE_PREFIX . "socialgroupicon AS sgicon ON sgicon.groupid = socialgroup.groupid
 				WHERE
 					socialgroupmember.userid = " . $this->profile->userinfo['userid'] . "
 					AND socialgroupmember.type = 'member'
 				ORDER BY socialgroup.name
 			");
-			
+
 			$showgrouplink = ($this->registry->userinfo['permissions']['socialgrouppermissions'] & $this->registry->bf_ugp_socialgrouppermissions['canviewgroups'] ? true : false);
 
+			require_once(DIR . '/includes/functions_socialgroup.php');
+
 			$socialgroupbits = '';
+			$useicons = ($this->registry->db->num_rows($socialgroups) <= 12);
+
 			while ($socialgroup = $this->registry->db->fetch_array($socialgroups))
 			{
-				$socialgroup['name_html'] = fetch_word_wrapped_string(fetch_censored_text($socialgroup['name']));
-				eval('$socialgroupbits .= "' . fetch_template('memberinfo_socialgroupbit') . '";');
+				$socialgroup = prepare_socialgroup($socialgroup);
+
+				if (!$useicons)
+				{
+					$socialgroup['name_html'] = fetch_word_wrapped_string(fetch_censored_text($socialgroup['name']));
+				}
+
+				if ($useicons)
+				{
+					$templater = vB_Template::create('memberinfo_socialgroupbit');
+				}
+				else
+				{
+					$templater = vB_Template::create('memberinfo_socialgroupbit_text');
+				}
+
+				$templater->register('showgrouplink', $showgrouplink);
+				$templater->register('socialgroup', $socialgroup);
+				$socialgroupbits .= $templater->render();
 			}
 
 			$this->block_data['socialgroupbits'] = $socialgroupbits;
@@ -1182,6 +1382,8 @@ class vB_ProfileBlock_VisitorMessaging extends vB_ProfileBlock
 	*/
 	var $template_name = 'memberinfo_block_visitormessaging';
 
+	var $nowrap = true;
+
 	/**
 	* Sets/Fetches the default options for the block
 	*
@@ -1205,6 +1407,30 @@ class vB_ProfileBlock_VisitorMessaging extends vB_ProfileBlock
 		return false;
 	}
 
+/**
+	* Fetch the block
+	*
+	* @param	string	The title of the Block
+	* @param	string	The id of the Block
+	* @param	array	Options specific to the block
+	* @param	array	Userinfo of the visiting user
+	*
+	* @return	string	The Block's output to be shown on the profile page
+	*/
+	function fetch($title, $id = '', $options = array(), $visitor)
+	{
+		global $show;
+
+		$output = parent::fetch($title, $id, $options, $visitor);
+
+		if (!$output)
+		{
+			$show['post_visitor_message'] = false;
+		}
+
+		return $output;
+	}
+
 	/**
 	* Should we actually display anything?
 	*
@@ -1225,7 +1451,7 @@ class vB_ProfileBlock_VisitorMessaging extends vB_ProfileBlock
 	*/
 	function prepare_output($id = '', $options = array())
 	{
-		global $show, $vbphrase, $stylevar, $messagearea, $vBeditTemplate;
+		global $show, $vbphrase, $messagearea, $vBeditTemplate;
 
 		require_once(DIR . '/includes/functions_visitormessage.php');
 		require_once(DIR . '/includes/class_bbcode.php');
@@ -1251,7 +1477,7 @@ class vB_ProfileBlock_VisitorMessaging extends vB_ProfileBlock
 			$state[] = 'moderation';
 		}
 
-		if (can_moderate() OR ($this->registry->userinfo['userid'] == $this->profile->userinfo['userid'] AND $this->registry->userinfo['permissions']['visitormessagepermissions'] & $this->registry->bf_ugp_visitormessagepermissions['canmanageownprofile']))
+		if (can_moderate(0,'canmoderatevisitormessages') OR ($this->registry->userinfo['userid'] == $this->profile->userinfo['userid'] AND $this->registry->userinfo['permissions']['visitormessagepermissions'] & $this->registry->bf_ugp_visitormessagepermissions['canmanageownprofile']))
 		{
 			$state[] = 'deleted';
 			$deljoinsql = "LEFT JOIN " . TABLE_PREFIX . "deletionlog AS deletionlog ON (visitormessage.vmid = deletionlog.primaryid AND deletionlog.type = 'visitormessage')";
@@ -1348,8 +1574,8 @@ class vB_ProfileBlock_VisitorMessaging extends vB_ProfileBlock
 		$this->block_data['messagestart'] = $start + 1;
 		$this->block_data['messageend'] = min($start + $perpage, $messagetotal);
 
-		$bbcode =& new vB_BbCodeParser($this->registry, fetch_tag_list());
-		$factory =& new vB_Visitor_MessageFactory($this->registry, $bbcode, $this->profile->userinfo);
+		$bbcode = new vB_BbCodeParser($this->registry, fetch_tag_list());
+		$factory = new vB_Visitor_MessageFactory($this->registry, $bbcode, $this->profile->userinfo);
 
 		$messagebits = '';
 
@@ -1391,7 +1617,7 @@ class vB_ProfileBlock_VisitorMessaging extends vB_ProfileBlock
 					!$message['vm_enable']
 						AND
 					(
-						!can_moderate()
+						!can_moderate(0,'canmoderatevisitormessages')
 							OR
 						$this->registry->userinfo['userid'] == $message['postuserid']
 					)
@@ -1400,7 +1626,7 @@ class vB_ProfileBlock_VisitorMessaging extends vB_ProfileBlock
 				(
 					$message['vm_contactonly']
 						AND
-					!can_moderate()
+					!can_moderate(0,'canmoderatevisitormessages')
 						AND
 					$message['postuserid'] != $this->registry->userinfo['userid']
 						AND
@@ -1469,39 +1695,33 @@ class vB_ProfileBlock_VisitorMessaging extends vB_ProfileBlock
 		$show['inlinemod'] = ($show['delete'] OR $show['undelete'] OR $show['approve']);
 
 		// Only allow AJAX QC on the first page
-		$show['quickcomment']  = (
-			$this->profile->prepared['userperms']['genericpermissions'] & $this->registry->bf_ugp_genericpermissions['canviewmembers']
-			AND $this->registry->userinfo['userid']
-			AND
-			(
-				(
-					$this->registry->userinfo['permissions']['visitormessagepermissions'] & $this->registry->bf_ugp_visitormessagepermissions['canmessageownprofile']
-					AND $this->registry->userinfo['userid'] == $this->profile->userinfo['userid']
-				)
-				OR
-				(
-					$this->registry->userinfo['permissions']['visitormessagepermissions'] & $this->registry->bf_ugp_visitormessagepermissions['canmessageothersprofile']
-					AND $this->registry->userinfo['userid'] != $this->profile->userinfo['userid']
-				)
-			)
-		);
+		$show['quickcomment'] = $show['post_visitor_message'];
 		$show['allow_ajax_qc'] = ($pagenumber == 1 AND $messagetotal) ? 1 : 0;
 
-		$pagenavbits = array(
-			"tab=" . $id ."&amp;u=" . $this->profile->userinfo['userid']
+		$pageinfo = array(
+			'tab' => $id
 		);
 		if ($options['perpage'] != $this->registry->options['vm_perpage'])
 		{
-			$pagenavbits[] = "pp=$options[perpage]";
+			$pageindo['pp'] = $options['perpage'];
 		}
 
 		if (!empty($options['showignored']))
 		{
-			$pagenavbits[] = "showignored=1";
+			$pageinfo['showignored'] = 1;
 		}
 
-		$pagenavurl = 'member.php?' . $this->registry->session->vars['sessionurl'] . implode('&amp;', $pagenavbits);
-		$this->block_data['pagenav'] = construct_page_nav($pagenumber, $perpage, $messagetotal, $pagenavurl, '', $id);
+		$this->block_data['pagenav'] = construct_page_nav(
+			$pagenumber,
+			$perpage,
+			$messagetotal,
+			'',
+			'',
+			$id,
+			'member',
+			$this->profile->userinfo,
+			$pageinfo
+		);
 		$this->block_data['messagetotal'] = $messagetotal;
 
 		$show['view_conversation'] = (!$this->profile->prepared['myprofile'] AND THIS_SCRIPT != 'converse' AND $this->registry->userinfo['vm_enable']);
@@ -1510,7 +1730,6 @@ class vB_ProfileBlock_VisitorMessaging extends vB_ProfileBlock
 		{
 			require_once(DIR . '/includes/functions_editor.php');
 
-			$stylevar['messagewidth'] = $stylevar['messagewidth_usercp'];
 			$this->block_data['editorid'] = construct_edit_toolbar(
 				'',
 				false,
@@ -1518,7 +1737,13 @@ class vB_ProfileBlock_VisitorMessaging extends vB_ProfileBlock
 				$this->registry->options['allowsmilies'],
 				true,
 				false,
-				'qr_small'
+				'qr_small',
+				'',
+				array(),
+				'content',
+				'vBForum_VisitorMessage',
+				0,
+				$this->profile->userinfo['userid']
 			);
 			$this->block_data['messagearea'] = $messagearea;
 			$this->block_data['clientscript'] = $vBeditTemplate['clientscript'];
@@ -1537,7 +1762,7 @@ class vB_ProfileBlock_VisitorMessaging extends vB_ProfileBlock
 				$this->profile->userinfo['vm_enable']
 					OR
 				(
-					can_moderate()
+					can_moderate(0,'canmoderatevisitormessages')
 						AND
 					$this->registry->userinfo['userid'] != $this->profile->userinfo['userid']
 				)
@@ -1548,7 +1773,7 @@ class vB_ProfileBlock_VisitorMessaging extends vB_ProfileBlock
 			(
 				!$this->profile->userinfo['vm_contactonly']
 					OR
-				can_moderate()
+				can_moderate(0,'canmoderatevisitormessages')
 					OR
 				$this->profile->userinfo['userid'] == $this->registry->userinfo['userid']
 					OR
@@ -1636,7 +1861,7 @@ class vB_ProfileBlock_Infractions extends vB_ProfileBlock
 	*/
 	function prepare_output($id = '', $options = array())
 	{
-		global $show, $vbphrase, $stylevar;
+		global $show, $vbphrase;
 
 		$show['infractions'] = false;
 
@@ -1683,10 +1908,10 @@ class vB_ProfileBlock_Infractions extends vB_ProfileBlock
 			}
 
 			require_once(DIR . '/includes/class_bbcode.php');
-			$bbcode_parser =& new vB_BbCodeParser($this->registry, fetch_tag_list());
+			$bbcode_parser = new vB_BbCodeParser($this->registry, fetch_tag_list());
 
 			$infractions = $this->registry->db->query_read_slave("
-				SELECT infraction.*, thread.title, user.username, thread.visible AS thread_visible, post.visible,
+				SELECT infraction.*, thread.title, thread.threadid, user.username, thread.visible AS thread_visible, post.visible,
 					forumid, postuserid, IF(ISNULL(post.postid) AND infraction.postid != 0, 1, 0) AS postdeleted
 				FROM " . TABLE_PREFIX . "infraction AS infraction
 				LEFT JOIN " . TABLE_PREFIX . "post AS post ON (infraction.postid = post.postid)
@@ -1723,10 +1948,8 @@ class vB_ProfileBlock_Infractions extends vB_ProfileBlock
 						$show['reversed'] = true;
 						break;
 				}
-				if (vbstrlen($infraction['title']) > 25)
-				{
-					$infraction['title'] = fetch_trimmed_title($infraction['title'], 24);
-				}
+
+				$infraction['threadtitle'] = vbstrlen($infraction['title']) > 25 ? fetch_trimmed_title($infraction['title'], 24) : $infraction['title'];
 				$infraction['reason'] = !empty($vbphrase['infractionlevel' . $infraction['infractionlevelid'] . '_title']) ? $vbphrase['infractionlevel' . $infraction['infractionlevelid'] . '_title'] : ($infraction['customreason'] ? $infraction['customreason'] : $vbphrase['n_a']);
 
 				$show['threadtitle'] = true;
@@ -1761,17 +1984,43 @@ class vB_ProfileBlock_Infractions extends vB_ProfileBlock
 
 				($hook = vBulletinHook::fetch_hook('member_infractionbit')) ? eval($hook) : false;
 
-				eval('$infractionbits .= "' . fetch_template('memberinfo_infractionbit') . '";');
+				$threadinfo = array(
+					'threadid' => $infraction['threadid'],
+					'title'    => $infraction['title'],
+				);
+				$pageinfo = array('p' => $infraction['postid']);
+				$memberinfo = array('userid' => $infraction['whoadded'], 'username' => $infraction['username']);
+
+				$templater = vB_Template::create('memberinfo_infractionbit');
+					$templater->register('card', $card);
+					$templater->register('infraction', $infraction);
+					$templater->register('memberinfo', $memberinfo);
+					$templater->register('pageinfo', $pageinfo);
+					$templater->register('threadinfo', $threadinfo);
+				$infractionbits .= $templater->render();
 			}
 			unset($bbcode_parser);
+
+			$pageinfo_pagenav = array(
+				'tab' => $id
+			);
+			if ($options['perpage'])
+			{
+				$pageinfo_pagenav['pp'] = $options['perpage'];
+			}
 
 			$this->block_data['pagenav'] = construct_page_nav(
 				$pagenumber,
 				$perpage,
 				$totalinfractions['count'],
-				'member.php?' . $this->registry->session->vars['sessionurl'] . "u=" . $this->profile->userinfo['userid'] . "&amp;tab=$id" .
-				(!empty($options['perpage']) ? "&amp;pp=$perpage" : ""), '', $id
+				'',
+				'',
+				$id,
+				'member',
+				$this->profile->userinfo,
+				$pageinfo_pagenav
 			);
+
 			$this->block_data['infractionbits'] = $infractionbits;
 		}
 
@@ -1829,7 +2078,7 @@ class vB_ProfileBlock_Statistics extends vB_ProfileBlock
 	*/
 	function prepare_output($id = '', $options = array())
 	{
-		global $show, $vbphrase, $stylevar;
+		global $show, $vbphrase;
 
 		$this->block_data = array();
 
@@ -1839,7 +2088,7 @@ class vB_ProfileBlock_Statistics extends vB_ProfileBlock
 			(
 				!$this->profile->userinfo['vm_contactonly']
 					OR
-				can_moderate()
+				can_moderate(0,'canmoderatevisitormessages')
 					OR
 				$this->profile->userinfo['userid'] == $this->registry->userinfo['userid']
 					OR
@@ -1850,7 +2099,7 @@ class vB_ProfileBlock_Statistics extends vB_ProfileBlock
 				$this->profile->userinfo['vm_enable']
 					OR
 				(
-					can_moderate()
+					can_moderate(0,'canmoderatevisitormessages')
 						AND
 					$this->registry->userinfo['userid'] != $this->profile->userinfo['userid']
 				)
@@ -1981,7 +2230,7 @@ class vB_ProfileBlock_ContactInfo extends vB_ProfileBlock
 	*/
 	function prepare_output($id = '', $options = array())
 	{
-		global $show, $vbphrase, $stylevar;
+		global $show, $vbphrase;
 
 		$this->block_data = array();
 
@@ -2021,7 +2270,13 @@ class vB_ProfileBlock_ContactInfo extends vB_ProfileBlock
 				$imicon = $this->profile->prepared["{$imserviceid}icon"];
 				$imtitle = $vbphrase["$imserviceid"];
 
-				eval('$imbits .= "' . fetch_template('memberinfo_imbit') . '";');
+				$templater = vB_Template::create('memberinfo_imbit');
+					$templater->register('imicon', $imicon);
+					$templater->register('imserviceid', $imserviceid);
+					$templater->register('imtitle', $imtitle);
+					$templater->register('imusername', $imusername);
+					$templater->register('userinfo', $userinfo);
+				$imbits .= $templater->render();
 			}
 		}
 
@@ -2029,10 +2284,277 @@ class vB_ProfileBlock_ContactInfo extends vB_ProfileBlock
 	}
 }
 
+/**
+ * Profile Block for Profile Picture
+ *
+ * @package vBulletin
+ */
+class vB_ProfileBlock_ProfilePicture extends vB_ProfileBlock
+{
+	/**
+	* The name of the template to be used for the block
+	*
+	* @var string
+	*/
+	var $template_name = 'memberinfo_block_profilepicture';
+
+	/**
+	* Variables to automatically prepare
+	*
+	* @var array
+	*/
+	var $auto_prepare = array(
+		'profilepicurl',
+		'profilepicsize',
+		'username'
+	);
+
+	/**
+	 * Whether to wrap output in standard block template.
+	 *
+	 * @var boolean
+	 */
+	var $nowrap = true;
+
+/**
+	* Whether or not the block is enabled
+	*
+	* @return bool
+	*/
+	function block_is_enabled($id)
+	{
+		return ($this->registry->options['profilepicenabled'] AND
+		($this->registry->userinfo['permissions']['genericpermissions'] & $this->registry->bf_ugp_genericpermissions['canseeprofilepic']));
+	}
+}
+
+class vB_ProfileBlock_Reputation extends vB_ProfileBlock
+{
+	/**
+	* The name of the template to be used for the block
+	*
+	* @var string
+	*/
+	var $template_name = 'memberinfo_block_reputation';
+
+	/**
+	* Count the number of comments
+	*
+	* @var int
+	*/
+	var $count = 0;
+
+	/**
+	* Whether to return an empty wrapper if there is no content in the blocks
+	*
+	* @return bool
+	*/
+	function confirm_empty_wrap()
+	{
+		return false;
+	}
+
+	/**
+	* Whether or not the block is enabled
+	*
+	* @return bool
+	*/
+	function block_is_enabled($id)
+	{
+		global $vbulletin;
+
+		if ($this->registry->options['socnet'] & $this->registry->bf_misc_socnet['enable_profile_reputation']
+		AND	$this->registry->userinfo['permissions']['genericpermissions2'] & $this->registry->bf_ugp_genericpermissions2['canprofilerep'])
+		{
+			return true;
+		}
+
+		return false;
+	}
+
+	/**
+	* Should we actually display anything?
+	*
+	* @return	bool
+	*/
+	function confirm_display()
+    {
+		return $this->count ? true : false;
+	}
+
+	/**
+	* Prepare any data needed for the output
+	*
+	* @param	string	The id of the block
+	* @param	array	Options specific to the block
+	*/
+	function prepare_output($id = '', $options = array())
+	{
+		global $show, $vbphrase, $vbulletin, $userperms, $permissions;
+
+		if ($vbulletin->options['reputationenable'] AND ($this->profile->userinfo['showreputation']
+		OR !($userperms['genericpermissions'] & $vbulletin->bf_ugp_genericpermissions['canhiderep'])))
+		{
+			$reputations = $vbulletin->db->query_read_slave("
+				SELECT user.username, reputation.whoadded, reputation.postid, thread.title, thread.forumid, post.threadid,
+				reputation.reputation, reputation.reason, reputation.dateline, thread.postuserid, reputation.reputationid
+				FROM " . TABLE_PREFIX . "reputation AS reputation
+				LEFT JOIN " . TABLE_PREFIX . "post AS post USING (postid)
+				LEFT JOIN " . TABLE_PREFIX . "thread AS thread USING (threadid)
+				LEFT JOIN " . TABLE_PREFIX . "user AS user ON (user.userid = reputation.whoadded)
+				WHERE reputation.userid = " . $this->profile->userinfo['userid'] . "
+				AND thread.visible = 1 AND post.visible = 1
+				ORDER BY reputation.dateline DESC
+			");
+
+			$this->block_data['reputation'] = array();
+
+			if ($vbulletin->userinfo['userid'] == $this->profile->userinfo['userid'])
+			{
+				$options['showraters']= true;
+			}
+
+			require_once(DIR . '/includes/class_bbcode.php');
+			$bbcode_parser = new vB_BbCodeParser($vbulletin, fetch_tag_list());
+
+			while ($reputation = $vbulletin->db->fetch_array($reputations) AND $this->count < $options['comments'])
+			{
+				$forumperms = fetch_permissions($reputation['forumid']);
+				if ((($forumperms & $vbulletin->bf_ugp_forumpermissions['canview']) AND ($forumperms & $vbulletin->bf_ugp_forumpermissions['canviewthreads']))
+				AND (($forumperms & $vbulletin->bf_ugp_forumpermissions['canviewothers']) OR ($reputation['postuserid'] == $vbulletin->userinfo['userid'])))
+				{
+					$this->count++;
+
+					if ($reputation['reputation'] > 0)
+					{
+						$reputation['posneg'] = 'pos';
+					}
+					else if ($reputation['reputation'] < 0)
+					{
+						$reputation['posneg'] = 'neg';
+					}
+					else
+					{
+						$reputation['posneg'] = 'balance';
+					}
+
+					$reputation['postinfo'] = array(
+						'p'    => $reputation['postid'],
+					);
+
+					$reputation['threadinfo'] = array(
+						'title'    => $reputation['title'],
+						'threadid' => $reputation['threadid'],
+					);
+
+					$reputation['timestamp'] = $reputation['dateline'];
+					$reputation['showraters'] = $options['showraters'];
+					$reputation['timeline'] = vbdate($vbulletin->options['timeformat'], $reputation['dateline']);
+					$reputation['dateline'] = vbdate($vbulletin->options['dateformat'], $reputation['dateline']);
+					$reputation['reason'] = $bbcode_parser->parse($reputation['reason']);
+					$reputation['username'] = $reputation['username'] ? $reputation['username'] : $vbphrase['n_a'];
+
+					if (empty($reputation['reason']))
+					{
+						$reputation['reason'] = $vbphrase['no_comment'];
+					}
+
+					($hook = vBulletinHook::fetch_hook('member_profileblock_reputationbit')) ? eval($hook) : false;
+
+					$this->block_data['reputation'][] = $reputation;
+				}
+			}
+		}
+    }
+}
+
+/**
+* Profile Block for the Activity Stream
+*
+* @package vBulletin
+*/
+class vB_ProfileBlock_ActivityStream extends vB_ProfileBlock
+{
+	/**
+	* The name of the template to be used for the block
+	*
+	* @var string
+	*/
+	var $template_name = 'memberinfo_block_activity';
+
+	/**
+	* Sets/Fetches the default options for the block
+	* 'all', 'me', 'friends', 'subscriptions', 'photos'
+	*
+	*/
+	function fetch_default_options()
+	{
+		$this->option_defaults = array(
+			'type' => ''
+		);
+	}
+
+	/**
+	 * Whether to wrap output in standard block template.
+	 *
+	 * @var boolean
+	 */
+	var $nowrap = true;
+
+	/**
+	* Whether to return an empty wrapper if there is no content in the blocks
+	*
+	* @return bool
+	*/
+	function confirm_empty_wrap()
+	{
+		return false;
+	}
+
+	/**
+	* Whether or not the block is enabled
+	*
+	* @return bool
+	*/
+	function block_is_enabled()
+	{
+		return true;
+	}
+
+	/**
+	* Should we actually display anything?
+	*
+	* @return	bool
+	*/
+	function confirm_display()
+	{
+		return true;
+		//return ($this->block_data['activitybits']);
+	}
+
+	/**
+	* Prepare any data needed for the output
+	*
+	* @param	string	The id of the block
+	* @param	array	Options specific to the block
+	*/
+	function prepare_output($id = '', $options = array())
+	{
+		global $show, $vbphrase;
+
+		($hook = vBulletinHook::fetch_hook('member_activity_start')) ? eval($hook) : false;
+
+		$activity = new vB_ActivityStream_View_Membertab($vbphrase, $this->visitor_can_view('friends', $this->registry->userinfo));
+		$activity->process($this->profile->userinfo['userid'], $options, $this->block_data);
+
+		($hook = vBulletinHook::fetch_hook('member_activity_complete')) ? eval($hook) : false;
+	}
+}
+
 /*======================================================================*\
 || ####################################################################
-|| # Downloaded: 16:21, Sat Apr 6th 2013
-|| # CVS: $RCSfile$ - $Revision: 27006 $
+|| # Downloaded: 14:57, Sun Aug 11th 2013
+|| # CVS: $RCSfile$ - $Revision: 64510 $
 || ####################################################################
 \*======================================================================*/
 ?>

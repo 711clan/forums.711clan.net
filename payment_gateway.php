@@ -1,9 +1,9 @@
 <?php
 /*======================================================================*\
 || #################################################################### ||
-|| # vBulletin 3.7.2 Patch Level 2 - Licence Number VBF2470E4F
+|| # vBulletin 4.2.1 - Licence Number VBC2DDE4FB
 || # ---------------------------------------------------------------- # ||
-|| # Copyright ©2000-2013 Jelsoft Enterprises Ltd. All Rights Reserved. ||
+|| # Copyright ©2000-2013 vBulletin Solutions Inc. All Rights Reserved. ||
 || # This file may not be redistributed in whole or significant part. # ||
 || # ---------------- VBULLETIN IS NOT FREE SOFTWARE ---------------- # ||
 || # http://www.vbulletin.com | http://www.vbulletin.com/license.html # ||
@@ -35,18 +35,21 @@ $actiontemplates = array();
 define('VB_AREA', 'Subscriptions');
 define('CWD', (($getcwd = getcwd()) ? $getcwd : '.'));
 require_once(CWD . '/includes/init.php');
-
 require_once(DIR . '/includes/adminfunctions.php');
 require_once(DIR . '/includes/class_paid_subscription.php');
 
 $vbulletin->input->clean_array_gpc('r', array(
-	'method'    => TYPE_STR
+	'method' => TYPE_STR
 ));
 
 $vbulletin->nozip = true;
 
-$api = $db->query_first_slave("SELECT * FROM " . TABLE_PREFIX . "paymentapi WHERE classname = '" . $db->escape_string($vbulletin->GPC['method']) . "'");
-if (!empty($api))
+$api = $db->query_first_slave("
+	SELECT *
+	FROM " . TABLE_PREFIX . "paymentapi
+	WHERE classname = '" . $db->escape_string($vbulletin->GPC['method']) . "'
+");
+if (!empty($api) AND $api['active'])
 {
 	$subobj = new vB_PaidSubscription($vbulletin);
 	if (file_exists(DIR . '/includes/paymentapi/class_' . $api['classname'] . '.php'))
@@ -70,9 +73,14 @@ if (!empty($api))
 			define('STYLEID', $style['styleid']);
 
 			cache_templates(array('STANDARD_REDIRECT', 'STANDARD_ERROR', 'STANDARD_ERROR_LITE', 'headinclude'), $style['templatelist']);
-			$stylevar = fetch_stylevars($style, $vbulletin->userinfo);
+			fetch_stylevars($style, $vbulletin->userinfo);
 			$headinclude = '<base href="' . $vbulletin->options['bburl'] . '/" />';
-			eval('$headinclude .= "' . fetch_template('headinclude') . '";');
+			$templater = vB_Template::create('headinclude');
+				$templater->register('foruminfo', $foruminfo);
+				$templater->register('pagenumber', $pagenumber);
+				$templater->register('style', $style);
+				$templater->register('basepath', $vbulletin->input->fetch_basepath());
+			$headinclude .= $templater->render();
 		}
 
 		if (!empty($api['settings']))
@@ -86,11 +94,13 @@ if (!empty($api))
 			$transaction = $db->query_first("
 				SELECT *
 				FROM " . TABLE_PREFIX . "paymenttransaction
-				WHERE transactionid = '" . $db->escape_string($apiobj->transaction_id) . "'
-					AND paymentapiid = $api[paymentapiid]
+				WHERE
+					transactionid = '" . $db->escape_string($apiobj->transaction_id) . "'
+						AND
+					paymentapiid = $api[paymentapiid]
 			");
 
-			if (($apiobj->type == 2 OR (empty($transaction) AND $apiobj->type == 1)) AND $vbulletin->options['paymentemail'])
+			if (($apiobj->type == 2 OR $apiobj->type == 3 OR (empty($transaction) AND $apiobj->type == 1)) AND $vbulletin->options['paymentemail'])
 			{
 				if (!$vbphrase)
 				{
@@ -108,6 +118,7 @@ if (!empty($api))
 				$processor = $api['title'];
 				$transactionid = $apiobj->transaction_id;
 
+				$memberlink = fetch_seo_url('member|nosession|bburl', array('userid' => $userid, 'username' => $apiobj->paymentinfo['username']));
 				eval(fetch_email_phrases($emailphrase, 0));
 				foreach($emails AS $toemail)
 				{
@@ -135,8 +146,8 @@ if (!empty($api))
 				{
 					$trans['request'] = serialize(array(
 						'vb_error_code' => $apiobj->error_code,
-						'GET' => serialize($_GET),
-						'POST' => serialize($_POST)
+						'GET'           => serialize($_GET),
+						'POST'          => serialize($_POST)
 					));
 				}
 
@@ -149,7 +160,7 @@ if (!empty($api))
 					{
 						$vbulletin->url = $vbulletin->options['bburl'] . '/payments.php';
 
-						eval(print_standard_redirect('payment_complete', true, true));
+						print_standard_redirect('payment_complete', true, true);  
 					}
 				}
 				else if ($apiobj->type == 2)
@@ -161,14 +172,22 @@ if (!empty($api))
 			{ // transaction is a reversal / refund
 				$subobj->delete_user_subscription($apiobj->paymentinfo['subscriptionid'], $apiobj->paymentinfo['userid'], $apiobj->paymentinfo['subscriptionsubid']);
 			}
+			else if ($apiobj->type == 3)
+			{// transaction is a canceled_reversal
+				$subobj->build_user_subscription($apiobj->paymentinfo['subscriptionid'], $apiobj->paymentinfo['subscriptionsubid'], $apiobj->paymentinfo['userid']);
+				if ($apiobj->display_feedback)
+				{
+					$vbulletin->url = $vbulletin->options['bburl'] . '/payments.php';
+					print_standard_redirect('payment_complete', true, true);  
+				}
+			}
 			else
 			{ // its most likely a re-post of a payment, if we've already dealt with it serve up a redirect
-					if ($apiobj->display_feedback)
-					{
-						$vbulletin->url = $vbulletin->options['bburl'] . '/payments.php';
-
-						eval(print_standard_redirect('payment_complete', true, true));
-					}
+				if ($apiobj->display_feedback)
+				{
+					$vbulletin->url = $vbulletin->options['bburl'] . '/payments.php';
+					print_standard_redirect('payment_complete', true, true);  
+				}
 			}
 		}
 		else
@@ -196,13 +215,13 @@ if (!empty($api))
 }
 else
 {
-	exec_header_redirect($vbulletin->options['forumhome'] . '.php');
+	exec_header_redirect(fetch_seo_url('forumhome|nosession', array()));
 }
 
 /*======================================================================*\
 || ####################################################################
-|| # Downloaded: 16:21, Sat Apr 6th 2013
-|| # CVS: $RCSfile$ - $Revision: 26399 $
+|| # Downloaded: 14:57, Sun Aug 11th 2013
+|| # CVS: $RCSfile$ - $Revision: 50189 $
 || ####################################################################
 \*======================================================================*/
 ?>

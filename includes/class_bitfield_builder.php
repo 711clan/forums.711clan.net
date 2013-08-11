@@ -1,9 +1,9 @@
 <?php
 /*======================================================================*\
 || #################################################################### ||
-|| # vBulletin 3.7.2 Patch Level 2 - Licence Number VBF2470E4F
+|| # vBulletin 4.2.1 - Licence Number VBC2DDE4FB
 || # ---------------------------------------------------------------- # ||
-|| # Copyright ©2000-2013 Jelsoft Enterprises Ltd. All Rights Reserved. ||
+|| # Copyright ©2000-2013 vBulletin Solutions Inc. All Rights Reserved. ||
 || # This file may not be redistributed in whole or significant part. # ||
 || # ---------------- VBULLETIN IS NOT FREE SOFTWARE ---------------- # ||
 || # http://www.vbulletin.com | http://www.vbulletin.com/license.html # ||
@@ -14,8 +14,8 @@
 * Class to build array from permissions within XML file
 *
 * @package	vBulletin
-* @version	$Revision: 26074 $
-* @date		$Date: 2008-03-13 10:44:45 -0500 (Thu, 13 Mar 2008) $
+* @version	$Revision: 40651 $
+* @date		$Date: 2010-11-16 16:23:46 -0800 (Tue, 16 Nov 2010) $
 */
 class vB_Bitfield_Builder
 {
@@ -87,6 +87,10 @@ class vB_Bitfield_Builder
 	function build($layout = true, $include_disabled = false)
 	{
 		$obj =& vB_Bitfield_Builder::init();
+		$obj->data = array();
+		$obj->datastore = array();
+		$obj->datastore_total = array();
+
 		$temp = array();
 
 		if ($handle = @opendir(DIR . '/includes/xml/'))
@@ -267,11 +271,23 @@ class vB_Bitfield_Builder
 	*/
 	function save($dbobject)
 	{
+		global $vbulletin;
+
 		$obj =& vB_Bitfield_Builder::init();
 
 		if (vB_Bitfield_Builder::build_datastore() === false)
 		{
 			return false;
+		}
+
+		// Update registry
+		foreach (array_keys($obj->datastore) AS $group)
+		{
+			$vbulletin->{'bf_' . $group} =& $obj->datastore["$group"];
+			foreach (array_keys($obj->datastore["$group"]) AS $subgroup)
+			{
+				$vbulletin->{'bf_' . $group . '_' . $subgroup} =& $obj->datastore["$group"]["$subgroup"];
+			}
 		}
 
 		// save
@@ -491,8 +507,8 @@ class vB_Bitfield_Builder
 
 /*======================================================================*\
 || ####################################################################
-|| # Downloaded: 16:21, Sat Apr 6th 2013
-|| # CVS: $RCSfile$ - $Revision: 26074 $
+|| # Downloaded: 14:57, Sun Aug 11th 2013
+|| # CVS: $RCSfile$ - $Revision: 40651 $
 || ####################################################################
 \*======================================================================*/
 ?>

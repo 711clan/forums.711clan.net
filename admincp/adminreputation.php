@@ -1,9 +1,9 @@
 <?php
 /*======================================================================*\
 || #################################################################### ||
-|| # vBulletin 3.7.2 Patch Level 2 - Licence Number VBF2470E4F
+|| # vBulletin 4.2.1 - Licence Number VBC2DDE4FB
 || # ---------------------------------------------------------------- # ||
-|| # Copyright ©2000-2013 Jelsoft Enterprises Ltd. All Rights Reserved. ||
+|| # Copyright ©2000-2013 vBulletin Solutions Inc. All Rights Reserved. ||
 || # This file may not be redistributed in whole or significant part. # ||
 || # ---------------- VBULLETIN IS NOT FREE SOFTWARE ---------------- # ||
 || # http://www.vbulletin.com | http://www.vbulletin.com/license.html # ||
@@ -14,7 +14,7 @@
 error_reporting(E_ALL & ~E_NOTICE);
 
 // ##################### DEFINE IMPORTANT CONSTANTS #######################
-define('CVS_REVISION', '$RCSfile$ - $Revision: 26591 $');
+define('CVS_REVISION', '$RCSfile$ - $Revision: 40911 $');
 
 // #################### PRE-CACHE TEMPLATES AND DATA ######################
 $phrasegroups = array('reputation', 'user', 'reputationlevel');
@@ -417,7 +417,7 @@ if ($_REQUEST['do'] == 'dolist')
 		SELECT post.postid, rep.userid AS userid, whoadded, rep.reason, rep.dateline, rep.reputationid, rep.reputation,
 			leftfor_user.username AS leftfor_username,
 			leftby_user.username AS leftby_username,
-			post.title
+			post.title, post.threadid
 		FROM " . TABLE_PREFIX . "reputation AS rep
 		LEFT JOIN " . TABLE_PREFIX . "post AS post ON (rep.postid = post.postid)
 		LEFT JOIN " . TABLE_PREFIX . "user AS leftby_user ON (rep.whoadded = leftby_user.userid)
@@ -510,13 +510,24 @@ if ($_REQUEST['do'] == 'dolist')
 
 	while ($comment = $db->fetch_array($comments))
 	{
+
+		$postlink = '';
+		if (!empty($comment['postid']))
+		{
+			//deliberately don't use the title.  We don't have it in our result set (or
+			//in any of the tables in our result set) and we'll catch it on redirect.  
+			//Plus the admincp isn't a big SEO issue -- we just want to get the links
+			//on the classes so that they work and centralize logic for future changes.
+			$postlink = fetch_seo_url('thread|bburl', $comment, array('p' => $comment['postid'])) . "#post$comment[postid]";
+		}
+
 		$cell = array();
 		$cell[] = "<a href=\"user.php?" . $vbulletin->session->vars['sessionurl'] . "do=edit&amp;u=$comment[whoadded]\"><b>$comment[leftby_username]</b></a>";
 		$cell[] = "<a href=\"user.php?" . $vbulletin->session->vars['sessionurl'] . "do=edit&amp;u=$comment[userid]\"><b>$comment[leftfor_username]</b></a>";
 		$cell[] = '<span class="smallfont">' . vbdate($vbulletin->options['logdateformat'], $comment['dateline']) . '</span>';
 		$cell[] = $comment['reputation'];
 		$cell[] = !empty($comment['reason']) ? '<span class="smallfont">' . htmlspecialchars_uni($comment['reason']) . '</span>' : '';
-		$cell[] = !empty($comment['postid']) ? construct_link_code(htmlspecialchars_uni($vbphrase['post']), "../showthread.php?" . $vbulletin->session->vars['sessionurl'] . "postid=$comment[postid]#post$comment[postid]", true, '', true) : '&nbsp;';
+		$cell[] = $postlink ? construct_link_code(htmlspecialchars_uni($vbphrase['post']), $postlink, true, '', true) : '&nbsp;';
 		$cell[] = construct_link_code($vbphrase['edit'], "adminreputation.php?" . $vbulletin->session->vars['sessionurl'] . "do=editreputation&reputationid=$comment[reputationid]", false, '', true) .
 			' ' . construct_link_code($vbphrase['delete'], "adminreputation.php?" . $vbulletin->session->vars['sessionurl'] . "do=deletereputation&reputationid=$comment[reputationid]", false, '', true);
 		print_cells_row($cell);
@@ -533,7 +544,7 @@ if ($_REQUEST['do'] == 'editreputation')
 		'reputationid' => TYPE_INT
 	));
 	if ($repinfo = $db->query_first("
-		SELECT rep.*, whoadded.username as whoadded_username, user.username, thread.title
+		SELECT rep.*, whoadded.username as whoadded_username, user.username, thread.title, thread.threadid
 		FROM " . TABLE_PREFIX . "reputation AS rep
 		LEFT JOIN " . TABLE_PREFIX . "user AS user ON (rep.userid = user.userid)
 		LEFT JOIN " . TABLE_PREFIX . "user AS whoadded ON (rep.whoadded = whoadded.userid)
@@ -544,7 +555,10 @@ if ($_REQUEST['do'] == 'editreputation')
 	{
 		print_form_header('adminreputation', 'doeditreputation');
 		print_table_header($vbphrase['edit_reputation']);
-		print_label_row($vbphrase['thread'], iif($repinfo['title'], "<a href=\"../showthread.php?" . $vbulletin->session->vars['sessionurl'] . "postid=$repinfo[postid]\">$repinfo[title]</a>"));
+		print_label_row($vbphrase['thread'], 
+			$repinfo['title'] ? "<a href=\"" . fetch_seo_url('thread|bburl', $repinfo, 
+				array('p' => $repinfo['postid'])) . "#post$repinfo[postid]" . 
+				"\">$repinfo[title]</a>" : '');
 		print_label_row($vbphrase['leftby'], $repinfo['whoadded_username']);
 		print_label_row($vbphrase['leftfor'], $repinfo['username']);
 		print_input_row($vbphrase['comment'], 'reputation[reason]', $repinfo['reason']);
@@ -608,7 +622,7 @@ if ($_POST['do'] == 'killreputation')
 	{
 		$userdm =& datamanager_init('User', $vbulletin, ERRTYPE_CP);
 		$userdm->set_existing($user);
-		$userdm->set('reputation', "reputation - $repinfo[reputation]", false);
+		$userdm->set('reputation', $user['reputation'] - $repinfo['reputation']);
 		$userdm->save();
 		unset($userdm);
 	}
@@ -663,8 +677,8 @@ print_cp_footer();
 
 /*======================================================================*\
 || ####################################################################
-|| # Downloaded: 16:21, Sat Apr 6th 2013
-|| # CVS: $RCSfile$ - $Revision: 26591 $
+|| # Downloaded: 14:57, Sun Aug 11th 2013
+|| # CVS: $RCSfile$ - $Revision: 40911 $
 || ####################################################################
 \*======================================================================*/
 ?>

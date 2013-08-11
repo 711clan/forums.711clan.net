@@ -1,23 +1,25 @@
 <?php
 /*======================================================================*\
 || #################################################################### ||
-|| # vBulletin 3.7.2 Patch Level 2 - Licence Number VBF2470E4F
+|| # vBulletin 4.2.1 - Licence Number VBC2DDE4FB
 || # ---------------------------------------------------------------- # ||
-|| # Copyright ©2000-2013 Jelsoft Enterprises Ltd. All Rights Reserved. ||
+|| # Copyright ©2000-2013 vBulletin Solutions Inc. All Rights Reserved. ||
 || # This file may not be redistributed in whole or significant part. # ||
 || # ---------------- VBULLETIN IS NOT FREE SOFTWARE ---------------- # ||
 || # http://www.vbulletin.com | http://www.vbulletin.com/license.html # ||
 || #################################################################### ||
 \*======================================================================*/
 
-define('FILE_VERSION', '3.7.2'); // this should match install.php
-define('SIMPLE_VERSION', '372'); // see vB_Datastore::check_options()
-define('YUI_VERSION', '2.5.2'); // define the YUI version we bundle
+define('FILE_VERSION', '4.2.1'); // this should match installsteps.php
+define('SIMPLE_VERSION', '421'); // see vB_Datastore::check_options()
+define('YUI_VERSION', '2.9.0'); // define the YUI version we bundle
+define('JQUERY_VERSION', '1.6.4'); // define the jQuery version we use
+define('JQUERY_MOBILE_VERSION', '1.0'); // define the jQuery Mobile Style Version
 
 /**#@+
 * The maximum sizes for the "small" profile avatars
 */
-define('FIXED_SIZE_AVATAR_WIDTH', 60);
+define('FIXED_SIZE_AVATAR_WIDTH',  60);
 define('FIXED_SIZE_AVATAR_HEIGHT', 80);
 /**#@-*/
 
@@ -37,14 +39,16 @@ define('ALLOW_BBCODE_HTML',   512);
 define('ALLOW_BBCODE_IMG',    1024);
 define('ALLOW_BBCODE_QUOTE',  2048);
 define('ALLOW_BBCODE_CUSTOM', 4096);
+define('ALLOW_BBCODE_VIDEO',  8192);
 /**#@-*/
 
 /**#@+
 * These make up the bit field to control what "special" BB codes are found in the text.
 */
-define('BBCODE_HAS_IMG', 1);
+define('BBCODE_HAS_IMG',    1);
 define('BBCODE_HAS_ATTACH', 2);
 define('BBCODE_HAS_SIGPIC', 4);
+define('BBCODE_HAS_RELPATH',8);
 /**#@-*/
 
 /**#@+
@@ -54,6 +58,7 @@ define('POST_FLAG_INVISIBLE', 1);
 define('POST_FLAG_DELETED',   2);
 define('POST_FLAG_ATTACH',    4);
 define('POST_FLAG_GUEST',     8);
+/**#@-*/
 
 // #############################################################################
 // MySQL Database Class
@@ -72,8 +77,8 @@ define('DBARRAY_NUM',   2);
 * This class also handles data replication between a master and slave(s) servers
 *
 * @package	vBulletin
-* @version	$Revision: 27007 $
-* @date		$Date: 2008-06-24 04:40:46 -0500 (Tue, 24 Jun 2008) $
+* @version	$Revision: 74242 $
+* @date		$Date: 2013-04-17 15:59:50 -0700 (Wed, 17 Apr 2013) $
 */
 class vB_Database
 {
@@ -100,10 +105,11 @@ class vB_Database
 		'num_fields'         => 'mysql_num_fields',
 		'field_name'         => 'mysql_field_name',
 		'insert_id'          => 'mysql_insert_id',
-		'escape_string'      => 'mysql_escape_string',
+		'escape_string'      => 'mysql_real_escape_string',
 		'real_escape_string' => 'mysql_real_escape_string',
 		'close'              => 'mysql_close',
 		'client_encoding'    => 'mysql_client_encoding',
+		'ping'               => 'mysql_ping',
 	);
 
 	/**
@@ -352,7 +358,10 @@ class vB_Database
 		else
 		{
 			$this->connection_recent =& $this->connection_master;
-			$this->halt('Cannot use database ' . $this->database);
+			if (!file_exists(DIR . '/install/install.php'))
+			{
+				$this->halt('Cannot use database ' . $this->database);
+			}
 			return false;
 		}
 	}
@@ -508,7 +517,7 @@ class vB_Database
 		$queryresult = $this->execute_query(true, $this->connection_recent);
 		$returnarray = $this->fetch_array($queryresult, DBARRAY_NUM);
 		$this->free_result($queryresult);
-		
+
 		return intval($returnarray[0]);
 	}
 
@@ -712,14 +721,7 @@ class vB_Database
 	*/
 	function escape_string($string)
 	{
-		if ($this->functions['escape_string'] == $this->functions['real_escape_string'])
-		{
-			return $this->functions['escape_string']($string, $this->connection_master);
-		}
-		else
-		{
-			return $this->functions['escape_string']($string);
-		}
+		return $this->functions['real_escape_string']($string, $this->connection_master);
 	}
 
 	/**
@@ -755,6 +757,18 @@ class vB_Database
 		{
 			return $value ? 1 : 0;
 		}
+		else if (is_null($value))
+		{
+			return "''";
+		}
+		else if (is_array($value))
+		{
+			foreach ($value as $key => $item)
+			{
+				$value[$key] = $this->sql_prepare($item);
+			}
+			return $value;
+		}
 		else
 		{
 			return "'" . $this->escape_string($value) . "'";
@@ -773,7 +787,34 @@ class vB_Database
 	*/
 	function fetch_array($queryresult, $type = DBARRAY_ASSOC)
 	{
-		return @$this->functions['fetch_array']($queryresult, $this->fetchtypes["$type"]);
+		static $hook_code = false;
+
+		if ($hook_code === false AND class_exists('vBulletinHook', false))
+		{
+			$hook_code['pre_fetch'] = vBulletinHook::fetch_hook('database_pre_fetch_array');
+			$hook_code['post_fetch'] = vBulletinHook::fetch_hook('database_post_fetch_array');
+		}
+
+		if ($hook_code['pre_fetch'])
+		{
+			$result = false;
+
+			eval($hook_code['pre_fetch']);
+
+			if ($result)
+			{
+				return $result;
+			}
+		}
+
+		$result = @$this->functions['fetch_array']($queryresult, $this->fetchtypes["$type"]);
+
+		if ($hook_code['post_fetch'])
+		{
+			eval($hook_code['post_fetch']);
+		}
+
+		return $result;
 	}
 
 	/**
@@ -785,7 +826,34 @@ class vB_Database
 	*/
 	function fetch_row($queryresult)
 	{
-		return @$this->functions['fetch_row']($queryresult);
+		static $hook_code = false;
+
+		if ($hook_code === false AND class_exists('vBulletinHook', false))
+		{
+			$hook_code['pre_fetch'] = vBulletinHook::fetch_hook('database_pre_fetch_row');
+			$hook_code['post_fetch'] = vBulletinHook::fetch_hook('database_post_fetch_row');
+		}
+
+		if ($hook_code['pre_fetch'])
+		{
+			$result = false;
+
+			eval($hook_code['pre_fetch']);
+
+			if ($result)
+			{
+				return $result;
+			}
+		}
+
+		$result = @$this->functions['fetch_row']($queryresult);
+
+		if ($hook_code['post_fetch'])
+		{
+			eval($hook_code['post_fetch']);
+		}
+
+		return $result;
 	}
 
 	/**
@@ -797,7 +865,34 @@ class vB_Database
 	*/
 	function fetch_field($queryresult)
 	{
-		return @$this->functions['fetch_field']($queryresult);
+		static $hook_code = false;
+
+		if ($hook_code === false AND class_exists('vBulletinHook', false))
+		{
+			$hook_code['pre_fetch'] = vBulletinHook::fetch_hook('database_pre_fetch_field');
+			$hook_code['post_fetch'] = vBulletinHook::fetch_hook('database_post_fetch_field');
+		}
+
+		if ($hook_code['pre_fetch'])
+		{
+			$result = false;
+
+			eval($hook_code['pre_fetch']);
+
+			if ($result)
+			{
+				return $result;
+			}
+		}
+
+		$result = @$this->functions['fetch_field']($queryresult);
+
+		if ($hook_code['post_fetch'])
+		{
+			eval($hook_code['post_fetch']);
+		}
+
+		return $result;
 	}
 
 	/**
@@ -835,6 +930,35 @@ class vB_Database
 	{
 		$this->rows = $this->functions['affected_rows']($this->connection_recent);
 		return $this->rows;
+	}
+
+	/**
+	* Ping connection and reconnect
+	* Don't use this in a manner that could cause a loop condition
+	*
+	*/
+	function ping()
+	{
+		if (!@$this->functions['ping']($this->connection_master))
+		{
+			$this->close();
+			// make database connection
+			$this->connect(
+				$this->registry->config['Database']['dbname'],
+				$this->registry->config['MasterServer']['servername'],
+				$this->registry->config['MasterServer']['port'],
+				$this->registry->config['MasterServer']['username'],
+				$this->registry->config['MasterServer']['password'],
+				$this->registry->config['MasterServer']['usepconnect'],
+				$this->registry->config['SlaveServer']['servername'],
+				$this->registry->config['SlaveServer']['port'],
+				$this->registry->config['SlaveServer']['username'],
+				$this->registry->config['SlaveServer']['password'],
+				$this->registry->config['SlaveServer']['usepconnect'],
+				$this->registry->config['Mysqli']['ini_file'],
+				(isset($this->registry->config['Mysqli']['charset']) ? $this->registry->config['Mysqli']['charset'] : '')
+			);
+		}
 	}
 
 	/**
@@ -958,15 +1082,42 @@ class vB_Database
 				$errortext =& $this->sql;
 			}
 
-			if (!headers_sent())
+			// Try and stop e-mail flooding.
+			if (!$vbulletin->options['disableerroremail'])
 			{
-				if (SAPI_NAME == 'cgi' OR SAPI_NAME == 'cgi-fcgi')
+				if (!$vbulletin->options['safeupload'])
 				{
-					header('Status: 503 Service Unavailable');
+					$tempdir = ini_get('upload_tmp_dir');
 				}
 				else
 				{
-					header('HTTP/1.1 503 Service Unavailable');
+					$tempdir = $vbulletin->options['tmppath'] . '/';
+				}
+
+				$unique = md5(COOKIE_SALT);
+				$tempfile = $tempdir."zdberr$unique.dat";
+
+				/* If its less than a minute since the last e-mail
+				and the error code is the same as last time, disable e-mail */
+				if ($data = @file_get_contents($tempfile))
+				{
+					$errc = intval(substr($data, 10));
+					$time = intval(substr($data, 0, 10));
+					if ($time AND (TIMENOW - $time) < 60
+						AND intval($this->errno) == $errc)
+					{
+						$vbulletin->options['disableerroremail'] = true;
+					}
+					else
+					{
+						$data = TIMENOW.intval($this->errno);
+						@file_put_contents($tempfile, $data);
+					}
+				}
+				else
+				{
+					$data = TIMENOW.intval($this->errno);
+					@file_put_contents($tempfile, $data);
 				}
 			}
 
@@ -987,7 +1138,7 @@ class vB_Database
 				$this->show_errors();
 			}
 
-			$display_db_error = (VB_AREA == 'Upgrade' OR VB_AREA == 'Install' OR $vbulletin->userinfo['usergroupid'] == 6 OR ($vbulletin->userinfo['permissions']['adminpermissions'] & $vbulletin->bf_ugp_adminpermissions));
+			$display_db_error = (VB_AREA == 'Upgrade' OR VB_AREA == 'Install' OR $vbulletin->userinfo['permissions']['adminpermissions'] & $vbulletin->bf_ugp_adminpermissions['cancontrolpanel']);
 
 			// Hide the MySQL Version if its going in the source
 			if (!$display_db_error)
@@ -997,16 +1148,36 @@ class vB_Database
 
 			eval('$message = "' . str_replace('"', '\"', file_get_contents(DIR . '/includes/database_error_message.html')) . '";');
 
+			// add a backtrace to the message
+			if ($vbulletin->debug)
+			{
+				$trace = debug_backtrace();
+				$trace_output = "\n";
+
+				foreach ($trace AS $index => $trace_item)
+				{
+					$param = (in_array($trace_item['function'], array('require', 'require_once', 'include', 'include_once')) ? $trace_item['args'][0] : '');
+
+					// remove path
+					$param = str_replace(DIR, '[path]', $param);
+					$trace_item['file'] = str_replace(DIR, '[path]', $trace_item['file']);
+
+					$trace_output .= "#$index $trace_item[class]$trace_item[type]$trace_item[function]($param) called in $trace_item[file] on line $trace_item[line]\n";
+				}
+
+				$message .= "\n\nStack Trace:\n$trace_output\n";
+			}
+
 			require_once(DIR . '/includes/functions_log_error.php');
 			if (function_exists('log_vbulletin_error'))
 			{
 				log_vbulletin_error($message, 'database');
 			}
 
-			if (1==2 AND $technicalemail != '' AND !$vbulletin->options['disableerroremail'] AND verify_email_vbulletin_error($this->errno, 'database'))
+			if ($technicalemail != '' AND !$vbulletin->options['disableerroremail'] AND verify_email_vbulletin_error($this->errno, 'database'))
 			{
 				// If vBulletinHook is defined then we know that options are loaded, so we can then use vbmail
-				if (class_exists('vBulletinHook'))
+				if (class_exists('vBulletinHook', false))
 				{
 					@vbmail($technicalemail, $this->appshortname . ' Database Error!', $message, true, $technicalemail);
 				}
@@ -1016,15 +1187,60 @@ class vB_Database
 				}
 			}
 
+			if (defined('STDIN'))
+			{
+				echo $message;
+				exit;
+			}
+
+			// send ajax reponse after sending error email
+			if ($vbulletin->GPC['ajax'])
+			{
+				require_once(DIR . '/includes/class_xml.php');
+				$xml = new vB_AJAX_XML_Builder($vbulletin, 'text/xml');
+
+				$error = '<p>Database Error</p>';
+				if ($vbulletin->debug OR VB_AREA == 'Upgrade')
+				{
+					$error .= "\r\n\r\n$errortext";
+					$error .= "\r\n\r\n{$this->error}";
+				}
+
+				eval('$ajaxmessage = "' . str_replace('"', '\"', file_get_contents(DIR . '/includes/database_error_message_ajax.html')) . '";');
+
+				$xml->add_group('errors');
+					$xml->add_tag('error', $error);
+					$xml->add_tag('error_html', $ajaxmessage);
+				$xml->close_group('errors');
+
+				$xml->print_xml();
+			}
+
+			if (!headers_sent())
+			{
+				if (SAPI_NAME == 'cgi' OR SAPI_NAME == 'cgi-fcgi')
+				{
+					header('Status: 503 Service Unavailable');
+				}
+				else
+				{
+					header($_SERVER['SERVER_PROTOCOL'] . ' 503 Service Unavailable');
+				}
+			}
+
 			if ($display_db_error)
 			{
 				// display error message on screen
 				$message = '<form><textarea rows="15" cols="70" wrap="off" id="message">' . htmlspecialchars_uni($message) . '</textarea></form>';
 			}
-			else
+			else if ($vbulletin->debug)
 			{
 				// display hidden error message
 				$message = "\r\n<!--\r\n" . htmlspecialchars_uni($message) . "\r\n-->\r\n";
+			}
+			else
+			{
+				$message = '';
 			}
 
 			if ($vbulletin->options['bburl'])
@@ -1038,6 +1254,7 @@ class vB_Database
 			}
 
 			eval('$message = "' . str_replace('"', '\"', file_get_contents(DIR . '/includes/database_error_page.html')) . '";');
+
 			// This is needed so IE doesn't show the pretty error messages
 			$message .= str_repeat(' ', 512);
 			die($message);
@@ -1058,8 +1275,8 @@ class vB_Database
 * This class also handles data replication between a master and slave(s) servers
 *
 * @package	vBulletin
-* @version	$Revision: 27007 $
-* @date		$Date: 2008-06-24 04:40:46 -0500 (Tue, 24 Jun 2008) $
+* @version	$Revision: 74242 $
+* @date		$Date: 2013-04-17 15:59:50 -0700 (Wed, 17 Apr 2013) $
 */
 class vB_Database_MySQLi extends vB_Database
 {
@@ -1090,6 +1307,7 @@ class vB_Database_MySQLi extends vB_Database
 		'real_escape_string' => 'mysqli_real_escape_string',
 		'close'              => 'mysqli_close',
 		'client_encoding'    => 'mysqli_client_encoding',
+		'ping'               => 'mysqli_ping',
 	);
 
 	/**
@@ -1224,6 +1442,25 @@ class vB_Database_MySQLi extends vB_Database
 		$field = @$this->functions['fetch_field']($queryresult);
 		return $field->name;
 	}
+
+	/**
+	* Switches database error display ON
+	*/
+	function show_errors()
+	{
+		$this->reporterror = true;
+		mysqli_report(MYSQLI_REPORT_ERROR);
+	}
+
+	/**
+	* Switches database error display OFF
+	*/
+	function hide_errors()
+	{
+		$this->reporterror = false;
+		mysqli_report(MYSQLI_REPORT_OFF);
+	}
+
 }
 
 // #############################################################################
@@ -1233,8 +1470,8 @@ class vB_Database_MySQLi extends vB_Database
 * Class for fetching and initializing the vBulletin datastore from the database
 *
 * @package	vBulletin
-* @version	$Revision: 27007 $
-* @date		$Date: 2008-06-24 04:40:46 -0500 (Tue, 24 Jun 2008) $
+* @version	$Revision: 74242 $
+* @date		$Date: 2013-04-17 15:59:50 -0700 (Wed, 17 Apr 2013) $
 */
 class vB_Datastore
 {
@@ -1244,6 +1481,7 @@ class vB_Datastore
 	* @var	array
 	*/
 	var $defaultitems = array(
+		'navdata',
 		'options',
 		'bitfields',
 		'attachmentcache',
@@ -1256,15 +1494,17 @@ class vB_Datastore
 		'cron',
 		'profilefield',
 		'loadcache',
-		'noticecache'
+		'noticecache',
+		'activitystream',
+		'routes',
 	);
 
 	/**
-	* This variable contains a list of all items to be returned from the datastore
-	*
-	* @var    array
-	*/
-	var $itemarray = array();
+	 * All of the entries that have already been fetched
+	 *
+	 * @var array string
+	 */
+	static $registered = array();
 
 	/**
 	* This variable should be set to be a reference to the registry object
@@ -1286,6 +1526,13 @@ class vB_Datastore
 	* @var	string
 	*/
 	var $prefix = '';
+
+	/**
+	 * Whether we have verified that options were loaded correctly.
+	 *
+	 * @var bool
+	 */
+	var $checked_options;
 
 	/**
 	* Constructor - establishes the database object to use for datastore queries
@@ -1360,7 +1607,77 @@ class vB_Datastore
 			$this->registry->$title = $data;
 		}
 
+		// Ensure items are not refetched
+		self::$registered[] = $title;
+
 		return true;
+	}
+
+	/**
+	 * Prepares a list of items for fetching.
+	 * Items that are already fetched are skipped.
+	 *
+	 * @param array string $items				- Array of item titles that are required
+	 * @return array string						- An array of items that need to be fetched
+	 */
+	function prepare_itemarray($items)
+	{
+		if ($items)
+		{
+			if (is_array($items))
+			{
+				$itemarray = $items;
+			}
+			else
+			{
+				$itemarray = explode(',', $items);
+
+				foreach($itemarray AS &$title)
+				{
+					$title = trim($title);
+				}
+			}
+			// Include default items
+			$itemarray = array_merge($itemarray, $this->defaultitems);
+		}
+		else
+		{
+			$itemarray = $this->defaultitems;
+		}
+
+		// Remove anything that is already loaded
+		$itemarray = array_diff($itemarray, vB_DataStore::$registered);
+
+		return $itemarray;
+	}
+
+	/**
+	 * Prepares an array of items into a list.
+	 * The result is a comma delimited, db escaped, quoted list for use in SQL.
+	 *
+	 * @param array string $items				- An array of item titles
+	 * @param bool $prepare_items				- Wether to check the items first
+	 *
+	 * @return string							- A sql safe comma delimited list
+	 */
+	function prepare_itemlist($items, $prepare_items = false)
+	{
+		if (is_string($items) OR $prepare_items)
+		{
+			$items = $this->prepare_itemarray($items);
+		}
+
+		if (!sizeof($items))
+		{
+			return false;
+		}
+
+		foreach ($items AS &$item)
+		{
+			$item = "'" . $this->dbobject->escape_string($item) . "'";
+		}
+
+		return implode(',', $items);
 	}
 
 	/**
@@ -1368,33 +1685,21 @@ class vB_Datastore
 	*
 	* @param	array	Array of items to fetch from the datastore
 	*
-	* @return	void
+	* @return	boolean
 	*/
-	function fetch($itemarray)
+	function fetch($items)
 	{
-		$db =& $this->dbobject;
-
-		$itemlist = "''";
-
-		foreach ($this->defaultitems AS $item)
+		if ($items = $this->prepare_itemlist($items, true))
 		{
-			$itemlist .= ",'" . $db->escape_string($item) . "'";
-		}
-
-		if (is_array($itemarray))
-		{
-			foreach ($itemarray AS $item)
+			$result = $this->do_db_fetch($items);
+			if (!$result)
 			{
-				$itemlist .= ",'" . $db->escape_string($item) . "'";
+				return false;
 			}
 		}
 
-		$this->do_db_fetch($itemlist);
-
 		$this->check_options();
-
-		// set the version number variable
-		$this->registry->versionnumber =& $this->registry->options['templateversion'];
+		return true;
 	}
 
 	/**
@@ -1402,22 +1707,26 @@ class vB_Datastore
 	*
 	* @param	string	title of the datastore item
 	*
-	* @return	void
+	* @return	bool	Valid Query?
 	*/
 	function do_db_fetch($itemlist)
 	{
 		$db =& $this->dbobject;
 
+		$db->hide_errors();
 		$dataitems = $db->query_read("
 			SELECT *
 			FROM " . TABLE_PREFIX . "datastore
 			WHERE title IN ($itemlist)
 		");
+		$db->show_errors();
 		while ($dataitem = $db->fetch_array($dataitems))
 		{
 			$this->register($dataitem['title'], $dataitem['data'], (isset($dataitem['unserialize']) ? $dataitem['unserialize'] : 2));
 		}
 		$db->free_result($dataitems);
+
+		return (!$db->errno());
 	}
 
 	/**
@@ -1426,6 +1735,11 @@ class vB_Datastore
 	*/
 	function check_options()
 	{
+		if ($this->checked_options)
+		{
+			return;
+		}
+
 		if (!isset($this->registry->options['templateversion']))
 		{
 			// fatal error - options not loaded correctly
@@ -1435,7 +1749,12 @@ class vB_Datastore
 		}
 
 		// set the short version number
-		$this->registry->options['simpleversion'] = SIMPLE_VERSION . $this->registry->config['Misc']['jsver'];
+		$this->registry->options['simpleversion'] = SIMPLE_VERSION . (isset($this->registry->config['Misc']['jsver']) ? $this->registry->config['Misc']['jsver'] : '');
+
+		// set the version number variable
+		$this->registry->versionnumber =& $this->registry->options['templateversion'];
+
+		$this->checked_options = true;
 	}
 }
 
@@ -1492,8 +1811,8 @@ define('FILE',       TYPE_FILE);
 * Class to handle and sanitize variables from GET, POST and COOKIE etc
 *
 * @package	vBulletin
-* @version	$Revision: 27007 $
-* @date		$Date: 2008-06-24 04:40:46 -0500 (Tue, 24 Jun 2008) $
+* @version	$Revision: 74242 $
+* @date		$Date: 2013-04-17 15:59:50 -0700 (Wed, 17 Apr 2013) $
 */
 class vB_Input_Cleaner
 {
@@ -1510,7 +1829,7 @@ class vB_Input_Cleaner
 		'a'     => 'announcementid',
 		'c'     => 'calendarid',
 		'e'     => 'eventid',
-		'q'		=> 'query',
+		'q'     => 'query',
 		'pp'    => 'perpage',
 		'page'  => 'pagenumber',
 		'sort'  => 'sortfield',
@@ -1582,6 +1901,13 @@ class vB_Input_Cleaner
 	var $registry = null;
 
 	/**
+	* Keep track of variables that have already been cleaned
+	*
+	* @var	array
+	*/
+	var $cleaned_vars = array();
+
+	/**
 	* Constructor
 	*
 	* First, reverses the effects of magic quotes on GPC
@@ -1598,6 +1924,17 @@ class vB_Input_Cleaner
 		{
 			die('<strong>Fatal Error:</strong> Invalid URL.');
 		}
+
+		// resolve the request URL
+		$this->resolve_request_url($registry);
+
+		// store a relative path that includes the sessionhash for reloadurl
+		$registry->reloadurl = $this->xss_clean($this->add_query(VB_URL_PATH, VB_URL_QUERY_RAW));
+		// store the current script
+		$registry->script = SCRIPT;
+
+		// store the scriptpath
+		$registry->scriptpath = $this->xss_clean($this->add_query(VB_URL_PATH, VB_URL_QUERY));
 
 		// overwrite GET[x] and REQUEST[x] with POST[x] if it exists (overrides server's GPC order preference)
 		if ($_SERVER['REQUEST_METHOD'] == 'POST')
@@ -1634,8 +1971,16 @@ class vB_Input_Cleaner
 				$this->stripslashes_deep($_FILES);
 			}
 		}
-		set_magic_quotes_runtime(0);
-		@ini_set('magic_quotes_sybase', 0);
+
+		//28997 -- set_magic_quotes_runtime is throws deprecation warnings in 5.3.
+		//We still need it (somebody could still turn it on, wj, so supress the warning (the only thing
+		//we can do).  Add check for function so that 6.0 (or whichever) doesn't mysteriously
+		//break because the "function doesn't exist" error gets supressed.
+		if (function_exists('set_magic_quotes_runtime'))
+		{
+			@set_magic_quotes_runtime(0);
+			@ini_set('magic_quotes_sybase', 0);
+		}
 
 		foreach (array('_GET', '_POST') AS $arrayname)
 		{
@@ -1648,7 +1993,12 @@ class vB_Input_Cleaner
 		}
 
 		// set the AJAX flag if we have got an AJAX submission
-		if ($_SERVER['REQUEST_METHOD'] == 'POST' AND $_SERVER['HTTP_X_REQUESTED_WITH'] == 'XMLHttpRequest')
+		// unless the request explictly doesn't want us to.  The problem with this is that it hits any XMLHttpRequest
+		// even if we have a request for which the ajax handling is not appropriate (for example JQUERY mobile which
+		// uses XMLHttpRequest for everything and expects html to come back).  Ideally we'd use a less blunt force
+		// approach to handling AJAX behavior in the first place, but this allows specific requests to avoid it.
+		if ($_SERVER['REQUEST_METHOD'] == 'POST' AND $_SERVER['HTTP_X_REQUESTED_WITH'] == 'XMLHttpRequest' AND
+			!(isset($_REQUEST['forcenoajax']) AND $_REQUEST['forcenoajax']))
 		{
 			$_POST['ajax'] = $_REQUEST['ajax'] = 1;
 		}
@@ -1694,42 +2044,298 @@ class vB_Input_Cleaner
 
 		// fetch client IP address
 		$registry->ipaddress = $this->fetch_ip();
-		define('IPADDRESS', $registry->ipaddress);
-
-		// attempt to fetch IP address from behind proxies - useful, but don't rely on it...
 		$registry->alt_ip = $this->fetch_alt_ip();
-		define('ALT_IP', $registry->alt_ip);
-
-		// defines if the current page was visited via SSL or not
-		define('REQ_PROTOCOL', (($_SERVER['HTTPS'] == 'on' OR $_SERVER['HTTPS'] == '1') ? 'https' : 'http'));
-
-		// fetch complete url of current page
-		$registry->scriptpath = $this->fetch_scriptpath();
-		define('SCRIPTPATH', $registry->scriptpath);
-
-		// fetch url of current page without the variable string
-		$quest_pos = strpos($registry->scriptpath, '?');
-		if ($quest_pos !== false)
-		{
-			$registry->script = substr($registry->scriptpath, 0, $quest_pos);
-		}
-		else
-		{
-			$registry->script = $registry->scriptpath;
-		}
-		define('SCRIPT', $registry->script);
 
 		// fetch url of current page for Who's Online
-		$registry->wolpath = $this->fetch_wolpath();
-		define('WOLPATH', $registry->wolpath);
-
-		// define session constants
-		define('SESSION_HOST',   substr($registry->ipaddress, 0, 15));
+		if (!defined('SKIP_WOLPATH') OR !SKIP_WOLPATH)
+		{
+			$registry->wolpath = $this->fetch_wolpath();
+			define('WOLPATH', $registry->wolpath);
+		}
 
 		// define some useful contants related to environment
 		define('USER_AGENT',     $_SERVER['HTTP_USER_AGENT']);
 		define('REFERRER',       $_SERVER['HTTP_REFERER']);
+
+		// All requests passed from API client should be in UTF-8 encoding and we need to convert it back to vB's current encoding.
+		// We also need to do this this for the ajax requests.
+		if ($_SERVER['HTTP_X_REQUESTED_WITH'] == 'XMLHttpRequest' OR (defined('VB_API') AND VB_API === true))
+		{
+			define('NEED_DECODE', true);
+		}
+
 	}
+
+	/**
+	 * Resolves information about the request URL.
+	 */
+	function resolve_request_url($registry)
+	{
+		// Get server port
+		$port = intval($_SERVER['SERVER_PORT']);
+		$port = in_array($port, array(80, 443)) ? '' : ':' . $port;
+
+		// resolve the request scheme
+		$scheme = ((':443' == $port) OR (isset($_SERVER['HTTPS']) AND $_SERVER['HTTPS'] AND ($_SERVER['HTTPS'] != 'off'))) ? 'https://' : 'http://';
+
+		if ($scheme == 'http://' AND $_SERVER['SERVER_PORT'] == 443)
+		{
+			$port = ':443';
+		}
+
+		$host = $this->fetch_server_value('HTTP_HOST');
+		$name = $this->fetch_server_value('SERVER_NAME');
+
+		// If host exists use it, otherwise fallback to servername.
+		$host = ( !empty($host) ? $host : $name );
+
+		// resolve the query
+		$query = ($query = $this->fetch_server_value('QUERY_STRING')) ? '?' . $query : '';
+		$query = $this->urlencode_query($query);
+
+		// resolve the path and query
+		if (!($scriptpath = $this->fetch_server_value('REQUEST_URI')))
+		{
+			if (!($scriptpath = $this->fetch_server_value('UNENCODED_URL')))
+			{
+				$scriptpath = $this->fetch_server_value('HTTP_X_REWRITE_URL');
+			}
+		}
+
+		if ($scriptpath)
+		{
+			$scriptpath = $this->urlencode_query($scriptpath);
+			$query = '';
+		}
+		else
+		{
+			// server hasn't provided a URI, try to resolve one
+			if (!$scriptpath = $this->fetch_server_value('PATH_INFO'))
+			{
+				if (!$scriptpath = $this->fetch_server_value('REDIRECT_URL'))
+				{
+					if (!($scriptpath = $this->fetch_server_value('URL')))
+					{
+						if (!($scriptpath = $this->fetch_server_value('PHP_SELF')))
+						{
+							$scriptpath = $this->fetch_server_value('SCRIPT_NAME');
+						}
+					}
+				}
+			}
+		}
+
+		// build the URL
+		$url = $scheme . $host . '/' . ltrim($scriptpath, '/\\') . $query;
+
+		// store a literal version
+		define('VB_URL', $url);
+
+		// check relative path
+		if (defined('VB_RELATIVE_PATH'))
+		{
+			define('VB_URL_RELATIVE_PATH', trim(VB_RELATIVE_PATH, '/') . '/');
+		}
+		else
+		{
+			define('VB_URL_RELATIVE_PATH', '');
+		}
+
+		// Set URL info
+		$url_info = $this->parse_url(VB_URL);
+		$url_info['path'] = '/' . ltrim($url_info['path'], '/\\');
+		$url_info['query_raw'] = (isset($url_info['query']) ? $url_info['query'] : '');
+		$url_info['query'] = $this->strip_sessionhash($url_info['query']);
+		$url_info['query'] = trim($url_info['query'], '?&') ? $url_info['query'] : '';
+
+		/*
+			values seen in the wild:
+
+			CGI+suexec:
+			SCRIPT_NAME: /vb4/admincp/index.php
+			ORIG_SCRIPT_NAME: /cgi-sys/php53-fcgi-starter.fcgi
+
+			CGI #1:
+			SCRIPT_NAME: /index.php
+			ORIG_SCRIPT_NAME: /search/foo
+
+			CGI #2:
+			SCRIPT_NAME: /index.php/search/foo
+			ORIG_SCRIPT_NAME: /index.php
+
+		*/
+
+		if (substr(PHP_SAPI, -3) == 'cgi' AND (isset($_SERVER['ORIG_SCRIPT_NAME']) AND !empty($_SERVER['ORIG_SCRIPT_NAME'])))
+		{
+			if (substr($_SERVER['SCRIPT_NAME'], 0, strlen($_SERVER['ORIG_SCRIPT_NAME'])) == $_SERVER['ORIG_SCRIPT_NAME'])
+			{
+				// cgi #2 above
+				$url_info['script'] = $_SERVER['ORIG_SCRIPT_NAME'];
+			}
+			else
+			{
+				// cgi #1 and CGI+suexec above
+				$url_info['script'] = $_SERVER['SCRIPT_NAME'];
+			}
+		}
+		else
+		{
+			$url_info['script'] = (isset($_SERVER['ORIG_SCRIPT_NAME']) AND !empty($_SERVER['ORIG_SCRIPT_NAME'])) ? $_SERVER['ORIG_SCRIPT_NAME'] : $_SERVER['SCRIPT_NAME'];
+		}
+		$url_info['script'] = '/' . ltrim($url_info['script'], '/\\');
+
+		// define constants
+		define('VB_URL_SCHEME',      $url_info['scheme']);
+		define('VB_URL_HOST',        $url_info['host']);
+		define('VB_URL_PORT',        $port);
+		define('VB_URL_SCRIPT_PATH', rtrim(dirname($url_info['script']), '/\\') . '/');
+		define('VB_URL_SCRIPT',      basename($url_info['script']));
+		define('VB_URL_PATH',        urldecode($url_info['path']));
+		define('VB_URL_PATH_RAW',    $url_info['path']);
+		define('VB_URL_QUERY',       $url_info['query'] ? $url_info['query'] : '');
+		define('VB_URL_QUERY_RAW',   $url_info['query_raw']);
+		define('VB_URL_CLEAN',       $this->xss_clean($this->strip_sessionhash(VB_URL)));
+		define('VB_URL_WEBROOT',     $this->xss_clean(VB_URL_SCHEME . '://' . VB_URL_HOST . VB_URL_PORT));
+		define('VB_URL_BASE_PATH',   $this->xss_clean(VB_URL_SCHEME . '://' . VB_URL_HOST . VB_URL_PORT . VB_URL_SCRIPT_PATH . VB_URL_RELATIVE_PATH));
+
+		// legacy constants
+		define('SCRIPT',       $_SERVER['SCRIPT_NAME']);
+		define('SCRIPTPATH',   $this->xss_clean($this->add_query(VB_URL_PATH)));
+		define('REQ_PROTOCOL', $url_info['scheme']);
+		define('VB_HTTP_HOST', $url_info['host']);
+	}
+
+	/**
+	*	Workaround for a UTF8 compatible parse_url
+	*/
+
+	function parse_url($url, $component = -1)
+	{
+		// Taken from /rfc3986#section-2
+		$safechars =array(':', '/', '?', '#', '[', ']', '@', '!', '$', '&', '\'' ,'(', ')', '*', '+', ',', ';', '=');
+		$trans = array('%3A', '%2F', '%3F', '%23', '%5B', '%5D', '%40', '%21', '%24', '%26', '%27', '%28', '%29', '%2A', '%2B', '%2C', '%3B', '%3D');
+		$encodedurl = str_replace($trans, $safechars, urlencode($url));
+
+		$parsed = @parse_url($encodedurl, $component);
+		if(is_array($parsed))
+		{
+			foreach ($parsed AS $index => $element)
+			{
+				$parsed[$index] = urldecode($element);
+			}
+		}
+		else
+		{
+			$parsed = urldecode($parsed);
+		}
+
+		return $parsed;
+	}
+
+	function urlencode_query($url)
+	{
+		$useragent = strtolower($_SERVER['HTTP_USER_AGENT']);
+		if (strpos($useragent, 'opera') !== false)
+		{
+			preg_match('#opera(/| )([0-9\.]+)#', $useragent, $regs);
+			$isopera = $regs[2];
+		}
+		if (strpos($useragent, 'msie ') !== false AND !$isopera)
+		{
+			preg_match('#msie ([0-9\.]+)#', $useragent, $regs);
+			$isie = $regs[1];
+		}
+		if (!$isie)
+		{
+			return $url;
+		}
+
+		$querystring = array();
+		$bits = explode('?', $url);
+		if ($bits[1])
+		{
+			$bits[1] = urldecode($bits[1]);
+			$subbits = explode('&', $bits[1]);
+			foreach ($subbits AS $querypart)
+			{
+				$querybit = explode('=', $querypart);
+				if ($querybit[1])
+				{
+					$querystring[] = urlencode($querybit[0]) . '=' . urlencode($querybit[1]);
+				}
+				else
+				{
+					$querystring[] = urlencode($querybit[0]);
+				}
+			}
+			return $bits[0] . '?' . implode('&', $querystring);
+		}
+		return $url;
+	}
+
+	/**
+	 * Fetches a value from $_SERVER or $_ENV
+	 *
+	 * @param string $name
+	 * @return string
+	 */
+	function fetch_server_value($name)
+	{
+		if (isset($_SERVER[$name]) AND $_SERVER[$name])
+		{
+			return $_SERVER[$name];
+		}
+
+		if (isset($_ENV[$name]) AND $_ENV[$name])
+		{
+			return $_ENV[$name];
+		}
+
+		return false;
+	}
+
+
+	/**
+	 * Adds a query string to a path, fixing the query characters.
+	 *
+	 * @param 	string		The path to add the query to
+	 * @param 	string		The query string to add to the path
+	 *
+	 * @return	string		The resulting string
+	 */
+	function add_query($path, $query = false)
+	{
+		if (false === $query)
+		{
+			$query = VB_URL_QUERY;
+		}
+
+		if (!$query OR !($query = trim($query, '?&')))
+		{
+			return $path;
+		}
+
+		return $path . '?' . $query;
+	}
+
+	/**
+	 * Adds a fragment to a path
+	 *
+	 * @param 	string		The path to add the fragment to
+	 * @param 	string		The fragment to add to the path
+	 *
+	 * @return	string		The resulting string
+	 */
+	function add_fragment($path, $fragment = false)
+	{
+		if (!$fragment)
+		{
+			return $path;
+		}
+
+		return $path . '#' . $fragment;
+	}
+
 
 	/**
 	* Makes data in an array safe to use
@@ -1765,7 +2371,8 @@ class vB_Input_Cleaner
 
 		foreach ($variables AS $varname => $vartype)
 		{
-			if (!isset($this->registry->GPC["$varname"])) // limit variable to only being "cleaned" once to avoid potential corruption
+			// clean a variable only once unless its a different type
+			if (!isset($this->cleaned_vars["$varname"]) OR $this->cleaned_vars["$varname"] != $vartype)
 			{
 				$this->registry->GPC_exists["$varname"] = isset($sg["$varname"]);
 				$this->registry->GPC["$varname"] =& $this->clean(
@@ -1773,6 +2380,49 @@ class vB_Input_Cleaner
 					$vartype,
 					isset($sg["$varname"])
 				);
+				if ((defined('NEED_DECODE') AND NEED_DECODE === true))
+				{
+					switch ($vartype)
+					{
+						case TYPE_STR:
+						case TYPE_NOTRIM:
+						case TYPE_NOHTML:
+						case TYPE_NOHTMLCOND:
+							if (!($charset = vB_Template_Runtime::fetchStyleVar('charset')))
+							{
+								$charset = $this->registry->userinfo['lang_charset'];
+							}
+
+							$lower_charset = strtolower($charset);
+							if ($lower_charset != 'utf-8')
+							{
+								if ($lower_charset == 'iso-8859-1')
+								{
+									$this->registry->GPC["$varname"] = to_charset(ncrencode($this->registry->GPC["$varname"], true, true), 'utf-8');
+								}
+								else
+								{
+									$this->registry->GPC["$varname"] = to_charset($this->registry->GPC["$varname"], 'utf-8');
+								}
+							}
+							if (function_exists('html_entity_decode') AND defined('VB_API') AND VB_API == true)
+							{
+								// this converts certain &#123; entities to their actual character
+								// note: we don't want to convert &gt;, etc as that undoes the effects of STR_NOHTML
+								$this->registry->GPC["$varname"] = preg_replace('#&([a-z]+);#i', '&amp;$1;', $this->registry->GPC["$varname"]);
+
+								if ($lower_charset == 'windows-1251')
+								{
+									// there's a bug in PHP5 html_entity_decode that decodes some entities that
+									// it shouldn't. So double encode them to ensure they don't get decoded.
+									$this->registry->GPC["$varname"] = preg_replace('/&#(128|129|1[3-9][0-9]|2[0-4][0-9]|25[0-5]);/', '&amp;#$1;', $this->registry->GPC["$varname"]);
+								}
+
+								$this->registry->GPC["$varname"] = @html_entity_decode($this->registry->GPC["$varname"], ENT_COMPAT, $lower_charset);
+							}
+					}
+				}
+				$this->cleaned_vars["$varname"] = $vartype;
 			}
 		}
 	}
@@ -1788,7 +2438,8 @@ class vB_Input_Cleaner
 	*/
 	function &clean_gpc($source, $varname, $vartype = TYPE_NOCLEAN)
 	{
-		if (!isset($this->registry->GPC["$varname"])) // limit variable to only being "cleaned" once to avoid potential corruption
+		// clean a variable only once unless its a different type
+		if (!isset($this->cleaned_vars["$varname"]) OR $this->cleaned_vars["$varname"] != $vartype)
 		{
 			$sg =& $GLOBALS[$this->superglobal_lookup["$source"]];
 
@@ -1798,6 +2449,7 @@ class vB_Input_Cleaner
 				$vartype,
 				isset($sg["$varname"])
 			);
+			$this->cleaned_vars["$varname"] = $vartype;
 		}
 
 		return $this->registry->GPC["$varname"];
@@ -1845,6 +2497,7 @@ class vB_Input_Cleaner
 		}
 		else
 		{
+			// We use $newvar here to prevent overwrite superglobals. See bug #28898.
 			if ($vartype < TYPE_CONVERT_SINGLE)
 			{
 				switch ($vartype)
@@ -1855,7 +2508,7 @@ class vB_Input_Cleaner
 					case TYPE_UNUM:
 					case TYPE_UNIXTIME:
 					{
-						$var = 0;
+						$newvar = 0;
 						break;
 					}
 					case TYPE_STR:
@@ -1863,37 +2516,37 @@ class vB_Input_Cleaner
 					case TYPE_NOTRIM:
 					case TYPE_NOHTMLCOND:
 					{
-						$var = '';
+						$newvar = '';
 						break;
 					}
 					case TYPE_BOOL:
 					{
-						$var = 0;
+						$newvar = 0;
 						break;
 					}
 					case TYPE_ARRAY:
 					case TYPE_FILE:
 					{
-						$var = array();
+						$newvar = array();
 						break;
 					}
 					case TYPE_NOCLEAN:
 					{
-						$var = null;
+						$newvar = null;
 						break;
 					}
 					default:
 					{
-						$var = null;
+						$newvar = null;
 					}
 				}
 			}
 			else
 			{
-				$var = array();
+				$newvar = array();
 			}
 
-			return $var;
+			return $newvar;
 		}
 	}
 
@@ -1907,7 +2560,18 @@ class vB_Input_Cleaner
 	*/
 	function &do_clean(&$data, $type)
 	{
-		static $booltypes = array('1', 'yes', 'y', 'true');
+		static $booltypes = array('1', 'yes', 'y', 'true', 'on');
+
+		switch ($type)
+		{
+			case TYPE_NUM:
+			case TYPE_UNUM:
+				// Account for language specific separators
+				if (isset($this->registry->userinfo['lang_decimalsep']) AND $this->registry->userinfo['lang_decimalsep'] != '')
+				{
+					$data = strtr($data, array($this->registry->userinfo['lang_decimalsep'] => '.', $this->registry->userinfo['lang_thousandsep'] => ''));
+				}
+		}
 
 		switch ($type)
 		{
@@ -2029,12 +2693,74 @@ class vB_Input_Cleaner
 	function xss_clean($var)
 	{
 		static
-			$preg_find    = array('#javascript#i', '#vbscript#i'),
+			$preg_find    = array('#^javascript#i', '#^vbscript#i'),
 			$preg_replace = array('java script',   'vb script');
 
-		$var = preg_replace($preg_find, $preg_replace, htmlspecialchars_uni($var));
-		return $var;
+		return preg_replace($preg_find, $preg_replace, htmlspecialchars(trim($var)));
 	}
+
+	/**
+	 * Removes HTML characters and potentially unsafe scripting words from a URL
+	 * Note: The query string is preserved.
+	 *
+	 * @param	string	The url to clean
+	 * @return	string
+	 */
+	function xss_clean_url($url)
+	{
+		$query = $this->parse_url($url, PHP_URL_QUERY);
+		$fragment = $this->parse_url($url, PHP_URL_FRAGMENT);
+		$clean_url = false;
+
+		if ($query)
+		{
+			$url = substr($url, 0, strpos($url, '?'));
+			$url = $this->xss_clean($url);
+			$clean_url = true;
+		}
+
+		if ($fragment AND !$clean_url)
+		{
+			$url = substr($url, 0, strpos($url, '#'));
+			$url = $this->xss_clean($url);
+			$clean_url = true;
+		}
+
+		if (!$clean_url)
+		{
+			$url = $this->xss_clean($url);
+		}
+
+		$query = ($query) ? '?' . $query : '';
+		$fragment = ($fragment) ? '#' . $fragment : '';
+		$url = $url . $query . $fragment;
+
+		return $url;
+	}
+
+
+	/**
+	 * Cleans a query string.
+	 * Unicode is decoded, url entities are kept encoded, and slashes are preserved.
+	 *
+	 * @param string $path
+	 * @return string
+	 */
+	function utf8_clean_path($path, $reencode = true)
+	{
+		$path = explode('/', $path);
+		$path = array_map('urldecode', $path);
+
+		if ($reencode)
+		{
+			$path = array_map('urlencode_uni', $path);
+		}
+
+		$path = implode('/', $path);
+
+		return $path;
+	}
+
 
 	/**
 	* Reverses the effects of magic_quotes on an entire array of variables
@@ -2064,7 +2790,7 @@ class vB_Input_Cleaner
 	*
 	* @param	array	The name of the array
 	*/
-	function convert_shortvars(&$array)
+	function convert_shortvars(&$array, $setglobals = true)
 	{
 		// extract long variable names from short variable names
 		foreach ($this->shortvars AS $shortname => $longname)
@@ -2072,7 +2798,10 @@ class vB_Input_Cleaner
 			if (isset($array["$shortname"]) AND !isset($array["$longname"]))
 			{
 				$array["$longname"] =& $array["$shortname"];
-				$GLOBALS['_REQUEST']["$longname"] =& $array["$shortname"];
+				if ($setglobals)
+				{
+					$GLOBALS['_REQUEST']["$longname"] =& $array["$shortname"];
+				}
 			}
 		}
 	}
@@ -2091,64 +2820,130 @@ class vB_Input_Cleaner
 	}
 
 	/**
-	* Fetches the 'scriptpath' variable - ie: the URI of the current page
-	*
-	* @return	string
-	*/
-	function fetch_scriptpath()
+	 * Fetches the 'basepath' variable that can be used as <base>.
+	 *
+	 * @return string
+	 */
+	function fetch_basepath($rel_modifier = false)
 	{
-		if ($this->registry->scriptpath != '')
+		if ($this->registry->basepath != '')
 		{
-			return $this->registry->scriptpath;
+			return $this->registry->basepath;
+		}
+
+		if ($this->registry->options['bburl_basepath'])
+		{
+			$basepath = trim($this->registry->options['bburl'], '/\\') . '/';
 		}
 		else
 		{
-			if ($_SERVER['REQUEST_URI'] OR $_ENV['REQUEST_URI'])
-			{
-				$scriptpath = $_SERVER['REQUEST_URI'] ? $_SERVER['REQUEST_URI'] : $_ENV['REQUEST_URI'];
-			}
-			else
-			{
-				if ($_SERVER['PATH_INFO'] OR $_ENV['PATH_INFO'])
-				{
-					$scriptpath = $_SERVER['PATH_INFO'] ? $_SERVER['PATH_INFO'] : $_ENV['PATH_INFO'];
-				}
-				else if ($_SERVER['REDIRECT_URL'] OR $_ENV['REDIRECT_URL'])
-				{
-					$scriptpath = $_SERVER['REDIRECT_URL'] ? $_SERVER['REDIRECT_URL'] : $_ENV['REDIRECT_URL'];
-				}
-				else
-				{
-					$scriptpath = $_SERVER['PHP_SELF'] ? $_SERVER['PHP_SELF'] : $_ENV['PHP_SELF'];
-				}
-
-				if ($_SERVER['QUERY_STRING'] OR $_ENV['QUERY_STRING'])
-				{
-					$scriptpath .= '?' . ($_SERVER['QUERY_STRING'] ? $_SERVER['QUERY_STRING'] : $_ENV['QUERY_STRING']);
-				}
-			}
-
-			// in the future we should set $registry->script here too
-			$quest_pos = strpos($scriptpath, '?');
-			if ($quest_pos !== false)
-			{
-				$script = urldecode(substr($scriptpath, 0, $quest_pos));
-				$scriptpath = $script . substr($scriptpath, $quest_pos);
-			}
-			else
-			{
-				$scriptpath = urldecode($scriptpath);
-			}
-
-			// store a version that includes the sessionhash
-			$this->registry->reloadurl = $this->xss_clean($scriptpath);
-
-			$scriptpath = $this->strip_sessionhash($scriptpath);
-			$scriptpath = $this->xss_clean($scriptpath);
-			$this->registry->scriptpath = $scriptpath;
-
-			return $scriptpath;
+			$basepath = VB_URL_BASE_PATH;
 		}
+
+		return $basepath = $basepath . ($rel_modifier ? $this->xss_clean($rel_modifier) : '');
+	}
+
+	/**
+	 * Fetches the path for the current request relative to the basepath.
+	 * This is useful for local anchors (<a href="{vb:raw relpath}#post">).
+	 *
+	 * Substracts any overlap between basepath and path with the following results:
+	 *
+	 * 		base:		http://www.example.com/forums/
+	 * 		path:		/forums/content.php
+	 * 		result:		content.php
+	 *
+	 * 		base:		http://www.example.com/forums/admincp
+	 * 		path:		/forums/content/1-Article
+	 * 		result:		../content/1-Article
+	 *
+	 * @return string
+	 */
+	function fetch_relpath($path = false)
+	{
+		if (!$path AND ($this->registry->relpath != ''))
+		{
+			return $this->registry->relpath;
+		}
+
+		// if no path specified, use the request path
+		if (!$path)
+		{
+			if ($_SERVER['REQUEST_METHOD'] == 'POST' AND $_SERVER['HTTP_X_REQUESTED_WITH'] == 'XMLHttpRequest' AND $_POST['relpath'])
+			{
+				$relpath = unhtmlspecialchars($_POST['relpath']);
+				$query = '';
+			}
+			else
+			{
+			$relpath = VB_URL_PATH;
+			$query = VB_URL_QUERY;
+		}
+		}
+		else
+		{
+			// if the path is already absolute there's nothing to do
+			if (strpos($path, '://'))
+			{
+				return $path;
+			}
+
+			if (!$path)
+			{
+				return $path;
+			}
+
+			$relpath = $this->parse_url($path, PHP_URL_PATH);
+			$query = $this->parse_url($path, PHP_URL_QUERY);
+			$fragment = $this->parse_url($path, PHP_URL_FRAGMENT);
+		}
+
+		$relpath = ltrim($relpath, '/');
+		$basepath = $this->parse_url($this->fetch_basepath(), PHP_URL_PATH);
+		$basepath = trim($basepath, '/');
+
+		// get path segments for comparison
+		$relpath = explode('/', $relpath);
+		$basepath = explode('/', $basepath);
+
+		// remove segments that basepath and relpath share
+		foreach ($basepath AS $segment)
+		{
+			if ($segment == current($relpath))
+			{
+				array_shift($basepath);
+				array_shift($relpath);
+			}
+			else
+			{
+				break;
+			}
+		}
+
+		// rebuild the relpath
+		$relpath = implode('/', $relpath);
+
+		/*
+		// if basepath is in another dir, back out of it
+		if ($diff = sizeof($basepath))
+		{
+			$relpath = str_repeat('../', $diff) . $relpath;
+		}
+		*/
+
+		// add the query string if the current path is being used
+		if ($query)
+		{
+			$relpath = $this->add_query($relpath, $query);
+		}
+
+		// add the fragment back
+		if ($fragment)
+		{
+			$relpath = $this->add_fragment($relpath, $fragment);
+		}
+
+		return $relpath;
 	}
 
 	/**
@@ -2158,7 +2953,7 @@ class vB_Input_Cleaner
 	*/
 	function fetch_wolpath()
 	{
-		$wolpath = $this->fetch_scriptpath();
+		$wolpath = SCRIPTPATH;
 
 		if ($_SERVER['REQUEST_METHOD'] == 'POST')
 		{
@@ -2203,19 +2998,55 @@ class vB_Input_Cleaner
 	*/
 	function fetch_url()
 	{
-		$temp_url = $_REQUEST['url'];
+		$scriptpath = SCRIPTPATH;
 
-		$scriptpath = $this->fetch_scriptpath();
-
-		if (empty($temp_url))
+		//note regarding the default url if not set or inappropriate.
+		//started out as index.php then moved to options['forumhome'] . '.php' when that option was added.
+		//now we've changed to to the forumhome url since there is now quite a bit of logic around that.
+		//Its not clear, however, with the expansion of vb if that's the most appropriate generic landing
+		//place (perhaps it *should* be index.php).
+		//In any case there are several places in the code that check for the default page url and change it
+		//to something more appropriate.  If the default url changes, so do those checks.
+		//The solution is, most likely, to make some note when vbulletin->url is the default so it can be overridden
+		//without worrying about what the exact text is.
+		if (empty($_REQUEST['url']))
 		{
-			$url = $_SERVER['HTTP_REFERER'];
+			$url = (!empty($_SERVER['HTTP_REFERER']) ? $_SERVER['HTTP_REFERER'] : '');
 		}
 		else
 		{
-			if ($temp_url == $_SERVER['HTTP_REFERER'])
+			$temp_url = $_REQUEST['url'];
+			if (!empty($_SERVER['HTTP_REFERER']) AND $temp_url == $_SERVER['HTTP_REFERER'])
 			{
-				$url = 'index.php';
+				//$url = 'index.php'
+				// I am unsure why we redirect to forumhome if we have $url defined and it matches HTTP_REFERRER
+				// Must be a security check that has been here since at least 2003
+				// So to keep from breaking something we will check if the url is something we know
+				$found = false;
+				$pathinfo = $this->parse_url($temp_url);
+				$options = array(
+						$this->registry->options['vbforum_url'],
+						$this->registry->options['vbblog_url'],
+						$this->registry->options['vbcms_url'],
+						$this->registry->options['bburl']
+				);
+				foreach($options AS $value)
+				{
+					if ($value AND $info = $this->parse_url($value))
+					{
+						if ("{$pathinfo['scheme']}://{$pathinfo['host']}" == "{$info['scheme']}://{$info['host']}")
+						{
+							$found = true;
+							$url = $temp_url;
+							break;
+						}
+					}
+				}
+
+				if (!$found)
+				{
+					$url = fetch_seo_url('forumhome|nosession', array());
+				}
 			}
 			else
 			{
@@ -2225,17 +3056,18 @@ class vB_Input_Cleaner
 
 		if ($url == $scriptpath OR empty($url))
 		{
-			$url = 'index.php';
+			//$url = 'index.php';
+			$url = fetch_seo_url('forumhome|nosession', array());
 		}
 
+		//not a lot of point in doing this as a seperate step.
 		// if $url is set to forum home page, check it against options
-		if ($url == 'index.php' AND $this->registry->options['forumhome'] != 'index')
-		{
-			$url = $this->registry->options['forumhome'] . '.php';
-		}
+		//if ($url == 'index.php' AND $this->registry->options['forumhome'] != 'index')
+		//{
+		//	$url = $this->registry->options['forumhome'] . '.php';
+		//}
 
 		$url = $this->xss_clean($url);
-
 		return $url;
 	}
 
@@ -2246,7 +3078,7 @@ class vB_Input_Cleaner
 	*/
 	function fetch_ip()
 	{
-		return $_SERVER['REMOTE_ADDR'];
+        return $_SERVER['REMOTE_ADDR'];
 	}
 
 	/**
@@ -2258,28 +3090,39 @@ class vB_Input_Cleaner
 	{
 		$alt_ip = $_SERVER['REMOTE_ADDR'];
 
-		if (isset($_SERVER['HTTP_CLIENT_IP']))
+		if (isset($_SERVER['HTTP_X_FORWARDED_FOR']))
 		{
-			$alt_ip = $_SERVER['HTTP_CLIENT_IP'];
+			$altip = $_SERVER['HTTP_X_FORWARDED_FOR'];
 		}
-		else if (isset($_SERVER['HTTP_X_FORWARDED_FOR']) AND preg_match_all('#\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3}#s', $_SERVER['HTTP_X_FORWARDED_FOR'], $matches))
+		else if (isset($_SERVER['HTTP_CLIENT_IP']))
 		{
-			// make sure we dont pick up an internal IP defined by RFC1918
-			foreach ($matches[0] AS $ip)
-			{
-				if (!preg_match('#^(10|172\.16|192\.168)\.#', $ip))
-				{
-					$alt_ip = $ip;
-					break;
-				}
-			}
+			$altip = $_SERVER['HTTP_CLIENT_IP'];
 		}
 		else if (isset($_SERVER['HTTP_FROM']))
 		{
-			$alt_ip = $_SERVER['HTTP_FROM'];
+			$altip = $_SERVER['HTTP_FROM'];
+		}
+		else
+		{
+			$altip = false;
+		}
+
+		if ($altip AND $this->filter_ip($altip))
+		{
+			$alt_ip = $altip;
 		}
 
 		return $alt_ip;
+	}
+
+	/**
+	* Validate the IP address (both ipv4 & ipv6)
+	*
+	* @return	string
+	*/
+	function filter_ip($ip)
+	{
+		return filter_var($ip, FILTER_VALIDATE_IP);
 	}
 }
 
@@ -2290,8 +3133,8 @@ class vB_Input_Cleaner
 * Class to store commonly-used variables
 *
 * @package	vBulletin
-* @version	$Revision: 27007 $
-* @date		$Date: 2008-06-24 04:40:46 -0500 (Tue, 24 Jun 2008) $
+* @version	$Revision: 74242 $
+* @date		$Date: 2013-04-17 15:59:50 -0700 (Wed, 17 Apr 2013) $
 */
 class vB_Registry
 {
@@ -2397,6 +3240,14 @@ class vB_Registry
 	var $scriptpath;
 
 	/**
+	 * The request basepath.
+	 * Use for <base>
+	 *
+	 * @var string
+	 */
+	var $basepath;
+
+	/**
 	* Similar to the URL of the current page, but expands some items and includes
 	* data submitted via POST. Used for Who's Online purposes.
 	*
@@ -2452,6 +3303,7 @@ class vB_Registry
 	var $bf_misc_languageoptions;
 	var $bf_misc_moderatorpermissions;
 	var $bf_misc_useroptions;
+	var $bf_misc_hvcheck;
 	/**#@-*/
 
 	/**#@+
@@ -2500,8 +3352,30 @@ class vB_Registry
 	var $nozip;
 	var $debug;
 	var $noheader;
+	public $stylevars;
+
+	/**
+	 * Shutdown handler
+	 *
+	 * @var vB_Shutdown
+	 */
 	var $shutdown;
 	/**#@-*/
+
+	/**
+	* For storing global information specific to the CMS
+	*
+	* @var	array
+	*/
+	var $vbcms = array();
+
+
+	/**
+	* For storing information of the API Client
+	*
+	* @var	array
+	*/
+	var $apiclient = array();
 
 	/**
 	* Constructor - initializes the nozip system,
@@ -2514,11 +3388,13 @@ class vB_Registry
 		// variable that controls HTTP header output
 		$this->noheader = defined('NOHEADER') ? true : false;
 
+		@ini_set('zend.ze1_compatibility_mode', 0);
+
 		// initialize the input handler
 		$this->input = new vB_Input_Cleaner($this);
 
 		// initialize the shutdown handler
-		$this->shutdown = vB_Shutdown::init();
+		$this->shutdown = vB_Shutdown::instance();
 
 		$this->csrf_skip_list = (defined('CSRF_SKIP_LIST') ? explode(',', CSRF_SKIP_LIST) : array());
 	}
@@ -2554,11 +3430,44 @@ class vB_Registry
 
 		// define table and cookie prefix constants
 		define('TABLE_PREFIX', trim($this->config['Database']['tableprefix']));
-		define('COOKIE_PREFIX', (empty($this->config['Misc']['cookieprefix']) ? 'bb' : $this->config['Misc']['cookieprefix']));
+		define('COOKIE_PREFIX', (empty($this->config['Misc']['cookieprefix']) ? 'bb' : $this->config['Misc']['cookieprefix']) . '_');
 
 		// set debug mode
 		$this->debug = !empty($this->config['Misc']['debug']);
 		define('DEBUG', $this->debug);
+
+		$proxy = false;
+		if (isset($this->config['Misc']['proxyiplist']))
+		{
+			$proxylist = array_map('trim', explode(',', $this->config['Misc']['proxyiplist']));
+
+			if (in_array($this->ipaddress, $proxylist))
+			{
+				$proxy = true;
+				if (isset($this->config['Misc']['proxyipheader'])
+                AND isset($_SERVER[$this->config['Misc']['proxyipheader']]))
+				{
+					$altip = $_SERVER[$this->config['Misc']['proxyipheader']];
+					if ($this->input->filter_ip($altip))
+					{
+						$this->alt_ip = $altip;
+					}
+				}
+			}
+		}
+
+		if ($proxy)
+		{
+			define('ALT_IP', $this->ipaddress);
+			define('IPADDRESS', $this->alt_ip);
+		}
+		else
+		{
+			define('IPADDRESS', $this->ipaddress);
+			define('ALT_IP', $this->alt_ip);
+		}
+
+		define('SESSION_HOST',   substr(IPADDRESS, 0, 15));
 	}
 
 	/**
@@ -2579,6 +3488,28 @@ class vB_Registry
 			}
 		}
 	}
+
+	/**
+	*	Check if a user has a specific permission
+	*
+	*	This is intended to replace direct acces to the userinfo['permissions'] array.
+	*
+	* For example:
+	* $vbulletin->check_user_permission('genericpermissions', 'cancreatetag')
+	*
+	* which replaces
+  * ($vbulletin->userinfo['permissions']['genericpermissions'] &
+	*  $vbulletin->bf_ugp_genericpermissions['cancreatetag'])
+	*
+	*	@param string $group the permission group to check
+	* @param string $permission the permission to check within the group
+	* @return bool If the user has the requested permission
+	*/
+	public function check_user_permission($group, $permission)
+	{
+		return (bool) ($this->userinfo['permissions'][$group] &
+			$this->{'bf_ugp_' . $group}[$permission]);
+	}
 }
 
 // #############################################################################
@@ -2590,8 +3521,8 @@ class vB_Registry
 * Creates, updates, and validates sessions; retrieves user info of browsing user
 *
 * @package	vBulletin
-* @version	$Revision: 27007 $
-* @date		$Date: 2008-06-24 04:40:46 -0500 (Tue, 24 Jun 2008) $
+* @version	$Revision: 74242 $
+* @date		$Date: 2013-04-17 15:59:50 -0700 (Wed, 17 Apr 2013) $
 */
 class vB_Session
 {
@@ -2624,6 +3555,8 @@ class vB_Session
 		'useragent'     => TYPE_STR,
 		'bypass'        => TYPE_INT,
 		'profileupdate' => TYPE_INT,
+		'apiclientid'   => TYPE_INT,
+		'apiaccesstoken'=> TYPE_STR,
 	);
 
 	/**
@@ -2681,21 +3614,56 @@ class vB_Session
 		$db =& $this->registry->db;
 		$gotsession = false;
 
+		$this->registry->input->clean_gpc('r', 'api');
 		if (!defined('SESSION_IDHASH'))
 		{
-			define('SESSION_IDHASH', md5($_SERVER['HTTP_USER_AGENT'] . $this->fetch_substr_ip($registry->alt_ip))); // this should *never* change during a session
+			if (!VB_API AND !$this->registry->GPC['api'])
+			{
+				define('SESSION_IDHASH', md5($_SERVER['HTTP_USER_AGENT'] . $this->fetch_substr_ip($this->getIp()))); // this should *never* change during a session
+			}
+			else
+			{
+				define('SESSION_IDHASH', md5($this->fetch_substr_ip($this->getIp()))); // API session idhash won't have User Agent compiled.
+			}
 		}
 
-		// sessionhash specified, so see if it already exists
-		if ($sessionhash AND !defined('SKIP_SESSIONCREATE'))
+		if (!defined('SKIP_SESSIONCREATE'))
 		{
-			if ($session = $db->query_first_slave("
-				SELECT *
-				FROM " . TABLE_PREFIX . "session
-				WHERE sessionhash = '" . $db->escape_string($sessionhash) . "'
-					AND lastactivity > " . (TIMENOW - $registry->options['cookietimeout']) . "
-					AND idhash = '" . $this->registry->db->escape_string(SESSION_IDHASH) . "'
-			") AND $this->fetch_substr_ip($session['host']) == $this->fetch_substr_ip(SESSION_HOST))
+			$test = false;
+
+			if (defined('UNIT_TESTING') AND UNIT_TESTING === true)
+			{
+				$test = ($session = $db->query_first_slave("
+					SELECT *
+					FROM " . TABLE_PREFIX . "session
+					WHERE sessionhash = '" . $db->escape_string($sessionhash) . "'
+						AND lastactivity > " . (TIMENOW - $registry->options['cookietimeout']) . "
+				"));
+			}
+			// apiaccesstoken specified, so see if it already exists
+			elseif (defined('VB_API') AND VB_API === true AND $this->registry->apiclient['apiaccesstoken'])
+			{
+				$test = ($session = $db->query_first_slave("
+					SELECT *
+					FROM " . TABLE_PREFIX . "session
+					WHERE apiaccesstoken = '" . $db->escape_string($this->registry->apiclient['apiaccesstoken']) . "'
+						AND lastactivity > " . (TIMENOW - $registry->options['cookietimeout']) . "
+						AND idhash = '" . $this->registry->db->escape_string(SESSION_IDHASH) . "'
+				") AND $this->fetch_substr_ip($session['host']) == $this->fetch_substr_ip($this->getIp()));
+			}
+			// sessionhash specified, so see if it already exists
+			elseif ($sessionhash)
+			{
+				$test = ($session = $db->query_first_slave("
+					SELECT *
+					FROM " . TABLE_PREFIX . "session
+					WHERE sessionhash = '" . $db->escape_string($sessionhash) . "'
+						AND lastactivity > " . (TIMENOW - $registry->options['cookietimeout']) . "
+						AND idhash = '" . $this->registry->db->escape_string(SESSION_IDHASH) . "'
+				") AND $this->fetch_substr_ip($session['host']) == $this->fetch_substr_ip($this->getIp()));
+			}
+
+			if ($test)
 			{
 				$gotsession = true;
 				$this->vars =& $session;
@@ -2711,8 +3679,32 @@ class vB_Session
 			}
 		}
 
+		// API 'Remember Me'. UserID is stored in apiclient table.
+		if (($gotsession == false OR empty($session['userid'])) AND defined('VB_API') AND VB_API === true AND $this->registry->apiclient['userid'] AND !defined('SKIP_SESSIONCREATE'))
+		{
+			$useroptions = (defined('IN_CONTROL_PANEL') ? FETCH_USERINFO_ADMIN : 0) + (defined('AVATAR_ON_NAVBAR') ? FETCH_USERINFO_AVATAR : 0);
+			$userinfo = fetch_userinfo($this->registry->apiclient['userid'], $useroptions, $languageid);
+
+			$gotsession = true;
+
+			// combination is valid
+			if (!empty($session['sessionhash']))
+			{
+				// old session still exists; kill it
+				$db->shutdown_query("
+					DELETE FROM " . TABLE_PREFIX . "session
+					WHERE sessionhash = '" . $this->registry->db->escape_string($session['sessionhash']). "'
+				");
+			}
+
+			$this->vars = $this->fetch_session($userinfo['userid']);
+			$this->created = true;
+
+			$this->userinfo =& $userinfo;
+		}
+
 		// or maybe we can use a cookie..
-		if (($gotsession == false OR empty($session['userid'])) AND $userid AND $password AND !defined('SKIP_SESSIONCREATE'))
+		if (($gotsession == false OR empty($session['userid'])) AND $userid AND $password AND !defined('SKIP_SESSIONCREATE') AND !VB_API)
 		{
 			$useroptions = (defined('IN_CONTROL_PANEL') ? FETCH_USERINFO_ADMIN : 0) + (defined('AVATAR_ON_NAVBAR') ? FETCH_USERINFO_AVATAR : 0);
 			$userinfo = fetch_userinfo($userid, $useroptions, $languageid);
@@ -2746,7 +3738,7 @@ class vB_Session
 				SELECT *
 				FROM " . TABLE_PREFIX . "session
 				WHERE userid = 0
-					AND host = '" . $this->registry->db->escape_string(SESSION_HOST) . "'
+					AND host = '" . $this->registry->db->escape_string($this->getIp()) . "'
 					AND idhash = '" . $this->registry->db->escape_string(SESSION_IDHASH) . "'
 				LIMIT 1
 			"))
@@ -2800,6 +3792,30 @@ class vB_Session
 
 		if ($this->created == true)
 		{
+			if($this->registry->options['enablespiders'])//VBIV-5766
+			{
+				require_once(DIR . '/includes/class_xml.php');
+				$xmlobj = new vB_XML_Parser(false, DIR . '/includes/xml/spiders_vbulletin.xml');
+				$spiderdata = $xmlobj->parse();
+				$spiders = "";
+
+				if (is_array($spiderdata['spider']))
+				{
+					foreach ($spiderdata['spider'] AS $spiderling)
+					{
+						$spiders .= ($spiders ? '|' : '') . preg_quote($spiderling['ident'], '#');
+					}
+				}
+
+				unset($spiderdata, $xmlobj);
+
+				//isbot to distinguish between bots and guests in session table VBIV-5766
+				if (preg_match('#(' . $spiders . ')#si', $cleaned['useragent']))
+				{
+					$cleaned['isbot'] = true;
+				}
+			}// end VBIV-5766
+
 			/*insert query*/
 			$this->registry->db->query_write("
 				INSERT IGNORE INTO " . TABLE_PREFIX . "session
@@ -2894,9 +3910,18 @@ class vB_Session
 		}
 		else
 		{
-			$this->vars['sessionurl'] = 's=' . $this->vars['dbsessionhash'] . '&amp;';
-			$this->vars['sessionurl_q'] = '?s=' . $this->vars['dbsessionhash'];
-			$this->vars['sessionurl_js'] = 's=' . $this->vars['dbsessionhash'] . '&';
+			if (!VB_API)
+			{
+				$this->vars['sessionurl'] = 's=' . $this->vars['dbsessionhash'] . '&amp;';
+				$this->vars['sessionurl_q'] = '?s=' . $this->vars['dbsessionhash'];
+				$this->vars['sessionurl_js'] = 's=' . $this->vars['dbsessionhash'] . '&';
+			}
+			else
+			{
+				$this->vars['sessionurl'] = 's=' . $this->vars['dbsessionhash'] . '&amp;api=1&amp;';
+				$this->vars['sessionurl_q'] = '?s=' . $this->vars['dbsessionhash'] . '&amp;api=1';
+				$this->vars['sessionurl_js'] = 's=' . $this->vars['dbsessionhash'] . '&api=1&';
+			}
 		}
 	}
 
@@ -2907,7 +3932,7 @@ class vB_Session
 	*/
 	function fetch_sessionhash()
 	{
-		return md5(TIMENOW . SCRIPTPATH . SESSION_IDHASH . SESSION_HOST . vbrand(1, 1000000));
+		return md5(uniqid(microtime(), true));
 	}
 
 	/**
@@ -2941,11 +3966,11 @@ class vB_Session
 			vbsetcookie('sessionhash', $sessionhash, false, false, true);
 		}
 
-		return array(
+		$session = array(
 			'sessionhash'   => $sessionhash,
 			'dbsessionhash' => $sessionhash,
 			'userid'        => intval($userid),
-			'host'          => SESSION_HOST,
+			'host'          => $this->getIp(),
 			'idhash'        => SESSION_IDHASH,
 			'lastactivity'  => TIMENOW,
 			'location'      => defined('LOCATION_BYPASS') ? '' : WOLPATH,
@@ -2961,7 +3986,57 @@ class vB_Session
 			'bypass'        => SESSION_BYPASS
 		);
 
+		if (defined('VB_API') AND VB_API === true)
+		{
+			if ($this->registry->apiclient['apiaccesstoken'])
+			{
+				// Access Token is valid here because it's validated in init.php
+				$accesstoken = $this->registry->apiclient['apiaccesstoken'];
+			}
+			else
+			{
+				// Generate an accesstoken
+				$accesstoken = fetch_random_string();
+
+				$this->registry->apiclient['apiaccesstoken'] = $accesstoken;
+			}
+
+			$session['apiaccesstoken'] = $accesstoken;
+
+			if ($this->registry->apiclient['apiclientid'])
+			{
+				$session['apiclientid'] = intval($this->registry->apiclient['apiclientid']);
+				// Save accesstoken to apiclient table
+				$this->registry->db->query_write("UPDATE " . TABLE_PREFIX . "apiclient SET
+					apiaccesstoken = '" . $this->registry->db->escape_string($accesstoken) . "',
+					lastactivity = " . TIMENOW . "
+					WHERE apiclientid = $session[apiclientid]");
+			}
+		}
+
+		($hook = vBulletinHook::fetch_hook('fetch_session_complete')) ? eval($hook) : false;
+
+		return $session;
+
 	}
+
+    /**
+	* Returns ip for this session
+	*
+	* @return	string	ip
+	*/
+    private function getIp()
+    {
+        if(isset($this->registry->options['facebookapp_ip'])) {
+            $ips = explode(',', $this->registry->options['facebookapp_ip']);
+            foreach($ips as $ip) {
+                if(trim($ip) == $this->registry->ipaddress) {
+                    return $this->registry->alt_ip;
+                }
+            }
+        }
+        return SESSION_HOST;
+    }
 
 	/**
 	* Returns appropriate user info for the owner of this session.
@@ -3006,13 +4081,14 @@ class vB_Session
 				'startofweek'    => 1,
 				'threadedmode'   => $this->registry->options['threadedmode'],
 				'securitytoken'  => 'guest',
-				'securitytoken_raw'  => 'guest'
+				'securitytoken_raw'  => 'guest',
+				'realstyleid'    => $this->registry->options['styleid'],
 			);
 
 			$this->userinfo['options'] =
-										$this->registry->bf_misc_useroptions['showsignatures'] | $this->registry->bf_misc_useroptions['showavatars'] |
-										$this->registry->bf_misc_useroptions['showimages'] | $this->registry->bf_misc_useroptions['dstauto'] |
-										$this->registry->bf_misc_useroptions['showusercss'];
+				$this->registry->bf_misc_useroptions['showsignatures'] | $this->registry->bf_misc_useroptions['showavatars'] |
+				$this->registry->bf_misc_useroptions['showimages'] | $this->registry->bf_misc_useroptions['dstauto'] |
+				$this->registry->bf_misc_useroptions['showusercss'];
 
 			if (!defined('SKIP_USERINFO'))
 			{
@@ -3113,68 +4189,1447 @@ class vB_Session
 * Class to handle shutdown
 *
 * @package	vBulletin
-* @version	$Revision: 27007 $
-* @author	Scott
-* @date		$Date: 2008-06-24 04:40:46 -0500 (Tue, 24 Jun 2008) $
+* @version	$Revision: 74242 $
+* @author	vBulletin Development Team
+* @date		$Date: 2013-04-17 15:59:50 -0700 (Wed, 17 Apr 2013) $
 */
 class vB_Shutdown
 {
-	var $shutdown = array();
+	/**
+	 * A reference to the singleton instance
+	 *
+	 * @var vB_Cache_Observer
+	 */
+	protected static $instance;
 
 	/**
-	* Constructor. Empty.
-	*/
-	function vB_Shutdown()
+	 * An array of shutdown callbacks to call on shutdown
+	 */
+	protected $callbacks;
+
+	/**
+	 * Constructor protected to enforce singleton use.
+	 * @see instance()
+	 */
+	protected function __construct(){}
+
+	/**
+	 * Returns singleton instance of self.
+	 *
+	 * @return vB_Shutdown
+	 */
+	public function instance()
 	{
+		if (!isset(self::$instance))
+		{
+			$class = __CLASS__;
+			self::$instance = new $class();
+		}
+
+		return self::$instance;
 	}
 
 	/**
-	* Singleton emulation - use this function to instantiate the class
+	* Add callback to be executed at shutdown
 	*
-	* @return	vB_Shutdown
+	* @param array $callback					- Call back to call on shutdown
 	*/
-	function &init()
+	public function add($callback)
 	{
-		static $instance;
-
-		if (!$instance)
+		if (!is_array($this->callbacks))
 		{
-			$instance = new vB_Shutdown();
-			// we register this but it might not be used
-			if (phpversion() < '5.0.5')
-			{
-				register_shutdown_function(array(&$instance, '__destruct'));
-			}
+			$this->callbacks = array();
 		}
 
-		return $instance;
-	}
-
-	/**
-	* Add function to be executed at shutdown
-	*
-	* @param	string	Name of function to be executed on shutdown
-	*/
-	function add($function)
-	{
-		$obj =& vB_Shutdown::init();
-		if (function_exists($function) AND !in_array($function, $obj->shutdown))
-		{
-			$obj->shutdown[] = $function;
-		}
+		$this->callbacks[] = $callback;
 	}
 
 	// only called when an object is destroyed, so $this is appropriate
-	function __destruct()
+	public function shutdown()
 	{
-		if (!empty($this->shutdown))
+		if (sizeof($this->callbacks))
 		{
-			foreach ($this->shutdown AS $key => $funcname)
+			foreach ($this->callbacks AS $callback)
 			{
-				$funcname();
-				unset($this->shutdown[$key]);
+				call_user_func($callback);
+			}
+
+			unset($this->callbacks);
+		}
+	}
+
+	public function __wakeup()
+	{
+		unset($this->callbacks);
+	}
+}
+
+/**
+* This class implements variable-registration-based template evaluation,
+* wrapped around the legacy template format. It will be extended in the
+* future to support the new format/syntax without requiring changes to
+* code written with it.
+*
+* Currently these vars are automatically registered: $vbphrase
+*    $show, $bbuserinfo, $session, $vboptions
+*
+* @package	vBulletin
+*/
+class vB_Template
+{
+	/**
+	 * Preregistered variables.
+	 * Variables can be preregistered before a template is created and will be
+	 * imported and reset when the template is created.
+	 * The array should be in the form array(template_name => array(key => variable))
+	 *
+	 * @var array mixed
+	 */
+	protected static $pre_registered = array();
+
+	/**
+	* Name of the template to render
+	*
+	* @var	string
+	*/
+	protected $template = '';
+
+	/**
+	 * Array of registered variables.
+	 * @see vB_Template::preRegister()
+	*
+	* @var	array
+	*/
+	protected $registered = array();
+
+	/**
+	 * Whether the globally accessible vars have been registered.
+	 *
+	 * @var bool
+	 */
+	protected $registered_globals;
+
+	/**
+	* Debug helper to count how many times a template was used on a page.
+	*
+	* @var	array
+	*/
+	public static $template_usage = array();
+
+	/**
+	* Debug helper to list the templates that were fetched out of the database (not cached properly).
+	*
+	* @var	array
+	*/
+	public static $template_queries = array();
+
+	/**
+	 * Hook code for register.
+	 * @see vB_Template::register()
+	 *
+	 * @var string
+	 */
+	protected static $hook_code = false;
+
+
+
+	/**
+	 * Factory method to create the template object.
+	 * Will choose the correct template type based on the request. Any preregistered
+	 * variables are also registered and cleared from the preregister cache.
+	*
+	* @param	string	Name of the template to be evaluated
+	* @return	vB_Template	Template object
+	*/
+	public static function create($template_name, $forcenoapi = false)
+	{
+		static $output_type;
+
+		if (defined('VB_API') AND VB_API AND !$forcenoapi)
+		{
+			// TODO: Use an option to enable/disable the api output
+
+			if (!isset($output_type))
+			{
+//				global $vbulletin;
+//
+//				$vbulletin->input->clean_gpc('r', 'api');
+//				$output_type = in_array($vbulletin->GPC['api'], array('xml', 'json')) ? $vbulletin->GPC['api'] : 'json';
+				// Currently we support json only
+				$output_type = 'json';
+			}
+
+			if ($output_type == 'xml')
+			{
+				$template = new vB_Template_XML($template_name);
+			}
+			else
+			{
+				$template = new vB_Template_JSON($template_name);
+			}
+
+			if (!VB_API_CMS)
+			{
+				global $show;
+				$copyofshow = $show;
+				self::remove_common_show($copyofshow);
+				$template->register('show', $copyofshow);
 			}
 		}
+		else
+		{
+			$template = new vB_Template($template_name);
+		}
+
+		if (isset(self::$pre_registered[$template_name]))
+		{
+			$template->quickRegister(self::$pre_registered[$template_name]);
+			// TODO: Reinstate once search uses a single template object
+			// unset(self::$pre_registered[$template_name]);
+		}
+
+		return $template;
+	}
+
+	/**
+	 * Unset common items in $show array for API
+	 */
+	protected static function remove_common_show(&$show)
+	{
+		// Unset common show variables
+		unset(
+			$show['old_explorer'], $show['rtl'], $show['admincplink'], $show['modcplink'],
+			$show['registerbutton'], $show['searchbuttons'], $show['quicksearch'],
+			$show['memberslist'], $show['guest'], $show['member'], $show['popups'],
+			$show['nojs_link'], $show['pmwarning'], $show['pmstats'], $show['pmmainlink'],
+			$show['pmtracklink'], $show['pmsendlink'], $show['siglink'], $show['avatarlink'],
+			$show['detailedtime'], $show['profilepiclink'], $show['wollink'], $show['spacer'],
+			$show['dst_correction'], $show['contactus'], $show['nopasswordempty'],
+			$show['quick_links_groups'], $show['quick_links_albums'], $show['friends_and_contacts'],
+			$show['communitylink'], $show['search_engine'], $show['editor_css']
+		);
+	}
+
+	/**
+	 * Protected constructor to enforce the factory pattern.
+	 * Ensures the chrome templates have been processed.
+	*/
+	protected function __construct($template_name)
+	{
+		global $bootstrap;
+
+		if (!empty($bootstrap) AND !$bootstrap->called('template'))
+		{
+			$bootstrap->process_templates();
+		}
+
+		$this->template = $template_name;
+	}
+
+	/**
+	* Returns the name of the template that will be rendered.
+	*
+	* @return	string
+	*/
+	public function get_template_name()
+	{
+		return $this->template;
+	}
+
+	/**
+	 * Preregisters variables before template instantiation.
+	 *
+	 * @param	string	The name of the template to register for
+	 * @param	array	The variables to register
+	 */
+	public static function preRegister($template_name, array $variables = NULL)
+	{
+		if ($variables)
+		{
+			if (!isset(self::$pre_registered[$template_name]))
+			{
+				self::$pre_registered[$template_name] = array();
+			}
+
+			self::$pre_registered[$template_name] = array_merge(self::$pre_registered[$template_name], $variables);
+		}
+	}
+
+	/**
+	* Register a variable with the template.
+	*
+	* @param	string	Name of the variable to be registered
+	* @param	mixed	Value to be registered. This may be a scalar or an array.
+	 * @param	bool	Whether to overwrite existing vars
+	 * @return	bool	Whether the var was registered
+	*/
+	public function register($name, $value, $overwrite = true)
+	{
+		if (!$overwrite AND $this->is_registered($name))
+		{
+			return false;
+		}
+
+		// Run register hook
+		self::assert_register_hook();
+
+		if (self::$hook_code)
+		{
+			eval(self::$hook_code);
+		}
+
+		$this->registered[$name] = $value;
+
+		return true;
+	}
+
+	/**
+	 * Registers an array of variables with the template.
+	 *
+	 * @param	mixed	Assoc array of name => value to be registered
+	 */
+	public function quickRegister($values, $overwrite = true)
+	{
+		if (!is_array($values))
+		{
+			return;
+		}
+
+		foreach ($values AS $name => $value)
+		{
+			$this->register($name, $value, $overwrite);
+		}
+	}
+
+	/**
+	 * Registers a named global variable with the template.
+	 *
+	 * @param	string	The global to register
+	 * @param	bool	Whether to overwrite on a name collision
+	 */
+	public function register_global($name, $overwrite = true)
+	{
+		if (!$overwrite AND $this->is_registered($name))
+		{
+			return false;
+		}
+
+		return isset($GLOBALS[$name]) ? $this->register_ref($name, $GLOBALS[$name]) : false;
+	}
+
+	/**
+	 * Registers a reference to a variable.
+	 *
+	 * @param	string	Name of the variable to be registered
+	 * @param	mixed	Value to be registered. This may be a scalar or an array
+	 * @param	bool	Whether to overwrite existing vars
+	 * @return	bool	Whether the var was registered
+	 */
+	public function register_ref($name, &$value, $overwrite = true)
+	{
+		if (!$overwrite AND $this->is_registered($name))
+		{
+			return false;
+		}
+
+		// Run register hook
+		self::assert_register_hook();
+
+		if (self::$hook_code)
+		{
+			eval(self::$hook_code);
+		}
+
+		$this->registered[$name] =& $value;
+
+		return true;
+	}
+
+	/**
+	* Unregisters a previously registered variable.
+	*
+	* @param	string	Name of variable to be unregistered
+	* @return	mixed	Null if the variable wasn't registered, otherwise the value of the variable
+	*/
+	public function unregister($name)
+	{
+		if (isset($this->registered[$name]))
+		{
+			$value = $this->registered[$name];
+			unset($this->registered[$name]);
+			return $value;
+		}
+		else
+		{
+			return null;
+		}
+	}
+
+	/**
+	 * Determines if a named variable is registered.
+	*
+	* @param	string	Name of variable to check
+	* @return	bool
+	*/
+	public function is_registered($name)
+	{
+		return isset($this->registered[$name]);
+	}
+
+	/**
+	* Return the value of a registered variable or all registered values
+	 * If no variable name is specified then all variables are returned.
+	*
+	* @param	string	The name of the variable to get the value for.
+	* @return	mixed	If a name is specified, the value of the variable or null if it doesn't exist.
+	*/
+	public function registered($name = '')
+	{
+		if ($name !== '')
+		{
+			return (isset($this->registered[$name]) ? $this->registered[$name] : null);
+		}
+		else
+		{
+			return $this->registered;
+		}
+	}
+
+	/**
+	 * Caches the register var hook code locally.
+	 */
+	protected static function assert_register_hook()
+	{
+		if (self::$hook_code === false AND class_exists('vBulletinHook', false))
+		{
+			self::$hook_code = vBulletinHook::fetch_hook('template_register_var');
+		}
+	}
+
+	/**
+	* Automatically register the page-level templates footer, header,
+	* and headinclude based on their global values.
+	*/
+	public function register_page_templates()
+	{
+		// Only method forum requires these templates
+		if (defined('VB_API') AND VB_API === true AND VB_ENTRY !== 'forum.php')
+		{
+			return true;
+		}
+
+		$this->register_global('footer');
+		$this->register_global('header');
+		$this->register_global('headinclude');
+		$this->register_global('headinclude_bottom');
+
+		($hook = vBulletinHook::fetch_hook('page_templates')) ? eval($hook) : false;
+	}
+
+	/**
+	 * Register globally accessible vars.
+	 *
+	 * @param bool $final_render				- Whether we are rendering the final response
+	*/
+	protected function register_globals($final_render = false)
+	{
+		if ($this->registered_globals)
+		{
+			return;
+		}
+		$this->registered_globals = true;
+
+		global $vbulletin, $style;
+
+		$this->register_ref('bbuserinfo', $vbulletin->userinfo);
+		$this->register_ref('vboptions', $vbulletin->options);
+		$this->register_ref('session', $vbulletin->session->vars);
+		$this->register('relpath', htmlspecialchars($vbulletin->input->fetch_relpath()));
+
+		$this->register_global('vbphrase');
+		$this->register_global('vbcollapse');
+		$this->register_global('ad_location');
+		$this->register_global('style');
+
+		$this->register_global('show', false);
+		$this->register_global('template_hook', false);
+
+		$vbcsspath = vB_Template::fetch_css_path();
+		$this->register('vbcsspath', $vbcsspath);
+		$this->register('yui_version', YUI_VERSION);
+
+		if ($vbulletin->products['vbcms'])
+		{
+			$this->register('vb_suite_installed', true);
+		}
+
+		// If we're using bgclass, we might be using exec_switch_bg()
+		// but we can only be sure if we match the global value.
+		// A hack that will hopefully go away.
+		if (isset($bgclass) AND $bgclass == $GLOBALS['bgclass'])
+		{
+			$this->register_ref('bgclass', $GLOBALS['bgclass']);
+		}
+	}
+
+
+	/**
+	 * Renders the template.
+	 *
+	 * @param	boolean	Whether to suppress the HTML comment surrounding option (for JS, etc)
+	 * @return	string	Rendered version of the template
+	 */
+	public function render($suppress_html_comments = false, $final_render = false)
+	{
+		// Register globally accessible data
+		$this->register_globals($final_render);
+
+		// Render the output in the appropriate format
+		return $this->render_output($suppress_html_comments);
+	}
+
+
+	/**
+	 * Renders the output after preperation.
+	 * @see vB_Template::render()
+	 *
+	 * @param boolean	Whether to suppress the HTML comment surrounding option (for JS, etc)
+	 * @return string
+	 */
+	protected function render_output($suppress_html_comments = false)
+	{
+		//This global statement is here to expose $vbulletin to the templates.
+		//It must remain in the same function as the template eval
+		global $vbulletin;
+		extract($this->registered, EXTR_SKIP | EXTR_REFS);
+
+		$actioned = false;
+		($hook = vBulletinHook::fetch_hook('template_render_output')) ? eval($hook) : false;
+
+		if (!$actioned)
+		{
+			$template_code = self::fetch_template($this->template);
+		}
+
+		if (strpos($template_code, '$final_rendered') !== false)
+		{
+			eval($template_code);
+		}
+		else
+		{
+			eval('$final_rendered = "' . $template_code . '";');
+		}
+
+		if ($vbulletin->options['addtemplatename'] AND !$suppress_html_comments)
+		{
+			$template_name = preg_replace('#[^a-z0-9_]#i', '', $this->template);
+			$final_rendered = "<!-- BEGIN TEMPLATE: $template_name -->\n$final_rendered\n<!-- END TEMPLATE: $template_name -->";
+		}
+
+		return $final_rendered;
+	}
+
+
+	/**
+	* Returns the CSS path needed for the {vb:cssfile} template tag
+	*
+	* @return	string	CSS path
+	*/
+	public static function fetch_css_path()
+	{
+		global $vbulletin, $style, $foruminfo;
+
+		if ($vbulletin->options['storecssasfile'])
+		{
+			$vbcsspath = 'clientscript/vbulletin_css/style' . str_pad($style['styleid'], 5, '0', STR_PAD_LEFT) . $vbulletin->stylevars['textdirection']['string'][0] . '/';
+		}
+		else
+		{
+			// Forum ID added when in forums with style overrides and the "Allow Users To Change Styles"
+			// option is off, otherwise the requested styleid will be denied. Not added across the board
+			// to ensure the highest cache hit rate possible. Not needed when CSS is stored as files.
+			// See bug: VBIV-5647
+			$forumid = intval($foruminfo['forumid']);
+			$forum_styleid = intval($foruminfo['styleid']);
+			if (!$vbulletin->options['allowchangestyles'] AND $forumid > 0 AND $forum_styleid > 0)
+			{
+				$add_forumid = '&amp;forumid=' . $forumid;
+			}
+			else
+			{
+				$add_forumid = '';
+			}
+
+			// textdirection var added to prevent cache if admin modified language text_direction. See bug #32640
+			$vbcsspath = 'css.php?styleid=' . $style['styleid'] . $add_forumid . '&amp;langid=' . LANGUAGEID . '&amp;d=' . $style['dateline'] . '&amp;td=' . $vbulletin->stylevars['textdirection']['string'] . '&amp;sheet=';
+		}
+
+		return $vbulletin->options['cssurl'] . $vbcsspath;
+	}
+
+	/**
+	* Returns a single template from the templatecache or the database and returns
+	* the raw contents of it. Note that text will be escaped for eval'ing.
+	*
+	* @param	string	Name of template to be fetched
+	*
+	* @return	string
+	*/
+	public static function fetch_template_raw($template_name)
+	{
+		$template_code = self::fetch_template($template_name);
+
+		if (strpos($template_code, '$final_rendered') !== false)
+		{
+			return preg_replace('#^\$final_rendered = \'(.*)\';$#s', '\\1', $template_code);
+		}
+		else
+		{
+			return $template_code;
+		}
+	}
+
+	/**
+	* Returns a single template from the templatecache or the database
+	*
+	* @param	string	Name of template to be fetched
+	*
+	* @return	string
+	*/
+	protected static function fetch_template($template_name)
+	{
+		global $vbulletin, $tempusagecache, $templateassoc;
+
+		// use legacy postbit if necessary
+		if ($vbulletin->options['legacypostbit'] AND $template_name == 'postbit')
+		{
+			$template_name = 'postbit_legacy';
+		}
+
+		$fetched = false;
+		($hook = vBulletinHook::fetch_hook('fetch_template_start')) ? eval($hook) : false;
+
+		if (!$fetched)
+		{
+			if (isset($vbulletin->templatecache["$template_name"]))
+			{
+				$template = $vbulletin->templatecache["$template_name"];
+			}
+			else
+			{
+				self::$template_queries[$template_name] = true;
+				$fetch_tid = intval($templateassoc["$template_name"]);
+				if (!$fetch_tid)
+				{
+					$gettemp = array('template' => '');
+				}
+				else
+				{
+					$gettemp = $vbulletin->db->query_first_slave("
+						SELECT template
+						FROM " . TABLE_PREFIX . "template
+						WHERE templateid = $fetch_tid
+					");
+				}
+				$template = $gettemp['template'];
+				$vbulletin->templatecache["$template_name"] = $template;
+			}
+		}
+
+		if (!isset(self::$template_usage[$template_name]))
+		{
+			self::$template_usage[$template_name] = 1;
+		}
+		else
+		{
+			self::$template_usage[$template_name]++;
+		}
+
+		($hook = vBulletinHook::fetch_hook('fetch_template_complete')) ? eval($hook) : false;
+
+		return $template;
+	}
+}
+
+abstract class vB_Template_Data extends vB_Template
+{
+	/**
+	 * Registered templates and their local vars.
+	 * The array should be in the form:
+	 * 	array(template_name => array(registered, registered [,...]))
+	 *
+	 * @var array
+	 */
+	protected static $registered_templates = array();
+
+	/**
+	 * Prefix for the template token.
+	 * If this is matched as the prefix of a registered variable then the value is
+	 * picked up from $registered_templates.
+	 */
+	protected static $token_prefix = '_-_-template-_-_';
+
+	/**
+	 * Register a variable with the template.
+	 * If the variable is prefixed with the template token then it is assumed as a
+	 * child template and picked up from $registered_templates.
+	 *
+	 * @param	string	Name of the variable to be registered
+	 * @param	mixed	Value to be registered. This may be a scalar or an array.
+	 * @param	bool	Whether to overwrite existing vars
+	 * @return	bool	Whether the var was registered
+	 */
+	public function register($name, $value, $overwrite = true)
+	{
+		if (!$overwrite AND $this->is_registered($name))
+		{
+			return false;
+		}
+
+		// Run register hook
+		self::assert_register_hook();
+
+		if (self::$hook_code)
+		{
+			eval(self::$hook_code);
+		}
+
+		if (defined('VB_API_CMS') AND VB_API_CMS === true)
+		{
+			$value = $this->escapeView($value);
+		}
+
+		// Convert any tokenised templates into the local vars
+		$this->parse_token($value);
+
+		$this->registered[$name] = $value;
+
+		return true;
+	}
+
+
+	/**
+	 * Identical to register, but registers a value as a reference.
+	 *
+	 * @param	string	Name of the variable to be registered
+	 * @param	mixed	Value to be registered. This may be a scalar or an array.
+	 * @param	bool	Whether to overwrite existing vars
+	 * @return	bool	Whether the var was registered
+	 */
+	public function register_ref($name, &$value, $overwrite = true)
+	{
+		if (!$overwrite AND $this->is_registered($name))
+		{
+			return false;
+		}
+
+		// Run register hook
+		self::assert_register_hook();
+
+		if (self::$hook_code)
+		{
+			eval(self::$hook_code);
+		}
+
+		if (defined('VB_API_CMS') AND VB_API_CMS === true)
+		{
+			$value = $this->escapeView($value);
+		}
+
+		// Convert any tokenised templates into the local vars
+		$this->parse_token($value);
+
+		$this->registered[$name] = &$value;
+
+		return true;
+	}
+
+
+	/**
+	 * Checks if a registered value is a template token.
+	 * If it is, the registered vars of the child template are picked up and
+	 * assigned to this template.
+	 *
+	 * @param	string	Name of the variable to be registered
+	 * @param	mixed	Value to be registered. This may be a scalar or an array.
+	 * @return	bool	Whether the value was picked up as a token, or the resovled value
+	 */
+	public function parse_token(&$value)
+	{
+		if (is_array($value))
+		{
+			array_walk($value, array($this, 'parse_token'));
+		}
+		else
+		{
+			$matched = false;
+			$matches = array();
+			if (is_string($value) AND preg_match_all('#' . preg_quote(self::$token_prefix) . '(.+?):(\d+)#', $value, $matches, PREG_SET_ORDER))
+			{
+				$old_value = $value;
+				$value = array();
+
+				foreach ($matches AS $match)
+				{
+					$template_name = $match[1];
+					$index = intval($match[2]);
+
+					if (isset(self::$registered_templates[$template_name][$index]))
+					{
+						$value[] = self::$registered_templates[$template_name][$index];
+						$matched = true;
+					}
+				}
+
+				if (sizeof($value) <= 1)
+				{
+					$value = current($value);
+				}
+			}
+		}
+
+		return $matched;
+	}
+
+	protected function whitelist_filter()
+	{
+		global $VB_API_WHITELIST;
+
+		// errormessage should be always added to the whitelist
+		$VB_API_WHITELIST['response']['errormessage'] = '*';
+		if (!$VB_API_WHITELIST['show'] AND !is_array($VB_API_WHITELIST['show']))
+		{
+			$VB_API_WHITELIST['show'] = '*';
+		}
+
+		$temp = array();
+		$this->whitelist_filter_recur($VB_API_WHITELIST, $temp, $this->registered);
+		$this->registered = $temp;
+
+	}
+
+	protected function whitelist_filter_recur($whitelist, &$arr, &$registered)
+	{
+		foreach ($whitelist as $k => $v)
+		{
+			if ($k !== '*')
+			{
+				if (is_numeric($k) AND isset($registered[$v]))
+				{
+					if (is_array($registered[$v]))
+					{
+						$this->removeShow($registered[$v]);
+					}
+					$arr[$v] = $registered[$v];
+				}
+				elseif (array_key_exists($k, (array)$registered))
+				{
+					if ($v === '*')
+					{
+						if (is_array($registered[$v]))
+						{
+							$this->removeShow($registered[$v]);
+						}
+						$arr[$k] = $registered[$k];
+					}
+					elseif (is_array($v))
+					{
+						$arr[$k] = array();
+						$this->whitelist_filter_recur($whitelist[$k], $arr[$k], $registered[$k]);
+						if (empty($arr[$k]))
+						{
+							unset($arr[$k]);
+						}
+					}
+				}
+			}
+			elseif ($k === '*')
+			{
+				if (is_array($registered))
+				{
+					$registeredkeys = array_keys($registered);
+					if (is_numeric($registeredkeys[0]))
+					{
+						foreach ($registered as $k2 => $v2)
+						{
+							if (is_array($whitelist[$k]) AND !in_array('show', array_keys($whitelist[$k])))
+							{
+								if (is_array($registered[$k2]))
+								{
+									$this->removeShow($registered[$k2]);
+								}
+							}
+							$arr[$k2] = array();
+							$this->whitelist_filter_recur($whitelist[$k], $arr[$k2], $registered[$k2]);
+						}
+					}
+					else
+					{
+						if (is_array($whitelist[$k]) AND !in_array('show', array_keys($whitelist[$k])))
+						{
+							if (is_array($registered))
+							{
+								$this->removeShow($registered);
+							}
+						}
+						$this->whitelist_filter_recur($whitelist[$k], $arr, $registered);
+					}
+				}
+				else
+				{
+					$arr = $registered;
+					unset($registered);
+				}
+			}
+		}
+	}
+
+	protected function removeShow(&$arr)
+	{
+		if (is_array($arr))
+		{
+			unset($arr['show']);
+			foreach($arr as &$v)
+			{
+				$this->removeShow($v);
+			}
+		}
+	}
+
+	protected function escapeView($value)
+	{
+		if (is_array($value))
+		{
+			foreach ($value AS &$el)
+			{
+				$el = $this->escapeView($el);
+			}
+		}
+
+		if ($value instanceof vB_View)
+		{
+			$value = $value->render();
+		}
+		else if ($value instanceof vB_Phrase)
+		{
+			$value = (string)$value;
+		}
+
+		return $value;
+	}
+
+
+	/**
+	 * Renders the template.
+	 *
+	 * @param	boolean	Whether to suppress the HTML comment surrounding option (for JS, etc)
+	 * @return	string	Rendered version of the template
+	 */
+	public function render($suppress_html_comments = false, $final = false)
+	{
+		global $vbulletin, $show;
+
+		$callback = vB_APICallback::instance();
+
+		if ($final)
+		{
+			self::remove_common_show($show);
+
+			// register whitelisted globals
+			$this->register_globals();
+
+			$callback->setname('result_prewhitelist');
+			$callback->addParamRef(0, $this->registered);
+			$callback->callback();
+
+			if (!($vbulletin->debug AND $vbulletin->GPC['showall']))
+			{
+				$this->whitelist_filter();
+			}
+
+			$callback->setname('result_overwrite');
+			$callback->addParamRef(0, $this->registered);
+			$callback->callback();
+
+			if ($vbulletin->debug AND $vbulletin->GPC['debug'])
+			{
+				return '<pre>'.htmlspecialchars(var_export($this->registered, true)).'</pre>' . '<br />' . number_format((memory_get_usage() / 1024)) . 'KB';
+			}
+			else
+			{
+				// only render data on final render
+				return $this->render_output($suppress_html_comments);
+			}
+		}
+		else
+		{
+			$callback->setname('result_prerender');
+			$callback->addParam(0, $this->template);
+			$callback->addParamRef(1, $this->registered);
+			$callback->callback();
+		}
+
+
+		return $this->render_token();
+	}
+
+
+	/**
+	 * Buffers locally registered vars and returns a token representation of the template.
+	 *
+	 * @return string
+	 */
+	protected function render_token()
+	{
+		if (!isset(self::$registered_templates[$this->template]))
+		{
+			self::$registered_templates[$this->template] = array();
+		}
+
+		// Buffer local vars to be picked up by the parent template
+		self::$registered_templates[$this->template][] = $this->registered;
+
+		$index = sizeof(self::$registered_templates[$this->template])-1;
+
+		return self::$token_prefix . $this->template . ':' . $index;
+	}
+
+
+	/**
+	 * Renders the output after preperation.
+	 * @see vB_Template::render()
+	 *
+	 * @param boolean	Whether to suppress the HTML comment surrounding option (for JS, etc)
+	 * @return string
+	 */
+	protected function render_output($suppress_html_comments = false)
+	{
+		return false;
+	}
+
+	public static function dump_templates()
+	{
+		return print_r(self::$registered_templates,1);
+	}
+}
+
+
+class vB_Template_XML extends vB_Template_Data
+{
+	/**
+	 * Renders the output after preperation.
+	 * @see vB_Template::render()
+	 *
+	 * @param boolean	Whether to suppress the HTML comment surrounding option (for JS, etc)
+	 * @return string
+	 */
+	protected function render_output($suppress_html_comments = false)
+	{
+		return xmlrpc_encode($this->registered);
+	}
+}
+
+class vB_Template_JSON extends vB_Template_Data
+{
+	/**
+	 * Renders the output after preperation.
+	 * @see vB_Template::render()
+	 *
+	 * @param boolean	Whether to suppress the HTML comment surrounding option (for JS, etc)
+	 * @return string
+	 */
+	protected function render_output($suppress_html_comments = false)
+	{
+		if (!($charset = vB_Template_Runtime::fetchStyleVar('charset')))
+		{
+			global $vbulletin;
+			$charset = $vbulletin->userinfo['lang_charset'];
+		}
+
+		$lower_charset = strtolower($charset);
+		if ($lower_charset != 'utf-8')
+		{
+			// Browsers tend to interpret character set iso-8859-1 as windows-1252
+			if ($lower_charset == 'iso-8859-1')
+			{
+				$lower_charset = 'windows-1252';
+			}
+			$this->processregistered($this->registered, $lower_charset);
+		}
+
+		return json_encode($this->registered);
+	}
+
+	private function processregistered(&$value, $charset)
+	{
+		global $VB_API_REQUESTS;
+
+		if (is_array($value))
+		{
+			foreach ($value AS &$el)
+			{
+				$this->processregistered($el, $charset);
+			}
+		}
+
+		if (is_string($value))
+		{
+			$value = preg_replace('/&#([0-9]+);/esiU', "convert_int_to_utf8('\\1')", to_utf8($value, $charset, true));
+			$trimmed = trim($value);
+			if ($VB_API_REQUESTS['api_version'] > 1 AND ($trimmed == 'checked="checked"' OR $trimmed == 'selected="selected"'))
+			{
+				$value = 1;
+			}
+		}
+
+		if ($VB_API_REQUESTS['api_version'] > 1 AND is_bool($value))
+		{
+			if ($value)
+			{
+				$value = 1;
+			}
+			else
+			{
+				$value = 0;
+			}
+		}
+	}
+}
+
+class vB_Template_Runtime
+{
+	public static $units = array('%', 'px', 'pt', 'em', 'ex', 'pc', 'in', 'cm', 'mm');
+
+	public static function date($timestamp, $format = 'r')
+	{
+		if (empty($format))
+		{
+			$format = 'r';
+		}
+		return vbdate($format, intval($timestamp), true);
+	}
+
+	public static function time($timestamp)
+	{
+		global $vbulletin;
+		if (empty($timestamp)) { $timestamp = 0; }
+		return vbdate($vbulletin->options['timeformat'], $timestamp);
+	}
+
+	public static function escapeJS($javascript)
+	{
+		return addcslashes($javascript, "'\\");
+	}
+
+	public static function numberFormat($number, $decimals = 0)
+	{
+		return vb_number_format($number, $decimals);
+	}
+
+	public static function urlEncode($text)
+	{
+		return urlencode($text);
+	}
+
+	public static function parsePhrase($phraseName)
+	{
+		global $vbphrase;
+		$arg_list = func_get_args();
+		$arg_list[0] = $vbphrase[$phraseName];
+		return construct_phrase_from_array($arg_list);
+	}
+
+	public static function addStyleVar($name, $value, $datatype = 'string')
+	{
+		global $vbulletin;
+
+		switch ($datatype)
+		{
+			case 'string':
+				$vbulletin->stylevars["$name"] = array(
+					'datatype' => $datatype,
+					'string'   => $value,
+				);
+			break;
+			case 'imgdir':
+				$vbulletin->stylevars["$name"] = array(
+					'datatype' => 'imagedir',
+					'imagedir' => $value,
+				);
+			break;
+		}
+	}
+
+	public static function fetchStyleVar($stylevar)
+	{
+		global $vbulletin;
+
+		$parts = explode('.', $stylevar);
+		$base_stylevar = $vbulletin->stylevars[$parts[0]];
+
+		// this for accessing subparts of a complex data type
+		if (isset($parts[1]))
+		{
+			$types = array(
+				'background' => array(
+					'backgroundColor' => 'color',
+					'backgroundImage' => 'image',
+					'backgroundRepeat' => 'repeat',
+					'backgroundPositionX' => 'x',
+					'backgroundPositionY' => 'y',
+					'backgroundPositionUnits' => 'units'
+				),
+
+				'font' => array(
+					'fontWeight' => 'weight',
+					'units' => 'units',
+					'fontSize' => 'size',
+					'fontFamily' => 'family',
+					'fontStyle' => 'style',
+					'fontVariant' => 'variant',
+				),
+
+				'padding' => array(
+					'units' => 'units',
+					'paddingTop' => 'top',
+					'paddingRight' => 'right',
+					'paddingBottom' => 'bottom',
+					'paddingLeft' => 'left',
+				),
+
+				'margin' => array(
+					'units' => 'units',
+					'marginTop' => 'top',
+					'marginRight' => 'right',
+					'marginBottom' => 'bottom',
+					'marginLeft' => 'left',
+				),
+
+				'border' => array(
+					'borderStyle' => 'style',
+					'units' => 'units',
+					'borderWidth' => 'width',
+					'borderColor' => 'color',
+				),
+			);
+
+			//handle is same for margin and padding -- allows the top value to be
+			//used for all padding values
+			if (in_array($base_stylevar['datatype'], array('padding', 'margin')) AND $parts[1] <> 'units')
+			{
+				if (isset($base_stylevar['same']) AND $base_stylevar['same'])
+				{
+					$parts[1] = $base_stylevar['datatype'] . 'Top';
+				}
+			}
+
+			if (isset($types[$base_stylevar['datatype']]))
+			{
+				$mapping = $types[$base_stylevar['datatype']][$parts[1]];
+				$output = $base_stylevar[$mapping];
+			}
+			else
+			{
+				$output = $base_stylevar;
+				for ($i = 1; $i < sizeof($parts); $i++) {
+					$output = $output[$parts[$i]];
+				}
+			}
+		}
+		else
+		{
+			$output = '';
+
+			switch($base_stylevar['datatype'])
+			{
+				case 'color':
+					$output = $base_stylevar['color'];
+				break;
+
+				case 'background':
+					switch ($base_stylevar['x'])
+					{
+						case 'stylevar-left':
+							$base_stylevar['x'] = $vbulletin->stylevars['left']['string'];break;
+						case 'stylevar-right':
+							$base_stylevar['x'] = $vbulletin->stylevars['right']['string'];break;
+						default:
+							$base_stylevar['x'] = $base_stylevar['x'].$base_stylevar['units'];break;
+					}
+					$output = $base_stylevar['color'] . ' ' . (!empty($base_stylevar['image']) ? "$base_stylevar[image]" : 'none') . ' ' .
+						$base_stylevar['repeat'] . ' ' .$base_stylevar['x'] . ' ' .
+						$base_stylevar['y'] .
+						$base_stylevar['units'];
+				break;
+
+				case 'textdecoration':
+					if ($base_stylevar['none'])
+					{
+						$output = 'none';
+					}
+					else
+					{
+						unset($base_stylevar['datatype'], $base_stylevar['none']);
+						$output = implode(' ', array_keys(array_filter($base_stylevar)));
+					}
+				break;
+
+				case 'font':
+					$output = $base_stylevar['style'] . ' ' . $base_stylevar['variant'] . ' ' .
+					$base_stylevar['weight'] . ' ' . $base_stylevar['size'] . $base_stylevar['units'] . ' ' .
+					$base_stylevar['family'];
+				break;
+
+				case 'imagedir':
+					$output = $base_stylevar['imagedir'];
+				break;
+
+				case 'string':
+					$output = $base_stylevar['string'];
+				break;
+
+				case 'numeric':
+					$output = $base_stylevar['numeric'];
+				break;
+
+				case 'size':
+					$output =  $base_stylevar['size'] . $base_stylevar['units'];
+				break;
+
+				case 'url':
+					$output = $base_stylevar['url'];
+				break;
+
+				case 'path':
+					$output = $base_stylevar['path'];
+				break;
+
+				case 'fontlist':
+					$output = implode(',', preg_split('/[\r\n]+/', trim($base_stylevar['fontlist']), -1, PREG_SPLIT_NO_EMPTY));
+				break;
+
+				case 'border':
+					$output = $base_stylevar['width'] . $base_stylevar['units'] . ' ' .
+						$base_stylevar['style'] . ' ' . $base_stylevar['color'];
+				break;
+
+				case 'dimension':
+					$output = 'width: ' . intval($base_stylevar['width'])  . $base_stylevar['units'] .
+						'; height: ' . intval($base_stylevar['height']) . $base_stylevar['units'] . ';';
+				break;
+
+				case 'padding':
+				case 'margin':
+					foreach (array('top', 'right', 'bottom', 'left') AS $side)
+					{
+						if ($base_stylevar[$side] != 'auto')
+						{
+							$base_stylevar[$side] = $base_stylevar[$side] . $base_stylevar['units'];
+						}
+					}
+					if (isset($base_stylevar['same']) AND $base_stylevar['same'])
+					{
+						$output = $base_stylevar['top'];
+					}
+					else
+					{
+						if (vB_Template_Runtime::fetchStyleVar('textdirection') == 'ltr')
+						{
+							$output = $base_stylevar['top'] . ' ' . $base_stylevar['right'] . ' ' . $base_stylevar['bottom'] . ' ' . $base_stylevar['left'];
+						}
+						else
+						{
+							$output = $base_stylevar['top'] . ' ' . $base_stylevar['left'] . ' ' . $base_stylevar['bottom'] . ' ' . $base_stylevar['right'];
+						}
+					}
+				break;
+			}
+		}
+
+		return $output;
+	}
+
+	public static function runMaths($str)
+	{
+		//this would usually be dangerous, but none of the units make sense
+		//in a math string anyway.  Note that there is ambiguty between the '%'
+		//unit and the modulo operator.  We don't allow the latter anyway
+		//(though we do allow bitwise operations !?)
+		$units_found = null;
+		foreach (self::$units AS $unit)
+		{
+			if (strpos($str, $unit))
+			{
+				$units_found[] = $unit;
+			}
+		}
+
+		//mixed units.
+		if (count($units_found) > 1)
+		{
+			return "/* ~~cannot perform math on mixed units ~~ found (" .
+				implode(",", $units_found) . ") in $str */";
+		}
+
+		$str = preg_replace('#([^+\-*=/\(\)\d\^<>&|\.]*)#', '', $str);
+
+		if (empty($str))
+		{
+			$str = '0';
+		}
+		else
+		{
+			//hack: if the math string is invalid we can get a php parse error here.
+			//a bad expression or even a bad variable value (blank instead of a number) can
+			//cause this to occur.  This fails quietly, but also sets the status code to 500
+			//(but, due to a bug in php only if display_errors is *off* -- if display errors
+			//is on, then it will work just fine only $str below will not be set.
+			//
+			//This can result is say an almost correct css file being ignored by the browser
+			//for reasons that aren't clear (and goes away if you turn error reporting on).
+			//We can check to see if eval hit a parse error and, if so, we'll attempt to
+			//clear the 500 status (this does more harm then good) and send an error
+			//to the file.  Since math is mostly used in css, we'll provide error text
+			//that works best with that.
+			$status = @eval("\$str = $str;");
+			if ($status === false)
+			{
+				if (!headers_sent())
+				{
+					header($_SERVER['SERVER_PROTOCOL'] . ' 200 OK');
+				}
+				return "/* Invalid math expression */";
+			}
+
+			if (count($units_found) == 1)
+			{
+				$str = $str.$units_found[0];
+			}
+		}
+		return $str;
+	}
+
+	public static function linkBuild($type, $info = array(), $extra = array(), $primaryid = null, $primarytitle = null)
+	{
+		//allow strings of form of query strings for info or extra.  This allows us to hard code some values
+		//in the templates instead of having to pass everything in from the php code.  Limitations
+		//in the markup do not allow us to build arrays in the template so we need to use strings.
+		//We still can't build strings from variables to pass here so we can't mix hardcoded and
+		//passed values, but we do what we can.
+
+		if (is_string($info))
+		{
+			parse_str($info, $new_vals);
+			$info = $new_vals;
+		}
+
+		if (is_string($extra))
+		{
+			parse_str($extra, $new_vals);
+			$extra = $new_vals;
+		}
+
+		return fetch_seo_url($type, $info, $extra, $primaryid, $primarytitle);
 	}
 }
 
@@ -3256,7 +5711,7 @@ function vb_error_handler($errno, $errstr, $errfile, $errline)
 				}
 				else
 				{
-					header('HTTP/1.1 500 Internal Server Error');
+					header($_SERVER['SERVER_PROTOCOL'] . ' 500 Internal Server Error');
 				}
 			}
 
@@ -3287,23 +5742,115 @@ function vb_error_handler($errno, $errstr, $errfile, $errline)
 */
 function htmlspecialchars_uni($text, $entities = true)
 {
+	if ($entities)
+	{
+		$text = preg_replace_callback(
+			'/&((#([0-9]+)|[a-z]+);)?/si',
+			'htmlspecialchars_uni_callback',
+			$text
+		);
+	}
+	else
+	{
+		$text = preg_replace(
+			// translates all non-unicode entities
+			'/&(?!(#[0-9]+|[a-z]+);)/si',
+			'&amp;',
+			$text
+		);
+	}
+
 	return str_replace(
 		// replace special html characters
 		array('<', '>', '"'),
 		array('&lt;', '&gt;', '&quot;'),
-		preg_replace(
-			// translates all non-unicode entities
-			'/&(?!' . ($entities ? '#[0-9]+|shy' : '(#[0-9]+|[a-z]+)') . ';)/si',
-			'&amp;',
 			$text
-		)
 	);
 }
 
+function htmlspecialchars_uni_callback($matches)
+{
+ 	if (count($matches) == 1)
+ 	{
+ 		return '&amp;';
+ 	}
+
+	if (strpos($matches[2], '#') === false)
+	{
+		// &gt; like
+		if ($matches[2] == 'shy')
+		{
+			return '&shy;';
+		}
+		else
+		{
+			return "&amp;$matches[2];";
+		}
+	}
+	else
+	{
+		// Only convert chars that are in ISO-8859-1
+		if (($matches[3] >= 32 AND $matches[3] <= 126)
+			OR
+			($matches[3] >= 160 AND $matches[3] <= 255))
+		{
+			return "&amp;#$matches[3];";
+		}
+		else
+		{
+			return "&#$matches[3];";
+		}
+	}
+}
+
+
+function css_escape_string($string)
+{
+	static $map = null;
+	//url(<something>) is valid.
+
+	$checkstr = strtolower(trim($string));
+	$add_url = false;
+	if ((substr($checkstr, 0, 4) == 'url(') AND (substr($checkstr,-1,1) == ')'))
+	{
+		//we need to leave the "url()" part alone.
+		$add_url = true;
+		$string = trim($string);
+		$string = substr($string,4, strlen($string)- 5);
+		if ((($string[0] == '"') AND (substr($checkstr,-1,1) == '"'))
+			OR
+			(($string[0] == "'") AND (substr($checkstr,-1,1) == "'")))
+		{
+			$string = substr($string,1, strlen($string)- 2);
+		}
+	}
+
+	if(is_null($map))
+	{
+		$chars = array(
+			'\\', '!', '@', '#', '$', '%', '^',  '*', '"', "'",
+			'<', '>', ',', '`', '~','/','&', '.',':', ')','(', ';'
+		);
+
+		foreach ($chars as $char)
+		{
+			$map[$char] = '\\' . dechex(ord($char)) . ' ';
+		}
+		//var_dump($map);
+	}
+
+	$string = str_replace(array_keys($map), $map, $string);
+
+	//add back the url() if we need it.
+	if ($add_url)
+	{
+		$string = 'url(\'' . $string . '\')';
+	}
+	return $string;
+}
 /*======================================================================*\
 || ####################################################################
-|| # Downloaded: 16:21, Sat Apr 6th 2013
-|| # CVS: $RCSfile$ - $Revision: 27007 $
+|| # Downloaded: 14:57, Sun Aug 11th 2013
+|| # CVS: $RCSfile$ - $Revision: 74242 $
 || ####################################################################
 \*======================================================================*/
-?>

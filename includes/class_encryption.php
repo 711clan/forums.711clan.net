@@ -1,9 +1,9 @@
 <?php
 /*======================================================================*\
 || #################################################################### ||
-|| # vBulletin 3.7.2 Patch Level 2 - Licence Number VBF2470E4F
+|| # vBulletin 4.2.1 - Licence Number VBC2DDE4FB
 || # ---------------------------------------------------------------- # ||
-|| # All PHP code in this file is ©2000-2013 Jelsoft Enterprises Ltd. # ||
+|| # All PHP code in this file is ©2000-2013 vBulletin Solutions Inc. # ||
 || # This file may not be redistributed in whole or significant part. # ||
 || # ---------------- VBULLETIN IS NOT FREE SOFTWARE ---------------- # ||
 || # http://www.vbulletin.com | http://www.vbulletin.com/license.html # ||
@@ -14,7 +14,7 @@
 if (!extension_loaded('big_int'))
 {
 	$extension_dir = ini_get('extension_dir');
-	if (strtoupper(substr(PHP_OS, 0, 3) == 'WIN'))
+	if (strtoupper(substr(PHP_OS, 0, 3)) == 'WIN')
 	{
 		$extension_file = 'big_int.dll';
 	}
@@ -73,8 +73,8 @@ class Diffie_Hellman
 * This class lets us generate keys from a foreign network, this is useful when we want to do things like authentication
 *
 * @package 		vBulletin
-* @version		$Revision: 14297 $
-* @date 		$Date: 2006-02-15 08:35:26 -0600 (Wed, 15 Feb 2006) $
+* @version		$Revision: 32878 $
+* @date 		$Date: 2009-10-28 11:38:49 -0700 (Wed, 28 Oct 2009) $
 * @copyright 	http://www.vbulletin.com/license.html
 *
 */
@@ -174,8 +174,8 @@ class Diffie_Hellman_Abstract
 * Public Key generation class using the GMP module
 *
 * @package 		vBulletin
-* @version		$Revision: 14297 $
-* @date 		$Date: 2006-02-15 08:35:26 -0600 (Wed, 15 Feb 2006) $
+* @version		$Revision: 32878 $
+* @date 		$Date: 2009-10-28 11:38:49 -0700 (Wed, 28 Oct 2009) $
 *
 */
 class Diffie_Hellman_GMP extends Diffie_Hellman_Abstract
@@ -233,8 +233,8 @@ class Diffie_Hellman_GMP extends Diffie_Hellman_Abstract
 * Public Key generation class using the BCMath module
 *
 * @package 		vBulletin
-* @version		$Revision: 14297 $
-* @date 		$Date: 2006-02-15 08:35:26 -0600 (Wed, 15 Feb 2006) $
+* @version		$Revision: 32878 $
+* @date 		$Date: 2009-10-28 11:38:49 -0700 (Wed, 28 Oct 2009) $
 *
 */
 class Diffie_Hellman_BCM extends Diffie_Hellman_Abstract
@@ -306,8 +306,8 @@ class Diffie_Hellman_BCM extends Diffie_Hellman_Abstract
 * Public Key generation class using the BigInt PECL module
 *
 * @package 		vBulletin
-* @version		$Revision: 14297 $
-* @date 		$Date: 2006-02-15 08:35:26 -0600 (Wed, 15 Feb 2006) $
+* @version		$Revision: 32878 $
+* @date 		$Date: 2009-10-28 11:38:49 -0700 (Wed, 28 Oct 2009) $
 *
 */
 class Diffie_Hellman_BI extends Diffie_Hellman_Abstract
@@ -371,8 +371,8 @@ class Diffie_Hellman_BI extends Diffie_Hellman_Abstract
 * This is an implementation of the RC4 algorithm
 *
 * @package 		vBulletin
-* @version		$Revision: 14297 $
-* @date 		$Date: 2006-02-15 08:35:26 -0600 (Wed, 15 Feb 2006) $
+* @version		$Revision: 32878 $
+* @date 		$Date: 2009-10-28 11:38:49 -0700 (Wed, 28 Oct 2009) $
 * @copyright 	http://www.vbulletin.com/license.html
 *
 */

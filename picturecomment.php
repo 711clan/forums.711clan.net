@@ -1,9 +1,9 @@
 <?php
 /*======================================================================*\
 || #################################################################### ||
-|| # vBulletin 3.7.2 Patch Level 2 - Licence Number VBF2470E4F
+|| # vBulletin 4.2.1 - Licence Number VBC2DDE4FB
 || # ---------------------------------------------------------------- # ||
-|| # Copyright Â©2000-2013 Jelsoft Enterprises Ltd. All Rights Reserved. ||
+|| # Copyright ©2000-2013 vBulletin Solutions Inc. All Rights Reserved. ||
 || # This file may not be redistributed in whole or significant part. # ||
 || # ---------------- VBULLETIN IS NOT FREE SOFTWARE ---------------- # ||
 || # http://www.vbulletin.com | http://www.vbulletin.com/license.html # ||
@@ -60,7 +60,6 @@ $actiontemplates = array(
 	),
 	'message' => array(
 		'picturecomment_editor',
-		'picturecomment_preview',
 	),
 );
 
@@ -68,6 +67,7 @@ $actiontemplates = array(
 require_once('./global.php');
 require_once(DIR . '/includes/functions_picturecomment.php');
 require_once(DIR . '/includes/functions_album.php');
+require_once(DIR . '/includes/functions_user.php');
 require_once(DIR . '/includes/functions_socialgroup.php');
 
 // #######################################################################
@@ -80,10 +80,10 @@ if (!$vbulletin->options['pc_enabled'])
 }
 
 $vbulletin->input->clean_array_gpc('r', array(
-	'albumid'   => TYPE_UINT,
-	'groupid'   => TYPE_UINT,
-	'pictureid' => TYPE_UINT,
-	'commentid' => TYPE_UINT
+	'albumid'      => TYPE_UINT,
+	'groupid'      => TYPE_UINT,
+	'attachmentid' => TYPE_UINT,
+	'commentid'    => TYPE_UINT
 ));
 
 ($hook = vBulletinHook::fetch_hook('picture_comment_start')) ? eval($hook) : false;
@@ -116,6 +116,12 @@ if ($vbulletin->GPC['albumid'])
 		standard_error(fetch_error('invalidid', $vbphrase['album'], $vbulletin->options['contactuslink']));
 	}
 
+	if (!can_view_profile_section($albuminfo['userid'], 'albums'))
+	{
+		// private album that we can not see
+		standard_error(fetch_error('invalidid', $vbphrase['album'], $vbulletin->options['contactuslink']));
+	}
+
 	if ($albuminfo['state'] == 'private' AND !can_view_private_albums($albuminfo['userid']))
 	{
 		// private album that we can not see
@@ -127,10 +133,10 @@ if ($vbulletin->GPC['albumid'])
 		standard_error(fetch_error('invalidid', $vbphrase['album'], $vbulletin->options['contactuslink']));
 	}
 
-	$pictureinfo = fetch_pictureinfo($vbulletin->GPC['pictureid'], $vbulletin->GPC['albumid']);
+	$pictureinfo = fetch_pictureinfo($vbulletin->GPC['attachmentid'], $vbulletin->GPC['albumid']);
 
 	$navbits = array(
-		'member.php?' . $vbulletin->session->vars['sessionurl'] . "u=$albuminfo[userid]" => construct_phrase($vbphrase['xs_profile'], $albuminfo['username']),
+		fetch_seo_url('member', $albuminfo) => construct_phrase($vbphrase['xs_profile'], $albuminfo['username']),
 		'album.php?' . $vbulletin->session->vars['sessionurl'] . "u=$albuminfo[userid]" => $vbphrase['albums'],
 		'album.php?' . $vbulletin->session->vars['sessionurl'] . "albumid=$albuminfo[albumid]" => $albuminfo['title_html']
 	);
@@ -152,7 +158,7 @@ else if ($vbulletin->GPC['groupid'])
 	{
 		if ($vbulletin->userinfo['permissions']['socialgrouppermissions'] & $vbulletin->bf_ugp_socialgrouppermissions['canjoingroups'])
 		{
-			standard_error(fetch_error('must_be_group_member_view_add_pictures_join_x', 'group.php?' . $vbulletin->session->vars['sessionurl'] . 'do=join&amp;groupid=' . $group['groupid']));
+			standard_error(fetch_error('must_be_group_member_view_add_pictures_join_x', fetch_seo_url('group', $group)));
 		}
 		else
 		{
@@ -160,12 +166,12 @@ else if ($vbulletin->GPC['groupid'])
 		}
 	}
 
-	$pictureinfo = fetch_socialgroup_picture($vbulletin->GPC['pictureid'], $vbulletin->GPC['groupid']);
+	$pictureinfo = fetch_socialgroup_picture($vbulletin->GPC['attachmentid'], $vbulletin->GPC['groupid']);
 
 	$navbits = array(
-		'group.php' . $vbulletin->session->vars['sessionurl_q'] => $vbphrase['social_groups'],
-		'group.php?' . $vbulletin->session->vars['sessionurl'] . 'groupid=' . $group['groupid'] => $group['name'],
-		'group.php?' . $vbulletin->session->vars['sessionurl'] . 'do=grouppictures&amp;groupid=' . $group['groupid'] => $vbphrase['pictures']
+		fetch_seo_url('grouphome', array()) => $vbphrase['social_groups'],
+		fetch_seo_url('group', $group) => $group['name'],
+		fetch_seo_url('group', $group, array('do', 'grouppictures')) => $vbphrase['pictures']
 	);
 }
 else
@@ -180,7 +186,7 @@ if (!$pictureinfo OR $pictureinfo['state'] == 'moderation')
 
 if ($vbulletin->GPC['commentid'])
 {
-	$commentinfo = fetch_picturecommentinfo($pictureinfo['pictureid'], $vbulletin->GPC['commentid']);
+	$commentinfo = fetch_picturecommentinfo($pictureinfo['filedataid'], $pictureinfo['userid'], $vbulletin->GPC['commentid']);
 	if (!$commentinfo)
 	{
 		standard_error(fetch_error('invalidid', $vbphrase['comment'], $vbulletin->options['contactuslink']));
@@ -222,6 +228,7 @@ if ($_REQUEST['do'] == 'message')
 			'loggedinuser'     => TYPE_UINT,
 			'fromquickcomment' => TYPE_BOOL,
 			'preview'          => TYPE_STR,
+			'advanced'         => TYPE_BOOL,
 		));
 
 		($hook = vBulletinHook::fetch_hook('picture_comment_post_start')) ? eval($hook) : false;
@@ -229,8 +236,9 @@ if ($_REQUEST['do'] == 'message')
 		// unwysiwygify the incoming data
 		if ($vbulletin->GPC['wysiwyg'])
 		{
-			require_once(DIR . '/includes/functions_wysiwyg.php');
-			$vbulletin->GPC['message'] = convert_wysiwyg_html_to_bbcode($vbulletin->GPC['message'], $vbulletin->options['allowhtml']);
+			require_once(DIR . '/includes/class_wysiwygparser.php');
+			$html_parser = new vB_WysiwygHtmlParser($vbulletin);
+			$vbulletin->GPC['message'] = $html_parser->parse_wysiwyg_html_to_bbcode($vbulletin->GPC['message'], $vbulletin->options['allowhtml']);
 		}
 
 		// parse URLs in message text
@@ -241,12 +249,12 @@ if ($_REQUEST['do'] == 'message')
 		}
 
 		$message = array(
-			'message'        =>& $vbulletin->GPC['message'],
-			'pictureid'      =>& $pictureinfo['pictureid'],
-			'userid'         =>& $vbulletin->userinfo['userid'],
-			'postuserid'     =>& $vbulletin->userinfo['userid'],
-			'disablesmilies' =>& $vbulletin->GPC['disablesmilies'],
-			'parseurl'       =>& $vbulletin->GPC['parseurl'],
+			'message'        => $vbulletin->GPC['message'],
+			'attachmentid'   => $pictureinfo['attachmentid'],
+			'userid'         => $vbulletin->userinfo['userid'],
+			'postuserid'     => $vbulletin->userinfo['userid'],
+			'disablesmilies' => $vbulletin->GPC['disablesmilies'],
+			'parseurl'       => $vbulletin->GPC['parseurl'],
 		);
 
 		if ($vbulletin->GPC['ajax'])
@@ -275,10 +283,24 @@ if ($_REQUEST['do'] == 'message')
 			{
 				$dataman->setr('username', $vbulletin->GPC['username']);
 			}
-			$dataman->setr('pictureid', $pictureinfo['pictureid']);
-			$dataman->setr('postuserid', $vbulletin->userinfo['userid']);
+			$dataman->set('filedataid', $pictureinfo['filedataid']);
+			$dataman->set('userid', $pictureinfo['userid']);
+			$dataman->set('postuserid', $vbulletin->userinfo['userid']);
+
+			if ($vbulletin->GPC['albumid'])
+			{
+				$dataman->set('sourcecontentid', $vbulletin->GPC['albumid']);
+				$dataman->set('sourcecontenttypeid', vB_Types::instance()->getContentTypeID('vBForum_Album'));
+			}
+			else
+			{
+				$dataman->set('sourcecontentid', $vbulletin->GPC['groupid']);
+				$dataman->set('sourcecontenttypeid', vB_Types::instance()->getContentTypeID('vBForum_SocialGroup'));
+			}
+			$dataman->set('sourceattachmentid', $vbulletin->GPC['attachmentid']);
 		}
 
+		$dataman->set_info('pictureinfo', $pictureinfo);
 		$dataman->set_info('preview', $vbulletin->GPC['preview']);
 		$dataman->setr('pagetext', $message['message']);
 		$dataman->set('allowsmilie', !$message['disablesmilies']);
@@ -291,7 +313,7 @@ if ($_REQUEST['do'] == 'message')
 		}
 
 		require_once(DIR . '/includes/class_socialmessageparser.php');
-		$pmparser =& new vB_PictureCommentParser($vbulletin, fetch_tag_list());
+		$pmparser = new vB_PictureCommentParser($vbulletin, fetch_tag_list());
 		$pmparser->parse($message['message']);
 		if ($error_num = count($pmparser->errors))
 		{
@@ -323,15 +345,27 @@ if ($_REQUEST['do'] == 'message')
 				$_GET['do'] = 'message';
 			}
 		}
-		else if ($vbulletin->GPC['preview'])
+		else if ($vbulletin->GPC['preview'] OR $vbulletin->GPC['advanced'])
 		{
 			define('MESSAGEPREVIEW', true);
-			$preview = process_picture_comment_preview($message);
+			if ($vbulletin->GPC['preview'])
+			{
+				$preview = process_picture_comment_preview($message);
+			}
 			$_GET['do'] = 'message';
 		}
 		else
 		{
 			$commentid = $dataman->save();
+
+			if ($commentinfo)
+			{
+				clear_autosave_text('vBForum_PictureComment', $commentinfo['commentid'], 0, $vbulletin->userinfo['userid']);
+			}
+			else
+			{
+				clear_autosave_text('vBForum_PictureComment', 0, $pictureinfo['attachmentid'], $vbulletin->userinfo['userid']);
+			}
 
 			if ($commentinfo AND $comentinfo['postuserid'] != $vbulletin->userinfo['userid'] AND can_moderate(0, 'caneditpicturecomments'))
 			{
@@ -358,7 +392,7 @@ if ($_REQUEST['do'] == 'message')
 					$state_or[] = "(picturecomment.postuserid = " . $vbulletin->userinfo['userid'] . " AND state = 'moderation')";
 				}
 
-				if (can_moderate() OR ($vbulletin->userinfo['userid'] == $pictureinfo['userid'] AND $vbulletin->userinfo['permissions']['albumpermissions'] & $vbulletin->bf_ugp_albumpermissions['canmanagepiccomment']))
+				if (can_moderate(0, 'canmoderatepicturecomments') OR ($vbulletin->userinfo['userid'] == $pictureinfo['userid'] AND $vbulletin->userinfo['permissions']['albumpermissions'] & $vbulletin->bf_ugp_albumpermissions['canmanagepiccomment']))
 				{
 					$state[] = 'deleted';
 					$deljoinsql = "LEFT JOIN " . TABLE_PREFIX . "deletionlog AS deletionlog ON (picturecomment.commentid = deletionlog.primaryid AND deletionlog.type = 'picturecomment')";
@@ -373,12 +407,18 @@ if ($_REQUEST['do'] == 'message')
 				require_once(DIR . '/includes/class_bbcode.php');
 				require_once(DIR . '/includes/class_picturecomment.php');
 
-				$bbcode =& new vB_BbCodeParser($vbulletin, fetch_tag_list());
-				$factory =& new vB_Picture_CommentFactory($vbulletin, $bbcode, $pictureinfo);
+				$bbcode = new vB_BbCodeParser($vbulletin, fetch_tag_list());
+				$factory = new vB_Picture_CommentFactory($vbulletin, $bbcode, $pictureinfo);
 
 				$hook_query_fields = $hook_query_joins = $hook_query_where = '';
 				($hook = vBulletinHook::fetch_hook('picture_comment_post_ajax')) ? eval($hook) : false;
 				$read_ids = array();
+
+				if ($commentid === true) // Editing a comment
+				{
+					$commentid = $vbulletin->GPC['commentid'];
+				}
+
 
 				$messages = $db->query_read_slave("
 					SELECT
@@ -391,9 +431,12 @@ if ($_REQUEST['do'] == 'message')
 					" . ($vbulletin->options['avatarenabled'] ? "LEFT JOIN " . TABLE_PREFIX . "avatar AS avatar ON(avatar.avatarid = user.avatarid) LEFT JOIN " . TABLE_PREFIX . "customavatar AS customavatar ON(customavatar.userid = user.userid)" : "") . "
 					$deljoinsql
 					$hook_query_joins
-					WHERE picturecomment.pictureid = $pictureinfo[pictureid]
-						AND (" . implode(" OR ", $state_or) . ")
-						AND " . (($lastviewed = $vbulletin->GPC['lastcomment']) ?
+					WHERE
+						picturecomment.filedataid = $pictureinfo[filedataid]
+							AND
+						picturecomment.userid = $pictureinfo[userid]
+							AND (" . implode(" OR ", $state_or) . ")
+							AND " . (($lastviewed = $vbulletin->GPC['lastcomment']) ?
 							"(picturecomment.dateline > $lastviewed OR picturecomment.commentid = $commentid)" :
 							"picturecomment.commentid = $commentid"
 							) . "
@@ -415,6 +458,7 @@ if ($_REQUEST['do'] == 'message')
 						'commentid' => $message['commentid'],
 						'visible'   => ($message['state'] == 'visible') ? 1 : 0,
 						'bgclass'   => $bgclass,
+						'quickedit' => 1
 					));
 				}
 
@@ -434,25 +478,30 @@ if ($_REQUEST['do'] == 'message')
 			{
 				($hook = vBulletinHook::fetch_hook('picture_comment_post_complete')) ? eval($hook) : false;
 
-				if ($pictureinfo['groupid'])
-				{
-					$redirect_url_prefix = 'group.php?' . $vbulletin->session->vars['sessionurl'] . "do=picture&amp;groupid=$pictureinfo[groupid]&amp;pictureid=$pictureinfo[pictureid]";
-				}
-				else
-				{
-					$redirect_url_prefix = 'album.php?' . $vbulletin->session->vars['sessionurl'] . "albumid=$pictureinfo[albumid]&amp;pictureid=$pictureinfo[pictureid]";
-				}
 
 				if ($commentinfo)
 				{
-					$vbulletin->url = $redirect_url_prefix . "&amp;commentid=$commentinfo[commentid]#picturecomment$commentinfo[commentid]";
-					eval(print_standard_redirect('picturecomment_editthanks', true, true));
+					$url_commentid = $commentinfo['commentid'];
+					$redirect_phrase = 'picturecomment_editthanks';
 				}
 				else
 				{
-					$vbulletin->url = $redirect_url_prefix . "&amp;commentid=$commentid#picturecomment$commentid";
-					eval(print_standard_redirect('picturecomment_thanks', true, true));
+					$url_commentid = $commentid;
+					$redirect_phrase = 'picturecomment_thanks';
 				}
+
+				if ($pictureinfo['groupid'])
+				{
+					$pagevars = array('do' => 'picture', 'attachmentid' => $pictureinfo['attachmentid'], 'commentid' => $url_commentid);
+					$vbulletin->url = fetch_seo_url('group', $pictureinfo, $pagevars) . "#picturecomment_$url_commentid";
+				}
+				else
+				{
+					$vbulletin->url = 'album.php?' . $vbulletin->session->vars['sessionurl'] .
+						"albumid=$pictureinfo[albumid]&amp;attachmentid=$pictureinfo[attachmentid]&amp;commentid=$url_commentid#picturecomment_$url_commentid";
+				}
+
+				print_standard_redirect($redirect_phrase, true, true);
 			}
 		}
 	}
@@ -487,17 +536,24 @@ if ($_REQUEST['do'] == 'message')
 			$message['message'] = '';
 		}
 
-		$istyles_js = construct_editor_styles_js();
 		$editorid = construct_edit_toolbar(
 			$message['message'],
 			false,
 			'picturecomment',
 			$vbulletin->options['allowsmilies'],
 			true,
-			false
+			false,
+			'fe',
+			'',
+			array(),
+			'content',
+			'vBForum_PictureComment',
+			$commentinfo['commentid'] ? $commentinfo['commentid'] : 0,
+			$commentinfo ? 0 : $pictureinfo['attachmentid'],
+			defined('MESSAGEPREVIEW')
 		);
 
-		eval('$usernamecode = "' . fetch_template('newpost_usernamecode') . '";');
+		$usernamecode = vB_Template::create('newpost_usernamecode')->render();
 
 		// auto-parse URL
 		if (!isset($checked['parseurl']))
@@ -521,18 +577,34 @@ if ($_REQUEST['do'] == 'message')
 		}
 
 		$navbits = construct_navbits($navbits);
-		eval('$navbar = "' . fetch_template('navbar') . '";');
+		$navbar = render_navbar_template($navbits);
 
 		($hook = vBulletinHook::fetch_hook('picture_comment_form_complete')) ? eval($hook) : false;
 
 		// complete
-		eval('print_output("' . fetch_template('picturecomment_editor') . '");');
+		$templater = vB_Template::create('picturecomment_editor');
+			$templater->register_page_templates();
+			$templater->register('albuminfo', $albuminfo);
+			$templater->register('checked', $checked);
+			$templater->register('commentinfo', $commentinfo);
+			$templater->register('disablesmiliesoption', $disablesmiliesoption);
+			$templater->register('editorid', $editorid);
+			$templater->register('messagearea', $messagearea);
+			$templater->register('navbar', $navbar);
+			$templater->register('pagetitle', $pagetitle);
+			$templater->register('pictureinfo', $pictureinfo);
+			$templater->register('posthash', $posthash);
+			$templater->register('postpreview', $postpreview);
+			$templater->register('userinfo', $userinfo);
+			$templater->register('usernamecode', $usernamecode);
+		print_output($templater->render());
 	}
 }
 
 if ($_POST['do'] == 'deletemessage')
 {
 	$vbulletin->input->clean_array_gpc('p', array(
+		'delete' => TYPE_BOOL,
 		'deletemessage' => TYPE_STR,
 		'reason'        => TYPE_STR,
 	));
@@ -544,16 +616,16 @@ if ($_POST['do'] == 'deletemessage')
 
 	if ($pictureinfo['groupid'])
 	{
-		$vbulletin->url = 'group.php?' . $vbulletin->session->vars['sessionurl'] . "do=picture&amp;groupid=$pictureinfo[groupid]&amp;pictureid=$pictureinfo[pictureid]";
+		$vbulletin->url = fetch_seo_url('group', $pictureinfo, array('do' => 'picture', 'attachmentid' => $pictureinfo['attachmentid']));
 	}
 	else
 	{
-		$vbulletin->url = 'album.php?' . $vbulletin->session->vars['sessionurl'] . "albumid=$pictureinfo[albumid]&amp;pictureid=$pictureinfo[pictureid]";
+		$vbulletin->url = 'album.php?' . $vbulletin->session->vars['sessionurl'] . "albumid=$pictureinfo[albumid]&amp;attachmentid=$pictureinfo[attachmentid]";
 	}
 
-	if ($vbulletin->GPC['deletemessage'] != '')
+	if ($vbulletin->GPC['delete'])
 	{
-		if ($vbulletin->GPC['deletemessage'] == 'remove' AND can_moderate(0, 'canremovepicturecomments'))
+		if ($vbulletin->GPC['deltype'] == 'remove' AND can_moderate(0, 'canremovepicturecomments'))
 		{
 			$hard_delete = true;
 		}
@@ -568,6 +640,8 @@ if ($_POST['do'] == 'deletemessage')
 		{
 			$dataman->set_info('pictureuser', $pictureuser);
 		}
+
+		$dataman->set_info('pictureinfo', $pictureinfo);
 		$dataman->set_info('hard_delete', $hard_delete);
 		$dataman->set_info('reason', $vbulletin->GPC['reason']);
 
@@ -585,11 +659,11 @@ if ($_POST['do'] == 'deletemessage')
 			);
 		}
 
-		eval(print_standard_redirect('picturecomment_deleted'));
+		print_standard_redirect('picturecomment_deleted');
 	}
 	else
 	{
-		eval(print_standard_redirect('picturecomment_nodelete'));
+		print_standard_redirect('picturecomment_nodelete');
 	}
 }
 
@@ -632,7 +706,7 @@ if ($_REQUEST['do'] == 'report' OR $_POST['do'] == 'sendemail')
 		standard_error(fetch_error('emaildisabled'));
 	}
 
-	$reportobj =& new vB_ReportItem_PictureComment($vbulletin);
+	$reportobj = new vB_ReportItem_PictureComment($vbulletin);
 	$reportobj->set_extrainfo('picture', $pictureinfo);
 	$reportobj->set_extrainfo('album', $albuminfo);
 	$reportobj->set_extrainfo('group', $group);
@@ -663,17 +737,21 @@ if ($_REQUEST['do'] == 'report' OR $_POST['do'] == 'sendemail')
 		$navbits[''] = $vbphrase['report_picture_comment'];
 		$navbits = construct_navbits($navbits);
 
-		require_once(DIR . '/includes/functions_editor.php');
-		$textareacols = fetch_textarea_width();
-		eval('$usernamecode = "' . fetch_template('newpost_usernamecode') . '";');
+		$usernamecode = vB_Template::create('newpost_usernamecode')->render();
 
-		eval('$navbar = "' . fetch_template('navbar') . '";');
+		$navbar = render_navbar_template($navbits);
 		$url =& $vbulletin->url;
 
 		($hook = vBulletinHook::fetch_hook('report_form_start')) ? eval($hook) : false;
 
 		$forminfo = $reportobj->set_forminfo($commentinfo);
-		eval('print_output("' . fetch_template('reportitem') . '");');
+		$templater = vB_Template::create('reportitem');
+			$templater->register_page_templates();
+			$templater->register('forminfo', $forminfo);
+			$templater->register('navbar', $navbar);
+			$templater->register('url', $url);
+			$templater->register('usernamecode', $usernamecode);
+		print_output($templater->render());
 	}
 
 	if ($_POST['do'] == 'sendemail')
@@ -695,19 +773,65 @@ if ($_REQUEST['do'] == 'report' OR $_POST['do'] == 'sendemail')
 		$reportobj->do_report($vbulletin->GPC['reason'], $commentinfo);
 
 		$url =& $vbulletin->url;
-		eval(print_standard_redirect('redirect_reportthanks'));
+		print_standard_redirect('redirect_reportthanks');
 	}
 
 }
 
-($hook = vBulletinHook::fetch_hook('picture_comment_complete')) ? eval($hook) : false;
+if ($_POST['do'] == 'quickedit')
+{
+	if ($commentinfo AND !fetch_user_picture_message_perm('caneditmessages', $pictureinfo, $commentinfo))
+	{
+		print_no_permission();
+	}
+	else if (!$commentinfo AND !$canpostmessage)
+	{
+		print_no_permission();
+	}
 
-eval('print_output("' . fetch_template($templatename) . '");');
+	$vbulletin->input->clean_array_gpc('p', array(
+		'editorid' => TYPE_NOHTML,
+	));
+
+	require_once(DIR . '/includes/class_xml.php');
+	require_once(DIR . '/includes/functions_editor.php');
+
+	$editorid = construct_edit_toolbar(
+		htmlspecialchars_uni($commentinfo['pagetext']),
+		false,
+		'picturecomment',
+		true,
+		true,
+		false,
+		'qe',
+		$vbulletin->GPC['editorid'],
+		array(),
+		'content',
+		'vBForum_PictureComment',
+		$commentinfo['commentid']
+	);
+
+	$xml = new vB_AJAX_XML_Builder($vbulletin, 'text/xml');
+
+	$xml->add_group('quickedit');
+	$xml->add_tag('editor', process_replacement_vars($messagearea), array(
+		'reason'       => '',
+		'parsetype'    => 'picturecomment',
+		'parsesmilies' => (true),
+		'mode'         => $show['is_wysiwyg_editor']
+	));
+	$xml->add_tag('ckeconfig', vB_Ckeditor::getInstance($editorid)->getConfig());
+	$xml->close_group();
+
+	$xml->print_xml();
+}
+
+($hook = vBulletinHook::fetch_hook('picture_comment_complete')) ? eval($hook) : false;
 
 /*======================================================================*\
 || ####################################################################
-|| # Downloaded: 16:21, Sat Apr 6th 2013
-|| # CVS: $RCSfile$ - $Revision: 26601 $
+|| # Downloaded: 14:57, Sun Aug 11th 2013
+|| # CVS: $RCSfile$ - $Revision: 63231 $
 || ####################################################################
 \*======================================================================*/
 ?>

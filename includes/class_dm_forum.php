@@ -1,16 +1,16 @@
 <?php
 /*======================================================================*\
 || #################################################################### ||
-|| # vBulletin 3.7.2 Patch Level 2 - Licence Number VBF2470E4F
+|| # vBulletin 4.2.1 - Licence Number VBC2DDE4FB
 || # ---------------------------------------------------------------- # ||
-|| # Copyright ©2000-2013 Jelsoft Enterprises Ltd. All Rights Reserved. ||
+|| # Copyright ©2000-2013 vBulletin Solutions Inc. All Rights Reserved. ||
 || # This file may not be redistributed in whole or significant part. # ||
 || # ---------------- VBULLETIN IS NOT FREE SOFTWARE ---------------- # ||
 || # http://www.vbulletin.com | http://www.vbulletin.com/license.html # ||
 || #################################################################### ||
 \*======================================================================*/
 
-if (!class_exists('vB_DataManager'))
+if (!class_exists('vB_DataManager', false))
 {
 	exit;
 }
@@ -31,8 +31,8 @@ require_once(DIR . '/includes/adminfunctions.php');
 * $f->save();
 *
 * @package	vBulletin
-* @version	$Revision: 25926 $
-* @date		$Date: 2008-03-03 11:44:00 -0600 (Mon, 03 Mar 2008) $
+* @version	$Revision: 62096 $
+* @date		$Date: 2012-05-01 18:09:20 -0700 (Tue, 01 May 2012) $
 */
 class vB_DataManager_Forum extends vB_DataManager
 {
@@ -43,22 +43,23 @@ class vB_DataManager_Forum extends vB_DataManager
 	*/
 	var $validfields = array(
 		'forumid'           => array(TYPE_UINT,       REQ_INCR, VF_METHOD, 'verify_nonzero'),
-		'styleid'           => array(TYPE_INT,        REQ_NO,   'if ($data < 0) { $data = 0; } return true;'),
+		'styleid'           => array(TYPE_INT,        REQ_NO, 'if ($data < 0) { $data = 0; } return true;'),
 		'title'             => array(TYPE_STR,        REQ_YES,  VF_METHOD),
 		'title_clean'       => array(TYPE_STR,        REQ_YES),
 		'description'       => array(TYPE_STR,        REQ_NO,   VF_METHOD),
 		'description_clean' => array(TYPE_STR,        REQ_NO),
 		'options'           => array(TYPE_ARRAY_BOOL, REQ_AUTO),
 		'displayorder'      => array(TYPE_UINT,       REQ_NO),
-		'replycount'        => array(TYPE_UINT,       REQ_NO),
+		'replycount'        => array(TYPE_UINT,       REQ_NO, 'if ($data < 0) { $data = 0; } return true;'),
 		'lastpost'          => array(TYPE_UINT,       REQ_NO),
 		'lastposter'        => array(TYPE_STR,        REQ_NO),
+		'lastposterid'      => array(TYPE_STR,        REQ_NO),
 		'lastpostid'        => array(TYPE_UINT,       REQ_NO),
 		'lastthread'        => array(TYPE_STR,        REQ_NO),
 		'lastthreadid'      => array(TYPE_UINT,       REQ_NO),
 		'lasticonid'        => array(TYPE_INT,        REQ_NO),
 		'lastprefixid'      => array(TYPE_NOHTML,     REQ_NO),
-		'threadcount'       => array(TYPE_UINT,       REQ_NO),
+		'threadcount'       => array(TYPE_UINT,       REQ_NO, 'if ($data < 0) { $data = 0; } return true;'),
 		'daysprune'         => array(TYPE_INT,        REQ_AUTO, 'if ($data == 0) { $data = -1; } return true;'),
 		'newpostemail'      => array(TYPE_STR,        REQ_NO,   VF_METHOD, 'verify_emaillist'),
 		'newthreademail'    => array(TYPE_STR,        REQ_NO,   VF_METHOD, 'verify_emaillist'),
@@ -67,9 +68,9 @@ class vB_DataManager_Forum extends vB_DataManager
 		'link'              => array(TYPE_STR,        REQ_NO), // do not use verify_link on this -- relative redirects are prefectly valid
 		'parentlist'        => array(TYPE_STR,        REQ_AUTO, 'return preg_match(\'#^(\d+,)*-1$#\', $data);'),
 		'childlist'         => array(TYPE_STR,        REQ_AUTO),
-		'showprivate'       => array(TYPE_UINT,       REQ_NO,   'if ($data > 3) { $data = 0; } return true;'),
+		'showprivate'       => array(TYPE_UINT,       REQ_NO, 'if ($data > 3) { $data = 0; } return true;'),
 		'defaultsortfield'  => array(TYPE_STR,        REQ_NO),
-		'defaultsortorder'  => array(TYPE_STR,        REQ_NO,   'if ($data != "asc") { $data = "desc"; } return true;'),
+		'defaultsortorder'  => array(TYPE_STR,        REQ_NO, 'if ($data != "asc") { $data = "desc"; } return true;'),
 		'imageprefix'       => array(TYPE_NOHTML,     REQ_NO,  VF_METHOD)
 	);
 
@@ -135,6 +136,7 @@ class vB_DataManager_Forum extends vB_DataManager
 		{
 			case 'lastpost':
 			case 'lastposter':
+			case 'lastposterid':
 			case 'lastpostid':
 			case 'lastthread':
 			case 'lastthreadid':
@@ -447,12 +449,13 @@ class vB_DataManager_Forum extends vB_DataManager
 
 				$this->dbobject->query_write("
 					REPLACE INTO " . TABLE_PREFIX . "tachyforumpost
-						(userid, forumid, lastpost, lastposter, lastpostid, lastthread, lastthreadid, lasticonid, lastprefixid)
+						(userid, forumid, lastpost, lastposter, lastposterid, lastpostid, lastthread, lastthreadid, lasticonid, lastprefixid)
 					VALUES
 						(" . intval($this->tachyforumpost['userid']) . ",
 						" .  intval($this->tachyforumpost['forumid']) . ",
 						" .  intval($this->tachyforumpost['lastpost']) . ",
 						'" . $this->dbobject->escape_string($this->tachyforumpost['lastposter']) . "',
+						" .  intval($this->tachyforumpost['lastposterid']) . ",
 						" .  intval($this->tachyforumpost['lastpostid']) . ",
 						'" . $this->dbobject->escape_string($this->tachyforumpost['lastthread']) . "',
 						" .  intval($this->tachyforumpost['lastthreadid']) . ",
@@ -487,6 +490,31 @@ class vB_DataManager_Forum extends vB_DataManager
 		}
 	}
 
+
+	/**
+	 * Overridding parent function to add search index updates
+	 *
+	* @param	boolean	Do the query?
+	* @param	mixed	Whether to run the query now; see db_update() for more info
+	* @param 	bool 	Whether to return the number of affected rows.
+	* @param 	bool	Perform REPLACE INTO instead of INSERT
+	8 @param 	bool	Perfrom INSERT IGNORE instead of INSERT
+	*
+	* @return	mixed	If this was an INSERT query, the INSERT ID is returned
+	*/
+	function save($doquery = true, $delayed = false, $affected_rows = false, $replace = false, $ignore = false)
+	{
+		// Call and get the new id
+		$result = parent::save($doquery, $delayed, $affected_rows, $replace, $ignore);
+		require_once DIR . '/vb/search/indexcontroller/queue.php' ;
+		// Search index maintenance
+		vb_Search_Indexcontroller_Queue::indexQueue('vBForum', 'Forum', 'index',
+			  $this->fetch_field('forumid'));
+
+		return $result;
+	}
+
+
 	/**
 	* Deletes a forum and its associated data from the database
 	*/
@@ -495,10 +523,14 @@ class vB_DataManager_Forum extends vB_DataManager
 		// fetch list of forums to delete
 		$forumlist = '';
 
+		// Search index maintenance - Forum delete (calls delete index on threads -> posts)
+		require_once DIR . '/vb/search/indexcontroller/queue.php' ;
+
 		$forums = $this->dbobject->query_read_slave("SELECT forumid FROM " . TABLE_PREFIX . "forum WHERE " . $this->condition);
 		while($thisforum = $this->dbobject->fetch_array($forums))
 		{
 			$forumlist .= ',' . $thisforum['forumid'];
+			vb_Search_Indexcontroller_Queue::indexQueue('vBForum', 'Forum', 'delete', $thisforum['forumid']);
 		}
 		$this->dbobject->free_result($forums);
 
@@ -549,8 +581,8 @@ class vB_DataManager_Forum extends vB_DataManager
 
 /*======================================================================*\
 || ####################################################################
-|| # Downloaded: 16:21, Sat Apr 6th 2013
-|| # CVS: $RCSfile$ - $Revision: 25926 $
+|| # Downloaded: 14:57, Sun Aug 11th 2013
+|| # CVS: $RCSfile$ - $Revision: 62096 $
 || ####################################################################
 \*======================================================================*/
 ?>

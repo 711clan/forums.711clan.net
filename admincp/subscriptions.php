@@ -1,9 +1,9 @@
 <?php
 /*======================================================================*\
 || #################################################################### ||
-|| # vBulletin 3.7.2 Patch Level 2 - Licence Number VBF2470E4F
+|| # vBulletin 4.2.1 - Licence Number VBC2DDE4FB
 || # ---------------------------------------------------------------- # ||
-|| # Copyright ©2000-2013 Jelsoft Enterprises Ltd. All Rights Reserved. ||
+|| # Copyright ©2000-2013 vBulletin Solutions Inc. All Rights Reserved. ||
 || # This file may not be redistributed in whole or significant part. # ||
 || # ---------------- VBULLETIN IS NOT FREE SOFTWARE ---------------- # ||
 || # http://www.vbulletin.com | http://www.vbulletin.com/license.html # ||
@@ -14,7 +14,7 @@
 error_reporting(E_ALL & ~E_NOTICE);
 
 // ##################### DEFINE IMPORTANT CONSTANTS #######################
-define('CVS_REVISION', '$RCSfile$ - $Revision: 26882 $');
+define('CVS_REVISION', '$RCSfile$ - $Revision: 48073 $');
 
 // #################### PRE-CACHE TEMPLATES AND DATA ######################
 $phrasegroups = array('subscription', 'cpuser', 'stats');
@@ -181,7 +181,15 @@ if ($_REQUEST['do'] == 'add' OR $_REQUEST['do'] == 'edit')
 
 	//require_once(DIR . '/includes/functions_databuild.php');
 	//cache_forums();
-	$forums = explode(',', $sub['forums']);
+	if ($old_sub_masks = @unserialize($sub['forums']) AND is_array($old_sub_masks))
+	{
+		$forums = array_keys($old_sub_masks);
+	}
+	else
+	{
+		$forums = explode(',', $sub['forums']);
+	}
+
 	if (is_array($vbulletin->forumcache))
 	{
 		foreach ($vbulletin->forumcache AS $forumid => $forum)
@@ -328,7 +336,7 @@ if ($_POST['do'] == 'update')
 		{
 			if ($value == 1)
 			{
-				$aforums[] = $key;
+				$aforums[] = intval($key);
 			}
 		}
 	}
@@ -372,13 +380,13 @@ if ($_POST['do'] == 'update')
 
 	if ($insert_default_deny_perms)
 	{
-		// by default, deny buy permission to selected usergroups
+		// by default, deny buy permission to users awaiting moderation or email confirmation
 		$db->query_write($q="
 			REPLACE INTO " . TABLE_PREFIX . "subscriptionpermission
 			(usergroupid, subscriptionid)
 			VALUES
-			(3, " . $vbulletin->GPC['subscriptionid'] . "), # Users awaiting email confirmation
-			(4, " . $vbulletin->GPC['subscriptionid'] . ")  # (COPPA) Users Awaiting Moderation
+			(3, " . $vbulletin->GPC['subscriptionid'] . "),
+			(4, " . $vbulletin->GPC['subscriptionid'] . ")
 		");
 	}
 
@@ -1524,8 +1532,8 @@ if ($_REQUEST['do'] == 'transactions')
 				WHERE styleid = " . $vbulletin->options['styleid'] . "
 				LIMIT 1
 			");
-			$stylevars = unserialize($style['stylevars']);
-			unset($style);
+			$vbulletin->stylevars = unserialize($style['newstylevars']);
+			fetch_stylevars($style, $vbulletin->userinfo);
 
 			print_form_header('');
 			print_table_header($vbphrase['results'], 3);
@@ -1769,8 +1777,8 @@ function toggle_subs()
 
 /*======================================================================*\
 || ####################################################################
-|| # Downloaded: 16:21, Sat Apr 6th 2013
-|| # CVS: $RCSfile$ - $Revision: 26882 $
+|| # Downloaded: 14:57, Sun Aug 11th 2013
+|| # CVS: $RCSfile$ - $Revision: 48073 $
 || ####################################################################
 \*======================================================================*/
 ?>

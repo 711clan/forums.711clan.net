@@ -1,9 +1,9 @@
 <?php
 /*======================================================================*\
 || #################################################################### ||
-|| # vBulletin 3.7.2 Patch Level 2 - Licence Number VBF2470E4F
+|| # vBulletin 4.2.1 - Licence Number VBC2DDE4FB
 || # ---------------------------------------------------------------- # ||
-|| # Copyright ©2000-2013 Jelsoft Enterprises Ltd. All Rights Reserved. ||
+|| # Copyright ©2000-2013 vBulletin Solutions Inc. All Rights Reserved. ||
 || # This file may not be redistributed in whole or significant part. # ||
 || # ---------------- VBULLETIN IS NOT FREE SOFTWARE ---------------- # ||
 || # http://www.vbulletin.com | http://www.vbulletin.com/license.html # ||
@@ -14,7 +14,7 @@
 error_reporting(E_ALL & ~E_NOTICE);
 
 // ##################### DEFINE IMPORTANT CONSTANTS #######################
-define('CVS_REVISION', '$RCSfile$ - $Revision: 26379 $');
+define('CVS_REVISION', '$RCSfile$ - $Revision: 34257 $');
 
 // #################### PRE-CACHE TEMPLATES AND DATA ######################
 $phrasegroups = array('profilefield', 'cprofilefield');
@@ -53,13 +53,15 @@ $types = array(
 );
 
 $category_locations = array(
-	''                    => $vbphrase['only_in_about_me_tab'],
-	'profile_left_first'  => $vbphrase['main_column_first_tab'],
-	'profile_left_last'   => $vbphrase['main_column_last_tab'],
-	'profile_right_first' => $vbphrase['blocks_column_first'],
-	'profile_right_mini'  => $vbphrase['blocks_column_after_mini_stats'],
-	'profile_right_album' => $vbphrase['blocks_column_after_albums'],
-	'profile_right_last'  => $vbphrase['blocks_column_last']
+	''                        => $vbphrase['only_in_about_me_tab'],
+	'profile_tabs_first'      => $vbphrase['main_column_first_tab'],
+	'profile_tabs_last'       => $vbphrase['main_column_last_tab'],
+	'profile_sidebar_first'   => $vbphrase['blocks_column_first'],
+	'profile_sidebar_stats'   => $vbphrase['blocks_column_after_mini_stats'],
+	'profile_sidebar_friends' => $vbphrase['blocks_column_after_friends'],
+	'profile_sidebar_albums'  => $vbphrase['blocks_column_after_albums'],
+	'profile_sidebar_groups'  => $vbphrase['blocks_column_after_groups'],
+	'profile_sidebar_last'    => $vbphrase['blocks_column_last']
 );
 
 if (empty($_REQUEST['do']))
@@ -152,7 +154,8 @@ if ($_POST['do'] == 'updatecat')
 		'displayorder' => TYPE_UINT,
 		'title' => TYPE_NOHTML,
 		'location' => TYPE_STR,
-		'desc' => TYPE_STR
+		'desc' => TYPE_STR,
+		'allowprivacy' => TYPE_BOOL
 	));
 
 	if (empty($vbulletin->GPC['title']))
@@ -165,9 +168,9 @@ if ($_POST['do'] == 'updatecat')
 		// we are adding a new item
 		$db->query_write("
 			INSERT INTO " .TABLE_PREFIX . "profilefieldcategory
-				(profilefieldcategoryid, displayorder, location)
+				(profilefieldcategoryid, displayorder, location, allowprivacy)
 			VALUES
-				(NULL, " . $vbulletin->GPC['displayorder'] . ", '" . $db->escape_string($vbulletin->GPC['location']) . "')
+				(NULL, " . $vbulletin->GPC['displayorder'] . ", '" . $db->escape_string($vbulletin->GPC['location']) . "', " . intval($vbulletin->GPC['allowprivacy']) . ")
 		");
 
 		$vbulletin->GPC['profilefieldcategoryid'] = intval($db->insert_id());
@@ -178,7 +181,8 @@ if ($_POST['do'] == 'updatecat')
 		$db->query_write("
 			UPDATE " . TABLE_PREFIX . "profilefieldcategory SET
 				displayorder = " . $vbulletin->GPC['displayorder'] . ",
-				location = '" . $db->escape_string($vbulletin->GPC['location']) . "'
+				location = '" . $db->escape_string($vbulletin->GPC['location']) . "',
+				allowprivacy = " . intval($vbulletin->GPC['allowprivacy']) . "
 			WHERE profilefieldcategoryid = " . $vbulletin->GPC['profilefieldcategoryid'] . "
 		");
 	}
@@ -285,6 +289,7 @@ if ($_REQUEST['do'] == 'addcat' OR $_REQUEST['do'] == 'editcat')
 	);
 	print_select_row($vbphrase['location_on_profile_page_dfn'], 'location', $category_locations, $pfc['location']);
 	print_input_row($vbphrase['display_order'], 'displayorder', $pfc['displayorder']);
+	print_checkbox_row($vbphrase['allow_privacy_options'], 'allowprivacy', $pfc['allowprivacy']);
 	print_submit_row();
 }
 
@@ -345,10 +350,10 @@ if ($_REQUEST['do'] == 'modifycats')
 		{
 			print_cells_row(array(
 				$pfc['profilefieldcategoryid'],
-				"<div class=\"smallfont\" style=\"float:$stylevar[right]\"><em>" . construct_phrase($vbphrase['contains_x_fields'], $pfc['profilefieldscount']) . "</em></div>
+				"<div class=\"smallfont\" style=\"float:" . vB_Template_Runtime::fetchStyleVar('right') . "\"><em>" . construct_phrase($vbphrase['contains_x_fields'], $pfc['profilefieldscount']) . "</em></div>
 					<strong>" . $vbphrase['category' . $pfc['profilefieldcategoryid'] . '_title'] . '</strong>
 					<dfn>' . $vbphrase['category' . $pfc['profilefieldcategoryid'] . '_desc'] . "</dfn>",
-				"<input type=\"text\" name=\"order[$pfc[profilefieldcategoryid]]\" size=\"5\" value=\"$pfc[displayorder]\" class=\"bginput\" tabindex=\"1\" style=\"text-align:$stylevar[right]\" />",
+				"<input type=\"text\" name=\"order[$pfc[profilefieldcategoryid]]\" size=\"5\" value=\"$pfc[displayorder]\" class=\"bginput\" tabindex=\"1\" style=\"text-align:" . vB_Template_Runtime::fetchStyleVar('right') . "\" />",
 				construct_link_code($vbphrase['edit'], "profilefield.php?" . $vbulletin->session->vars['sessionurl'] . "do=editcat&amp;profilefieldcategoryid=$pfc[profilefieldcategoryid]") .
 					construct_link_code($vbphrase['delete'], "profilefield.php?" . $vbulletin->session->vars['sessionurl'] . "do=deletecat&amp;profilefieldcategoryid=$pfc[profilefieldcategoryid]")
 			), false, false, -1);
@@ -468,10 +473,6 @@ if ($_POST['do'] == 'update')
 		{
 			$vbulletin->GPC['profilefield']['height'] = 4;
 			$vbulletin->GPC['profilefield']['memberlist'] = 0;
-		}
-		else if ($vbulletin->GPC['newtype'] == 'checkbox')
-		{
-			$vbulletin->GPC['profilefield']['perline'] = $vbulletin->GPC['profilefield']['height'];
 		}
 		else if ($vbulletin->GPC['newtype'] == 'select_multiple')
 		{
@@ -707,14 +708,12 @@ if ($_REQUEST['do'] == 'add' OR $_REQUEST['do'] == 'edit')
 	}
 	if ($vbulletin->GPC['type'] == 'radio')
 	{
-		print_input_row($vbphrase['items_per_line'], 'profilefield[perline]', $profilefield['perline']);
 		print_textarea_row(construct_phrase($vbphrase['x_enter_the_options_that_the_user_can_choose_from'], $vbphrase['options']), 'profilefield[data]', $profilefield['data'], 10, 40, 0);
 		print_yes_no_row($vbphrase['set_default_if_yes_first'], 'profilefield[def]', $profilefield['def']);
 	}
 	if ($vbulletin->GPC['type'] == 'checkbox')
 	{
 		print_input_row($vbphrase['limit_selection'], 'profilefield[size]', $profilefield['limit']);
-		print_input_row($vbphrase['items_per_line'], 'profilefield[perline]', $profilefield['perline']);
 		if ($_REQUEST['do'] == 'add')
 		{
 			print_textarea_row(construct_phrase($vbphrase['x_enter_the_options_that_the_user_can_choose_from'], $vbphrase['options']) . "<br /><dfn>$vbphrase[note_max_31_options]</dfn>", 'profilefield[data]', '', 10, 40, 0);
@@ -1198,7 +1197,7 @@ if ($_POST['do'] == 'kill')
 	build_language();
 
 	require_once(DIR . '/includes/class_dbalter.php');
-	$db_alter =& new vB_Database_Alter_MySQL($db);
+	$db_alter = new vB_Database_Alter_MySQL($db);
 
 	$db->query_write("DELETE FROM " . TABLE_PREFIX . "profilefield WHERE profilefieldid = " . $vbulletin->GPC['profilefieldid']);
 	if ($db_alter->fetch_table_info('userfield'))
@@ -1286,9 +1285,9 @@ if ($_REQUEST['do'] == 'modify')
 				print_table_header(construct_phrase($vbphrase['user_profile_fields_in_area_x'], $formname), 5);
 
 				echo "
-				<col width=\"50%\" align=\"$stylevar[left]\"></col>
-				<col width=\"50%\" align=\"$stylevar[left]\"></col>
-				<col align=\"$stylevar[left]\" style=\"white-space:nowrap\"></col>
+				<col width=\"50%\" align=\"" . vB_Template_Runtime::fetchStyleVar('left') . "\"></col>
+				<col width=\"50%\" align=\"" . vB_Template_Runtime::fetchStyleVar('left') . "\"></col>
+				<col align=\"" . vB_Template_Runtime::fetchStyleVar('left') . "\" style=\"white-space:nowrap\"></col>
 				<col align=\"center\" style=\"white-space:nowrap\"></col>
 				<col align=\"center\" style=\"white-space:nowrap\"></col>
 				";
@@ -1347,7 +1346,7 @@ if ($_REQUEST['do'] == 'modify')
 					}
 				}
 
-				print_description_row("<input type=\"submit\" class=\"button\" value=\"$vbphrase[save_display_order]\" accesskey=\"s\" />", 0, 5, 'tfoot', $stylevar['right']);
+				print_description_row("<input type=\"submit\" class=\"button\" value=\"$vbphrase[save_display_order]\" accesskey=\"s\" />", 0, 5, 'tfoot', vB_Template_Runtime::fetchStyleVar('right'));
 
 				if (++$areacount < $numareas)
 				{
@@ -1370,8 +1369,8 @@ print_cp_footer();
 
 /*======================================================================*\
 || ####################################################################
-|| # Downloaded: 16:21, Sat Apr 6th 2013
-|| # CVS: $RCSfile$ - $Revision: 26379 $
+|| # Downloaded: 14:57, Sun Aug 11th 2013
+|| # CVS: $RCSfile$ - $Revision: 34257 $
 || ####################################################################
 \*======================================================================*/
 ?>

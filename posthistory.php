@@ -1,9 +1,9 @@
 <?php
 /*======================================================================*\
 || #################################################################### ||
-|| # vBulletin 3.7.2 Patch Level 2 - Licence Number VBF2470E4F
+|| # vBulletin 4.2.1 - Licence Number VBC2DDE4FB
 || # ---------------------------------------------------------------- # ||
-|| # Copyright ©2000-2013 Jelsoft Enterprises Ltd. All Rights Reserved. ||
+|| # Copyright ©2000-2013 vBulletin Solutions Inc. All Rights Reserved. ||
 || # This file may not be redistributed in whole or significant part. # ||
 || # ---------------- VBULLETIN IS NOT FREE SOFTWARE ---------------- # ||
 || # http://www.vbulletin.com | http://www.vbulletin.com/license.html # ||
@@ -134,9 +134,16 @@ if ($db->num_rows($histories_result) < 2)
 
 // fetching the history list
 $historybits = '';
+$shown_original = false;
 
 while ($history = $db->fetch_array($histories_result))
 {
+	// Don't show two original posts
+	if ($history['original'] AND $shown_original)
+	{
+		continue;
+	}
+
 	if ($newver == $history['postedithistoryid'])
 	{
 		$compare['newver'] = $history;
@@ -166,6 +173,7 @@ while ($history = $db->fetch_array($histories_result))
 	if ($history['original'])
 	{
 		$history['reason'] = $vbphrase['original_post'];
+		$shown_original = true;
 	}
 
 	$newver_selected = ($newver == $history['postedithistoryid'] ? 'checked="checked"' : '');
@@ -174,7 +182,12 @@ while ($history = $db->fetch_array($histories_result))
 	$history['reason'] = fetch_word_wrapped_string($history['reason']);
 
 	($hook = vBulletinHook::fetch_hook('posthistory_history_bits')) ? eval($hook) : false;
-	eval('$historybits .= "' . fetch_template('posthistory_listbit') . '";');
+	$templater = vB_Template::create('posthistory_listbit');
+		$templater->register('bgclass', $bgclass);
+		$templater->register('history', $history);
+		$templater->register('newver_selected', $newver_selected);
+		$templater->register('oldver_selected', $oldver_selected);
+	$historybits .= $templater->render();
 }
 
 // we do compare when we have two selected version from the database
@@ -201,21 +214,25 @@ if ($_REQUEST['do'] == 'compare')
 		{
 			$compare_show = array();
 
-			if ($diffrow->fetch_data_old() == $diffrow->fetch_data_new())
+			if ($diffrow->old_class == 'unchanged' AND $diffrow->new_class == 'unchanged')
 			{ // no change
-				$compare_show['olddata'] = fetch_word_wrapped_string(nl2br(htmlspecialchars_uni($diffrow->fetch_data_old())));
-				$compare_show['template'] = 'posthistory_content_not_changed';
+				$compare_show['olddata'] = fetch_word_wrapped_string(nl2br(htmlspecialchars_uni(implode("\n", $diffrow->fetch_data_old()))));
+
+				$templater = vB_Template::create('posthistory_content_not_changed');
 			}
 			else
 			{ // something has changed
-				$compare_show['olddata'] = fetch_word_wrapped_string(nl2br(htmlspecialchars_uni($diffrow->fetch_data_old())));
-				$compare_show['newdata'] = fetch_word_wrapped_string(nl2br(htmlspecialchars_uni($diffrow->fetch_data_new())));
-				$compare_show['template'] = 'posthistory_content_changed';
+				$compare_show['olddata'] = fetch_word_wrapped_string(nl2br(htmlspecialchars_uni(implode("\n", $diffrow->fetch_data_old()))));
+				$compare_show['newdata'] = fetch_word_wrapped_string(nl2br(htmlspecialchars_uni(implode("\n", $diffrow->fetch_data_new()))));
+
+				$templater = vB_Template::create('posthistory_content_changed');
 			}
+
+			$templater->register('compare_show', $compare_show);
 
 			($hook = vBulletinHook::fetch_hook('posthistory_comparebit')) ? eval($hook) : false;
 
-			eval('$comparebits .= "' . fetch_template($compare_show['template']) . '";');
+			$comparebits .= $templater->render();
 		}
 
 		$show['titlecompare'] = ($compare['oldver']['title'] != $compare['newver']['title']);
@@ -230,28 +247,39 @@ if ($_REQUEST['do'] == 'compare')
 // #############################################################################
 // draw navbar
 $navbits = array();
+$navbits[fetch_seo_url('forumhome', array())] = $vbphrase['forum'];
 $parentlist = array_reverse(explode(',', substr($forum['parentlist'], 0, -3)));
-foreach ($parentlist AS $forumid)
+foreach ($parentlist AS $forumID)
 {
-	$forum_title = $vbulletin->forumcache["$forumid"]['title'];
-	$navbits['forumdisplay.php?' . $vbulletin->session->vars['sessionurl'] . "f=$forumid"] = $forum_title;
+	$forumTitle = $vbulletin->forumcache["$forumID"]['title'];
+	$navbits[fetch_seo_url('forum', array('forumid' => $forumID, 'title' => $forumTitle))] = $forumTitle;
 }
-$navbits['showthread.php?' . $vbulletin->session->vars['sessionurl'] . "p=$postinfo[postid]"] = $thread['title'];
+$navbits[fetch_seo_url('thread', $threadinfo, array('p' => $postinfo['postid'])) . "#post$postinfo[postid]"] = $thread['prefix_plain_html'] . ' ' .$thread['title'];
 $navbits[''] = $vbphrase['post_edit_history'];
 
 $navbits = construct_navbits($navbits);
-eval('$navbar = "' . fetch_template('navbar') . '";');
+$navbar = render_navbar_template($navbits);
 
 ($hook = vBulletinHook::fetch_hook('posthistory_complete')) ? eval($hook) : false;
 
 // #############################################################################
 // output page
-eval('print_output("' . fetch_template('posthistory') . '");');
+$templater = vB_Template::create('posthistory');
+	$templater->register_page_templates();
+	$templater->register('button_text', $button_text);
+	$templater->register('comparebits', $comparebits);
+	$templater->register('form_do', $form_do);
+	$templater->register('historybits', $historybits);
+	$templater->register('navbar', $navbar);
+	$templater->register('newtitle', $newtitle);
+	$templater->register('oldtitle', $oldtitle);
+	$templater->register('postinfo', $postinfo);
+	$templater->register('threadinfo', $threadinfo);
+print_output($templater->render());
 
 /*======================================================================*\
 || ####################################################################
-|| # Downloaded: 16:21, Sat Apr 6th 2013
-|| # CVS: $RCSfile$ - $Revision: 26399 $
+|| # Downloaded: 14:57, Sun Aug 11th 2013
+|| # CVS: $RCSfile$ - $Revision: 40911 $
 || ####################################################################
 \*======================================================================*/
-?>

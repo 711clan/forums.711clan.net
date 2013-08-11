@@ -1,9 +1,9 @@
 <?php
 /*======================================================================*\
 || #################################################################### ||
-|| # vBulletin 3.7.2 Patch Level 2 - Licence Number VBF2470E4F
+|| # vBulletin 4.2.1 - Licence Number VBC2DDE4FB
 || # ---------------------------------------------------------------- # ||
-|| # Copyright ©2000-2013 Jelsoft Enterprises Ltd. All Rights Reserved. ||
+|| # Copyright ©2000-2013 vBulletin Solutions Inc. All Rights Reserved. ||
 || # This file may not be redistributed in whole or significant part. # ||
 || # ---------------- VBULLETIN IS NOT FREE SOFTWARE ---------------- # ||
 || # http://www.vbulletin.com | http://www.vbulletin.com/license.html # ||
@@ -56,11 +56,54 @@ if (!$reportthread AND !$reportemail)
 	eval(standard_error(fetch_error('emaildisabled')));
 }
 
-$reportobj =& new vB_ReportItem_Post($vbulletin);
-$reportobj->set_extrainfo('forum', $foruminfo);
-$reportobj->set_extrainfo('thread', $threadinfo);
-$perform_floodcheck = $reportobj->need_floodcheck();
+$vbulletin->input->clean_array_gpc('r', array(
+	'return_node' => TYPE_UINT,
+));
 
+if ($vbulletin->GPC['return_node'])
+{
+	$report_type = 'article_comment';
+	$content = new vBCms_Item_Content_Article($vbulletin->GPC['return_node']);
+
+	$reportobj = new vB_ReportItem_ArticleComment($vbulletin);
+	$reportobj->set_extrainfo('node', $vbulletin->GPC['return_node']);
+	$reportobj->set_extrainfo('forum', $foruminfo);
+	$reportobj->set_extrainfo('thread', $threadinfo);
+
+	// check cms permissions on the article
+	if (!$content->canView())
+	{
+		print_no_permission();
+	}
+
+	define('CMS_SCRIPT', true);
+	vB_View::registerTemplater(vB_View::OT_XHTML, new vB_Templater_vB());
+	vBCms_NavBar::prepareNavBar($content);
+}
+else
+{
+	$report_type = 'post';
+	$reportobj = new vB_ReportItem_Post($vbulletin);
+	$reportobj->set_extrainfo('forum', $foruminfo);
+	$reportobj->set_extrainfo('thread', $threadinfo);
+
+	$forumperms = fetch_permissions($threadinfo['forumid']);
+	if (
+		!($forumperms & $vbulletin->bf_ugp_forumpermissions['canview'])
+			OR
+		!($forumperms & $vbulletin->bf_ugp_forumpermissions['canviewthreads'])
+			OR
+		(($threadinfo['postuserid'] != $vbulletin->userinfo['userid']) AND !($forumperms & $vbulletin->bf_ugp_forumpermissions['canviewothers']))
+	)
+	{
+		print_no_permission();
+	}
+
+	// check if there is a forum password and if so, ensure the user has it set
+	verify_forum_password($foruminfo['forumid'], $foruminfo['password']);
+}
+
+$perform_floodcheck = $reportobj->need_floodcheck();
 if ($perform_floodcheck)
 {
 	$reportobj->perform_floodcheck_precommit();
@@ -69,18 +112,6 @@ if ($perform_floodcheck)
 if (empty($_REQUEST['do']))
 {
 	$_REQUEST['do'] = 'report';
-}
-
-$forumperms = fetch_permissions($threadinfo['forumid']);
-if (
-	!($forumperms & $vbulletin->bf_ugp_forumpermissions['canview'])
-		OR
-	!($forumperms & $vbulletin->bf_ugp_forumpermissions['canviewthreads'])
-		OR
-	(($threadinfo['postuserid'] != $vbulletin->userinfo['userid']) AND !($forumperms & $vbulletin->bf_ugp_forumpermissions['canviewothers']))
-)
-{
-	print_no_permission();
 }
 
 if (!$postinfo['postid'])
@@ -98,36 +129,60 @@ if ((!$threadinfo['visible'] OR $threadinfo['isdeleted']) AND !can_moderate($thr
 	eval(standard_error(fetch_error('invalidid', $vbphrase['thread'], $vbulletin->options['contactuslink'])));
 }
 
-// check if there is a forum password and if so, ensure the user has it set
-verify_forum_password($foruminfo['forumid'], $foruminfo['password']);
-
 ($hook = vBulletinHook::fetch_hook('report_start')) ? eval($hook) : false;
 
 if ($_REQUEST['do'] == 'report')
 {
-	// draw nav bar
+	// draw breadcrumbs depending on type
 	$navbits = array();
-	$parentlist = array_reverse(explode(',', $foruminfo['parentlist']));
-	foreach ($parentlist AS $forumID)
+	if ($report_type == 'article_comment')
 	{
-		$forumTitle = $vbulletin->forumcache["$forumID"]['title'];
-		$navbits['forumdisplay.php?' . $vbulletin->session->vars['sessionurl'] . "f=$forumID"] = $forumTitle;
+		vB::$vbulletin->options['selectednavtab'] = 'vbcms';
+
+		$home_url = vB::$vbulletin->options['site_tab_url']
+			. (stripos('?',  vB::$vbulletin->options['site_tab_url']) === false ? '?' : '&')
+			. "s=" . vB::$vbulletin->session->vars['sessionhash'];
+
+		$navbits[$home_url] = $vbphrase['vbcms_title'];
+		$breadcrumbs = $content->getBreadcrumbInfo();
+		foreach ($breadcrumbs AS $breadcrumb)
+		{
+			$navbits[$breadcrumb['link']] = $breadcrumb['title'];
+		}
+		$url = vBCms_Route_Content::getURL(array('node' => $vbulletin->GPC['return_node'] . '-' . $content->getUrl()));
+		$navbits[$url] = $content->getTitle();
+		$navbits[''] = $vbphrase['report_bad_articlecomment'];
 	}
-	$navbits['showthread.php?' . $vbulletin->session->vars['sessionurl'] . "p=$postid"] = $threadinfo['prefix_plain_html'] . ' ' . $threadinfo['title'];
-	$navbits[''] = $vbphrase['report_bad_post'];
+	else
+	{
+		$navbits[fetch_seo_url('forumhome', array())] = $vbphrase['forum'];
+		$parentlist = array_reverse(explode(',', $foruminfo['parentlist']));
+		foreach ($parentlist AS $forumID)
+		{
+			$forumTitle = $vbulletin->forumcache["$forumID"]['title'];
+			$navbits[fetch_seo_url('forum', array('forumid' => $forumID, 'title' => $forumTitle))] = $forumTitle;
+		}
+		$navbits[fetch_seo_url('thread', $threadinfo, array('p' => $postid)) . "#post$postid"] = $threadinfo['prefix_plain_html'] . ' ' . $threadinfo['title'];
+
+		$url = fetch_seo_url('thread', $threadinfo, array('p' => $postid)) . "#post$postid";
+		$navbits[''] = $vbphrase['report_bad_post'];
+	}
 	$navbits = construct_navbits($navbits);
 
-	require_once(DIR . '/includes/functions_editor.php');
-	$textareacols = fetch_textarea_width();
-	eval('$usernamecode = "' . fetch_template('newpost_usernamecode') . '";');
+	$usernamecode = vB_Template::create('newpost_usernamecode')->render();
 
-	eval('$navbar = "' . fetch_template('navbar') . '";');
+	$navbar = render_navbar_template($navbits);
 
 	($hook = vBulletinHook::fetch_hook('report_form_start')) ? eval($hook) : false;
 
-	$url = 'showthread.php?' . $vbulletin->session->vars['sessionurl'] . "p=$postid#post$postid";
 	$forminfo = $reportobj->set_forminfo($postinfo);
-	eval('print_output("' . fetch_template('reportitem') . '");');
+	$templater = vB_Template::create('reportitem');
+		$templater->register_page_templates();
+		$templater->register('forminfo', $forminfo);
+		$templater->register('navbar', $navbar);
+		$templater->register('url', $url);
+		$templater->register('usernamecode', $usernamecode);
+	print_output($templater->render());
 }
 
 if ($_POST['do'] == 'sendemail')
@@ -148,13 +203,13 @@ if ($_POST['do'] == 'sendemail')
 
 	$reportobj->do_report($vbulletin->GPC['reason'], $postinfo);
 
-	eval(print_standard_redirect('redirect_reportthanks'));
+	print_standard_redirect('redirect_reportthanks');  
 }
 
 /*======================================================================*\
 || ####################################################################
-|| # Downloaded: 16:21, Sat Apr 6th 2013
-|| # CVS: $RCSfile$ - $Revision: 26399 $
+|| # Downloaded: 14:57, Sun Aug 11th 2013
+|| # CVS: $RCSfile$ - $Revision: 62098 $
 || ####################################################################
 \*======================================================================*/
 ?>

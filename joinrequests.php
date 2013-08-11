@@ -1,9 +1,9 @@
 <?php
 /*======================================================================*\
 || #################################################################### ||
-|| # vBulletin 3.7.2 Patch Level 2 - Licence Number VBF2470E4F
+|| # vBulletin 4.2.1 - Licence Number VBC2DDE4FB
 || # ---------------------------------------------------------------- # ||
-|| # Copyright ©2000-2013 Jelsoft Enterprises Ltd. All Rights Reserved. ||
+|| # Copyright ©2000-2013 vBulletin Solutions Inc. All Rights Reserved. ||
 || # This file may not be redistributed in whole or significant part. # ||
 || # ---------------- VBULLETIN IS NOT FREE SOFTWARE ---------------- # ||
 || # http://www.vbulletin.com | http://www.vbulletin.com/license.html # ||
@@ -60,6 +60,8 @@ if (empty($_REQUEST['do']))
 	$_REQUEST['do'] = 'viewjoinrequests';
 }
 
+$includecss = array();
+
 ($hook = vBulletinHook::fetch_hook('joinrequest_start')) ? eval($hook) : false;
 
 // #############################################################################
@@ -93,6 +95,7 @@ if ($_POST['do'] == 'processjoinrequests')
 
 	// initialize an array to store requests that will be authorized
 	$auth = array();
+	$deny = array();
 	$delete = array();
 
 	// sort the requests according to the action specified
@@ -111,41 +114,50 @@ if ($_POST['do'] == 'processjoinrequests')
 				break;
 
 			case  0:	// this request will be denied
+				$deny[] = $requestid;
 				$delete[] = $requestid;
 				break;
 		}
 	}
 
 	// if we have any accepted requests, make sure they are valid
-	if (!empty($auth))
+	if (!empty($delete))
 	{
 		$users = $db->query_read_slave("
 			SELECT req.userid, user.username, user.usergroupid, user.membergroupids, req.usergrouprequestid
 			FROM " . TABLE_PREFIX . "usergrouprequest AS req
 			INNER JOIN " . TABLE_PREFIX . "user AS user USING(userid)
-			WHERE usergrouprequestid IN(" . implode(', ', $auth) . ")
+			WHERE usergrouprequestid IN(" . implode(', ', $delete) . ")
 			ORDER BY user.username
 		");
-		$auth = array();
+		$authusers = array();
+		$denyusers = array();
 		while ($user = $db->fetch_array($users))
 		{
-			if (!in_array($vbulletin->GPC['usergroupid'], fetch_membergroupids_array($user)))
+			if (!in_array($vbulletin->GPC['usergroupid'], fetch_membergroupids_array($user)) and
+				in_array($user['usergrouprequestid'],$auth))
 			{
-				$auth[] = $user['userid'];
+				$authusers[$user['userid']] = $user['usergrouprequestid'];
+			}
+			elseif (in_array($user['usergrouprequestid'], $deny))
+			{
+				$denyusers[$user['userid']] = $user['usergrouprequestid'];
 			}
 		}
-
-		// check that we STILL have some valid requests
-		if (!empty($auth))
-		{
-			$updateQuery = "
-				UPDATE " . TABLE_PREFIX . "user SET
-				membergroupids = IF(membergroupids = '', " . $vbulletin->GPC['usergroupid'] . ", CONCAT(membergroupids, '," . $vbulletin->GPC['usergroupid'] . "'))
-				WHERE userid IN(" . implode(', ', $auth) . ")
-			";
-			$db->query_write($updateQuery);
-		}
 	}
+
+	// check that we STILL have some valid requests
+	if (!empty($authusers))
+	{
+		$updateQuery = "
+			UPDATE " . TABLE_PREFIX . "user SET
+			membergroupids = IF(membergroupids = '', " . $vbulletin->GPC['usergroupid'] . ", CONCAT(membergroupids, '," . $vbulletin->GPC['usergroupid'] . "'))
+			WHERE userid IN(" . implode(', ', array_keys($authusers)) . ")
+		";
+		$db->query_write($updateQuery);
+	}
+
+	($hook = vBulletinHook::fetch_hook('joinrequest_process_complete')) ? eval($hook) : false;
 
 	// delete processed join requests
 	if (!empty($delete))
@@ -157,9 +169,7 @@ if ($_POST['do'] == 'processjoinrequests')
 		$db->query_write($deleteQuery);
 	}
 
-	($hook = vBulletinHook::fetch_hook('joinrequest_process_complete')) ? eval($hook) : false;
-
-	eval(print_standard_redirect('join_requests_processed', true, true));
+	print_standard_redirect('join_requests_processed', true, true);  
 }
 
 // #############################################################################
@@ -212,7 +222,7 @@ if ($_REQUEST['do'] == 'viewjoinrequests')
 			$optiontitle = construct_phrase($vbphrase['x_y_requests'], $vbulletin->usergroupcache["$optionvalue"]['title'], vb_number_format($usergroups["$optionvalue"]));
 			$optionselected = iif($optionvalue == $vbulletin->GPC['usergroupid'], 'selected="selected"', '');
 			$optionclass = '';
-			eval('$usergroupbits .= "' . fetch_template('option') . '";');
+			$usergroupbits .= render_option_template($optiontitle, $optionvalue, $optionselected, $optionclass);
 		}
 	}
 
@@ -250,7 +260,10 @@ if ($_REQUEST['do'] == 'viewjoinrequests')
 
 			($hook = vBulletinHook::fetch_hook('joinrequest_view_bit')) ? eval($hook) : false;
 
-			eval('$joinrequestbits .= "' . fetch_template('joinrequestsbit') . '";');
+			$templater = vB_Template::create('joinrequestsbit');
+				$templater->register('bgclass', $bgclass);
+				$templater->register('request', $request);
+			$joinrequestbits .= $templater->render();
 		}
 	} // end if ($numrequests > 0)
 
@@ -262,6 +275,8 @@ if ($_REQUEST['do'] == 'viewjoinrequests')
 		'profile.php?' . $vbulletin->session->vars['sessionurl'] . "do=editusergroups" => $vbphrase['group_memberships'],
 		'' => "$vbphrase[join_requests]: '$usergroup[title]'" // <phrase> ?
 	));
+
+	$includecss['joinrequests'] = 'joinrequests.css';
 }
 
 // #############################################################################
@@ -273,16 +288,39 @@ construct_usercp_nav('usergroups');
 
 ($hook = vBulletinHook::fetch_hook('joinrequest_complete')) ? eval($hook) : false;
 
-eval('$navbar = "' . fetch_template('navbar') . '";');
-eval('$HTML = "' . fetch_template('JOINREQUESTS') . '";');
+$navbar = render_navbar_template($navbits);
+$templater = vB_Template::create('JOINREQUESTS');
+	$templater->register('gobutton', $gobutton);
+	$templater->register('joinrequestbits', $joinrequestbits);
+	$templater->register('pagenav', $pagenav);
+	$templater->register('perpage', $perpage);
+	$templater->register('usergroup', $usergroup);
+	$templater->register('usergroupbits', $usergroupbits);
+	$templater->register('usergroupid', $usergroupid);
+$HTML = $templater->render();
+
+if (!$vbulletin->options['storecssasfile'])
+{
+	$includecss = implode(',', $includecss);
+}
 
 // shell template
-eval('print_output("' . fetch_template('USERCP_SHELL') . '");');
+$templater = vB_Template::create('USERCP_SHELL');
+	$templater->register_page_templates();
+	$templater->register('includecss', $includecss);
+	$templater->register('cpnav', $cpnav);
+	$templater->register('HTML', $HTML);
+	$templater->register('navbar', $navbar);
+	$templater->register('navclass', $navclass);
+	$templater->register('onload', $onload);
+	$templater->register('pagetitle', $pagetitle);
+	$templater->register('template_hook', $template_hook);
+print_output($templater->render());
 
 /*======================================================================*\
 || ####################################################################
-|| # Downloaded: 16:21, Sat Apr 6th 2013
-|| # CVS: $RCSfile$ - $Revision: 26957 $
+|| # Downloaded: 14:57, Sun Aug 11th 2013
+|| # CVS: $RCSfile$ - $Revision: 53346 $
 || ####################################################################
 \*======================================================================*/
 ?>

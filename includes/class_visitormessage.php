@@ -1,9 +1,9 @@
 <?php
 /*======================================================================*\
 || #################################################################### ||
-|| # vBulletin 3.7.2 Patch Level 2 - Licence Number VBF2470E4F
+|| # vBulletin 4.2.1 - Licence Number VBC2DDE4FB
 || # ---------------------------------------------------------------- # ||
-|| # Copyright ©2000-2013 Jelsoft Enterprises Ltd. All Rights Reserved. ||
+|| # Copyright ©2000-2013 vBulletin Solutions Inc. All Rights Reserved. ||
 || # This file may not be redistributed in whole or significant part. # ||
 || # ---------------- VBULLETIN IS NOT FREE SOFTWARE ---------------- # ||
 || # http://www.vbulletin.com | http://www.vbulletin.com/license.html # ||
@@ -120,7 +120,7 @@ class vB_Visitor_MessageFactory
 
 		($hook = vBulletinHook::fetch_hook('visitor_messagebit_factory')) ? eval($hook) : false;
 
-		if (class_exists($class_name))
+		if (class_exists($class_name, false))
 		{
 			return new $class_name($this->registry, $this, $this->bbcode, $this->userinfo, $message);
 		}
@@ -249,6 +249,7 @@ class vB_Visitor_Message
 
 		// preparation for display...
 		$this->prepare_start();
+		fetch_avatar_from_userinfo($this->message, true);
 
 		if ($this->message['userid'])
 		{
@@ -258,8 +259,6 @@ class vB_Visitor_Message
 		{
 			$this->process_unregistered_user();
 		}
-
-		fetch_avatar_from_userinfo($this->message, true);
 
 		$this->process_date_status();
 		$this->process_display();
@@ -273,18 +272,39 @@ class vB_Visitor_Message
 
 		$message =& $this->message;
 
-		global $show, $vbphrase, $stylevar;
+		global $show, $vbphrase;
 		global $spacer_open, $spacer_close;
 
 		global $bgclass, $altbgclass;
 		exec_switch_bg();
 
+		$pageinfo_vm_ignored = array(
+			'vmid'        => $message['vmid'],
+			'showignored' => 1,
+		);
+
+		$pageinfo_vm = array('vmid' => $message['vmid']);
+
+		$messageinfo = array(
+			'userid'   => $message['profileuserid'],
+			'username' => $message['profileusername'],
+		);
+
+		if (defined('VB_API') && VB_API === true)
+		{
+			$message['message'] = strip_tags($message['message']);
+		}
 
 		($hook = vBulletinHook::fetch_hook('visitor_messagebit_display_complete')) ? eval($hook) : false;
 
-		eval('$output = "' . fetch_template($this->template, 0, false) . '";');
+		$templater = vB_Template::create($this->template);
+			$templater->register('message', $message);
+			$templater->register('messageinfo', $messageinfo);
+			$templater->register('pageinfo_vm', $pageinfo_vm);
+			$templater->register('pageinfo_vm_ignored', $pageinfo_vm_ignored);
+			$templater->register('userinfo', $userinfo);
+		return $templater->render();
 
-		return $output;
 	}
 
 	/**
@@ -354,6 +374,7 @@ class vB_Visitor_Message
 					$this->registry->options['secureemail'] AND $this->registry->options['enableemail']
 				)
 			) AND $this->registry->userinfo['permissions']['genericpermissions'] & $this->registry->bf_ugp_genericpermissions['canemailmember']
+			AND $this->registry->userinfo['userid']
 		);
 		$show['homepage'] = ($this->message['homepage'] != '' AND $this->message['homepage'] != 'http://');
 		$show['pmlink'] = ($this->registry->options['enablepms'] AND $this->registry->userinfo['permissions']['pmquota'] AND ($this->registry->userinfo['permissions']['adminpermissions'] & $this->registry->bf_ugp_adminpermissions['cancontrolpanel']
@@ -397,7 +418,7 @@ class vB_Visitor_Message
 	{
 		$this->message['message'] = $this->bbcode->parse(
 			$this->message['pagetext'],
-			'socialmessage',
+			'visitormessage',
 			$this->message['allowsmilie']
 		);
 		$this->parsed_cache =& $this->bbcode->cached;
@@ -613,50 +634,12 @@ class vB_Visitor_Message_Global_Ignored extends vB_Visitor_Message
 	*/
 	function construct()
 	{
-		($hook = vBulletinHook::fetch_hook('visitor_messagebit_display_start')) ? eval($hook) : false;
-
 		if (!can_moderate(0, 'candeletevisitormessages') AND !can_moderate(0, 'canremovevisitormessages'))
 		{
 			return;
 		}
 
-		// preparation for display...
-		$this->prepare_start();
-
-		if ($this->message['userid'])
-		{
-			$this->process_registered_user();
-		}
-		else
-		{
-			$this->process_unregistered_user();
-		}
-
-		fetch_avatar_from_userinfo($this->message, true);
-
-		$this->process_date_status();
-		$this->process_display();
-		$this->process_text();
-		$this->prepare_end();
-
-		// actual display...
-		$userinfo =& $this->userinfo;
-
-		fetch_avatar_from_userinfo($userinfo, true);
-
-		$message =& $this->message;
-
-		global $show, $vbphrase, $stylevar;
-		global $spacer_open, $spacer_close;
-
-		global $bgclass, $altbgclass;
-		exec_switch_bg();
-
-		($hook = vBulletinHook::fetch_hook('visitor_messagebit_display_complete')) ? eval($hook) : false;
-
-		eval('$output = "' . fetch_template($this->template, 0, false) . '";');
-
-		return $output;
+		return parent::construct();
 	}
 }
 
@@ -713,8 +696,8 @@ class vB_Visitor_Message_Simple_Ignored extends vB_Visitor_Message
 
 /*======================================================================*\
 || ####################################################################
-|| # Downloaded: 16:21, Sat Apr 6th 2013
-|| # SVN: $Revision: 26601 $
+|| # Downloaded: 14:57, Sun Aug 11th 2013
+|| # SVN: $Revision: 60418 $
 || ####################################################################
 \*======================================================================*/
 ?>

@@ -7,106 +7,90 @@
 <body>
 
 <div class="tborder">
-<div class="thead">Amendment No. 1 to vBulletin (Series 3.x) License Agreement</div>
-<div class="alt1">
-    <p>This Amendment No. 1 (this “Amendment”) to the vBulletin (Series 3.x) License Agreement (the “Agreement”) for Jelsoft Enterprises Limited is a legally-binding agreement between Jelsoft Enterprises Limited and each authorized license holder.</p>
 
-    <p>All references to "Jelsoft Enterprises Limited” or “Jelsoft” in the Agreement, are hereby deleted and replaced in their entirety to read: "vBulletin Solutions, Inc.” or “vBulletin Solutions”, as applicable.</p>
+<h1>vBulletin 4.0 Software License Agreement</h1>
 
-    <p>The sentence in the Agreement which reads “This Agreement is governed by the laws of England and Wales.” is deleted in its entirety and replaced with the following:  “This Agreement is governed by and construed in accordance with the laws of the State of California, United States of America.  You hereby consent to the exclusive jurisdiction and venue in the state and federal courts of the County of Los Angeles, California and the Central District of California, respectively.”</p>
+<p>This Software License Agreement (this "Agreement") is between you (either an individual or an entity, referred to hereinafter as "you" or "your") and vBulletin Solutions, Inc., a wholly-owned subsidiary of Internet Brands, Inc., and its affiliates ("vBulletin Solutions", "we", "our" or "us") for the vBulletin 4.0 software that accompanies this Agreement, as may be updated or replaced by feature enhancements, software updates or maintenance releases (the "Software") and any services that may be provided by vBulletin Solutions under this Agreement ("Services"). Do not use the Software until you have carefully read the following Agreement.</p>
 
-    <p>vBulletin Solutions may amend the Agreement at any time.  Any such amendment(s) shall be binding and effective one (1) day after posting of the Amendment on vBulletin.com’s website. If any change is unacceptable to you, your only recourse is to terminate your license under the Agreement.  Your continued use of the vBulletin.com’s website and services following notice to you of a change shall constitute your acceptance of the change.</p>
+<p>By installing, copying, accessing, downloading or using the Software (or authorizing any other person to do so) you are indicating that you are 18 years of age or older (any parent or guardian of a person under the age of 18 may accept this Agreement on behalf of a user), are capable of entering into a binding legal agreement, have read and understand this Agreement and you accept its terms and conditions. If you do not agree with the terms and conditions of this Agreement, do not install, copy, access, download or use the Software.</p>
 
-    <p>Except as it has been specifically amended by this Amendment, the terms and conditions of the Agreement shall from and after the date hereof continue in full force and effect.</p>
+<h2>1. Grant of License</h2>
 
-    <p>vBulletin is a registered trademark of Jelsoft Enterprises Limited in the U.K., and vBulletin™ is a trademark of vBulletin Solutions, Inc. in the United States.</p>
+<p>Subject to the terms and conditions of this Agreement, vBulletin Solutions grants to you a limited, non-exclusive, worldwide license to install, download and use a single instance of the Software on a single website server ("License") through a single installation. Each License may run one instance of the Software on one domain. Any modification of the Software intended to circumvent the foregoing is prohibited and will result in revocation of the License.</p>
 
-    <p>Posting Date:  01/08/2010<br />
-Effective Date:  01/09/2010</p>
-</div>
+<p>If you are the original licensee of the Software, you may make a one-time, permanent transfer of your license rights in the Software to a third party ("Subsequent Licensee") provided that five (5) conditions are met.  The conditions are: (a) you are the original licensee, (b) the Software was purchased by you more than 90 days prior to the transfer, (c) you do not keep a copy of the Software for yourself, (d) the Subsequent Licensee agrees to the terms of this Agreement and the License, and (e) the Subsequent Licensee agrees to assume your license rights in the Software, excluding this transfer right. For sake of clarity, the right to transfer the Software belongs solely to the original licensee; the Subsequent Licensee is prohibited from transferring its rights to any third party. You must disclose the domain where you are using (or plan to use) the License, which may be disclosed in the vBulletin registered members area. You may set up one additional temporary test forum for the purpose of testing code, template and database modifications. Such a test forum must be password protected, and not made available to the general public at any time.</p>
 
-	<div class="tcat">vBulletin License Agreement</div>
-	<div class="alt1">
-		<p>vBulletin ('the Software') is a copyrighted work of authorship and is also protected under applicable database laws. Jelsoft retains ownership of the Software and any copies of it, regardless of the form in which the copies may exist. This license is not a sale of the original Software or any copies.</p>
+<p>For purposes of this Agreement, "Software" includes (and the terms and conditions of this Agreement will apply to) any updates, updated or replacement features enhancements, bug fixes or modified versions (collectively, "Update"). "Update" means a release of the Software which adds minor functionality enhancements to the current version. This class of release is identified by the change of the version number to the right of the decimal point, i.e. 4.1 to 4.2. Notwithstanding any other provision of this Agreement, you have no License or right to use any such Update unless, at the time of acquiring such Update, you already hold a valid License to the original Software and have paid any applicable fee for the Update.</p>
 
-		<p>By installing and using vBulletin on your server, you agree to the following terms and conditions. Such agreement is either on your own behalf or on behalf of any corporate entity which employs you or which you represent ('Corporate Licensee'). In this Agreement, 'you' includes both the reader and any Corporate Licensee and 'Jelsoft' means Jelsoft Enterprises Limited:</p>
+<h2>2. Restrictions</h2>
 
-		<ul>
-			<li>vBulletin license grants you the right to run one instance (a single installation) of the Software on one web server and one web site for each license purchased. Each license may power one instance of the Software on one domain. For each installed instance of the Software, a separate license is required. <em>Modifications to the Software or database to circumvent the one-license-one-board rule are prohibited</em>.</li>
-			<li>The Software is licensed only to you. You may not rent, lease, sublicense, sell, assign, pledge, transfer or otherwise dispose of the Software in any form, on a temporary or permanent basis, without the prior written consent of Jelsoft.</li>
-			<li>If you have a valid Software license, you may set up an additional test forum in order to test code, template and database modifications. To make this clear to us and our license verification procedures, place it in a directory called 'testvb' and be sure to password protect it. It must not be accessible by the general public.</li>
-			<li>The license is effective until terminated (Owned License)/The license is effective for one year from the date you purchase the Software (Leased License). You may terminate it at any time by uninstalling the Software and destroying any copies in any form.</li>
-			<li>You undertake to;
-				<ul>
-					<li>ensure that, prior to use of the Software by your employees or agents, all such parties are notified of the terms of this Agreement; and</li>
-					<li>hold all data (including object and source codes), software listings and all other information relating to the Software confidential and not at any time, during the period of the license or after its expiry, disclose the same whether directly or indirectly to any third party without Jelsoft's consent.</li>
-					<li>not to use the Software for any illegal purposes and shall comply with all applicable legislation.</li>
-				</ul>
-			</li>
-			<li>Jelsoft may, at its discretion, allow you to transfer your Software license to another party, providing the license:
-				<ul>
-					<li>has not already been transferred in the previous 12 months; and</li>
-					<li>was purchased more than 3 months in the past.</li>
-					<li>is an active owned license</li>
-				</ul></li>
-				<li>Please note, leased licenses are <em>not</em> eligible for transfer
-			</li>
-			<li>After the expiry of a leased license, the Software must either be removed from the server, the licensed renewed or another license purchased.</li>
-			<li>All customers must submit the URL where they are using (or plan to use) each license. The URL can be submitted via the vBulletin members area.</li>
-			<li>The Software source code may be altered (at your risk)</li>
-			<li>All Software copyright notices within design templates must remain unchanged (and visible). </li>
-			<li>The Software may not be used for anything that would represent or is associated with an Intellectual Property violation, including, but not limited to, engaging in any activity that infringes or misappropriates the intellectual property rights of others, including copyrights, trademarks, service marks, trade secrets, software piracy, and patents held by individuals, corporations, or other entities.</li>
-			<li>If any of the terms of this Agreement are violated, Jelsoft reserves the right to revoke the Software license at any time.</li>
-			<li>Refunds will be given at the discretion of Jelsoft.</li>
-		</ul>
+<p>You may not give copies to another person, or duplicate the Software by any other means, including electronic transmission. You may make one copy of the Software in machine-readable form for backup purposes only; provided that the backup copy must include all copyright or other proprietary notices contained on the original. You may not rent, sublicense, assign, lease, loan, resell for profit, distribute, publish or network the Software or related materials or create derivative works based upon the Software or any part thereof.</p>
 
-		<p>If you are also installing and using Project Tools, you agree to the following additional terms and conditions.</p>
+<p>You may not use the Software to engage in or allow others to engage in any illegal activity where the Software is accessed and used. You may not use the Software to engage in any activity that will violate the rights of third parties, including, without limitation, through the use, public display, public performance, reproduction, distribution, or modification of communications or materials that infringe copyrights, trademarks, publicity rights, privacy rights, other proprietary rights, or rights against defamation of third parties.</p>
 
-		<ul>
-		<li>By installing and using Project Tools, you agree that all of the terms and conditions of the vBulletin License Agreement shall also apply to your use of Project Tools and the definition of "Software" shall automatically be deemed to include Project Tools.</li>
-		<li>Project Tools is licensed to you solely for use in connection with vBulletin, and may not be integrated into any stand alone third party software applications, with the exception of other vBulletin add-on products and modifications.</li>
-		<li>Your license to use Project Tools is valid and effective only so long as you continue to hold a valid license for the use of vBulletin, and may not be disassociated from that license.  Should your vBulletin license be transferred, your license to use Project Tools will transfer simultaneously.  Similarly, if your vBulletin license is terminated, your license to use Project Tools will terminate simultaneously.</li>
-		</ul>
+<h2>3. Ownership Rights</h2>
 
-		<p>If you are also installing and using vBulletin Blog, you agree to the following additional terms and conditions.</p>
+<p>The Software is licensed to you by vBulletin Solutions for use only under the terms and conditions of the License. vBulletin Solutions reserves all rights not granted to you. The Software in its entirety is protected by U.S. and international copyright laws and treaty provisions. vBulletin Solutions owns and retains all right, title and interest in and to the Software, including all copyrights, patents, trade secret rights, trademarks, service marks and other intellectual property rights therein. Your possession, installation, or use of the Software does not transfer to you any title to the intellectual property in the Software, and you will not acquire any rights to the Software except as expressly set forth in this Agreement. All copies of the Software made hereunder must contain the same proprietary notices that appear on and in the Software, including all Software copyright notices embedded in any design template which must remain unaltered from the original and visible at all times. vBulletin is a registered trademark of vBulletin Solutions in the U.S. and in the U.K.</p>
 
-		<ul>
-		<li>By installing and using vBulletin Blog, you agree that all of the terms and conditions of the vBulletin License Agreement shall also apply to your use of vBulletin Blog and the definition of "Software" shall automatically be deemed to include vBulletin Blog.</li>
-		<li>vBulletin Blog is licensed to you solely for use in connection with vBulletin, and may not be integrated into any stand alone third party software applications, with the exception of other vBulletin add-on products and modifications.</li>
-		<li>Your license to use vBulletin Blog is valid and effective only so long as you continue to hold a valid license for the use of vBulletin, and may not be disassociated from that license.  Should your vBulletin license be transferred, your license to use vBulletin Blog will transfer simultaneously.  Similarly, if your vBulletin license is terminated, your license to use vBulletin Blog will terminate simultaneously.</li>
-		</ul>
-	</div>
-	<div class="thead">Disclaimer of Warranty</div>
-	<div class="alt1">
-		<p><strong>The software and the accompanying files are sold "As Is" and without warranties as to performance of merchantability or any other warrantied whether expressed or implied.</strong></p>
+<h2>4. Termination</h2>
 
-		<p>Jelsoft does not monitor the forums powered by the Software. Jelsoft is not liable for the content of any message posted on a forum powered by the Software.</p>
+<p>The License for the Software is effective until terminated. You may terminate the License at any time by uninstalling the Software and destroying all copies of the Software in any media. This Agreement may be terminated by vBulletin Solutions immediately and without notice if you fail to comply with any term or condition of the License or this Agreement. Upon such termination, you must immediately cease using the Software, and destroy all complete and partial copies of the Software.</p>
 
-		<p><strong>Jelsoft cannot be held responsible and accepts no liability for any failure in transmission by you and where for whatever reason your transmission is corrupted fails to arrive or arrives after an undue delay or is received in an unintelligible form.</strong></p>
+<p><strong>Leased-License Holders Only</strong>. For leased-license holders of any previous version of vBulletin software, up to and including version 3.8, the License terminates on the last day of your current leased-license agreement with Jelsoft. You may, however, purchase the Software prior to such end date, in which case the License will continue as specified in the first paragraph of this Section 4. Use of the Software after that end date without purchase makes the License void and you must immediately cease using the Software, and destroy all complete and partial copies of the Software.</p>
 
-		<p><strong>You must assume the entire risk of using the Software. ANY LIABILITY OF JELSOFT WILL BE LIMITED EXCLUSIVELY TO PRODUCT REPLACEMENT OR REFUND OF PURCHASE PRICE.</strong></p>
+<p>vBulletin Solutions reserves the right to change or add to the terms of this Agreement at any time (including but not limited to Internet-based Services, pricing, technical support options, and other product-related policies), and to change, discontinue or impose conditions on any feature or aspect of the Software, or any Internet-based Services provided to you or made available to you through use of the Software. Such changes will be effective upon notification by any means reasonable to give you actual or constructive notice including by posting such terms on the vBulletin.com website, or another website designated by vBulletin Solutions. Your continued use of the Software will indicate your agreement to any such change.</p>
 
-		<p><strong>Except in respect of personal injury or death caused directly by the negligence of Jelsoft, in no event will Jelsoft be liable to you for any damages, including any lost profits, lost savings, loss of data or any indirect, special, incidental or consequential damages arising out of the use of or inability to use such Software, even if Jelsoft has been advised of the possibility of such damages. Nothing in this Agreement limits liability for fraudulent misrepresentation.</strong></p>
+<h2>5. Registration Data</h2>
 
-		<p>Terms in this Agreement excluding or limiting liability in relation to breach of the terms implied by the "Supply of Goods (Implied Terms) Act 1973 or the Sale of Goods Act 1979 do not apply when this Agreement is made with a consumer.</p>
+<p>You must register to use the Software and Services and (a) provide true, accurate, current and complete information as prompted by the sign-up process (the "Registration Data"), and (b) maintain and promptly update the Registration Data to keep it accurate, current and complete. If you provide any Registration Data that is inaccurate, not current or incomplete, or we have reasonable grounds to suspect is inaccurate, not current or incomplete, we may suspend or terminate your account unless and until such data is corrected or completed, or we may refuse any and all current or future access to and use of the Software or Services (or any portion thereof).</p>
 
-		<p>This license gives you specific legal rights and you may have other rights that vary from country to country.  Some jurisdictions do not allow the exclusion of implied warranties, or certain kinds of limitations or exclusions of liability, so the above limitations and exclusions may not apply to you.  Other jurisdictions allow limitations and exclusions subject to certain conditions.  In such a case the above limitations and exclusions shall apply to the fullest extent permitted by the laws of such applicable jurisdictions.  If any part of the above limitations or exclusions is held to be void of unenforceable, such part shall be deemed to be deleted from this agreement and the remainder of the limitation or exclusion shall continue in full force and effect.  Any rights that you may have as a consumer (i.e. a purchaser for private as opposed to business, academic or government use) are not affected.</p>
-	</div>
-	<div class="thead">General</div>
-	<div class="alt1">
-		<p>From time to time, Jelsoft may inspect your registration integrity. This will be done without collecting any information whatsoever about your server or your users. The only information verified will be your license number and the domain on which the software is run. Should Jelsoft discover discrepancies in the software usage, be aware that you may lose your license and may face legal actions for Software Piracy. Your information will not be shared with 3rd parties. Occasionally, it is necessary to record your IP address for security and performance monitoring.</p>
+<h2>6. Account Access Information and Data</h2>
 
-		<p>Please be aware that we subcontract our anti-piracy measures to Pirate Reports. They may contact you to clarify your license legality, and will use an
-email address &#064;vbulletin.com or &#064;piratereports.com.</p>
+<p>You are solely responsible for (a) maintaining the confidentiality and security of your access number(s), password(s), security question(s) and answer(s), account number(s), login information, and any other security or access information, used by you to access the Software and Services (collectively, "Access Information"), and (b) preventing unauthorized access to or use of the information, files or data that you store or use in or with the Software and Services (collectively, "Account Data"). We will assume that any communications we receive through use of the Access Information were sent or authorized by you.</p>
 
-		<p>This Agreement constitutes the complete statement of the agreement between you and Jelsoft, and supersedes all representations, understandings or prior agreements between you and Jelsoft.</p>
+<h2>7. Fees and Payments</h2>
 
-		<p>Jelsoft reserves the right to modify these terms at any time.</p>
+<p>We reserve the right to charge fees for future Services in our sole discretion. If we decide to charge for the Services, such charges will be disclosed to you prior to our charging for them.</p>
 
-		<p>This Agreement is governed by the laws of England and Wales.</p>
+<h2>8. Feedback</h2>
 
-		<p>vBulletin&trade; is a registered trademark of Jelsoft Enterprises Ltd.</p>
-	</div>
+<p>We may provide you with a mechanism to provide feedback, suggestions and ideas about the Software. You agree that we may use the feedback you provide in any way, including in future modifications of the Software. You grant us a perpetual, worldwide, fully transferable, non-revocable, royalty free license to use, modify, create derivative works from, distribute and display any information you provide to us in the feedback.</p>
+
+<h2>9. DISCLAIMER OF WARRANTIES</h2>
+
+<p>THE SOFTWARE IS PROVIDED "AS-IS," AND TO THE MAXIMUM EXTENT PERMITTED BY APPLICABLE LAW, VBULLETIN SOLUTIONS DISCLAIMS ALL OTHER WARRANTIES, EXPRESS OR IMPLIED, BY STATUTE OR OTHERWISE, REGARDING THE SOFTWARE AND ANY RELATED MATERIALS, INCLUDING THEIR FITNESS FOR A PARTICULAR PURPOSE, THEIR QUALITY, THEIR MERCHANTABILITY, OR THEIR NONINFRINGEMENT. VBULLETIN SOLUTIONS DOES NOT WARRANT THAT THE SOFTWARE OR ANY RELATED SERVICES OR CONTENT IS SECURE, OR IS FREE FROM BUGS, VIRUSES, ERRORS, OR OTHER PROGRAM LIMITATIONS NOR DOES IT WARRANT ACCESS TO THE INTERNET OR TO ANY OTHER SERVICE THROUGH THE SOFTWARE. SOME JURISDICTIONS DO NOT ALLOW THE EXCLUSION OF IMPLIED WARRANTIES, SO THE ABOVE EXCLUSIONS MAY NOT APPLY TO YOU. IN THAT EVENT, ANY IMPLIED WARRANTIES ARE LIMITED IN DURATION TO 30 DAYS FROM THE DATE OF PURCHASE OF THE SOFTWARE. THIS WARRANTY GIVES YOU SPECIFIC LEGAL RIGHTS. YOU MAY HAVE OTHER RIGHTS, WHICH VARY FROM JURISDICTION TO JURISDICTION. THE ENTIRE RISK AS TO THE RESULTS, QUALITY AND PERFORMANCE OF THE SOFTWARE IS WITH YOU.</p>
+
+<h2>10. LIMITATION OF LIABILITY</h2>
+
+<p>TO THE MAXIMUM EXTENT PERMITTED BY APPLICABLE LAW, VBULLETIN SOLUTIONS, INTERNET BRANDS AND ITS AFFILIATES WILL NOT BE LIABLE FOR ANY INDIRECT, SPECIAL, INCIDENTAL, OR CONSEQUENTIAL DAMAGES (INCLUDING DAMAGES FOR LOSS OF BUSINESS, LOSS OF PROFITS, OR THE LIKE), WHETHER BASED ON BREACH OF CONTRACT, TORT (INCLUDING NEGLIGENCE), PRODUCT LIABILITY OR OTHERWISE, EVEN IF VBULLETIN SOLUTIONS, INTERNET BRANDS OR ITS REPRESENTATIVES OR AFFILIATES HAVE BEEN ADVISED OF THE POSSIBILITY OF SUCH DAMAGES AND EVEN IF A REMEDY SET FORTH HEREIN IS FOUND TO HAVE FAILED OF ITS ESSENTIAL PURPOSE. VBULLETIN SOLUTIONS’ AND INTERNET BRANDS’ TOTAL LIABILITY TO YOU FOR ACTUAL DAMAGES FOR ANY CAUSE WHATSOEVER WILL BE LIMITED TO THE PURCHASE PRICE AMOUNT PAID BY YOU FOR THE SOFTWARE. SOME JURISDICTIONS DO NOT ALLOW THE LIMITATION OR EXCLUSION OF LIABILITY FOR INCIDENTAL OR CONSEQUENTIAL DAMAGES, SO THE ABOVE LIMITATION OR EXCLUSION MAY NOT APPLY TO YOU. THE LIMITATIONS OF THE DAMAGES SET FORTH HEREIN ARE FUNDAMENTAL ELEMENTS OF THE BASIS OF THE BARGAIN BETWEEN VBULLETIN SOLUTIONS AND YOU; VBULLETIN SOLUTIONS WOULD NOT HAVE BEEN ABLE TO PROVIDE THE SOFTWARE TO YOU WITHOUT SUCH LIMITATIONS.</p>
+
+<h2>11. Indemnification</h2>
+
+<p>You agree to defend, indemnify and hold vBulletin Solutions, Internet Brands, and our officers, directors, employees, agents or affiliates, harmless from and against any and all claims, losses, liability costs and expenses (including but not limited to attorneys' fees) arising from your use of the Software or your vBulletin forum users' use of the Software, laws or regulations, or any third party's rights, including but not limited to infringement of any copyright, violation of any proprietary right or invasion of any privacy rights. This obligation will survive the termination of this Agreement.</p>
+
+<h2>12. U.S. Government End Users</h2>
+
+<p>The Software and any related documentation are "Commercial Items", as that term is defined at 48 C.F.R. §2.101, consisting of "Commercial Computer Software" and "Commercial Computer Software Documentation", as such terms are used in 48 C.F.R. §12.212 or 48 C.F.R. §227.7202, as applicable. Consistent with 48 C.F.R. §12.212 or 48 C.F.R. §227.7202-1 through 227.7202-4, as applicable, the Commercial Computer Software and Commercial Computer Software Documentation are being licensed to U.S. Government end users (a) only as Commercial Items, and (b) with only those rights as are granted to all other end users pursuant to the terms and conditions herein. Unpublished-rights are reserved under the copyright laws of the United States.</p>
+
+<h2>13. Export Control</h2>
+
+<p>The manufacture and sale of the Software is subject to the export control laws of the United States. You may not use or otherwise export or re-export the Software except as authorized by United States law and the laws of the jurisdiction in which the Software was purchased. In particular, but without limitation, the Software may not be exported or re-exported (a) into any U.S. embargoed countries, or (b) to anyone on the U.S. Treasury Department's list of Specially Designated Nationals or the U.S. Department of Commerce Denied Person’s List or Entity List. By using the Software, you represent and warrant that you are not located in any such country or jurisdiction, or on any such list. You also agree that you will not use these products for any purposes prohibited by United States law or the law of the jurisdiction in which the Software was purchased, including, without limitation, the development, design, manufacture or production of missiles, or nuclear, chemical or biological weapons.</p>
+
+<h2>14. Controlling Law; Severability</h2>
+
+<p>The License and this Agreement are governed by and construed in accordance with the laws of the State of California, United States of America. You hereby consent to the exclusive jurisdiction and venue in the state and federal courts of the County of Los Angeles, California and the Central District of California, respectively. The License will not be governed by the United Nations Convention on Contracts for the International Sale of Goods, the application of which is expressly excluded. If for any reason a court of competent jurisdiction finds any provision, or portion thereof, to be unenforceable, the remainder of the License will continue in full force and effect. Unless otherwise required by law, an action or proceeding by you to enforce an obligation, duty, or right arising under the License or this Agreement or by law with respect to the Software or Services must be commenced within one (1) year after the cause of action accrues.</p>
+
+<h2>15. Refund Policy for Purchases of vBulletin Products</h2>
+
+<p>No refunds will be offered for the Software once it has been downloaded.  No refunds will be offered for the purchase of other vBulletin products.</p>
+<p>A refund request can be made through your customer account located at www.vbulletin.com and must be received within 60 calendar days of the purchase date. Refunds will be offered based on your original method of payment.  If a request is received within 30 days of the purchase date, a refund will be offered of the purchase price, less a US$25.00 administrative fee.  If a request is received between the 31st and 60th day following the purchase date, a refund of 50% of the purchase price will be offered, less a US$25.00 administrative fee.</p>
+
+<h2>16. Miscellaneous</h2>
+
+<p>You acknowledge that, in providing you with the Software and/or Services, vBulletin Solutions has relied upon your agreement to be bound by the terms of this Agreement. You further acknowledge that you have read, understood, and agreed to be bound by the terms of the License and this Agreement, and hereby reaffirm your acceptance of those terms. You further acknowledge that this Agreement constitutes the complete statement of the agreement between you and vBulletin Solutions, and that this Agreement does not include any other prior or contemporaneous promises, representations, or descriptions regarding the Software. The unauthorized agents, employees or distributors of vBulletin Solutions or its affiliates are not authorized to make modifications to this Agreement, or to make any additional representations, commitments, or warranties binding on vBulletin Solutions. Accordingly, additional statements, whether oral or written, do not constitute representations or warranties by vBulletin Solutions and should not be relied upon.</p>
+
+<p>Revised: 6/17/2010</p>
+
 </div>
 
 </body>

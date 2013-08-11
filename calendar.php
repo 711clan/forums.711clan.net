@@ -1,9 +1,9 @@
 <?php
 /*======================================================================*\
 || #################################################################### ||
-|| # vBulletin 3.7.2 Patch Level 2 - Licence Number VBF2470E4F
+|| # vBulletin 4.2.1 - Licence Number VBC2DDE4FB
 || # ---------------------------------------------------------------- # ||
-|| # Copyright ©2000-2013 Jelsoft Enterprises Ltd. All Rights Reserved. ||
+|| # Copyright ©2000-2013 vBulletin Solutions Inc. All Rights Reserved. ||
 || # This file may not be redistributed in whole or significant part. # ||
 || # ---------------- VBULLETIN IS NOT FREE SOFTWARE ---------------- # ||
 || # http://www.vbulletin.com | http://www.vbulletin.com/license.html # ||
@@ -39,6 +39,11 @@ $specialtemplates = array(
 $globaltemplates = array(
 	'calendarjump',
 	'calendarjumpbit',
+	'bbcode_code',
+	'bbcode_html',
+	'bbcode_php',
+	'bbcode_quote',
+	'bbcode_video',
 );
 
 // pre-cache templates used by specific actions
@@ -78,7 +83,8 @@ $actiontemplates = array(
 		'calendar_showevents',
 		'calendar_showbirthdays',
 		'calendar_showeventsbit',
-		'calendar_showeventsbit_customfield'
+		'calendar_showeventsbit_customfield',
+		'CALENDAR'
 	),
 	'edit' => array(
 		'calendar_edit',
@@ -146,12 +152,15 @@ if (!$vbulletin->GPC['calendarid'])
 	if ($vbulletin->GPC['eventid'])
 	{ // get calendarid for this event
 		if ($eventinfo = $db->query_first_slave("
-			SELECT event.*, user.username, IF(dateline_to = 0, 1, 0) AS singleday,
-			IF(user.displaygroupid = 0, user.usergroupid, user.displaygroupid) AS displaygroupid, infractiongroupid
+			SELECT event.*, IF(dateline_to = 0, 1, 0) AS singleday,
+			user.*, user.username, IF(user.displaygroupid = 0, user.usergroupid, user.displaygroupid) AS displaygroupid,
+			user.adminoptions, user.usergroupid, user.membergroupids, user.infractiongroupids, IF(options & " . $vbulletin->bf_misc_useroptions['hasaccessmask'] . ", 1, 0) AS hasaccessmask
 			" . ($vbulletin->userinfo['userid'] ? ", subscribeevent.eventid AS subscribed" : "") . "
+			" . ($vbulletin->options['avatarenabled'] ? ",avatar.avatarpath, NOT ISNULL(customavatar.userid) AS hascustomavatar, customavatar.dateline AS avatardateline,customavatar.width AS avwidth,customavatar.height AS avheight" : "") . "
 			FROM " . TABLE_PREFIX . "event AS event
 			LEFT JOIN " . TABLE_PREFIX . "user AS user ON(user.userid = event.userid)
 			" . ($vbulletin->userinfo['userid'] ? "LEFT JOIN " . TABLE_PREFIX . "subscribeevent AS subscribeevent ON(subscribeevent.eventid = " . $vbulletin->GPC['eventid'] . " AND subscribeevent.userid = " . $vbulletin->userinfo['userid'] . ")" : "") . "
+			" . ($vbulletin->options['avatarenabled'] ? "LEFT JOIN " . TABLE_PREFIX . "avatar AS avatar ON(avatar.avatarid = user.avatarid) LEFT JOIN " . TABLE_PREFIX . "customavatar AS customavatar ON(customavatar.userid = user.userid)" : "") . "
 			WHERE event.eventid = " . $vbulletin->GPC['eventid']))
 		{
 			$vbulletin->GPC['calendarid'] =& $eventinfo['calendarid'];
@@ -177,6 +186,13 @@ if (!$vbulletin->GPC['calendarid'])
 			}
 
 			$offset = $eventinfo['dst'] ? $vbulletin->userinfo['timezoneoffset'] : $vbulletin->userinfo['tzoffset'];
+
+			require_once(DIR . '/includes/functions_user.php');
+
+			$eventinfo = array_merge($eventinfo, convert_bits_to_array($eventinfo['options'], $vbulletin->bf_misc_useroptions));
+			$eventinfo  = array_merge($eventinfo, convert_bits_to_array($eventinfo['adminoptions'], $vbulletin->bf_misc_adminoptions));
+			cache_permissions($eventinfo, false);
+			fetch_avatar_from_userinfo($eventinfo, true);
 
 			$eventinfo['dateline_from_user'] = $eventinfo['dateline_from'] + $offset * 3600;
 			$eventinfo['dateline_to_user'] = $eventinfo['dateline_to'] + $offset * 3600;
@@ -218,12 +234,14 @@ else if (!($vbulletin->userinfo['calendarpermissions']["{$vbulletin->GPC['calend
 else if ($vbulletin->GPC['eventid'])
 {
 	if ($eventinfo = $db->query_first_slave("
-		SELECT event.*, user.username, IF(dateline_to = 0, 1, 0) AS singleday,
+		SELECT event.*, user.*, user.username, IF(dateline_to = 0, 1, 0) AS singleday,
 		IF(user.displaygroupid = 0, user.usergroupid, user.displaygroupid) AS displaygroupid, infractiongroupid
 		" . ($vbulletin->userinfo['userid'] ? ", subscribeevent.eventid AS subscribed" : "") . "
+		" . ($vbulletin->options['avatarenabled'] ? ",avatar.avatarpath, NOT ISNULL(customavatar.userid) AS hascustomavatar, customavatar.dateline AS avatardateline,customavatar.width AS avwidth,customavatar.height AS avheight" : "") . "
 		FROM " . TABLE_PREFIX . "event AS event
 		LEFT JOIN " . TABLE_PREFIX . "user AS user ON(user.userid = event.userid)
 		" . ($vbulletin->userinfo['userid'] ? "LEFT JOIN " . TABLE_PREFIX . "subscribeevent AS subscribeevent ON(subscribeevent.eventid = " . $vbulletin->GPC['eventid'] . " AND subscribeevent.userid = " . $vbulletin->userinfo['userid'] . ")" : "") . "
+		" . ($vbulletin->options['avatarenabled'] ? "LEFT JOIN " . TABLE_PREFIX . "avatar AS avatar ON(avatar.avatarid = user.avatarid) LEFT JOIN " . TABLE_PREFIX . "customavatar AS customavatar ON(customavatar.userid = user.userid)" : "") . "
 		WHERE event.eventid = " . $vbulletin->GPC['eventid']))
 	{
 		if (!$eventinfo['visible'])
@@ -277,6 +295,8 @@ $calview = htmlspecialchars_uni(fetch_bbarray_cookie('calendar', 'calview' . $ca
 $calmonth = intval(fetch_bbarray_cookie('calendar', 'calmonth'));
 $calyear = intval(fetch_bbarray_cookie('calendar', 'calyear'));
 
+$show['neweventlink'] = ($vbulletin->userinfo['calendarpermissions'][$calendarid] & $vbulletin->bf_ugp_calendarpermissions['canpostevent']) ? true : false;
+
 if (empty($_REQUEST['do']))
 {
 	$defaultview = ((!empty($calendarinfo['weekly'])) ? 'displayweek' : ((!empty($calendarinfo['yearly'])) ? 'displayyear' : 'displaymonth'));
@@ -294,10 +314,6 @@ if ($vbulletin->userinfo['startofweek'] > 7 OR $vbulletin->userinfo['startofweek
 {
 	$vbulletin->userinfo['startofweek'] = $calendarinfo['startofweek'];
 }
-
-// get decent textarea size for user's browser
-require_once(DIR . '/includes/functions_editor.php');
-$textareacols = fetch_textarea_width();
 
 // Make first part of Calendar Nav Bar
 $navbits = array('calendar.php' . $vbulletin->session->vars['sessionurl_q'] => $vbphrase['calendar']);
@@ -415,7 +431,7 @@ if ($_REQUEST['do'] == 'displaymonth')
 
 	// Make Nav Bar #####################################################################
 	$navbits = construct_navbits($navbits);
-	eval('$navbar = "' . fetch_template('navbar') . '";');
+	$navbar = render_navbar_template($navbits);
 
 	$usertodayprev = $usertoday;
 	$usertodaynext = $usertoday;
@@ -485,10 +501,41 @@ if ($_REQUEST['do'] == 'displaymonth')
 		set_bbarray_cookie('calendar', 'calview' . $calendarinfo['calendarid'], 'displaymonth');
 	}
 
+	$yearbits = '';
+	for ($gyear = $calendarinfo['startyear']; $gyear <= $calendarinfo['endyear']; $gyear++)
+	{
+		$yearbits .= render_option_template($gyear, $gyear, ($gyear == $vbulletin->GPC['year']) ? 'selected="selected"' : '');
+	}
+
 	($hook = vBulletinHook::fetch_hook('calendar_displaymonth_complete')) ? eval($hook) : false;
 
-	eval('$HTML = "' . fetch_template('calendar_monthly') . '";');
-	eval('print_output("' . fetch_template('CALENDAR') . '");');
+	$templater = vB_Template::create('calendar_monthly');
+		$templater->register('calendarbits', $calendarbits);
+		$templater->register('calendarinfo', $calendarinfo);
+		$templater->register('monthselected', $monthselected);
+		$templater->register('yearbits', $yearbits);
+		$templater->register('today', $today);
+		$templater->register('year', $vbulletin->GPC['year']);
+		$templater->register('monthname', $monthname);
+		$templater->register('pmonth', $vbulletin->GPC['month'] == 1 ? 12 : $vbulletin->GPC['month'] - 1);
+		$templater->register('nmonth', $vbulletin->GPC['month'] == 12 ? 1 : $vbulletin->GPC['month'] + 1);
+		$templater->register('nyear', $vbulletin->GPC['month'] == 12 ? $vbulletin->GPC['year'] + 1 : $vbulletin->GPC['year']);
+		$templater->register('pyear', $vbulletin->GPC['month'] == 1 ? $vbulletin->GPC['year'] - 1 : $vbulletin->GPC['year']);
+	$HTML = $templater->render();
+	$templater = vB_Template::create('CALENDAR');
+		$templater->register_page_templates();
+		$templater->register('calendarjump', $calendarjump);
+		$templater->register('calendarid', $calendarid);
+		$templater->register('calendarinfo', $calendarinfo);
+		$templater->register('HTML', $HTML);
+		$templater->register('navbar', $navbar);
+		$templater->register('today', $today);
+		$templater->register('year', $vbulletin->GPC['year']);
+		$templater->register('nextmonth', $nextmonth);
+		$templater->register('prevmonth', $prevmonth);
+		$templater->register('mode', 'monthly');
+		$templater->register('pagetitle', $calendarinfo['title']);
+	print_output($templater->render());
 
 }
 
@@ -637,13 +684,11 @@ if ($_REQUEST['do'] == 'displayweek')
 				unset($age);
 				unset($comma);
 				$bdaycount = 0;
-				foreach ($birthdaycache["$month"]["$weekday"] AS $index => $value)
+				foreach ($birthdaycache["$month"]["$weekday"] AS $index => $userinfo)
 				{
-					$userday = explode('-', $value['birthday']);
+					$userday = explode('-', $userinfo['birthday']);
 					$bdaycount++;
-					$username = $value['username'];
-					$userid = $value['userid'];
-					if ($weekyear > $userday[2] AND $userday[2] != '0000' AND $value['showbirthday'] == 2)
+					if ($weekyear > $userday[2] AND $userday[2] != '0000' AND $userinfo['showbirthday'] == 2)
 					{
 						$age = '(' . ($weekyear - $userday[2]) . ')';
 						$show['age'] = true;
@@ -653,8 +698,12 @@ if ($_REQUEST['do'] == 'displayweek')
 						unset($age);
 						$show['age'] = false;
 					}
-					eval ("\$userbdays .= \"$comma " . fetch_template('calendar_showbirthdays') . '";');
-					$comma = ',';
+
+					$templater = vB_Template::create('calendar_showbirthdays');
+						$templater->register('age', $age);
+						$templater->register('userinfo', $userinfo);
+					$userbdays .= $templater->render();
+
 					$show['birthdays'] = true;
 				}
 			}
@@ -674,7 +723,7 @@ if ($_REQUEST['do'] == 'displayweek')
 					$holidayid = $value['holidayid'];
 
 					$allday = false;
-					$eventtitle =  htmlspecialchars_uni($value['title']);
+					$eventtitle =  $value['title'];
 					$year = gmdate('Y', $daystamp);
 					$month = gmdate('n', $daystamp);
 					$day = gmdate('j', $daystamp);
@@ -721,7 +770,21 @@ if ($_REQUEST['do'] == 'displayweek')
 
 					($hook = vBulletinHook::fetch_hook('calendar_displayweek_event')) ? eval($hook) : false;
 
-					eval ('$userevents .= "' . fetch_template('calendar_weekly_event') . '";');
+					$templater = vB_Template::create('calendar_weekly_event');
+						$templater->register('allday', $allday);
+						$templater->register('calendarid', $calendarid);
+						$templater->register('day', $day);
+						$templater->register('eventid', $eventid);
+						$templater->register('eventtitle', $eventtitle);
+						$templater->register('fromtime', $fromtime);
+						$templater->register('issubscribed', $issubscribed);
+						$templater->register('month', $month);
+						$templater->register('totime', $totime);
+						$templater->register('value', $value);
+						$templater->register('weekday', $weekday);
+						$templater->register('weekyear', $weekyear);
+						$templater->register('year', $year);
+					$userevents .= $templater->render();
 				}
 			}
 
@@ -733,12 +796,39 @@ if ($_REQUEST['do'] == 'displayweek')
 				$show['holiday'] = true;
 				$eventtotal++;
 				$eventtitle =& $eastercache["$month-$weekday-$weekyear"]['title'];
-				eval ('$userevents .= "' . fetch_template('calendar_weekly_event') . '";');
+				$templater = vB_Template::create('calendar_weekly_event');
+					$templater->register('allday', $allday);
+					$templater->register('calendarid', $calendarid);
+					$templater->register('day', $day);
+					$templater->register('eventid', $eventid);
+					$templater->register('eventtitle', $eventtitle);
+					$templater->register('fromtime', $fromtime);
+					$templater->register('issubscribed', $issubscribed);
+					$templater->register('month', $month);
+					$templater->register('totime', $totime);
+					$templater->register('value', $value);
+					$templater->register('weekday', $weekday);
+					$templater->register('weekyear', $weekyear);
+					$templater->register('year', $year);
+				$userevents .= $templater->render();
 				unset($holidayid);
 				$show['holiday'] = false;
 			}
 
-			eval('$weekbits .= "' . fetch_template('calendar_weekly_day') . '";');
+			$show['highlighttoday'] = ("$today[year]-$today[mon]-$today[mday]" == "$weekyear-$month-$weekday");
+			$templater = vB_Template::create('calendar_weekly_day');
+				$templater->register('calendarid', $calendarid);
+				$templater->register('calendarinfo', $calendarinfo);
+				$templater->register('month', $month);
+				$templater->register('nextweek', $nextweek);
+				$templater->register('prevweek', $prevweek);
+				$templater->register('userbdays', $userbdays);
+				$templater->register('userevents', $userevents);
+				$templater->register('weekday', $weekday);
+				$templater->register('weekdayname', $weekdayname);
+				$templater->register('weekmonth', $weekmonth);
+				$templater->register('weekyear', $weekyear);
+			$weekbits .= $templater->render();
 			$lastmonth = $weekmonth;
 		}
 		$daystamp = gmmktime(0, 0, 0, $day1['0'], ++$day1['1'], $day1['2']);
@@ -746,7 +836,7 @@ if ($_REQUEST['do'] == 'displayweek')
 
 	// Make Nav Bar #####################################################################
 	$navbits = construct_navbits($navbits);
-	eval('$navbar = "' . fetch_template('navbar') . '";');
+	$navbar = render_navbar_template($navbits);
 
 	if ($calview != 'displayweek')
 	{
@@ -757,8 +847,26 @@ if ($_REQUEST['do'] == 'displayweek')
 
 	($hook = vBulletinHook::fetch_hook('calendar_displayweek_complete')) ? eval($hook) : false;
 
-	eval('$HTML = "' . fetch_template('calendar_weekly') . '";');
-	eval('print_output("' . fetch_template('CALENDAR') . '");');
+	$templater = vB_Template::create('calendar_weekly');
+		$templater->register('calendarinfo', $calendarinfo);
+		$templater->register('weekbits', $weekbits);
+	$HTML = $templater->render();
+	$templater = vB_Template::create('CALENDAR');
+		$templater->register_page_templates();
+		$templater->register('calendarid', $calendarid);
+		$templater->register('calendarinfo', $calendarinfo);
+		$templater->register('HTML', $HTML);
+		$templater->register('navbar', $navbar);
+		$templater->register('spacer_close', $spacer_close);
+		$templater->register('spacer_open', $spacer_open);
+		$templater->register('today', $today);
+		$templater->register('year', $year);
+		$templater->register('calendarjump', $calendarjump);
+		$templater->register('prevmonth', $month1);
+		$templater->register('nextmonth', $month2);
+		$templater->register('mode', 'weekly');
+		$templater->register('pagetitle', $calendarinfo['title']);
+	print_output($templater->render());
 
 }
 
@@ -791,24 +899,57 @@ if ($_REQUEST['do'] == 'displayyear')
 
 	// Make Nav Bar #####################################################################
 	$navbits = construct_navbits($navbits);
-	eval('$navbar = "' . fetch_template('navbar') . '";');
+	$navbar = render_navbar_template($navbits);
 
 	$calendarjump = construct_calendar_jump($calendarinfo['calendarid'], $vbulletin->GPC['month'], $vbulletin->GPC['year']);
 
 	($hook = vBulletinHook::fetch_hook('calendar_displayyear_complete')) ? eval($hook) : false;
 
-	eval('$HTML = "' . fetch_template('calendar_yearly') . '";');
-	eval('print_output("' . fetch_template('CALENDAR') . '");');
+	$templater = vB_Template::create('calendar_yearly');
+		$templater->register('calendarinfo', $calendarinfo);
+		$templater->register('month1', $month1);
+		$templater->register('month2', $month2);
+		$templater->register('month3', $month3);
+		$templater->register('month4', $month4);
+		$templater->register('month5', $month5);
+		$templater->register('month6', $month6);
+		$templater->register('month7', $month7);
+		$templater->register('month8', $month8);
+		$templater->register('month9', $month9);
+		$templater->register('month10', $month10);
+		$templater->register('month11', $month11);
+		$templater->register('month12', $month12);
+		$templater->register('year', $vbulletin->GPC['year']);
+		$templater->register('nextyear', $vbulletin->GPC['year'] + 1);
+		$templater->register('prevyear', $vbulletin->GPC['year'] - 1);
+	$HTML = $templater->render();
+	$templater = vB_Template::create('CALENDAR');
+		$templater->register_page_templates();
+		$templater->register('calendarid', $calendarid);
+		$templater->register('calendarinfo', $calendarinfo);
+		$templater->register('HTML', $HTML);
+		$templater->register('navbar', $navbar);
+		$templater->register('spacer_close', $spacer_close);
+		$templater->register('spacer_open', $spacer_open);
+		$templater->register('today', $today);
+		$templater->register('year', $year);
+		$templater->register('calendarjump', $calendarjump);
+		$templater->register('mode', 'yearly');
+		$templater->register('pagetitle', $calendarinfo['title']);
+	print_output($templater->render());
 }
 
 // ############################################################################
 // ############################### MANAGE EVENT ###############################
 // ############################################################################
 
-if ($_POST['do'] == 'manage')
+if ($_REQUEST['do'] == 'manage')
 {
-	$vbulletin->input->clean_array_gpc('p', array(
+	$vbulletin->input->clean_array_gpc('r', array(
 		'what'          => TYPE_STR,
+	));
+
+	$vbulletin->input->clean_array_gpc('p', array(
 		'newcalendarid' => TYPE_UINT,
 		'dodelete'      => TYPE_BOOL,
 		'day'           => TYPE_STR,
@@ -827,8 +968,6 @@ if ($_POST['do'] == 'manage')
 	{
 		eval(standard_error(fetch_error('invalidid', $idname, $vbulletin->options['contactuslink'])));
 	}
-
-	$eventinfo['title'] = htmlspecialchars_uni($eventinfo['title']);
 
 	if ($vbulletin->GPC['what'] == 'dodelete' AND !$vbulletin->GPC['dodelete'])
 	{
@@ -855,7 +994,7 @@ if ($_POST['do'] == 'manage')
 				$eventdata->delete();
 
 				$vbulletin->url = 'calendar.php?' . $vbulletin->session->vars['sessionurl'] . "c=$calendarinfo[calendarid]";
-				eval(print_standard_redirect('redirect_calendardeleteevent'));
+				print_standard_redirect('redirect_calendardeleteevent');
 			}
 		}
 		break;
@@ -933,7 +1072,7 @@ if ($_POST['do'] == 'manage')
 				$eventdata->save();
 
 				$vbulletin->url = 'calendar.php?' . $vbulletin->session->vars['sessionurl'] . 'c=' . $vbulletin->GPC['newcalendarid'];
-				eval(print_standard_redirect('redirect_calendarmoveevent'));
+				print_standard_redirect('redirect_calendarmoveevent');
 			}
 		}
 		break;
@@ -958,7 +1097,7 @@ if ($_POST['do'] == 'manage')
 					{
 						$optionvalue = $lcalendarid;
 						$optiontitle = $title;
-						eval('$calendarbits .= "' . fetch_template('option') . '";');
+						$calendarbits .= render_option_template($optiontitle, $optionvalue, $optionselected, $optionclass);
 					}
 				}
 				if ($calendarbits == '')
@@ -995,8 +1134,15 @@ if ($_POST['do'] == 'manage')
 	if ($print_output)
 	{
 		$navbits = construct_navbits($navbits);
-		eval('$navbar = "' . fetch_template('navbar') . '";');
-		eval('print_output("' . fetch_template('calendar_manage') . '");');
+		$navbar = render_navbar_template($navbits);
+		$templater = vB_Template::create('calendar_manage');
+			$templater->register_page_templates();
+			$templater->register('calendarbits', $calendarbits);
+			$templater->register('eventinfo', $eventinfo);
+			$templater->register('navbar', $navbar);
+			$templater->register('pagetitle', $pagetitle);
+			$templater->register('_logincode', $_logincode);
+		print_output($templater->render());
 	}
 }
 
@@ -1060,10 +1206,9 @@ if ($_REQUEST['do'] == 'getday' OR $_REQUEST['do'] == 'getinfo')
 
 			while ($birthdays = $db->fetch_array($birthday))
 			{
-				$userday = explode('-', $birthdays['birthday']);
-				$username = $birthdays['username'];
-				$userid = $birthdays['userid'];
-				if ($year > $userday[2] AND $userday[2] != '0000' AND $birthdays['showbirthday'] == 2)
+				$userinfo = $birthdays;
+				$userday = explode('-', $userinfo['birthday']);
+				if ($year > $userday[2] AND $userday[2] != '0000' AND $userinfo['showbirthday'] == 2)
 				{
 					$age = '(' . ($year - $userday[2]) . ')';
 					$show['age'] = true;
@@ -1073,11 +1218,13 @@ if ($_REQUEST['do'] == 'getday' OR $_REQUEST['do'] == 'getinfo')
 					unset($age);
 					$show['age'] = false;
 				}
-				eval ("\$userbdays .= \"$comma " . fetch_template('calendar_showbirthdays') . '";');
+
+				$templater = vB_Template::create('calendar_showbirthdays');
+					$templater->register('age', $age);
+					$templater->register('userinfo', $userinfo);
+				$userbdays .= $templater->render();
 
 				$show['birthdays'] = true;
-
-				$comma = ',';
 			}
 		}
 
@@ -1104,6 +1251,7 @@ if ($_REQUEST['do'] == 'getday' OR $_REQUEST['do'] == 'getinfo')
 
 	require_once(DIR . '/includes/functions_misc.php'); // mainly for fetch_timezone
 
+	require_once(DIR . '/includes/functions_user.php'); // to fetch user avatar
 	foreach ($eventarray AS $index => $eventinfo)
 	{
 		$eventinfo = fetch_event_date_time($eventinfo);
@@ -1154,7 +1302,10 @@ if ($_REQUEST['do'] == 'getday' OR $_REQUEST['do'] == 'getinfo')
 				{
 					$show['customfields'] = true;
 				}
-				eval('$customfields .= "' . fetch_template('calendar_showeventsbit_customfield') . '";');
+				$templater = vB_Template::create('calendar_showeventsbit_customfield');
+					$templater->register('customoption', $customoption);
+					$templater->register('customtitle', $customtitle);
+				$customfields .= $templater->render();
 			}
 
 			$show['holiday'] = false;
@@ -1215,9 +1366,31 @@ if ($_REQUEST['do'] == 'getday' OR $_REQUEST['do'] == 'getinfo')
 			$show['eventoptions'] = true;
 		}
 
+		//we already have the avatar info, no need to refetch.
+		fetch_avatar_from_userinfo($eventinfo);
+
+		// prepare the member action drop-down menu
+		$memberaction_dropdown = construct_memberaction_dropdown($eventinfo);
+
+//		$avatar = fetch_avatar_url($eventinfo['userid']);
+//		$eventinfo['avatarurl'] = $avatar[0];
 		($hook = vBulletinHook::fetch_hook('calendar_getday_event')) ? eval($hook) : false;
 
-		eval ('$caldaybits .= "' . fetch_template('calendar_showeventsbit') . '";');
+		$templater = vB_Template::create('calendar_showeventsbit');
+			$templater->register('calendarinfo', $calendarinfo);
+			$templater->register('customfields', $customfields);
+			$templater->register('date1', $date1);
+			$templater->register('date2', $date2);
+			$templater->register('eventdate', $eventdate);
+			$templater->register('eventinfo', $eventinfo);
+			$templater->register('gobutton', $gobutton);
+			$templater->register('memberaction_dropdown', $memberaction_dropdown);
+			$templater->register('recurcriteria', $recurcriteria);
+			$templater->register('spacer_close', $spacer_close);
+			$templater->register('spacer_open', $spacer_open);
+			$templater->register('time1', $time1);
+			$templater->register('time2', $time2);
+		$caldaybits .= $templater->render();
 	}
 	unset($date2, $recurcriteria, $customfields);
 	$show['subscribelink'] = false;
@@ -1248,9 +1421,25 @@ if ($_REQUEST['do'] == 'getday' OR $_REQUEST['do'] == 'getinfo')
 			$titlecolor = 'alt2';
 			$bgclass = 'alt1';
 
+			fetch_avatar_from_userinfo($eventinfo);
+//			$avatar = fetch_avatar_url($eventinfo['userid']);
+//			$eventinfo['avatarurl'] = $avatar[0];
 			($hook = vBulletinHook::fetch_hook('calendar_getday_event')) ? eval($hook) : false;
 
-			eval ('$caldaybits .= "' . fetch_template('calendar_showeventsbit') . '";');
+			$templater = vB_Template::create('calendar_showeventsbit');
+			$templater->register('calendarinfo', $calendarinfo);
+			$templater->register('customfields', $customfields);
+			$templater->register('date1', $date1);
+			$templater->register('date2', $date2);
+			$templater->register('eventdate', $eventdate);
+			$templater->register('eventinfo', $eventinfo);
+			$templater->register('gobutton', $gobutton);
+			$templater->register('recurcriteria', $recurcriteria);
+			$templater->register('spacer_close', $spacer_close);
+			$templater->register('spacer_open', $spacer_open);
+			$templater->register('time1', $time1);
+			$templater->register('time2', $time2);
+		$caldaybits .= $templater->render();
 		}
 	}
 
@@ -1278,11 +1467,30 @@ if ($_REQUEST['do'] == 'getday' OR $_REQUEST['do'] == 'getinfo')
 	}
 
 	$navbits = construct_navbits($navbits);
-	eval('$navbar = "'. fetch_template('navbar') . '";');
+	$navbar = render_navbar_template($navbits);
 
 	($hook = vBulletinHook::fetch_hook('calendar_getday_complete')) ? eval($hook) : false;
 
-	eval('print_output("' . fetch_template('calendar_showevents') . '");');
+	$templater = vB_Template::create('calendar_showevents');
+		$templater->register_page_templates();
+		$templater->register('caldaybits', $caldaybits);
+		$templater->register('userbdays', $userbdays);
+		$templater->register('pagetitle', $pagetitle);
+	$HTML = $templater->render();
+	$templater = vB_Template::create('CALENDAR');
+		$templater->register_page_templates();
+		$templater->register('calendarjump', $calendarjump);
+		$templater->register('calendarid', $calendarid);
+		$templater->register('calendarinfo', $calendarinfo);
+		$templater->register('HTML', $HTML);
+		$templater->register('navbar', $navbar);
+		$templater->register('today', $today);
+		$templater->register('year', $vbulletin->GPC['year']);
+		$templater->register('nextmonth', $nextmonth);
+		$templater->register('prevmonth', $prevmonth);
+		$templater->register('mode', 'dayly');
+		$templater->register('pagetitle', $pagetitle);
+	print_output($templater->render());
 }
 
 // ############################################################################
@@ -1316,16 +1524,20 @@ if ($_POST['do'] == 'edit')
 
 	if ($calendarinfo['allowsmilies'])
 	{
-		eval('$disablesmiliesoption = "' . fetch_template('newpost_disablesmiliesoption') . '";');
+		$templater = vB_Template::create('newpost_disablesmiliesoption');
+			$templater->register('checked', $checked);
+		$disablesmiliesoption = $templater->render();
 	}
 
 	$calrules['allowbbcode'] = $calendarinfo['allowbbcode'];
 	$calrules['allowimages'] = $calendarinfo['allowimgcode'];
+	$calrules['allowvideos'] = $calendarinfo['allowvideocode'];
 	$calrules['allowhtml'] = $calendarinfo['allowhtml'];
 	$calrules['allowsmilies'] = $calendarinfo['allowsmilies'];
 
 	$bbcodeon = !empty($calrules['allowbbcode']) ? $vbphrase['on'] : $vbphrase['off'];
 	$imgcodeon = !empty($calrules['allowimages']) ? $vbphrase['on'] : $vbphrase['off'];
+	$videocodeon = !empty($calrules['allowvideos']) ? $vbphrase['on'] : $vbphrase['off'];
 	$htmlcodeon = !empty($calrules['allowhtml']) ? $vbphrase['on'] : $vbphrase['off'];
 	$smilieson = !empty($calrules['allowsmilies']) ? $vbphrase['on'] : $vbphrase['off'];
 
@@ -1335,7 +1547,7 @@ if ($_POST['do'] == 'edit')
 	require_once(DIR . '/includes/functions_bigthree.php');
 	construct_forum_rules($calrules, $permissions);
 
-	eval('$usernamecode = "' . fetch_template('newpost_usernamecode') . '";');
+	$usernamecode = vB_Template::create('newpost_usernamecode')->render();
 
 	$title = $eventinfo['title'];
 	$message = htmlspecialchars_uni($eventinfo['event']);
@@ -1358,8 +1570,8 @@ if ($_POST['do'] == 'edit')
 		$show['24hour'] = false;
 	}
 
-	$fromtimeoptions = fetch_time_options($fromtime, $show['24hour'], $user_from_time);
-	$totimeoptions = fetch_time_options($totime, $show['24hour'], $user_to_time);
+	$user_from_time = fetch_time_options($fromtime, $show['24hour']);
+	$user_to_time = fetch_time_options($totime, $show['24hour']);
 
 	if ($eventinfo['utc'] < 0)
 	{
@@ -1378,7 +1590,7 @@ if ($_POST['do'] == 'edit')
 	{
 		$optiontitle = $vbphrase["$timezonephrase"];
 		$optionselected = ($optionvalue == $eventinfo['utc'] ? 'selected="selected"' : '');
-		eval('$timezoneoptions .= "' . fetch_template('option') . '";');
+		$timezoneoptions .= render_option_template($optiontitle, $optionvalue, $optionselected, $optionclass);
 	}
 
 	if (($pos = strpos($vbulletin->options['timeformat'], 'H')) !== false)
@@ -1458,7 +1670,11 @@ if ($_POST['do'] == 'edit')
 				{
 					$selected = '';
 				}
-				eval('$selectbits .= "' . fetch_template('userfield_select_option') . "\";");
+				$templater = vB_Template::create('userfield_select_option');
+					$templater->register('key', $key);
+					$templater->register('selected', $selected);
+					$templater->register('val', $val);
+				$selectbits .= $templater->render();
 			}
 			$show['customoptions'] = true;
 		}
@@ -1478,116 +1694,154 @@ if ($_POST['do'] == 'edit')
 		if ($custom['required'])
 		{
 			$show['custom_required'] = true;
-			eval('$customfields_required .= "' . fetch_template('calendar_edit_customfield') . '";');
+			$templater = vB_Template::create('calendar_edit_customfield');
+				$templater->register('custom', $custom);
+				$templater->register('customfieldname', $customfieldname);
+				$templater->register('customfieldname_opt', $customfieldname_opt);
+				$templater->register('selectbits', $selectbits);
+				$templater->register('selected', $selected);
+			$customfields_required .= $templater->render();
 		}
 		else
 		{
 			$show['custom_optional'] = true;
-			eval('$customfields_optional .= "' . fetch_template('calendar_edit_customfield') . '";');
+			$templater = vB_Template::create('calendar_edit_customfield');
+				$templater->register('custom', $custom);
+				$templater->register('customfieldname', $customfieldname);
+				$templater->register('customfieldname_opt', $customfieldname_opt);
+				$templater->register('selectbits', $selectbits);
+				$templater->register('selected', $selected);
+			$customfields_optional .= $templater->render();
 		}
 	}
 
 	$recur = $eventinfo['recurring'];
+	$dailybox = 1;
+	$weeklybox = 2;
+	$monthlybox1 = 2;
+	$monthlybox2 = 2;
+	$monthlycombo1 = 1;
+	$yearlycombo2 = 1;
+	$patterncheck = array($eventinfo['recurring'] => 'checked="checked"');
+	$eventtypecheck = array();
+
+	if ($eventinfo['recurring'] == 1)
+	{
+		$dailybox = $eventinfo['recuroption'];
+		$thistype = 'daily';
+		$eventtypecheck[1] = 'checked="checked"';
+	}
+	else if ($eventinfo['recurring'] == 2)
+	{
+		// Nothing to do for this one..
+		$thistype = 'daily';
+		$eventtypecheck[1] = 'checked="checked"';
+	}
+	else if ($eventinfo['recurring'] == 3)
+	{
+		$monthbit = explode('|', $eventinfo['recuroption']);
+		$weeklybox = $monthbit[0];
+		if ($monthbit[1] & 1)
+		{
+			$sunboxchecked = 'checked="checked"';
+		}
+		if ($monthbit[1] & 2)
+		{
+			$monboxchecked = 'checked="checked"';
+		}
+		if ($monthbit[1] & 4)
+		{
+			$tueboxchecked = 'checked="checked"';
+		}
+		if ($monthbit[1] & 8)
+		{
+			$wedboxchecked = 'checked="checked"';
+		}
+		if ($monthbit[1] & 16)
+		{
+			$thuboxchecked = 'checked="checked"';
+		}
+		if ($monthbit[1] & 32)
+		{
+			$friboxchecked = 'checked="checked"';
+		}
+		if ($monthbit[1] & 64)
+		{
+			$satboxchecked = 'checked="checked"';
+		}
+		$thistype = 'weekly';
+		$eventtypecheck[2] = 'checked="checked"';
+	}
+	else if ($eventinfo['recurring'] == 4)
+	{
+		$monthbit = explode('|', $eventinfo['recuroption']);
+		$monthlycombo1 = $monthbit[0];
+
+		$monthlybox1 = $monthbit[1];
+		$thistype = 'monthly';
+		$eventtypecheck[3] = 'checked="checked"';
+	}
+	else if ($eventinfo['recurring'] == 5)
+	{
+		$monthbit = explode('|', $eventinfo['recuroption']);
+		$monthlycombo2["$monthbit[0]"] = 'selected="selected"';
+		$monthlycombo3["$monthbit[1]"] = 'selected="selected"';
+		$monthlybox2 = $monthbit[2];
+		$thistype = 'monthly';
+		$eventtypecheck[3] = 'checked="checked"';
+	}
+	else if ($eventinfo['recurring'] == 6)
+	{
+		$monthbit = explode('|', $eventinfo['recuroption']);
+		$yearlycombo1["$monthbit[0]"] = 'selected="selected"';
+		$yearlycombo2 = $monthbit[1];
+		$thistype = 'yearly';
+		$eventtypecheck[4] = 'checked="checked"';
+	}
+	else if ($eventinfo['recurring'] == 7)
+	{
+		$monthbit = explode('|', $eventinfo['recuroption']);
+		$yearlycombo3["$monthbit[0]"] = 'selected="selected"';
+		$yearlycombo4["$monthbit[1]"] = 'selected="selected"';
+		$yearlycombo5["$monthbit[2]"] = 'selected="selected"';
+		$thistype = 'yearly';
+		$eventtypecheck[4] = 'checked="checked"';
+	}
+	$templater = vB_Template::create('calendar_edit_recurrence');
+		$templater->register('dailybox', $dailybox);
+		$templater->register('eventtypecheck', $eventtypecheck);
+		$templater->register('friboxchecked', $friboxchecked);
+		$templater->register('monboxchecked', $monboxchecked);
+		$templater->register('monthlybox1', $monthlybox1);
+		$templater->register('monthlybox2', $monthlybox2);
+		$templater->register('monthlycombo1', $monthlycombo1);
+		$templater->register('monthlycombo2', $monthlycombo2);
+		$templater->register('monthlycombo3', $monthlycombo3);
+		$templater->register('patterncheck', $patterncheck);
+		$templater->register('satboxchecked', $satboxchecked);
+		$templater->register('sunboxchecked', $sunboxchecked);
+		$templater->register('recurtype', $thistype);
+		$templater->register('thuboxchecked', $thuboxchecked);
+		$templater->register('tueboxchecked', $tueboxchecked);
+		$templater->register('wedboxchecked', $wedboxchecked);
+		$templater->register('weeklybox', $weeklybox);
+		$templater->register('yearlycombo1', $yearlycombo1);
+		$templater->register('yearlycombo2', $yearlycombo2);
+		$templater->register('yearlycombo3', $yearlycombo3);
+		$templater->register('yearlycombo4', $yearlycombo4);
+		$templater->register('yearlycombo5', $yearlycombo5);
+	$recurrence = $templater->render();
 	if ($recur)
 	{
-		exec_switch_bg();
-		$dailybox = 1;
-		$weeklybox = 2;
-		$monthlybox1 = 2;
-		$monthlybox2 = 2;
-		$monthlycombo1 = 1;
-		$yearlycombo2 = 1;
-		$patterncheck = array($eventinfo['recurring'] => 'checked="checked"');
-		$eventtypecheck = array();
-
-		if ($eventinfo['recurring'] == 1)
-		{
-			$dailybox = $eventinfo['recuroption'];
-			$thistype = 'daily';
-			$eventtypecheck[1] = 'checked="checked"';
-		}
-		else if ($eventinfo['recurring'] == 2)
-		{
-			// Nothing to do for this one..
-			$thistype = 'daily';
-			$eventtypecheck[1] = 'checked="checked"';
-		}
-		else if ($eventinfo['recurring'] == 3)
-		{
-			$monthbit = explode('|', $eventinfo['recuroption']);
-			$weeklybox = $monthbit[0];
-			if ($monthbit[1] & 1)
-			{
-				$sunboxchecked = 'checked="checked"';
-			}
-			if ($monthbit[1] & 2)
-			{
-				$monboxchecked = 'checked="checked"';
-			}
-			if ($monthbit[1] & 4)
-			{
-				$tueboxchecked = 'checked="checked"';
-			}
-			if ($monthbit[1] & 8)
-			{
-				$wedboxchecked = 'checked="checked"';
-			}
-			if ($monthbit[1] & 16)
-			{
-				$thuboxchecked = 'checked="checked"';
-			}
-			if ($monthbit[1] & 32)
-			{
-				$friboxchecked = 'checked="checked"';
-			}
-			if ($monthbit[1] & 64)
-			{
-				$satboxchecked = 'checked="checked"';
-			}
-			$thistype = 'weekly';
-			$eventtypecheck[2] = 'checked="checked"';
-		}
-		else if ($eventinfo['recurring'] == 4)
-		{
-			$monthbit = explode('|', $eventinfo['recuroption']);
-			$monthlycombo1 = $monthbit[0];
-
-			$monthlybox1 = $monthbit[1];
-			$thistype = 'monthly';
-			$eventtypecheck[3] = 'checked="checked"';
-		}
-		else if ($eventinfo['recurring'] == 5)
-		{
-			$monthbit = explode('|', $eventinfo['recuroption']);
-			$monthlycombo2["$monthbit[0]"] = 'selected="selected"';
-			$monthlycombo3["$monthbit[1]"] = 'selected="selected"';
-			$monthlybox2 = $monthbit[2];
-			$thistype = 'monthly';
-			$eventtypecheck[3] = 'checked="checked"';
-		}
-		else if ($eventinfo['recurring'] == 6)
-		{
-			$monthbit = explode('|', $eventinfo['recuroption']);
-			$yearlycombo1["$monthbit[0]"] = 'selected="selected"';
-			$yearlycombo2 = $monthbit[1];
-			$thistype = 'yearly';
-			$eventtypecheck[4] = 'checked="checked"';
-		}
-		else if ($eventinfo['recurring'] == 7)
-		{
-			$monthbit = explode('|', $eventinfo['recuroption']);
-			$yearlycombo3["$monthbit[0]"] = 'selected="selected"';
-			$yearlycombo4["$monthbit[1]"] = 'selected="selected"';
-			$yearlycombo5["$monthbit[2]"] = 'selected="selected"';
-			$thistype = 'yearly';
-			$eventtypecheck[4] = 'checked="checked"';
-		}
-		eval ('$recurrence = "' . fetch_template('calendar_edit_recurrence') . '";');
 		$type = 'recur';
 	}
 	else if ($eventinfo['dateline_to'] == 0)
 	{
 		$type = 'single';
+	}
+	else
+	{
+		$type = 'range';
 	}
 
 	$show['todate'] = ($type == 'single' ? false : true);
@@ -1602,9 +1856,27 @@ if ($_POST['do'] == 'edit')
 
 	$navbits[''] = $eventinfo['title'];
 	$navbits = construct_navbits($navbits);
-	eval('$navbar = "' . fetch_template('navbar') . '";');
+	$navbar = render_navbar_template($navbits);
 
-	$editorid = construct_edit_toolbar($eventinfo['event'], 0, 'calendar', $calendarinfo['allowsmilies']);
+	require_once(DIR . '/includes/functions_editor.php');
+	$editorid = construct_edit_toolbar(
+		htmlspecialchars_uni($eventinfo['event']),
+		0,
+		'calendar',
+		$calendarinfo['allowsmilies'],
+		true,
+		false,
+		'fe',
+		'',
+		array(),
+		'content',
+		'vBForum_Calendar',
+		$eventinfo['eventid'],
+		0,
+		false,
+		true,
+		'titlefield'
+	);
 
 	$show['parseurl'] = $calendarinfo['allowbbcode'];
 	$show['misc_options'] = ($show['parseurl'] OR !empty($disablesmiliesoption));
@@ -1612,7 +1884,34 @@ if ($_POST['do'] == 'edit')
 
 	($hook = vBulletinHook::fetch_hook('calendar_edit_complete')) ? eval($hook) : false;
 
-	eval('print_output("' . fetch_template('calendar_edit') . '");');
+	$templater = vB_Template::create('calendar_edit');
+		$templater->register_page_templates();
+		$templater->register('calendarinfo', $calendarinfo);
+		$templater->register('customfields_optional', $customfields_optional);
+		$templater->register('customfields_required', $customfields_required);
+		$templater->register('disablesmiliesoption', $disablesmiliesoption);
+		$templater->register('dstchecked', $dstchecked);
+		$templater->register('editorid', $editorid);
+		$templater->register('eventinfo', $eventinfo);
+		$templater->register('forumrules', $forumrules);
+		$templater->register('from_day', $from_day);
+		$templater->register('from_monthselected', $from_monthselected);
+		$templater->register('from_yearbits', $from_yearbits);
+		$templater->register('messagearea', $messagearea);
+		$templater->register('navbar', $navbar);
+		$templater->register('onload', $onload);
+		$templater->register('pagetitle', $pagetitle);
+		$templater->register('recurrence', $recurrence);
+		$templater->register('timezoneoptions', $timezoneoptions);
+		$templater->register('title', $title);
+		$templater->register('to_day', $to_day);
+		$templater->register('to_monthselected', $to_monthselected);
+		$templater->register('to_yearbits', $to_yearbits);
+		$templater->register('type', $type);
+		$templater->register('usernamecode', $usernamecode);
+		$templater->register('fromtime', $user_from_time);
+		$templater->register('totime', $user_to_time);
+	print_output($templater->render());
 }
 
 // ############################################################################
@@ -1627,22 +1926,19 @@ if ($_REQUEST['do'] == 'add')
 	}
 
 	$vbulletin->input->clean_array_gpc('r', array(
-		'day'	=> TYPE_STR,
-		'type'	=> TYPE_STR,
+		'day'  => TYPE_STR,
+		'type' => TYPE_NOHTML,
 	));
 
 	($hook = vBulletinHook::fetch_hook('calendar_add_start')) ? eval($hook) : false;
 
-	// Used in edit template
-	$type =& $vbulletin->GPC['type'];
-
-	// Make sure $type is only 'recur' or 'single', else set it blank
-	$type = ($type == 'recur' OR $type == 'single') ? $type : '';
 	$vbulletin->GPC['eventid'] = 0;
 
 	if ($calendarinfo['allowsmilies'] == 1)
 	{
-		eval('$disablesmiliesoption = "' . fetch_template('newpost_disablesmiliesoption') . '";');
+		$templater = vB_Template::create('newpost_disablesmiliesoption');
+			$templater->register('checked', $checked);
+		$disablesmiliesoption = $templater->render();
 	}
 
 	$customfields_required = '';
@@ -1669,7 +1965,11 @@ if ($_REQUEST['do'] == 'add')
 			$optioncount = sizeof($custom['options']);
 			foreach ($custom['options'] AS $key => $val)
 			{
-				eval('$selectbits .= "' . fetch_template('userfield_select_option') . "\";");
+				$templater = vB_Template::create('userfield_select_option');
+					$templater->register('key', $key);
+					$templater->register('selected', $selected);
+					$templater->register('val', $val);
+				$selectbits .= $templater->render();
 			}
 		}
 		else
@@ -1691,22 +1991,36 @@ if ($_REQUEST['do'] == 'add')
 		if ($custom['required'])
 		{
 			$show['custom_required'] = true;
-			eval('$customfields_required .= "' . fetch_template('calendar_edit_customfield') . '";');
+			$templater = vB_Template::create('calendar_edit_customfield');
+				$templater->register('custom', $custom);
+				$templater->register('customfieldname', $customfieldname);
+				$templater->register('customfieldname_opt', $customfieldname_opt);
+				$templater->register('selectbits', $selectbits);
+				$templater->register('selected', $selected);
+			$customfields_required .= $templater->render();
 		}
 		else
 		{
 			$show['custom_optional'] = true;
-			eval('$customfields_optional .= "' . fetch_template('calendar_edit_customfield') . '";');
+			$templater = vB_Template::create('calendar_edit_customfield');
+				$templater->register('custom', $custom);
+				$templater->register('customfieldname', $customfieldname);
+				$templater->register('customfieldname_opt', $customfieldname_opt);
+				$templater->register('selectbits', $selectbits);
+				$templater->register('selected', $selected);
+			$customfields_optional .= $templater->render();
 		}
 	}
 
 	$calrules['allowbbcode'] = $calendarinfo['allowbbcode'];
 	$calrules['allowimages'] = $calendarinfo['allowimgcode'];
+	$calrules['allowvideos'] = $calendarinfo['allowvideocode'];
 	$calrules['allowhtml'] = $calendarinfo['allowhtml'];
 	$calrules['allowsmilies'] = $calendarinfo['allowsmilies'];
 
 	$bbcodeon = !empty($calrules['allowbbcode']) ? $vbphrase['on'] : $vbphrase['off'];
 	$imgcodeon = !empty($calrules['allowimages']) ? $vbphrase['on'] : $vbphrase['off'];
+	$videocodeon = !empty($calrules['allowvideos']) ? $vbphrase['on'] : $vbphrase['off'];
 	$htmlcodeon = !empty($calrules['allowhtml']) ? $vbphrase['on'] : $vbphrase['off'];
 	$smilieson = !empty($calrules['allowsmilies']) ? $vbphrase['on'] : $vbphrase['off'];
 
@@ -1716,15 +2030,15 @@ if ($_REQUEST['do'] == 'add')
 	require_once(DIR . '/includes/functions_bigthree.php');
 	construct_forum_rules($calrules, $permissions);
 
-	eval('$usernamecode = "' . fetch_template('newpost_usernamecode') . '";');
+	$usernamecode = vB_Template::create('newpost_usernamecode')->render();
 
 	if (($pos = strpos($vbulletin->options['timeformat'], 'H')) !== false)
 	{
 		$show['24hour'] = true;
 	}
 
-	$fromtimeoptions = fetch_time_options('', $show['24hour'], $user_from_time);
-	$totimeoptions = fetch_time_options('', $show['24hour'], $user_to_time);
+	$user_from_time = fetch_time_options('', $show['24hour']);
+	$user_to_time = fetch_time_options('', $show['24hour']);
 
 	$passedday = false;
 	// did a day value get passed in?
@@ -1770,47 +2084,76 @@ if ($_REQUEST['do'] == 'add')
 	{
 		$optiontitle = $vbphrase["$timezonephrase"];
 		$optionselected = ($optionvalue == $vbulletin->userinfo['timezoneoffset'] ? 'selected="selected"' : '');
-		eval('$timezoneoptions .= "' . fetch_template('option') . '";');
+		$timezoneoptions .= render_option_template($optiontitle, $optionvalue, $optionselected, $optionclass);
 	}
 
-	if ($type == 'recur')
-	// Recurring Event
-	{
-		exec_switch_bg();
-		$patterncheck = array(1 => 'checked="checked"');
-		$eventtypecheck = array(1 => 'checked="checked"');
-		$dailybox = '1';
-		$weeklybox = '1';
-		$monthlybox1 = '2';
-		$monthlybox2 = '1';
-		$monthlycombo1 = 1;
-		$monthlycombo2 = array(1 => 'selected="selected"');
-		$monthlycombo3 = array(1 => 'selected="selected"');
-		$yearlycombo1 = array(1 => 'selected="selected"');
-		$yearlycombo2 = 1;
-		$yearlycombo3 = array(1 => 'selected="selected"');
-		$yearlycombo4 = array(1 => 'selected="selected"');
-		$yearlycombo5 = array(1 => 'selected="selected"');
-		$thistype = 'daily';
-		eval ('$recurrence .= "' . fetch_template('calendar_edit_recurrence') . '";');
-	}
+	$patterncheck = array(1 => 'checked="checked"');
+	$eventtypecheck = array(1 => 'checked="checked"');
+	$dailybox = '1';
+	$weeklybox = '1';
+	$monthlybox1 = '2';
+	$monthlybox2 = '1';
+	$monthlycombo1 = 1;
+	$monthlycombo2 = array(1 => 'selected="selected"');
+	$monthlycombo3 = array(1 => 'selected="selected"');
+	$yearlycombo1 = array(1 => 'selected="selected"');
+	$yearlycombo2 = 1;
+	$yearlycombo3 = array(1 => 'selected="selected"');
+	$yearlycombo4 = array(1 => 'selected="selected"');
+	$yearlycombo5 = array(1 => 'selected="selected"');
+	$thistype = 'daily';
+	$templater = vB_Template::create('calendar_edit_recurrence');
+		$templater->register('dailybox', $dailybox);
+		$templater->register('eventtypecheck', $eventtypecheck);
+		$templater->register('friboxchecked', $friboxchecked);
+		$templater->register('monboxchecked', $monboxchecked);
+		$templater->register('monthlybox1', $monthlybox1);
+		$templater->register('monthlybox2', $monthlybox2);
+		$templater->register('monthlycombo1', $monthlycombo1);
+		$templater->register('monthlycombo2', $monthlycombo2);
+		$templater->register('monthlycombo3', $monthlycombo3);
+		$templater->register('patterncheck', $patterncheck);
+		$templater->register('satboxchecked', $satboxchecked);
+		$templater->register('sunboxchecked', $sunboxchecked);
+		$templater->register('recurtype', $thistype);
+		$templater->register('thuboxchecked', $thuboxchecked);
+		$templater->register('tueboxchecked', $tueboxchecked);
+		$templater->register('wedboxchecked', $wedboxchecked);
+		$templater->register('weeklybox', $weeklybox);
+		$templater->register('yearlycombo1', $yearlycombo1);
+		$templater->register('yearlycombo2', $yearlycombo2);
+		$templater->register('yearlycombo3', $yearlycombo3);
+		$templater->register('yearlycombo4', $yearlycombo4);
+		$templater->register('yearlycombo5', $yearlycombo5);
+	$recurrence .= $templater->render();
 
-	$class = array();
-	exec_switch_bg();
-	$class['event'] = $bgclass;
-	exec_switch_bg();
-	$class['options'] = $bgclass;
-
-	$show['todate'] = ($type == 'single') ? false : true;
 	$show['deleteoption'] = false;
 
 	// Make Rest of Nav Bar
 	$navbits[''] = $vbphrase['add_new_event'];
 
 	$navbits = construct_navbits($navbits);
-	eval('$navbar = "' . fetch_template('navbar') . '";');
+	$navbar = render_navbar_template($navbits);
 
-	$editorid = construct_edit_toolbar('', 0, 'calendar', $calendarinfo['allowsmilies']);
+	require_once(DIR . '/includes/functions_editor.php');
+	$editorid = construct_edit_toolbar(
+		'',
+		0,
+		'calendar',
+		$calendarinfo['allowsmilies'],
+		true,
+		false,
+		'fe',
+		'',
+		array(),
+		'content',
+		'vBForum_Calendar',
+		0,
+		0,
+		false,
+		true,
+		'titlefield'
+	);
 
 	$dstchecked = 'checked="checked"';
 	$show['parseurl'] = $calendarinfo['allowbbcode'];
@@ -1818,7 +2161,34 @@ if ($_REQUEST['do'] == 'add')
 	$show['additional_options'] = ($show['misc_options'] OR $show['custom_optional']);
 	($hook = vBulletinHook::fetch_hook('calendar_add_complete')) ? eval($hook) : false;
 
-	eval('print_output("' . fetch_template('calendar_edit') . '");');
+	$templater = vB_Template::create('calendar_edit');
+		$templater->register_page_templates();
+		$templater->register('calendarinfo', $calendarinfo);
+		$templater->register('customfields_optional', $customfields_optional);
+		$templater->register('customfields_required', $customfields_required);
+		$templater->register('disablesmiliesoption', $disablesmiliesoption);
+		$templater->register('dstchecked', $dstchecked);
+		$templater->register('editorid', $editorid);
+		$templater->register('eventinfo', $eventinfo);
+		$templater->register('forumrules', $forumrules);
+		$templater->register('from_day', $from_day);
+		$templater->register('from_monthselected', $from_monthselected);
+		$templater->register('from_yearbits', $from_yearbits);
+		$templater->register('messagearea', $messagearea);
+		$templater->register('navbar', $navbar);
+		$templater->register('onload', $onload);
+		$templater->register('pagetitle', $pagetitle);
+		$templater->register('recurrence', $recurrence);
+		$templater->register('timezoneoptions', $timezoneoptions);
+		$templater->register('title', $title);
+		$templater->register('to_day', $to_day);
+		$templater->register('to_monthselected', $to_monthselected);
+		$templater->register('to_yearbits', $to_yearbits);
+		$templater->register('type', $vbulletin->GPC['type'] ? $vbulletin->GPC['type'] : 'single');
+		$templater->register('usernamecode', $usernamecode);
+		$templater->register('fromtime', $user_from_time);
+		$templater->register('totime', $user_to_time);
+	print_output($templater->render());
 }
 
 // ############################################################################
@@ -1835,17 +2205,26 @@ if ($_POST['do'] == 'update')
 		'deletepost'     => TYPE_BOOL,
 		'deletebutton'   => TYPE_STR,
 		'wysiwyg'	       => TYPE_BOOL,
-		'timezoneoffset' => TYPE_NUM,
+		'timezoneoffset' => TYPE_ARRAY_NUM,
 		'userfield'      => TYPE_ARRAY_STR,
-		'dst'            => TYPE_UINT,
-		'fromdate'       => TYPE_ARRAY_UINT,
-		'fromtime'       => TYPE_ARRAY_STR,
-		'todate'         => TYPE_ARRAY_INT,
-		'totime'         => TYPE_ARRAY_STR,
+		'dst'            => TYPE_ARRAY_UINT,
+		'fromdate'       => TYPE_ARRAY_ARRAY,
+		'todate'         => TYPE_ARRAY_ARRAY,
+		'totime'         => TYPE_ARRAY_NOHTML,
+		'fromtime'       => TYPE_ARRAY_NOHTML,
 		'recur'          => TYPE_ARRAY_UINT,
-		'type'           => TYPE_STR,
+		'type'           => TYPE_NOHTML,
 		'loggedinuser'   => TYPE_INT
 	));
+
+	$type = $vbulletin->GPC['type'];
+
+	$fromtime = $vbulletin->GPC['fromtime']["$type"];
+	$totime = $vbulletin->GPC['totime']["$type"];
+	$fromdate = $vbulletin->input->clean($vbulletin->GPC['fromdate']["$type"], TYPE_ARRAY_UINT);
+	$todate = $vbulletin->input->clean($vbulletin->GPC['todate']["$type"], TYPE_ARRAY_UINT);
+	$timezoneoffset = $vbulletin->GPC['timezoneoffset']["$type"];
+	$dst = $vbulletin->GPC['dst']["$type"];
 
 	if ($vbulletin->GPC['loggedinuser'] != 0 AND $vbulletin->userinfo['userid'] == 0)
 	{
@@ -1883,8 +2262,8 @@ if ($_POST['do'] == 'update')
 			$eventdata->set_existing($eventinfo);
 			$eventdata->delete();
 
-			$vbulletin->url = 'calendar.php' . $vbulletin->session->vars['sessionurl_q'];
-			eval(print_standard_redirect('redirect_calendardeleteevent'));
+			$vbulletin->url = 'calendar.php?' . $vbulletin->session->vars['sessionurl_q'] . "c=$calendarinfo[calendarid]";
+			print_standard_redirect('redirect_calendardeleteevent');
 		}
 		else
 		{
@@ -1912,8 +2291,9 @@ if ($_POST['do'] == 'update')
 	// unwysiwygify the incoming data
 	if ($vbulletin->GPC['wysiwyg'])
 	{
-		require_once(DIR . '/includes/functions_wysiwyg.php');
-		$message = convert_wysiwyg_html_to_bbcode($vbulletin->GPC['message'], $calendarinfo['allowhtml']);
+		require_once(DIR . '/includes/class_wysiwygparser.php');
+		$html_parser = new vB_WysiwygHtmlParser($vbulletin);
+		$message = $html_parser->parse_wysiwyg_html_to_bbcode($vbulletin->GPC['message'], $calendarinfo['allowhtml']);
 	}
 	else
 	{
@@ -1926,20 +2306,20 @@ if ($_POST['do'] == 'update')
 	($hook = vBulletinHook::fetch_hook('calendar_update_process')) ? eval($hook) : false;
 
 	$eventdata->set_info('parseurl', ($vbulletin->GPC['parseurl'] AND $calendarinfo['allowbbcode']));
-	$eventdata->setr_info('fromtime', $vbulletin->GPC['fromtime']);
-	$eventdata->setr_info('totime', $vbulletin->GPC['totime']);
-	$eventdata->setr_info('fromdate', $vbulletin->GPC['fromdate']);
-	$eventdata->setr_info('todate', $vbulletin->GPC['todate']);
+	$eventdata->setr_info('fromtime', $fromtime);
+	$eventdata->setr_info('totime', $totime);
+	$eventdata->setr_info('fromdate', $fromdate);
+	$eventdata->setr_info('todate', $todate);
 	$eventdata->setr_info('type', $vbulletin->GPC['type']);
 	$eventdata->setr_info('recur', $vbulletin->GPC['recur']);
 
 	$eventdata->set('title', $vbulletin->GPC['title']);
 	$eventdata->set('event', $message);
 	$eventdata->set('allowsmilies', empty($vbulletin->GPC['disablesmilies']) ? true : false);
-	$eventdata->set('utc', $vbulletin->GPC['timezoneoffset']);
-	$eventdata->set('recurring', $vbulletin->GPC['recur']['pattern']);
+	$eventdata->set('utc', $timezoneoffset);
+	$eventdata->set('recurring', $type == 'recur' ? $vbulletin->GPC['recur']['pattern'] : 0);
 	$eventdata->set('calendarid', $calendarinfo['calendarid']);
-	$eventdata->set('dst', $vbulletin->GPC['dst']);
+	$eventdata->set('dst', $dst);
 	$eventdata->set_userfields($vbulletin->GPC['userfield']);
 
 
@@ -1966,6 +2346,7 @@ if ($_POST['do'] == 'update')
 		$eventdata->set('calendarid', $calendarinfo['calendarid']);
 
 		$eventid = $eventdata->save();
+		clear_autosave_text('vBForum_Calendar', 0, 0, $vbulletin->userinfo['userid']);
 
 		if ($calendarinfo['neweventemail'])
 		{
@@ -1975,7 +2356,7 @@ if ($_POST['do'] == 'update')
 			$vbulletin->userinfo['username'] = unhtmlspecialchars($vbulletin->userinfo['username']); //for emails
 
 			require_once(DIR . '/includes/class_bbcode_alt.php');
-			$plaintext_parser =& new vB_BbCodeParser_PlainText($vbulletin, fetch_tag_list());
+			$plaintext_parser = new vB_BbCodeParser_PlainText($vbulletin, fetch_tag_list());
 			$plaintext_parser->set_parsing_language(0); // email addresses don't have a language ID
 			$eventmessage = $plaintext_parser->parse($message, 'calendar');
 
@@ -1994,12 +2375,12 @@ if ($_POST['do'] == 'update')
 		if ($visible)
 		{
 			$vbulletin->url = 'calendar.php?' . $vbulletin->session->vars['sessionurl'] . "do=getinfo&amp;e=$eventid&amp;day=" . $eventdata->info['occurdate'];
-			eval(print_standard_redirect('redirect_calendaraddevent'));
+			print_standard_redirect('redirect_calendaraddevent');
 		}
 		else
 		{
 			$vbulletin->url = 'calendar.php?' . $vbulletin->session->vars['sessionurl'] . "c=$calendarinfo[calendarid]";
-			eval(print_standard_redirect('redirect_calendarmoderated', true, true));
+			print_standard_redirect('redirect_calendarmoderated', true, true);
 		}
 	}
 	else
@@ -2008,10 +2389,12 @@ if ($_POST['do'] == 'update')
 		$eventdata->set_existing($eventinfo);
 		$eventdata->save();
 
+		clear_autosave_text('vBForum_Calendar', $eventinfo['eventid'], 0, $vbulletin->userinfo['userid']);
+
 		($hook = vBulletinHook::fetch_hook('calendar_update_complete')) ? eval($hook) : false;
 
 		$vbulletin->url = 'calendar.php?' . $vbulletin->session->vars['sessionurl'] . "do=getinfo&amp;e=$eventinfo[eventid]&amp;day=" . $eventdata->info['occurdate'];
-		eval(print_standard_redirect('redirect_calendarupdateevent'));
+		print_standard_redirect('redirect_calendarupdateevent');
 	}
 
 }
@@ -2042,7 +2425,7 @@ if ($_REQUEST['do'] == 'deletereminder')
 	");
 
 	$vbulletin->url = 'calendar.php?' . $vbulletin->session->vars['sessionurl'] . "do=getinfo&amp;e=$eventinfo[eventid]";
-	eval(print_standard_redirect('redirect_subsremove_event', true, true));
+	print_standard_redirect('redirect_subsremove_event', true, true);
 
 }
 
@@ -2092,7 +2475,7 @@ if ($_POST['do'] == 'dostuff')
 				WHERE subscribeeventid IN (-1$ids)
 					AND userid = " . $vbulletin->userinfo['userid']
 			);
-			eval(print_standard_redirect('redirect_reminderdeleted'));
+			print_standard_redirect('redirect_reminderdeleted');
 		}
 		else
 		{
@@ -2105,7 +2488,7 @@ if ($_POST['do'] == 'dostuff')
 						AND userid = " . $vbulletin->userinfo['userid']
 				);
 			}
-			eval(print_standard_redirect('redirect_reminderupdated'));
+			print_standard_redirect('redirect_reminderupdated');
 		}
 	}
 }
@@ -2128,6 +2511,8 @@ if ($_REQUEST['do'] == 'viewreminder')
 		'sortorder'  => TYPE_NOHTML,
 	));
 
+	require_once(DIR . '/includes/functions_user.php');
+
 	($hook = vBulletinHook::fetch_hook('calendar_viewreminder_start')) ? eval($hook) : false;
 
 	// These $_REQUEST values will get used in the sort template so they are assigned to normal variables
@@ -2141,22 +2526,31 @@ if ($_REQUEST['do'] == 'viewreminder')
 	if ($sortorder != 'asc')
 	{
 		$sortorder = 'desc';
+		$orderphrase = 'descending';
+	}
+	else
+	{
+		$orderphrase = 'ascending';
 	}
 
 	switch ($sortfield)
 	{
 		case 'username':
 			$sqlsortfield = 'user.username';
+			$sortphrase = 'event_poster';
 			break;
 		case 'reminder':
 			$sqlsortfield = 'subscribeevent.reminder';
+			$sortphrase = 'reminder';
 			break;
 		case 'title':
 			$sqlsortfield = 'event.' . $sortfield;
+			$sortphrase = 'event';
 			break;
 		default:
 			$sqlsortfield = 'event.dateline_from';
 			$sortfield = 'fromdate';
+			$sortphrase = 'date';
 	}
 
 	$eventcount = $db->query_first_slave("
@@ -2188,17 +2582,26 @@ if ($_REQUEST['do'] == 'viewreminder')
 	}
 
 	$getevents = $db->query_read_slave("
-		SELECT event.*, IF(dateline_to = 0, 1, 0) AS singleday, user.username,
+		SELECT event.*, IF(dateline_to = 0, 1, 0) AS singleday, user.username, user.options, user.adminoptions, user.usergroupid, user.membergroupids, user.infractiongroupids, IF(options & " . $vbulletin->bf_misc_useroptions['hasaccessmask'] . ", 1, 0) AS hasaccessmask,
 			subscribeevent.reminder, subscribeevent.subscribeeventid
+			" . ($vbulletin->options['avatarenabled'] ? ",avatar.avatarpath, NOT ISNULL(customavatar.userid) AS hascustomavatar, customavatar.dateline AS avatardateline,customavatar.width AS avwidth,customavatar.height AS avheight, customavatar.width_thumb AS avwidth_thumb, customavatar.height_thumb AS avheight_thumb, filedata_thumb, NOT ISNULL(customavatar.userid) AS hascustom" : "") . "
 		FROM " . TABLE_PREFIX . "subscribeevent AS subscribeevent
 		LEFT JOIN " . TABLE_PREFIX . "event AS event ON (subscribeevent.eventid = event.eventid)
 		LEFT JOIN " . TABLE_PREFIX . "user AS user ON (event.userid = user.userid)
-		WHERE subscribeevent.userid = " . $vbulletin->userinfo['userid'] . "
-			AND event.visible = 1
-		ORDER BY $sqlsortfield $sortorder
+		" . ($vbulletin->options['avatarenabled'] ? "LEFT JOIN " . TABLE_PREFIX . "avatar AS avatar ON(avatar.avatarid = user.avatarid) LEFT JOIN " . TABLE_PREFIX . "customavatar AS customavatar ON(customavatar.userid = user.userid)" : "") . "
+		WHERE
+			subscribeevent.userid = " . $vbulletin->userinfo['userid'] . "
+				AND
+			event.visible = 1
+		ORDER BY
+			$sqlsortfield $sortorder
+		LIMIT " . ($limitlower - 1) . ", $perpage
 	");
 
-	if ($totalevents = $db->num_rows($getevents))
+	$itemcount = ($pagenumber - 1) * $perpage;
+	$first = $itemcount + 1;
+
+	if ($db->num_rows($getevents))
 	{
 		$show['haveevents'] = true;
 
@@ -2211,6 +2614,12 @@ if ($_REQUEST['do'] == 'viewreminder')
 			$event['reminder'] = $vbphrase[$reminders[$event['reminder']]];
 			$offset = $event['dst'] ? $vbulletin->userinfo['timezoneoffset'] : $vbulletin->userinfo['tzoffset'];
 
+
+			$event = array_merge($event, convert_bits_to_array($event['options'], $vbulletin->bf_misc_useroptions));
+			$event  = array_merge($event, convert_bits_to_array($event['adminoptions'], $vbulletin->bf_misc_adminoptions));
+			cache_permissions($event, false);
+			fetch_avatar_from_userinfo($event, true);
+
 			$event['dateline_from_user'] = $event['dateline_from'] + $offset * 3600;
 			$event['dateline_to_user'] = $event['dateline_to'] + $offset * 3600;
 			$event['preview'] = htmlspecialchars_uni(strip_bbcode(fetch_trimmed_title(strip_quotes($event['event']), 300), false, true));
@@ -2220,15 +2629,25 @@ if ($_REQUEST['do'] == 'viewreminder')
 
 			($hook = vBulletinHook::fetch_hook('calendar_viewreminder_event')) ? eval($hook) : false;
 
-			eval('$eventbits .= "' . fetch_template('calendar_reminder_eventbit') . '";');
+			$oppositesort = ($sortorder == 'asc' ? 'desc' : 'asc');
+			$templater = vB_Template::create('calendar_reminder_eventbit');
+				$templater->register('date1', $date1);
+				$templater->register('date2', $date2);
+				$templater->register('daterange', $daterange);
+				$templater->register('event', $event);
+				$templater->register('eventdate', $eventdate);
+				$templater->register('recurcriteria', $recurcriteria);
+				$templater->register('time1', $time1);
+				$templater->register('time2', $time2);
+			$eventbits .= $templater->render();
+			$itemcount++;
 		}
+
+		$last = $itemcount;
 
 		$db->free_result($getevents);
 		$sorturl = 'calendar.php?' . $vbulletin->session->vars['sessionurl'] . "do=viewreminder&amp;pp=$perpage";
 		$pagenav = construct_page_nav($pagenumber, $perpage, $totalevents, $sorturl . "&amp;sort=$sortfield" . (!empty($sortorder) ? "&amp;order=$sortorder" : ""));
-		$oppositesort = ($sortorder == 'asc' ? 'desc' : 'asc');
-		eval('$sortarrow[' . $sortfield . '] = "' . fetch_template('forumdisplay_sortarrow') . '";');
-
 	}
 	else
 	{
@@ -2245,9 +2664,35 @@ if ($_REQUEST['do'] == 'viewreminder')
 
 	($hook = vBulletinHook::fetch_hook('calendar_viewreminder_complete')) ? eval($hook) : false;
 
-	eval('$navbar = "' . fetch_template('navbar') . '";');
-	eval('$HTML = "' . fetch_template('CALENDAR_REMINDER') . '";');
-	eval('print_output("' . fetch_template('USERCP_SHELL') . '");');
+	$navbar = render_navbar_template($navbits);
+	$templater = vB_Template::create('CALENDAR_REMINDER');
+		$templater->register('calendarid', $calendarid);
+		$templater->register('eventbits', $eventbits);
+		$templater->register('gobutton', $gobutton);
+		$templater->register('pagenav', $pagenav);
+		$templater->register('sorturl', $sorturl);
+		$templater->register('first', $first);
+		$templater->register('last', $last);
+		$templater->register('totalevents', $totalevents);
+		$templater->register('sortfield', $sortfield);
+		$templater->register('perpage', $perpage);
+		$templater->register('oppositesort', $oppositesort);
+		$templater->register('sortphrase', $sortphrase);
+		$templater->register('orderphrase', $orderphrase);
+		$templater->register('sortorder', $sortorder);
+	$HTML = $templater->render();
+	$templater = vB_Template::create('USERCP_SHELL');
+		$templater->register_page_templates();
+		$templater->register('cpnav', $cpnav);
+		$templater->register('HTML', $HTML);
+		$templater->register('navbar', $navbar);
+		$templater->register('navclass', $navclass);
+		$templater->register('onload', $onload);
+		$templater->register('pagetitle', $pagetitle);
+		$templater->register('template_hook', $template_hook);
+		$templater->register('includecss', 'reminders.css');
+		$templater->register('includeiecss', 'reminders-ie.css');
+	print_output($templater->render());
 
 }
 
@@ -2281,7 +2726,7 @@ if ($_POST['do'] == 'doaddreminder')
 	");
 
 	$vbulletin->url = 'calendar.php?' . $vbulletin->session->vars['sessionurl'] . "do=getinfo&amp;e=$eventinfo[eventid]";
-	eval(print_standard_redirect('redirect_subsadd_event'));
+	print_standard_redirect('redirect_subsadd_event');
 }
 
 
@@ -2298,9 +2743,6 @@ if ($_REQUEST['do'] == 'addreminder')
 		eval(standard_error(fetch_error('invalidid', $idname, $vbulletin->options['contactuslink'])));
 	}
 
-	// make title safe for display
-	$eventinfo['title'] = htmlspecialchars_uni($eventinfo['title']);
-
 	$navbits['calendar.php?' . $vbulletin->session->vars['sessionurl'] . "do=viewreminder"] = $vbphrase['event_reminders'];
 
 	$navbits[''] = $vbphrase['add_reminder'];
@@ -2308,21 +2750,33 @@ if ($_REQUEST['do'] == 'addreminder')
 
 	require_once(DIR . '/includes/functions_user.php');
 	construct_usercp_nav('event_reminders');
-	eval('$navbar = "' . fetch_template('navbar') . '";');
+	$navbar = render_navbar_template($navbits);
 
 	($hook = vBulletinHook::fetch_hook('calendar_addreminder')) ? eval($hook) : false;
 
 	$url =& $vbulletin->url;
-	eval('$HTML = "' . fetch_template('calendar_reminder_choosetype') . '";');
-	eval('print_output("' . fetch_template('USERCP_SHELL') . '");');
+	$templater = vB_Template::create('calendar_reminder_choosetype');
+		$templater->register('eventinfo', $eventinfo);
+		$templater->register('url', $url);
+	$HTML = $templater->render();
+	$templater = vB_Template::create('USERCP_SHELL');
+		$templater->register_page_templates();
+		$templater->register('cpnav', $cpnav);
+		$templater->register('HTML', $HTML);
+		$templater->register('navbar', $navbar);
+		$templater->register('navclass', $navclass);
+		$templater->register('onload', $onload);
+		$templater->register('pagetitle', $pagetitle);
+		$templater->register('template_hook', $template_hook);
+	print_output($templater->render());
 }
 
 eval(standard_error(fetch_error('invalidid', $idname, $vbulletin->options['contactuslink'])));
 
 /*======================================================================*\
 || ####################################################################
-|| # Downloaded: 16:21, Sat Apr 6th 2013
-|| # CVS: $RCSfile$ - $Revision: 26399 $
+|| # Downloaded: 14:57, Sun Aug 11th 2013
+|| # CVS: $RCSfile$ - $Revision: 63836 $
 || ####################################################################
 \*======================================================================*/
 ?>

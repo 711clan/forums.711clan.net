@@ -1,9 +1,9 @@
 <?php
 /*======================================================================*\
 || #################################################################### ||
-|| # vBulletin 3.7.2 Patch Level 2 - Licence Number VBF2470E4F
+|| # vBulletin 4.2.1 - Licence Number VBC2DDE4FB
 || # ---------------------------------------------------------------- # ||
-|| # Copyright ©2000-2013 Jelsoft Enterprises Ltd. All Rights Reserved. ||
+|| # Copyright ©2000-2013 vBulletin Solutions Inc. All Rights Reserved. ||
 || # This file may not be redistributed in whole or significant part. # ||
 || # ---------------- VBULLETIN IS NOT FREE SOFTWARE ---------------- # ||
 || # http://www.vbulletin.com | http://www.vbulletin.com/license.html # ||
@@ -31,7 +31,7 @@ require_once(DIR . '/includes/functions_bigthree.php');
 
 if (SLASH_METHOD AND strpos($archive_info , '/archive/index.php') === false)
 {
-	exec_header_redirect($vbulletin->options['bburl'] . '/archive/index.php');
+	exec_header_redirect($vbulletin->options['bburl'] . '/archive/index.php' . $vbulletin->session->vars['sessionurl_q']);
 }
 
 // parse query string
@@ -40,7 +40,11 @@ $p = 0;
 $t = 0;
 $output = '';
 
-$endbit = str_replace('.html', '', $archive_info);
+
+$endbit = $vbulletin->input->strip_sessionhash($archive_info);
+$endbit = str_replace(array('pda=1', 'login=1', '.html'), '', $endbit);
+$endbit = rtrim($endbit, '&?');
+
 if (SLASH_METHOD)
 {
 	$endbit = substr(strrchr($endbit, '/') , 1);
@@ -112,11 +116,20 @@ else if ($f)
 	$querystring = 'f-' . $f . iif($p, '-p-' . intval($p)) . '.html';
 }
 
-
 if ($vbulletin->GPC['pda'])
 {
 	vbsetcookie('pda', '1', 1);
-	exec_header_redirect($querystring);
+
+	$redirect_url = $vbulletin->options['bburl'] . '/archive/index.php';
+	if ($querystring)
+	{
+		$redirect_url .= (SLASH_METHOD ? '/' : '?') . $querystring . ARCHIVE_SESSION_URL;
+	}
+	else
+	{
+		$redirect_url .= $vbulletin->session->vars['sessionurl_q'];
+	}
+	exec_header_redirect($redirect_url);
 }
 else if ($vbulletin->GPC[COOKIE_PREFIX . 'pda'])
 {
@@ -151,7 +164,17 @@ if ($vbulletin->userinfo['userid'] == 0 AND $vbulletin->GPC['login'])
 				VALUES
 					('" . $db->escape_string($vbulletin->session->vars['sessionhash']) . "', " . $vbulletin->session->vars['userid'] . ", '" . $db->escape_string($vbulletin->session->vars['host']) . "', '" . $db->escape_string($vbulletin->session->vars['idhash']) . "', " . TIMENOW . ", " . $vbulletin->session->vars['styleid'] . ", 1, " . iif ($logintype === 'cplogin', 1, 0) . ", '" . $db->escape_string($vbulletin->session->vars['useragent']) . "')
 			");
-			exec_header_redirect($querystring);
+
+			$redirect_url = $vbulletin->options['bburl'] . '/archive/index.php';
+			if ($querystring)
+			{
+				$redirect_url .= (SLASH_METHOD ? '/' : '?') . $querystring . ARCHIVE_SESSION_URL;
+			}
+			else
+			{
+				$redirect_url .= $vbulletin->session->vars['sessionurl_q'];
+			}
+			exec_header_redirect($redirect_url);
 		}
 		else
 		{ // wrong username / password
@@ -172,6 +195,9 @@ else if ($t)
 	$threadinfo = fetch_threadinfo($t);
 	$foruminfo = fetch_foruminfo($threadinfo['forumid']);
 
+	$threadinfo['meta_description'] = strip_bbcode(strip_quotes($threadinfo['description']), false, true);
+	$threadinfo['meta_description'] = htmlspecialchars_uni(fetch_censored_text(fetch_trimmed_title($threadinfo['meta_description'], 500, false)));
+
 	$forumperms = $vbulletin->userinfo['forumpermissions'][$foruminfo['forumid']];
 	if (!($forumperms & $vbulletin->bf_ugp_forumpermissions['canview']) OR !($forumperms & $vbulletin->bf_ugp_forumpermissions['canviewthreads']) OR !($forumperms & $vbulletin->bf_ugp_forumpermissions['canviewothers']) OR in_coventry($threadinfo['postuserid']) OR $threadinfo['isdeleted'] OR (!$threadinfo['visible'] AND !can_moderate($threadinfo['forumid'], 'canmoderateposts')))
 	{
@@ -188,8 +214,8 @@ else if ($t)
 	$title = "$threadinfo[prefix_plain_html] $threadinfo[title] [$vbphrase[archive]] " . ($p > 1 ? ' - ' . construct_phrase($vbphrase['page_x'], $p) : '') . " - $title";
 
 	$p = intval($p);
-	$metatags = "<meta name=\"keywords\" content=\"$threadinfo[prefix_plain_html] $threadinfo[title], " . $vbulletin->options['keywords'] . "\" />
-	<meta name=\"description\" content=\"[$vbphrase[archive]] " . ($p > 1 ? construct_phrase($vbphrase['page_x'], $p) . " " : "") . "$threadinfo[prefix_plain_html] $threadinfo[title] $foruminfo[title_clean]\" />
+	$metatags = "<meta name=\"keywords\" content=\"$threadinfo[keywords]\" />
+	<meta name=\"description\" content=\"$threadinfo[meta_description]\" />
 	";
 
 }
@@ -252,10 +278,13 @@ if ($pda AND $vbulletin->userinfo['userid'] > 0 AND $vbulletin->GPC['message'] A
 	$do = 'message';
 }
 
+// ad locations
+$ad_templates = fetch_ad_templates(array('ad_archive_above_content1', 'ad_archive_above_content2', 'ad_archive_below_content'));
+
 $output .= "<!DOCTYPE html PUBLIC \"-//W3C//DTD XHTML 1.0 Transitional//EN\" \"http://www.w3.org/TR/xhtml1/DTD/xhtml1-transitional.dtd\">
-<html xmlns=\"http://www.w3.org/1999/xhtml\" dir=\"$stylevar[textdirection]\" lang=\"$stylevar[languagecode]\">
+<html xmlns=\"http://www.w3.org/1999/xhtml\" dir=\"" . vB_Template_Runtime::fetchStyleVar('textdirection') . "\" lang=\"" . vB_Template_Runtime::fetchStyleVar('languagecode') . "\">
 <head>
-	<meta http-equiv=\"Content-Type\" content=\"text/html; charset=$stylevar[charset]\" />
+	<meta http-equiv=\"Content-Type\" content=\"text/html; charset=" . vB_Template_Runtime::fetchStyleVar('charset') . "\" />
 	$metatags
 	<title>$title</title>
 	<link rel=\"stylesheet\" type=\"text/css\" href=\"" . $vbulletin->options['bburl'] . "/archive/archive.css\" />
@@ -271,10 +300,16 @@ $output .= "<!DOCTYPE html PUBLIC \"-//W3C//DTD XHTML 1.0 Transitional//EN\" \"h
 
 if ($do == 'index')
 {
+
 	$output .= print_archive_navigation(array());
 
-	$output .= "<p class=\"largefont\">$vbphrase[view_full_version]: <a href=\"" . $vbulletin->options['bburl'] . '/' . $vbulletin->options['forumhome'] . '.php">' . $vbulletin->options['bbtitle'] . "</a></p>\n";
-
+	$output .= "<p class=\"largefont\">$vbphrase[view_full_version]: <a href=\"" . 
+		fetch_seo_url('forumhome|bburl', array()) 
+		. '">' . $vbulletin->options['bbtitle'] . "</a></p>\n";
+	$output .= "<div class=\"floatcontainer\">";
+	$output .= $ad_templates['ad_archive_above_content1'];
+	$output .= $ad_templates['ad_archive_above_content2'];
+	$output .= "</div><br />";
 	$output .= "<div id=\"content\">\n";
 	$output .= print_archive_forum_list();
 	$output .= "</div>\n";
@@ -299,7 +334,14 @@ if ($do == 'forum')
 
 	$output .= print_archive_navigation($foruminfo);
 
-	$output .= "<p class=\"largefont\">$vbphrase[view_full_version] : <a href=\"" . $vbulletin->options['bburl'] . "/forumdisplay.php?f=$foruminfo[forumid]\">$foruminfo[title_clean]</a></p>\n<hr />\n";
+	$output .= "<p class=\"largefont\">$vbphrase[view_full_version] : <a href=\"" .
+		fetch_seo_url('forum|bburl', $foruminfo) .
+		"\">$foruminfo[title_clean]</a></p>\n<hr />\n";
+
+	$output .= "<div class=\"floatcontainer\">";
+	$output .= $ad_templates['ad_archive_above_content1'];
+	$output .= $ad_templates['ad_archive_above_content2'];
+	$output .= "</div><br />";
 
 	if ($foruminfo['cancontainthreads'])
 	{
@@ -346,11 +388,13 @@ if ($do == 'forum')
 			}
 			else if ($vbulletin->options['archive_threadtype'] OR $pda)
 			{
-				$output .= "\t<li>$thread[prefix_plain_html] <a href=\"" . $vbulletin->options['bburl'] . '/archive/index.php' . (SLASH_METHOD ? '/' : '?') . "t-$thread[threadid].html\">$thread[title]</a>" . iif($pda, " <i>(" . construct_phrase($vbphrase['x_replies'], $thread['replycount']) . ")</i>") . "</li>\n";
+				$output .= "\t<li>$thread[prefix_plain_html] <a href=\"" . $vbulletin->options['bburl'] .
+					'/archive/index.php' . (SLASH_METHOD ? '/' : '?') . "t-$thread[threadid].html" . ARCHIVE_SESSION_URL . "\">$thread[title]</a>" . iif($pda, " <i>(" . construct_phrase($vbphrase['x_replies'], $thread['replycount']) . ")</i>") . "</li>\n";
 			}
 			else
 			{
-				$output .= "\t<li>$thread[prefix_plain_html] <a href=\"" . $vbulletin->options['bburl'] . "/showthread.php?t=$thread[threadid]\">$thread[title]</a></li>\n";
+				$output .= "\t<li>$thread[prefix_plain_html] <a href=\"" . fetch_seo_url('thread|bburl', $thread) . 
+					"\">$thread[title]</a></li>\n";
 			}
 		}
 		$output .= "</ol>\n</div>\n";
@@ -372,7 +416,7 @@ if ($do == 'thread')
 	if (!$vbulletin->options['archive_threadtype'])
 	{
 		// if we are not using the archive threadtype, invisibly redirect to the full thread view
-		exec_header_redirect($vbulletin->options['bburl'] . "/showthread.php?" . $vbulletin->session->vars['sessionurl_js'] . "t=$threadinfo[threadid]");
+		exec_header_redirect(fetch_seo_url('thread|js|bburl', $threadinfo));
 	}
 
 	if ($vbulletin->options['wordwrap'] != 0)
@@ -386,12 +430,18 @@ if ($do == 'thread')
 
 	$output .= "<p class=\"largefont\">$vbphrase[view_full_version] : "
 		. ($threadinfo['prefix_plain_html'] ? "$threadinfo[prefix_plain_html] " : '' )
-		. "<a href=\"" . $vbulletin->options['bburl'] . "/showthread.php?t=$threadinfo[threadid]\">$threadinfo[title]</a></p>\n<hr />\n";
+		. "<a href=\"" . fetch_seo_url('thread|bburl', $threadinfo)
+		. "\">$threadinfo[title]</a></p>\n<hr />\n";
 
 	if ($p == 0)
 	{
 		$p = 1;
 	}
+
+	$output .= "<div class=\"floatcontainer\">";
+	$output .= $ad_templates['ad_archive_above_content1'];
+	$output .= $ad_templates['ad_archive_above_content2'];
+	$output .= "</div><br />";
 
 	$output .= print_archive_page_navigation($threadinfo['replycount'] + 1, $vbulletin->options['archive_postsperpage'], "t-$threadinfo[threadid]");
 
@@ -430,6 +480,11 @@ if ($do == 'thread')
 		$output .= "<div class=\"posttext\">" . nl2br(htmlspecialchars_uni($post['pagetext_simp'])) . "</div></div><hr />\n\n";
 	}
 
+	// Record thread as viewed.
+	if ($vbulletin->options['who_read'])
+	{
+		mark_content_read('vBForum_Thread', $thread['threadid'], 'view');
+	}
 }
 
 // ********************************************************************************************
@@ -437,16 +492,22 @@ if ($do == 'thread')
 if ($do == 'login')
 {
 	$output .= print_archive_navigation(array());
+	$output .= "<p class=\"largefont\">$vbphrase[view_full_version]: <a href=\"" . 
+		fetch_seo_url('forumhome|bburl', array()) .
+		'">' . $vbulletin->options['bbtitle'] . "</a></p>\n";
 
-	$output .= "<p class=\"largefont\">$vbphrase[view_full_version]: <a href=\"" . $vbulletin->options['bburl'] . '/' . $vbulletin->options['forumhome'] . '.php">' . $vbulletin->options['bbtitle'] . "</a></p>\n";
+	$output .= "<div class=\"floatcontainer\">";
+	$output .= $ad_templates['ad_archive_above_content1'];
+	$output .= $ad_templates['ad_archive_above_content2'];
+	$output .= "</div><br />";
 
 	if (SLASH_METHOD)
 	{
-		$loginlink = 'index.php' . (!empty($querystring) ? "/$querystring" : '') . '?login=1';
+		$loginlink = 'index.php' . (!empty($querystring) ? "/$querystring" : '') . '?' . $vbulletin->session->vars['sessionurl'] . 'login=1';
 	}
 	else
 	{
-		$loginlink = 'index.php?login=1';
+		$loginlink = 'index.php?' . (!empty($querystring) ? "$querystring&amp;" : '') . $vbulletin->session->vars['sessionurl'] . 'login=1';
 	}
 
 	$output .= "<div id=\"content\">\n";
@@ -465,21 +526,32 @@ if ($do == 'error')
 {
 	$output .= print_archive_navigation(array());
 
-	$output .= "<p class=\"largefont\">$vbphrase[view_full_version]: <a href=\"" . $vbulletin->options['bburl'] . '/' . $vbulletin->options['forumhome'] . '.php">' . $vbulletin->options['bbtitle'] . "</a></p>\n";
+	$output .= "<p class=\"largefont\">$vbphrase[view_full_version]: <a href=\"" . 
+		fetch_seo_url('forumhome|bburl', array()) .
+		'">' . $vbulletin->options['bbtitle'] . "</a></p>\n";
+
+	$output .= "<div class=\"floatcontainer\">";
+	$output .= $ad_templates['ad_archive_above_content1'];
+	$output .= $ad_templates['ad_archive_above_content2'];
+	$output .= "</div><br />";
 
 	$output .= "<div id=\"content\">\n";
 	$output .= $error_message;
 	$output .= "</div>\n";
 }
 
+// ad locations
+
 ($hook = vBulletinHook::fetch_hook('archive_complete')) ? eval($hook) : false;
 
+$output .= $ad_templates['ad_archive_below_content'];
 $output .= "
 <div id=\"copyright\">$vbphrase[vbulletin_copyright]</div>
 </div>
 </body>
 </html>";
 
+$vbulletin->shutdown->shutdown();
 if (defined('NOSHUTDOWNFUNC'))
 {
 	exec_shut_down();
@@ -491,8 +563,8 @@ echo $output;
 
 /*======================================================================*\
 || ####################################################################
-|| # Downloaded: 16:21, Sat Apr 6th 2013
-|| # CVS: $RCSfile$ - $Revision: 26358 $
+|| # Downloaded: 14:57, Sun Aug 11th 2013
+|| # CVS: $RCSfile$ - $Revision: 62289 $
 || ####################################################################
 \*======================================================================*/
 ?>

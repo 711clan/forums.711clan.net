@@ -1,9 +1,9 @@
 <?php
 /*======================================================================*\
 || #################################################################### ||
-|| # vBulletin 3.7.2 Patch Level 2 - Licence Number VBF2470E4F
+|| # vBulletin 4.2.1 - Licence Number VBC2DDE4FB
 || # ---------------------------------------------------------------- # ||
-|| # Copyright ©2000-2013 Jelsoft Enterprises Ltd. All Rights Reserved. ||
+|| # Copyright ©2000-2013 vBulletin Solutions Inc. All Rights Reserved. ||
 || # This file may not be redistributed in whole or significant part. # ||
 || # ---------------- VBULLETIN IS NOT FREE SOFTWARE ---------------- # ||
 || # http://www.vbulletin.com | http://www.vbulletin.com/license.html # ||
@@ -52,25 +52,24 @@ function build_attachment_permissions()
 
 	$data = array();
 	$types = $vbulletin->db->query_read("
-		SELECT atype.extension, atype.thumbnail, atype.newwindow, aperm.usergroupid,
-			atype.height AS default_height, atype.width AS default_width, atype.size AS default_size,
+		SELECT
+			atype.extension, atype.height AS default_height, atype.width AS default_width, atype.size AS default_size, atype.contenttypes,
 			aperm.height AS custom_height, aperm.width AS custom_width, aperm.size AS custom_size,
-			aperm.attachmentpermissions AS custom_permissions
+			aperm.attachmentpermissions AS custom_permissions, aperm.usergroupid
 		FROM " . TABLE_PREFIX . "attachmenttype AS atype
 		LEFT JOIN " . TABLE_PREFIX . "attachmentpermission AS aperm USING (extension)
-		WHERE enabled = 1
 		ORDER BY extension
 	");
 	while ($type = $vbulletin->db->fetch_array($types))
 	{
 		if (empty($data["$type[extension]"]))
 		{
+			$contenttypes = unserialize($type['contenttypes']);
 			$data["$type[extension]"] = array(
-				'size'      => $type['default_size'],
-				'width'     => $type['default_width'],
-				'height'    => $type['default_height'],
-				'thumbnail' => $type['thumbnail'],
-				'newwindow' => $type['newwindow'],
+				'size'         => $type['default_size'],
+				'width'        => $type['default_width'],
+				'height'       => $type['default_height'],
+				'contenttypes' => $contenttypes,
 			);
 		}
 
@@ -85,13 +84,13 @@ function build_attachment_permissions()
 		}
 	}
 
-	build_datastore('attachmentcache', serialize($data), 1);
+	build_datastore('attachmentcache', serialize($data), true);
 }
 
 /*======================================================================*\
 || ####################################################################
-|| # Downloaded: 16:21, Sat Apr 6th 2013
-|| # CVS: $RCSfile$ - $Revision: 24995 $
+|| # Downloaded: 14:57, Sun Aug 11th 2013
+|| # CVS: $RCSfile$ - $Revision: 32878 $
 || ####################################################################
 \*======================================================================*/
 ?>

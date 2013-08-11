@@ -1,9 +1,9 @@
 <?php
 /*======================================================================*\
 || #################################################################### ||
-|| # vBulletin 3.7.2 Patch Level 2 - Licence Number VBF2470E4F
+|| # vBulletin 4.2.1 - Licence Number VBC2DDE4FB
 || # ---------------------------------------------------------------- # ||
-|| # Copyright ©2000-2013 Jelsoft Enterprises Ltd. All Rights Reserved. ||
+|| # Copyright ©2000-2013 vBulletin Solutions Inc. All Rights Reserved. ||
 || # This file may not be redistributed in whole or significant part. # ||
 || # ---------------- VBULLETIN IS NOT FREE SOFTWARE ---------------- # ||
 || # http://www.vbulletin.com | http://www.vbulletin.com/license.html # ||
@@ -14,7 +14,7 @@
 error_reporting(E_ALL & ~E_NOTICE);
 
 // ##################### DEFINE IMPORTANT CONSTANTS #######################
-define('CVS_REVISION', '$RCSfile$ - $Revision: 25644 $');
+define('CVS_REVISION', '$RCSfile$ - $Revision: 57655 $');
 
 // #################### PRE-CACHE TEMPLATES AND DATA ######################
 $phrasegroups = array('calendar', 'cppermission', 'holiday');
@@ -232,6 +232,7 @@ if ($_REQUEST['do'] == 'add' or $_REQUEST['do'] == 'edit')
 			'active'        => 1,
 			'allowbbcode'   => 1,
 			'allowimgcode'  => 1,
+			'allowvideocode'=> 1,
 			'allowsmilies'  => 1,
 			'startofweek'   => 1,
 			'showholidays'  => 1,
@@ -324,6 +325,7 @@ if ($_REQUEST['do'] == 'add' or $_REQUEST['do'] == 'edit')
 	print_yes_no_row($vbphrase['allow_html'], 'options[allowhtml]', $calendar['allowhtml']);
 	print_yes_no_row($vbphrase['allow_bbcode'], 'options[allowbbcode]', $calendar['allowbbcode']);
 	print_yes_no_row($vbphrase['allow_img_code'], 'options[allowimgcode]', $calendar['allowimgcode']);
+	print_yes_no_row($vbphrase['allow_video_code'], 'options[allowvideocode]', $calendar['allowvideocode']);	
 	print_yes_no_row($vbphrase['allow_smilies'], 'options[allowsmilies]', $calendar['allowsmilies']);
 
 	print_submit_row($vbphrase['save']);
@@ -349,6 +351,11 @@ if ($_POST['do'] == 'update')
 	));
 
 	require_once(DIR . '/includes/functions_misc.php');
+
+	if (empty($vbulletin->GPC['calendar']['title']))
+	{
+		print_stop_message('calendar_title_no_empty');
+	}
 	switch($vbulletin->GPC['default'])
 	{
 		case 1:
@@ -477,7 +484,7 @@ if ($_REQUEST['do'] == 'modify')
 	print_form_header('admincalendar', 'doorder');
 	print_table_header($vbphrase['calendar_manager'], 4);
 	print_description_row($vbphrase['if_you_change_display_order'],0,4);
-	print_cells_row(array('&nbsp; ' . $vbphrase['title'], $vbphrase['controls'], $vbphrase['order_by'], $vbphrase['moderators']), 1, 'tcat');
+	print_cells_row(array('&nbsp; ' . $vbphrase['title'], $vbphrase['controls'], $vbphrase['display_order'], $vbphrase['moderators']), 1, 'tcat');
 
 	$calendars = $db->query_read("SELECT * FROM " . TABLE_PREFIX . "calendar ORDER BY displayorder");
 	while ($calendar = $db->fetch_array($calendars))
@@ -485,7 +492,7 @@ if ($_REQUEST['do'] == 'modify')
 		$cell = array();
 		$cell[] = "&nbsp;<b><a href=\"admincalendar.php?" . $vbulletin->session->vars['sessionurl'] . "do=edit&c=$calendar[calendarid]\">$calendar[title]</a></b>";
 		$cell[] = "\n\t<select name=\"c$calendar[calendarid]\" onchange=\"js_calendar_jump($calendar[calendarid]);\" class=\"bginput\">\n" . construct_select_options($calendaroptions) . "\t</select>\n\t<input type=\"button\" class=\"button\" value=\"".$vbphrase['go']."\" onclick=\"js_calendar_jump($calendar[calendarid]);\" />\n\t";
-		$cell[] = "<input type=\"text\" class=\"bginput\" name=\"order[$calendar[calendarid]]\" value=\"$calendar[displayorder]\" tabindex=\"1\" size=\"3\" title=\"" . $vbphrase['order_by']  . 'ssss' ."\" />";
+		$cell[] = "<input type=\"text\" class=\"bginput\" name=\"order[$calendar[calendarid]]\" value=\"$calendar[displayorder]\" tabindex=\"1\" size=\"3\" title=\"" . $vbphrase['display_order']  . "\" />";
 
 		$mods = array('no_value' => $vbphrase['moderators']. ' (' . sizeof($cmodcache["$calendar[calendarid]"]) . ')');
 		if (is_array($cmodcache["$calendar[calendarid]"]))
@@ -796,12 +803,23 @@ if ($_REQUEST['do'] == 'updateholiday')
 	$vbulletin->input->clean_array_gpc('r', array('holidayid' => TYPE_UINT));
 
 	print_form_header('admincalendar', 'saveholiday');
+	$recuroption1 = array('1', '1');
+	$recuroption2 = array('1', '1', '1');
+	
 	if ($vbulletin->GPC['holidayid']) // Existing Holiday
 	{
 		$holidayinfo = $db->query_first("SELECT * FROM " . TABLE_PREFIX . "holiday WHERE holidayid = " . $vbulletin->GPC['holidayid']);
 		construct_hidden_code('holidayid', $vbulletin->GPC['holidayid']);
 		$options = explode('|', $holidayinfo['recuroption']);
 		$checked = array($holidayinfo['recurring'] => 'checked="checked"');
+		if ($checked[6])
+		{
+			$recuroption1 = $options;
+		}
+		else
+		{
+			$recuroption2 = $options;
+		}
 
 		$title = 'holiday' . $holidayinfo['holidayid'] . '_title';
 		$desc = 'holiday' . $holidayinfo['holidayid'] . '_desc';
@@ -852,9 +870,11 @@ if ($_REQUEST['do'] == 'updateholiday')
 
 	print_label_row($vbphrase['recurring_option'],
 		'<input type="radio" name="holidayinfo[recurring]" value="6" tabindex="1" ' . $checked[6] . '/>' .
-		construct_phrase($vbphrase['every_x_y'], construct_month_select_html($options[0], 'month1'),  construct_day_select_html($options[1], 'day1')) . '
-		<br /><input type="radio" name="holidayinfo[recurring]" value="7" tabindex="1" ' . $checked[7] . '/>' .
-		construct_phrase($vbphrase['the_x_y_of_z'], '<select name="period" tabindex="1" class="bginput">' . construct_select_options($periodarray, $options[0]) . '</select>', '<select name="day2" tabindex="1" class="bginput">' . construct_select_options($daysarray, $options[1]) . '</select>', construct_month_select_html($options[2], 'month2')),
+		
+		construct_phrase($vbphrase['every_x_y'], construct_month_select_html($recuroption1[0], 'month1'),  construct_day_select_html($recuroption1[1], 'day1')) . '
+		<br />
+		<input type="radio" name="holidayinfo[recurring]" value="7" tabindex="1" ' . $checked[7] . '/>' .
+		construct_phrase($vbphrase['the_x_y_of_z'], '<select name="period" tabindex="1" class="bginput">' . construct_select_options($periodarray, $recuroption2[0]) . '</select>', '<select name="day2" tabindex="1" class="bginput">' . construct_select_options($daysarray, $recuroption2[1]) . '</select>', construct_month_select_html($recuroption2[2], 'month2')),
 		'', 'top', 'recurring'
 	);
 	print_yes_no_row($vbphrase['allow_smilies'], 'holidayinfo[allowsmilies]', $holidayinfo['allowsmilies']);
@@ -883,6 +903,14 @@ if($_POST['do'] == 'saveholiday')
 		print_stop_message('please_complete_required_fields');
 	}
 
+	$vbulletin->GPC['holidayinfo']['recurring'] = intval($vbulletin->GPC['holidayinfo']['recurring']);
+	$vbulletin->GPC['holidayinfo']['month1'] = intval($vbulletin->GPC['holidayinfo']['month1']);
+	$vbulletin->GPC['holidayinfo']['month2'] = intval($vbulletin->GPC['holidayinfo']['month2']);
+	$vbulletin->GPC['holidayinfo']['day1'] = intval($vbulletin->GPC['holidayinfo']['day1']);
+	$vbulletin->GPC['holidayinfo']['day2'] = intval($vbulletin->GPC['holidayinfo']['day2']);
+	$vbulletin->GPC['holidayinfo']['period'] = intval($vbulletin->GPC['holidayinfo']['period']);
+
+
 	if ($vbulletin->GPC['holidayinfo']['recurring'] == 6)
 	{
 		$vbulletin->GPC['holidayinfo']['recuroption'] = $vbulletin->GPC['month1'] . '|' . $vbulletin->GPC['day1'];
@@ -902,7 +930,7 @@ if($_POST['do'] == 'saveholiday')
 	$db->query_write("
 		UPDATE " . TABLE_PREFIX . "holiday
 		SET allowsmilies = " . $vbulletin->GPC['holidayinfo']['allowsmilies'] . ",
-		recuroption = '" . $vbulletin->GPC['holidayinfo']['recuroption'] . "',
+		recuroption = '" . $db->escape_string($vbulletin->GPC['holidayinfo']['recuroption']) . "',
 		recurring = " . $vbulletin->GPC['holidayinfo']['recurring'] . "
 		WHERE holidayid = " . $vbulletin->GPC['holidayid']
 	);
@@ -993,8 +1021,8 @@ print_cp_footer();
 
 /*======================================================================*\
 || ####################################################################
-|| # Downloaded: 16:21, Sat Apr 6th 2013
-|| # CVS: $RCSfile$ - $Revision: 25644 $
+|| # Downloaded: 14:57, Sun Aug 11th 2013
+|| # CVS: $RCSfile$ - $Revision: 57655 $
 || ####################################################################
 \*======================================================================*/
 ?>

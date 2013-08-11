@@ -1,9 +1,9 @@
 <?php
 /*======================================================================*\
 || #################################################################### ||
-|| # vBulletin 3.7.2 Patch Level 2 - Licence Number VBF2470E4F
+|| # vBulletin 4.2.1 - Licence Number VBC2DDE4FB
 || # ---------------------------------------------------------------- # ||
-|| # Copyright ©2000-2013 Jelsoft Enterprises Ltd. All Rights Reserved. ||
+|| # Copyright ©2000-2013 vBulletin Solutions Inc. All Rights Reserved. ||
 || # This file may not be redistributed in whole or significant part. # ||
 || # ---------------- VBULLETIN IS NOT FREE SOFTWARE ---------------- # ||
 || # http://www.vbulletin.com | http://www.vbulletin.com/license.html # ||
@@ -90,6 +90,16 @@ class vB_Akismet
 		{
 			trigger_error(get_class($this) . '::Registry object is not an object', E_USER_ERROR);
 		}
+
+		switch ($this->registry->options['vb_antispam_type'])
+		{
+			case 1:
+				$this->akismet_host = 'rest.akismet.com';
+			break;
+			case 2:
+				$this->akismet_host = 'api.antispam.typepad.com';
+			break;
+		}
 	}
 
 	/**
@@ -152,6 +162,12 @@ class vB_Akismet
 	{
 		if ($this->_akismet_api_url === null)
 		{
+			// deal with new setting if scanning is disabled
+			if (!$this->registry->options['vb_antispam_type'])
+			{
+				return false;
+			}
+
 			$check_key = 'http://' . $this->akismet_host . '/' . $this->akismet_version . '/verify-key';
 			// if they entered the key in vB Options we'll assume its correct.
 			if ($this->akismet_key == $this->registry->options['vb_antispam_key'] OR strpos($this->_submit($check_key, array('key' => $this->akismet_key)), 'invalid') === false)
@@ -189,7 +205,7 @@ class vB_Akismet
 
 		$vurl = new vB_vURL($this->registry);
 		$vurl->set_option(VURL_URL, $url);
-		$vurl->set_option(VURL_USERAGENT, 'vBulletin/' . FILE_VERSION . ' | Akismet/1.0');
+		$vurl->set_option(VURL_USERAGENT, 'vBulletin/' . FILE_VERSION . ' | Akismet/1.1');
 		$vurl->set_option(VURL_POST, 1);
 		$vurl->set_option(VURL_POSTFIELDS, implode('&', $query));
 		$vurl->set_option(VURL_RETURNTRANSFER, 1);
@@ -201,8 +217,8 @@ class vB_Akismet
 
 /*======================================================================*\
 || ####################################################################
-|| # Downloaded: 16:21, Sat Apr 6th 2013
-|| # SVN: $Revision: 26074 $
+|| # Downloaded: 14:57, Sun Aug 11th 2013
+|| # SVN: $Revision: 32878 $
 || ####################################################################
 \*======================================================================*/
 ?>

@@ -1,9 +1,9 @@
 <?php
 /*======================================================================*\
 || #################################################################### ||
-|| # vBulletin 3.7.2 Patch Level 2 - Licence Number VBF2470E4F
+|| # vBulletin 4.2.1 - Licence Number VBC2DDE4FB
 || # ---------------------------------------------------------------- # ||
-|| # Copyright ©2000-2013 Jelsoft Enterprises Ltd. All Rights Reserved. ||
+|| # Copyright ©2000-2013 vBulletin Solutions Inc. All Rights Reserved. ||
 || # This file may not be redistributed in whole or significant part. # ||
 || # ---------------- VBULLETIN IS NOT FREE SOFTWARE ---------------- # ||
 || # http://www.vbulletin.com | http://www.vbulletin.com/license.html # ||
@@ -14,7 +14,7 @@
 define('VB_AREA', 'Archive');
 
 // ###################### Start initialisation #######################
-chdir('./..');
+chdir('./../');
 define('CWD', (($getcwd = getcwd()) ? $getcwd : '.'));
 
 require_once(CWD . '/includes/init.php');
@@ -35,33 +35,54 @@ $vbphrase = init_language();
 
 // ###################### Start templates & styles #######################
 // allow archive to use a non-english language
-$styleid = intval($styleid);
+$styleid = intval($vbulletin->options['styleid']);
 
 ($hook = vBulletinHook::fetch_hook('style_fetch')) ? eval($hook) : false;
 
 $style = $db->query_first_slave("
 	SELECT * FROM " . TABLE_PREFIX . "style
-	WHERE (styleid = $styleid" . iif(!($permissions['adminpermissions'] & $vbulletin->bf_ugp_adminpermissions['cancontrolpanel']), ' AND userselect = 1') . ")
-	OR styleid = " . $vbulletin->options['styleid'] . "
-	ORDER BY styleid " . iif($styleid > $vbulletin->options['styleid'], 'DESC', 'ASC') . "
+	WHERE styleid = $styleid
 ");
-$stylevar = fetch_stylevars($style, $vbulletin->userinfo);
+fetch_stylevars($style, $vbulletin->userinfo);
 
-if ((strtoupper(substr(PHP_OS, 0, 3)) == 'WIN' AND stristr($_SERVER['SERVER_SOFTWARE'], 'apache') === false) OR (strpos(SAPI_NAME, 'cgi') !== false AND @!get_cfg_var('cgi.fix_pathinfo')))
+if ((strtoupper(substr(PHP_OS, 0, 3)) == 'WIN' AND stristr($_SERVER['SERVER_SOFTWARE'], 'apache') === false) OR (strpos(SAPI_NAME, 'cgi') !== false AND @!ini_get('cgi.fix_pathinfo')))
 {
 	define('SLASH_METHOD', false);
-	$archive_info = $_SERVER['QUERY_STRING'];
 }
 else
 {
 	define('SLASH_METHOD', true);
+}
+
+if (SLASH_METHOD)
+{
 	$archive_info = $_SERVER['REQUEST_URI'] ? $_SERVER['REQUEST_URI'] : $_SERVER['PHP_SELF'];
+}
+else
+{
+	$archive_info = $_SERVER['QUERY_STRING'];
+}
+
+if ($vbulletin->session->visible)
+{
+	if (SLASH_METHOD)
+	{
+		define('ARCHIVE_SESSION_URL', '?s=' . $vbulletin->session->vars['sessionhash']);
+	}
+	else
+	{
+		define('ARCHIVE_SESSION_URL', '&amp;s=' . $vbulletin->session->vars['sessionhash']);
+	}
+}
+else
+{
+	define('ARCHIVE_SESSION_URL', '');
 }
 
 // check to see if server is too busy. this is checked at the end of session.php
-if ((!empty($servertoobusy) AND $vbulletin->userinfo['usergroupid'] != 6) OR $vbulletin->options['archiveenabled'] == 0)
+if ((server_overloaded() AND $vbulletin->userinfo['usergroupid'] != 6) OR $vbulletin->options['archiveenabled'] == 0)
 {
-	exec_header_redirect($vbulletin->options['bburl'] . '/' . $vbulletin->options['forumhome'] . '.php');
+	exec_header_redirect(fetch_seo_url('forumhome|bburl', array()));
 }
 
 // #############################################################################
@@ -75,7 +96,7 @@ $vbulletin->userinfo['permissions'] =& $permissions;
 // check that board is active - if not admin, then display error
 if ((!$vbulletin->options['bbactive'] AND !($permissions['adminpermissions'] & $vbulletin->bf_ugp_adminpermissions['cancontrolpanel'])) OR !($permissions['forumpermissions'] & $vbulletin->bf_ugp_forumpermissions['canview']))
 {
-	exec_header_redirect($vbulletin->options['bburl'] . '/' . $vbulletin->options['forumhome'] . '.php');
+	exec_header_redirect(fetch_seo_url('forumhome|bburl', array()));
 }
 
 // if password is expired, deny access
@@ -85,13 +106,18 @@ if ($vbulletin->userinfo['userid'] AND $permissions['passwordexpires'])
 
 	if ($passworddaysold >= $permissions['passwordexpires'])
 	{
-		exec_header_redirect($vbulletin->options['bburl'] . '/' . $vbulletin->options['forumhome'] . '.php');
+		exec_header_redirect(fetch_seo_url('forumhome|bburl', array()));
 	}
 }
 
 verify_ip_ban();
 
+$cache_templates = array('ad_archive_above_content1', 'ad_archive_above_content2', 'ad_archive_below_content');
+
 ($hook = vBulletinHook::fetch_hook('archive_global')) ? eval($hook) : false;
+
+cache_templates($cache_templates, $style['templatelist']);
+unset($cache_templates);
 
 // #########################################################################################
 // ###################### ARCHIVE FUNCTIONS ################################################
@@ -139,7 +165,9 @@ function print_archive_forum_list($parentid = -1, $indent = '')
 				{
 					if ($forum['cancontainthreads'] OR $forum['link'] !== '')
 					{
-						$forum_link = '<a href="' . $vbulletin->options['bburl'] . '/archive/index.php' . (SLASH_METHOD ? '/' : '?') . "f-$forumid.html\">";
+						$link = ($forum['link'] !== '' ? $forum['link'] : $vbulletin->options['bburl'] . '/archive/index.php' .
+							(SLASH_METHOD ? '/' : '?') . "f-$forumid.html" . ARCHIVE_SESSION_URL );
+						$forum_link = '<a href="' . $link . '">';
 					}
 					else
 					{
@@ -164,7 +192,8 @@ function print_archive_navigation($foruminfo, $threadinfo='')
 {
 	global $vbulletin, $vbphrase, $pda, $querystring;
 
-	$navarray = array('<a href="' . $vbulletin->options['bburl'] . '/archive/index.php">' . $vbulletin->options['bbtitle'] . '</a>');
+	$navarray = array('<a href="' . $vbulletin->options['bburl'] . '/archive/index.php' .
+		$vbulletin->session->vars['sessionurl_q'] . '">' . $vbulletin->options['bbtitle'] . '</a>');
 
 	if (!empty($foruminfo))
 	{
@@ -176,7 +205,8 @@ function print_archive_navigation($foruminfo, $threadinfo='')
 			}
 			else
 			{
-				$navarray[] = "<a href=\"" . $vbulletin->options['bburl'] . '/archive/index.php' . (SLASH_METHOD ? '/' : '?') . "f-$forumid.html\">" . $vbulletin->forumcache["$forumid"]['title_clean'] . "</a>";
+				$navarray[] = "<a href=\"" . $vbulletin->options['bburl'] . '/archive/index.php' . (SLASH_METHOD ? '/' : '?')
+					. "f-$forumid.html" . ARCHIVE_SESSION_URL . "\">" . $vbulletin->forumcache["$forumid"]['title_clean'] . "</a>";
 			}
 		}
 		if (is_array($threadinfo))
@@ -187,13 +217,13 @@ function print_archive_navigation($foruminfo, $threadinfo='')
 
 	if (SLASH_METHOD)
 	{
-		$loginlink = 'index.php' . (!empty($querystring) ? "/$querystring" : '') . '?login=1';
-		$pdalink = 'index.php' . (!empty($querystring) ? "/$querystring" : '') . '?pda=1';
+		$loginlink = 'index.php' . (!empty($querystring) ? "/$querystring" : '') . '?' . $vbulletin->session->vars['sessionurl'] . 'login=1';
+		$pdalink = 'index.php' . (!empty($querystring) ? "/$querystring" : '') . '?' . $vbulletin->session->vars['sessionurl'] . 'pda=1';
 	}
 	else
 	{
-		$loginlink = 'index.php?login=1';
-		$pdalink = 'index.php?pda=1';
+		$loginlink = 'index.php?' . (!empty($querystring) ? "$querystring&amp;" : '') . $vbulletin->session->vars['sessionurl'] . 'login=1';
+		$pdalink = 'index.php?' . (!empty($querystring) ? "$querystring&amp;" : '') . $vbulletin->session->vars['sessionurl'] . 'pda=1';
 	}
 
 	if ($pda)
@@ -215,17 +245,20 @@ function print_archive_navigation($foruminfo, $threadinfo='')
 	return $return;
 }
 
+// this function seems to only be used in project.php, and is thus probably no longer needed.
 function print_archive_navbar($navbits = array())
 {
 	global $vbulletin, $vbphrase, $pda, $querystring;
 
-	$navarray = array('<a href="' . $vbulletin->options['bburl'] . '/index.php">' . $vbulletin->options['bbtitle'] . '</a>');
+	$navarray = array('<a href="' . $vbulletin->options['bburl'] . '/index.php' .
+							$vbulletin->session->vars['sessionurl_q'] . '">' . $vbulletin->options['bbtitle'] . '</a>');
 
 	foreach ($navbits AS $url => $navbit)
 	{
 		if ($url)
 		{
-			$navarray[] = "<a href=\"" . htmlspecialchars_uni($url) . "\">$navbit</a>";
+			$navarray[] = "<a href=\"" . htmlspecialchars_uni($url) .
+							$vbulletin->session->vars['sessionurl_q'] . "\">$navbit</a>";
 		}
 		else
 		{
@@ -235,13 +268,13 @@ function print_archive_navbar($navbits = array())
 
 	if (SLASH_METHOD)
 	{
-		$loginlink = 'index.php' . (!empty($querystring) ? "/$querystring" : '') . '?login=1';
-		$pdalink = 'index.php' . (!empty($querystring) ? "/$querystring" : '') . '?pda=1';
+		$loginlink = 'index.php' . (!empty($querystring) ? "/$querystring" : '') . '?' . $vbulletin->session->vars['sessionurl'] . 'login=1';
+		$pdalink = 'index.php' . (!empty($querystring) ? "/$querystring" : '') . '?' . $vbulletin->session->vars['sessionurl'] . 'pda=1';
 	}
 	else
 	{
-		$loginlink = 'index.php?login=1';
-		$pdalink = 'index.php?pda=1';
+		$loginlink = 'index.php?' . (!empty($querystring) ? "$querystring&amp;" : '') . $vbulletin->session->vars['sessionurl'] . 'login=1';
+		$pdalink = 'index.php?' . (!empty($querystring) ? "$querystring&amp;" : '') . $vbulletin->session->vars['sessionurl'] . 'pda=1';
 	}
 
 	if ($pda)
@@ -283,11 +316,13 @@ function print_archive_page_navigation($total, $perpage, $link)
 			}
 			else if ($i == 1)
 			{
-				$output .= '<a href="' . $vbulletin->options['bburl'] . '/archive/index.php' . (SLASH_METHOD ? '/' : '?') . "$link.html\">$i</a>\n";
+				$output .= '<a href="' . $vbulletin->options['bburl'] . '/archive/index.php' .
+					(SLASH_METHOD ? '/' : '?') . "$link.html" . ARCHIVE_SESSION_URL . "\">$i</a>\n";
 			}
 			else
 			{
-				$output .= '<a href="' . $vbulletin->options['bburl'] . '/archive/index.php' . (SLASH_METHOD ? '/' : '?') . "$link-p-$i.html\">$i</a>\n";
+				$output .= '<a href="' . $vbulletin->options['bburl'] . '/archive/index.php' .
+					(SLASH_METHOD ? '/' : '?') . "$link-p-$i.html" . ARCHIVE_SESSION_URL . "\">$i</a>\n";
 			}
 		}
 
@@ -297,10 +332,32 @@ function print_archive_page_navigation($total, $perpage, $link)
 	return $output;
 }
 
+
+// #############################################################################
+/**
+* Returns specified ad template output as an assoc array of title => parsed template
+*
+* @param	array	Name of templates to be fetched
+*
+* @return	array	Keyed by template name, value is HTML for template
+*/
+function fetch_ad_templates(array $templatenames)
+{
+	global $vbulletin;
+
+	$ad_templates = array();
+	foreach ($templatenames AS $template)
+	{
+		$ad_templates[$template] = vB_Template::create($template)->render();
+	}
+
+	return $ad_templates;
+}
+
 /*======================================================================*\
 || ####################################################################
-|| # Downloaded: 16:21, Sat Apr 6th 2013
-|| # CVS: $RCSfile$ - $Revision: 25112 $
+|| # Downloaded: 14:57, Sun Aug 11th 2013
+|| # CVS: $RCSfile$ - $Revision: 59007 $
 || ####################################################################
 \*======================================================================*/
 ?>

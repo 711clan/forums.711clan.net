@@ -1,9 +1,9 @@
 <?php
 /*======================================================================*\
 || #################################################################### ||
-|| # vBulletin 3.7.2 Patch Level 2 - Licence Number VBF2470E4F
+|| # vBulletin 4.2.1 - Licence Number VBC2DDE4FB
 || # ---------------------------------------------------------------- # ||
-|| # Copyright ©2000-2013 Jelsoft Enterprises Ltd. All Rights Reserved. ||
+|| # Copyright ©2000-2013 vBulletin Solutions Inc. All Rights Reserved. ||
 || # This file may not be redistributed in whole or significant part. # ||
 || # ---------------- VBULLETIN IS NOT FREE SOFTWARE ---------------- # ||
 || # http://www.vbulletin.com | http://www.vbulletin.com/license.html # ||
@@ -14,7 +14,7 @@
 error_reporting(E_ALL & ~E_NOTICE);
 
 // ##################### DEFINE IMPORTANT CONSTANTS #######################
-define('CVS_REVISION', '$RCSfile$ - $Revision: 26026 $');
+define('CVS_REVISION', '$RCSfile$ - $Revision: 61296 $');
 define('NOZIP', 1);
 
 // #################### PRE-CACHE TEMPLATES AND DATA ######################
@@ -116,6 +116,7 @@ if ($_POST['do'] == 'doupload')
 		print_diagnostic_test_result(0, construct_phrase($vbphrase['no_file_uploaded_and_no_local_file_found'], $vbphrase['test_cannot_continue']));
 	}
 
+	// do not use file_exists here, under IIS it will return false in some cases
 	if (!is_uploaded_file($vbulletin->GPC['attachfile']['tmp_name']))
 	{
 		print_diagnostic_test_result(0, construct_phrase($vbphrase['unable_to_find_attached_file'], $vbulletin->GPC['attachfile']['tmp_name'], $vbphrase['test_cannot_continue']));
@@ -191,7 +192,20 @@ if ($_POST['do'] == 'domail')
 	if ($vbulletin->options['use_smtp'])
 	{
 		print_table_header($vbphrase['pertinent_smtp_settings']);
-		print_label_row('SMTP:', (!empty($vbulletin->options['smtp_tls']) ? 'tls://' : '') . $vbulletin->options['smtp_host'] . ':' . (!empty($vbulletin->options['smtp_port']) ? intval($vbulletin->options['smtp_port']) : 25));
+		$smtp_tls = '';
+		switch ($vbulletin->options['smtp_tls'])
+		{
+			case 'ssl':
+				$smtp_tls = 'ssl://';
+				break;
+			case 'tls':
+				$smtp_tls = 'tls://';
+				break;
+			default:
+				$smtp_tls = '';
+		}
+
+		print_label_row('SMTP:', $smtp_tls . $vbulletin->options['smtp_host'] . ':' . (!empty($vbulletin->options['smtp_port']) ? intval($vbulletin->options['smtp_port']) : 25));
 		print_label_row($vbphrase['smtp_username'], $vbulletin->options['smtp_user']);
 	}
 	else
@@ -217,20 +231,12 @@ if ($_POST['do'] == 'domail')
 	$subject = ($vbulletin->options['needfromemail'] ? $vbphrase['vbulletin_email_test_withf'] : $vbphrase['vbulletin_email_test']);
 	$message = construct_phrase($vbphrase['vbulletin_email_test_msg'], $vbulletin->options['bbtitle']);
 
-	if (!class_exists('vB_Mail'))
+	if (!class_exists('vB_Mail', false))
 	{
 		require_once(DIR . '/includes/class_mail.php');
 	}
 
-	if ($vbulletin->options['use_smtp'])
-	{
-		$mail =& new vB_SmtpMail($vbulletin);
-	}
-	else
-	{
-		$mail =& new vB_Mail($vbulletin);
-	}
-
+	$mail = vB_Mail::fetchLibrary($vbulletin);
 	$mail->set_debug(true);
 	$mail->start($emailaddress, $subject, $message, $vbulletin->options['webmasteremail']);
 
@@ -247,7 +253,7 @@ if ($_POST['do'] == 'domail')
 		ob_start();
 	}
 
-	$mailreturn = $mail->send();
+	$mailreturn = $mail->send(true);
 
 	if (strpos(@ini_get('disable_functions'), 'ob_start') !== false)
 	{
@@ -364,11 +370,11 @@ if ($_POST['do'] == 'doversion')
 	if ($handle)
 	{
 		$md5_sums_array = array();
-		$md5_sum_versions = array('vbulletin' => '3.7.2 Patch Level 2');
+		$md5_sum_versions = array('vbulletin' => '4.2.1');
 		$file_software_assoc = array();
 		$scanned_md5_files = array();
 		$ignored_files = array('/includes/config.php', '/includes/config.php.new', '/install/install.php', '/includes/version_vbulletin.php');
-		$ignored_dirs = array('/cpstyles/', '/includes/datastore');
+		$ignored_dirs = array('/cpstyles/', '/includes/datastore','/clientscript/libraries','/clientscript/yui/history/assets');
 
 		while ($file = readdir($handle))
 		{
@@ -383,10 +389,10 @@ if ($_POST['do'] == 'doversion')
 					$md5_sum_softwareid = 'vbulletin';
 				}
 
-				if ($vbulletin->options['forumhome'] != 'index' AND !empty($md5_sums['/']['index.php']))
+				if ($vbulletin->options['forumhome'] != 'forum' AND !empty($md5_sums['/']['forum.php']))
 				{
-					$md5_sums['/']["{$vbulletin->options['forumhome']}.php"] = $md5_sums['/']['index.php'];
-					unset($md5_sums['/']['index.php']);
+					$md5_sums['/']["{$vbulletin->options['forumhome']}.php"] = $md5_sums['/']['forum.php'];
+					unset($md5_sums['/']['forum.php']);
 				}
 
 				// need to fix up directories which are configurable
@@ -420,7 +426,11 @@ if ($_POST['do'] == 'doversion')
 		}
 		closedir($handle);
 
-		if (empty($md5_sums_array) OR !in_array('md5_sums_vbulletin.php', $scanned_md5_files))
+		if (empty($md5_sums_array) OR
+			(!in_array('md5_sums_vbulletin.php', $scanned_md5_files) AND
+			!in_array('md5_sums_vbforum_4.php', $scanned_md5_files) AND
+			!in_array('md5_sums_vbulletinsuite.php', $scanned_md5_files)
+		))
 		{
 			print_stop_message('unable_to_read_md5_sums');
 		}
@@ -550,7 +560,7 @@ if ($_POST['do'] == 'doversion')
 
 		foreach ($file_count AS $directory => $file_count)
 		{
-			print_description_row("<div style=\"float:$stylevar[right]\">" . construct_phrase($vbphrase['scanned_x_files'], $file_count) . "</div>.$directory", 0, 2, 'thead');
+			print_description_row("<div style=\"float:" . vB_Template_Runtime::fetchStyleVar('right') . "\">" . construct_phrase($vbphrase['scanned_x_files'], $file_count) . "</div>.$directory", 0, 2, 'thead');
 
 			if (is_array($errors["$directory"]))
 			{
@@ -638,6 +648,35 @@ if ($_REQUEST['do'] == 'server_modules')
 	<?php
 }
 
+if ($_POST['do'] == 'ssl')
+{
+	print_form_header('', '');
+	print_table_header($vbphrase['tls_ssl']);
+
+	$ssl_available = false;
+	if (function_exists('curl_init') AND ($ch = curl_init()) !== false)
+	{
+		$curlinfo = curl_version();
+		if (!empty($curlinfo['ssl_version']))
+		{
+			// passed
+			$ssl_available = true;
+		}
+		curl_close($ch);
+	}
+
+	if (function_exists('openssl_open'))
+	{
+		// passed
+		$ssl_available = true;
+	}
+
+	print_label_row($vbphrase['ssl_available'], ($ssl_available ? $vbphrase['yes'] : $vbphrase['no']));
+	print_diagnostic_test_result(0, $vbphrase['ssl_unavailable_desc'], 0);
+
+	print_table_footer();
+}
+
 // ###################### Start options list #######################
 if ($_REQUEST['do'] == 'list')
 {
@@ -661,7 +700,12 @@ if ($_REQUEST['do'] == 'list')
 	print_form_header('diagnostic', 'server_modules');
 	print_table_header($vbphrase['problematic_server_modules']);
 	print_description_row($vbphrase['problematic_server_modules_explained']);
-	print_submit_row($vbphrase['submit']);
+	print_submit_row($vbphrase['submit'], 0);
+
+	print_form_header('diagnostic', 'ssl');
+	print_table_header($vbphrase['tls_ssl']);
+	print_description_row($vbphrase['facebook_connect_ssl_req_explained']);
+	print_submit_row($vbphrase['submit'], 0);
 
 	print_form_header('diagnostic', 'dosysinfo');
 	print_table_header($vbphrase['system_information']);
@@ -684,8 +728,8 @@ print_cp_footer();
 
 /*======================================================================*\
 || ####################################################################
-|| # Downloaded: 16:21, Sat Apr 6th 2013
-|| # CVS: $RCSfile$ - $Revision: 26026 $
+|| # Downloaded: 14:57, Sun Aug 11th 2013
+|| # CVS: $RCSfile$ - $Revision: 61296 $
 || ####################################################################
 \*======================================================================*/
 ?>

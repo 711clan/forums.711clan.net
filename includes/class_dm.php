@@ -1,9 +1,9 @@
 <?php
 /*======================================================================*\
 || #################################################################### ||
-|| # vBulletin 3.7.2 Patch Level 2 - Licence Number VBF2470E4F
+|| # vBulletin 4.2.1 - Licence Number VBC2DDE4FB
 || # ---------------------------------------------------------------- # ||
-|| # Copyright ©2000-2013 Jelsoft Enterprises Ltd. All Rights Reserved. ||
+|| # Copyright ©2000-2013 vBulletin Solutions Inc. All Rights Reserved. ||
 || # This file may not be redistributed in whole or significant part. # ||
 || # ---------------- VBULLETIN IS NOT FREE SOFTWARE ---------------- # ||
 || # http://www.vbulletin.com | http://www.vbulletin.com/license.html # ||
@@ -14,8 +14,8 @@
 * Abstract class to do data save/delete operations for a particular data type (such as user, thread, post etc.)
 *
 * @package	vBulletin
-* @version	$Revision: 26843 $
-* @date		$Date: 2008-06-04 17:36:42 -0500 (Wed, 04 Jun 2008) $
+* @version	$Revision: 63522 $
+* @date		$Date: 2012-06-11 11:53:15 -0700 (Mon, 11 Jun 2012) $
 */
 class vB_DataManager
 {
@@ -147,6 +147,34 @@ class vB_DataManager
 	var $presave_called = null;
 
 	/**
+	 * Hook for constructor.
+	 *
+	 * @var string
+	 */
+	var $hook_start = 'data_start';
+
+	/**
+	 * Hook for pre_save.
+	 *
+	 * @var string
+	 */
+	var $hook_presave = 'data_presave';
+
+	/**
+	 * Hook for post_save.
+	 *
+	 * @var string
+	 */
+	var $hook_postsave = 'data_postsave';
+
+	/**
+	 * Hook for post_delete.
+	 *
+	 * @var string
+	 */
+	var $hook_delete = 'data_delete';
+
+	/**
 	* Constructor - checks that the registry object has been passed correctly.
 	*
 	* @param	vB_Registry	Instance of the vBulletin data registry object - expected to have the database object as one of its $this->db member.
@@ -193,6 +221,8 @@ class vB_DataManager
 				}
 			}
 		}
+
+		($hook = vBulletinHook::fetch_hook($this->hook_start)) ? eval($hook) : false;
 	}
 
 	/**
@@ -302,19 +332,19 @@ class vB_DataManager
 	* @param	mixed	The data itself
 	* @param	boolean	Clean data, or insert it RAW (used for non-arbitrary updates, like posts = posts + 1)
 	* @param	boolean	Whether to verify the data with the appropriate function. Still cleans data if previous arg is true.
+	* @param	string	Table name to force. Leave as null to use the default table
 	*
 	* @return	boolean	Returns false if the data is rejected for whatever reason
 	*/
-	function set($fieldname, $value, $clean = true, $doverify = true)
+	function set($fieldname, $value, $clean = true, $doverify = true, $table = null)
 	{
 		if ($clean)
 		{
 			$verify = $this->verify($fieldname, $value, $doverify);
-
 			if ($verify === true)
 			{
 				$errsize = sizeof($this->errors);
-				$this->do_set($fieldname, $value);
+				$this->do_set($fieldname, $value, $table);
 				return true;
 			}
 			else
@@ -329,7 +359,7 @@ class vB_DataManager
 		else if (isset($this->validfields["$fieldname"]))
 		{
 			$this->rawfields["$fieldname"] = true;
-			$this->do_set($fieldname, $value);
+			$this->do_set($fieldname, $value, $table);
 			return true;
 		}
 		else
@@ -491,12 +521,17 @@ class vB_DataManager
 	* Unsets a values that has already been set
 	*
 	* @param	string	The name of the field that is to be unset
+	* @param	string	Table name to force. Leave as null to use the default table
 	*/
-	function do_unset($fieldname)
+	function do_unset($fieldname, $table = null)
 	{
-		if (isset($this->{$this->table}["$fieldname"]))
+		if ($table === null)
 		{
-			unset($this->{$this->table}["$fieldname"], $this->setfields["$fieldname"]);
+			$table =& $this->table;
+		}
+		if (isset($this->{$table}["$fieldname"]))
+		{
+			unset($this->{$table}["$fieldname"], $this->setfields["$fieldname"]);
 		}
 	}
 
@@ -504,12 +539,17 @@ class vB_DataManager
 	* Takes valid data and sets it as part of the data to be saved
 	*
 	* @param	string	The name of the field to which the supplied data should be applied
-	* @param	mixed	The data itself
+	* @param	mixed		The data itself
+	* @param	string	Table name to force. Leave as null to use the default table
 	*/
-	function do_set($fieldname, &$value)
+	function do_set($fieldname, &$value, $table = null)
 	{
+		if ($table === null)
+		{
+			$table =& $this->table;
+		}
 		$this->setfields["$fieldname"] = true;
-		$this->{$this->table}["$fieldname"] =& $value;
+		$this->{$table}["$fieldname"] =& $value;
 	}
 
 	/**
@@ -777,7 +817,6 @@ class vB_DataManager
 	function db_delete($tableprefix, $table, $condition = '', $doquery = true)
 	{
 		$sql = "DELETE FROM {$tableprefix}{$table} WHERE $condition";
-
 		if ($doquery)
 		{
 			$this->dbobject->query_write($sql);
@@ -824,7 +863,7 @@ class vB_DataManager
 	* @param	mixed	Whether to run the query now; see db_update() for more info
 	* @param bool 	Whether to return the number of affected rows.
 	* @param bool		Perform REPLACE INTO instead of INSERT
-	8 @param bool		Perfrom INSERT IGNORE instead of INSERT
+	* @param bool		Perfrom INSERT IGNORE instead of INSERT
 	*
 	* @return	mixed	If this was an INSERT query, the INSERT ID is returned
 	*/
@@ -839,7 +878,6 @@ class vB_DataManager
 		{
 			return false;
 		}
-
 
 		if ($this->condition === null)
 		{
@@ -876,8 +914,8 @@ class vB_DataManager
 
 		if ($return)
 		{
-			$this->post_save_each($doquery);
-			$this->post_save_once($doquery);
+			$this->post_save_each($doquery, $return);
+			$this->post_save_once($doquery, $return);
 		}
 
 		return $return;
@@ -897,8 +935,11 @@ class vB_DataManager
 			return $this->presave_called;
 		}
 
-		$this->presave_called = true;
-		return true;
+		$return_value = true;
+		($hook = vBulletinHook::fetch_hook($this->hook_presave)) ? eval($hook) : false;
+
+		$this->presave_called = $return_value;
+		return $return_value;
 	}
 
 	/**
@@ -909,7 +950,10 @@ class vB_DataManager
 	*/
 	function post_save_each($doquery = true)
 	{
-		return true;
+		$return_value = true;
+		($hook = vBulletinHook::fetch_hook($this->hook_postsave)) ? eval($hook) : false;
+
+		return $return_value;
 	}
 
 	/**
@@ -920,7 +964,10 @@ class vB_DataManager
 	*/
 	function post_save_once($doquery = true)
 	{
-		return true;
+		$return_value = true;
+		($hook = vBulletinHook::fetch_hook($this->hook_postsave)) ? eval($hook) : false;
+
+		return $return_value;
 	}
 
 	/**
@@ -971,7 +1018,10 @@ class vB_DataManager
 	*/
 	function post_delete($doquery = true)
 	{
-		return true;
+		$return_value = true;
+		($hook = vBulletinHook::fetch_hook($this->hook_delete)) ? eval($hook) : false;
+
+		return $return_value;
 	}
 
 	/**
@@ -1099,10 +1149,9 @@ class vB_DataManager
 		$username = trim(preg_replace('#[ \r\n\t]+#si', ' ', strip_blank_ascii($username, ' ')));
 		$username_raw = $username;
 
-		global $stylevar;
 		$username = preg_replace(
 			'/&#([0-9]+);/ie',
-			"convert_unicode_char_to_charset('\\1', \$stylevar['charset'])",
+			"convert_unicode_char_to_charset('\\1', vB_Template_Runtime::fetchStyleVar('charset'))",
 			$username
 		);
 
@@ -1186,6 +1235,19 @@ class vB_DataManager
 	function verify_nonzero(&$int)
 	{
 		return ($int > 0 ? true : false);
+	}
+
+	/**
+	* Verifies that an integer is greater than zero or the special value -1
+	* this rule matches a fair number of id columns
+	*
+	* @param	integer	Value to check
+	*
+	* @return	boolean
+	*/
+	function verify_nonzero_or_negone(&$int)
+	{
+		return ( ($int > 0) or $int == -1);
 	}
 
 	/**
@@ -1356,17 +1418,18 @@ class vB_DataManager
 	*/
 	function verify_email(&$email)
 	{
-		return is_valid_email($email);
+		return (is_valid_email($email) ? true : false);
 	}
 
 	/**
 	* Verifies that a hyperlink is valid
 	*
 	* @param	string	Hyperlink URL
+	* @param	boolean	Strict link (only HTTP/HTTPS); default false
 	*
 	* @return	boolean
 	*/
-	function verify_link(&$link)
+	function verify_link(&$link, $strict = false)
 	{
 		if (preg_match('#^www\.#si', $link))
 		{
@@ -1376,6 +1439,11 @@ class vB_DataManager
 		else if (!preg_match('#^[a-z0-9]+://#si', $link))
 		{
 			// link doesn't match the http://-style format in the beginning -- possible attempted exploit
+			return false;
+		}
+		else if ($strict && !preg_match('#^(http|https)://#si', $link))
+		{
+			// link that doesn't start with http:// or https:// should not be allowed in certain places (IE: profile homepage)
 			return false;
 		}
 		else
@@ -1400,7 +1468,7 @@ class vB_DataManager
 		$date['minute'] = intval($date['minute']);
 		$date['second'] = intval($date['second']);
 
-		if ($year < 1970)
+		if ($date['year'] < 1970)
 		{
 			return false;
 		}
@@ -1438,8 +1506,7 @@ class vB_DataManager
 		$pagetext = preg_replace('#\[color=(&quot;|"|\'|)([a-f0-9]{6})\\1]#i', '[color=\1#\2\1]', $pagetext);
 
 		// strip alignment codes that are closed and then immediately reopened
-		$pagetext = preg_replace('#\[/(left|center|right)]((\r\n|\r|\n)*)\[\\1]#si', '\\2', $pagetext);
-
+		$pagetext = preg_replace('#\[/(left|center|right)\]([\r\n]*)\[\\1\]#i', '\\2', $pagetext);
 		// remove [/list=x remnants
 		if (stristr($pagetext, '[/list=') != false)
 		{
@@ -1467,6 +1534,9 @@ class vB_DataManager
 		{
 			$pagetext = fetch_no_shouting_text($pagetext);
 		}
+
+		require_once(DIR . '/includes/functions_video.php');
+		$pagetext = parse_video_bbcode($pagetext);
 
 		return true;
 	}
@@ -1503,7 +1573,7 @@ class vB_DataManager
 	/**
 	* Verifies the number of images in the post text. Call it from pre_save() after pagetext/allowsmilie has been set
 	*
-	* @return	bool	Whether the post passes the image count check
+	* @return	bool	Whether the post passes the image/video count check
 	*/
 	function verify_image_count($pagetext = 'pagetext', $allowsmilie = 'allowsmilie', $parsetype = 'nonforum', $table = null)
 	{
@@ -1512,20 +1582,27 @@ class vB_DataManager
 		$_allowsmilie =& $this->fetch_field($allowsmilie, $table);
 		$_pagetext =& $this->fetch_field($pagetext, $table);
 
-		if ($_allowsmilie !== null AND $_pagetext !== null)
+		if ($_pagetext !== null)
 		{
 			// check max images
 			require_once(DIR . '/includes/functions_misc.php');
 			require_once(DIR . '/includes/class_bbcode_alt.php');
-			$bbcode_parser =& new vB_BbCodeParser_ImgCheck($this->registry, fetch_tag_list());
+			$bbcode_parser = new vB_BbCodeParser_ImgCheck($this->registry, fetch_tag_list());
 			$bbcode_parser->set_parse_userinfo($vbulletin->userinfo);
 
-			if ($this->registry->options['maximages'] AND !$this->info['is_automated'])
+			if (($this->registry->options['maximages'] OR $this->registry->options['maxvideos']) AND !$this->info['is_automated'])
 			{
-				$imagecount = fetch_character_count($bbcode_parser->parse($_pagetext, $parsetype, $_allowsmilie, true), '<img');
-				if ($imagecount > $this->registry->options['maximages'])
+				$parsed = $bbcode_parser->parse($_pagetext, $parsetype, $_allowsmilie, true);
+				$imagecount = fetch_character_count($parsed, '<img');
+				$videocount = fetch_character_count($parsed, '<video />');
+				if ($_allowsmilie !== null AND $this->registry->options['maximages'] AND $imagecount > $this->registry->options['maximages'])
 				{
 					$this->error('toomanyimages', $imagecount, $this->registry->options['maximages']);
+					return false;
+				}
+				if ($this->registry->options['maxvideos'] AND $videocount > $this->registry->options['maxvideos'])
+				{
+					$this->error('toomanyvideos', $videocount, $this->registry->options['maxvideos']);
 					return false;
 				}
 			}
@@ -1543,8 +1620,8 @@ class vB_DataManager
 * Works on multiple records simultaneously. Updates will occur on all records matching set_condition().
 *
 * @package	vBulletin
-* @version	$Revision: 26843 $
-* @date		$Date: 2008-06-04 17:36:42 -0500 (Wed, 04 Jun 2008) $
+* @version	$Revision: 63522 $
+* @date		$Date: 2012-06-11 11:53:15 -0700 (Mon, 11 Jun 2012) $
 */
 class vB_DataManager_Multiple
 {
@@ -1667,12 +1744,13 @@ class vB_DataManager_Multiple
 		$results = $this->dbobject->query_read($this->fetch_query($condition, $limit, $offset));
 		while ($result = $this->dbobject->fetch_array($results))
 		{
-			$new = (phpversion() < '5' ? $this->base_object : clone($this->base_object));
+			$new = clone($this->base_object);
 			$new->set_existing($result);
 			$this->children[$result[$this->primary_id]] =& $new;
 
 			$this->primary_ids[] = $result[$this->primary_id];
 		}
+		$this->dbobject->free_result($results);
 
 		return sizeof($this->primary_ids);
 	}
@@ -1691,7 +1769,7 @@ class vB_DataManager_Multiple
 			trigger_error('You must pass a primary ID value to vB_DataManager_Multiple::add_existing.', E_USER_ERROR);
 		}
 
-		$new = (phpversion() < '5' ? $this->base_object : clone($this->base_object));
+		$new = clone($this->base_object);
 		$new->set_existing($existing);
 		$this->children["$primary_id"] =& $new;
 		$this->primary_ids[] = $primary_id;
@@ -1752,6 +1830,7 @@ class vB_DataManager_Multiple
 	* @param	mixed	The data itself
 	* @param	boolean	Clean data, or insert it RAW (used for non-arbitrary updates, like posts = posts + 1)
 	* @param	boolean	Whether to verify the data with the appropriate function. Still cleans data if previous arg is true.
+	* @param	string	Table name to force. Leave as null to use the default table
 	*
 	* @return	boolean	Returns false if the data is rejected for whatever reason
 	*/
@@ -1949,6 +2028,7 @@ class vB_DataManager_Multiple
 				$this->save(true, false);
 			}
 		}
+		$this->dbobject->free_result($records);
 
 		if ($this->children AND ($counter % $batch_size) != 0)
 		{
@@ -1966,8 +2046,7 @@ class vB_DataManager_Multiple
 
 /*======================================================================*\
 || ####################################################################
-|| # Downloaded: 16:21, Sat Apr 6th 2013
-|| # CVS: $RCSfile$ - $Revision: 26843 $
+|| # Downloaded: 14:57, Sun Aug 11th 2013
+|| # CVS: $RCSfile$ - $Revision: 63522 $
 || ####################################################################
 \*======================================================================*/
-?>

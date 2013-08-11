@@ -1,9 +1,9 @@
 <?php
 /*======================================================================*\
 || #################################################################### ||
-|| # vBulletin 3.7.2 Patch Level 2 - Licence Number VBF2470E4F
+|| # vBulletin 4.2.1 - Licence Number VBC2DDE4FB
 || # ---------------------------------------------------------------- # ||
-|| # Copyright Â©2000-2013 Jelsoft Enterprises Ltd. All Rights Reserved. ||
+|| # Copyright ©2000-2013 vBulletin Solutions Inc. All Rights Reserved. ||
 || # This file may not be redistributed in whole or significant part. # ||
 || # ---------------- VBULLETIN IS NOT FREE SOFTWARE ---------------- # ||
 || # http://www.vbulletin.com | http://www.vbulletin.com/license.html # ||
@@ -50,7 +50,7 @@ function fetch_picturecommentbits($pictureinfo, &$messagestats, &$pagenumber, &$
 		$state_or[] = "(picturecomment.postuserid = " . $vbulletin->userinfo['userid'] . " AND state = 'moderation')";
 	}
 
-	if (can_moderate() OR ($vbulletin->userinfo['userid'] == $pictureinfo['userid'] AND $vbulletin->userinfo['permissions']['albumpermissions'] & $vbulletin->bf_ugp_albumpermissions['canmanagepiccomment']))
+	if (can_moderate(0, 'canmoderatepicturecomments') OR ($vbulletin->userinfo['userid'] == $pictureinfo['userid'] AND $vbulletin->userinfo['permissions']['albumpermissions'] & $vbulletin->bf_ugp_albumpermissions['canmanagepiccomment']))
 	{
 		$state[] = 'deleted';
 		$deljoinsql = "LEFT JOIN " . TABLE_PREFIX . "deletionlog AS deletionlog ON (picturecomment.commentid = deletionlog.primaryid AND deletionlog.type = 'picturecomment')";
@@ -64,14 +64,19 @@ function fetch_picturecommentbits($pictureinfo, &$messagestats, &$pagenumber, &$
 
 	$perpage = (!$perpage OR $perpage > $vbulletin->options['pc_maxperpage']) ? $vbulletin->options['pc_perpage'] : $perpage;
 
-	if ($commentid AND $commentinfo = fetch_picturecommentinfo($pictureinfo['pictureid'], $commentid))
+	if ($commentid AND $commentinfo = fetch_picturecommentinfo($pictureinfo['filedataid'], $pictureinfo['userid'], $commentid))
 	{
 		$getpagenum = $vbulletin->db->query_first("
 			SELECT COUNT(*) AS comments
 			FROM " . TABLE_PREFIX . "picturecomment AS picturecomment
-			WHERE pictureid = $pictureinfo[pictureid]
-				AND (" . implode(" OR ", $state_or) . ")
-				AND dateline <= $commentinfo[dateline]
+			WHERE
+				filedataid = $pictureinfo[filedataid]
+					AND
+				userid = $pictureinfo[userid]
+					AND
+				(" . implode(" OR ", $state_or) . ")
+					AND
+				dateline <= $commentinfo[dateline]
 			" . ($coventry ? "AND picturecomment.postuserid NOT IN (" . $coventry . ")" : '' ) . "
 		");
 		$pagenumber = ceil($getpagenum['comments'] / $perpage);
@@ -97,11 +102,15 @@ function fetch_picturecommentbits($pictureinfo, &$messagestats, &$pagenumber, &$
 				$hook_query_fields
 			FROM " . TABLE_PREFIX . "picturecomment AS picturecomment
 			LEFT JOIN " . TABLE_PREFIX . "user AS user ON (picturecomment.postuserid = user.userid)
-			" . ($vbulletin->options['avatarenabled'] ? "LEFT JOIN " . TABLE_PREFIX . "avatar AS avatar ON(avatar.avatarid = user.avatarid) LEFT JOIN " . TABLE_PREFIX . "customavatar AS customavatar ON(customavatar.userid = user.userid)" : "") . "
+			" . ($vbulletin->options['avatarenabled'] ? "LEFT JOIN " . TABLE_PREFIX . "avatar AS avatar ON(avatar.avatarid = user.avatarid)
+			LEFT JOIN " . TABLE_PREFIX . "customavatar AS customavatar ON(customavatar.userid = user.userid)" : "") . "
 			$deljoinsql
 			$hook_query_joins
-			WHERE picturecomment.pictureid = $pictureinfo[pictureid]
-				AND (" . implode(" OR ", $state_or) . ")
+			WHERE
+				picturecomment.filedataid = $pictureinfo[filedataid]
+					AND
+				picturecomment.userid = $pictureinfo[userid]
+					AND (" . implode(" OR ", $state_or) . ")
 			" . ($coventry ? "AND picturecomment.postuserid NOT IN (" . $coventry . ")" : '' ) . "
 				$hook_query_where
 			ORDER BY picturecomment.dateline
@@ -119,8 +128,8 @@ function fetch_picturecommentbits($pictureinfo, &$messagestats, &$pagenumber, &$
 	$messagestats['start'] = $start + 1;
 	$messagestats['end'] = min($start + $perpage, $messagestats['total']);
 
-	$bbcode =& new vB_BbCodeParser($vbulletin, fetch_tag_list());
-	$factory =& new vB_Picture_CommentFactory($vbulletin, $bbcode, $pictureinfo);
+	$bbcode = new vB_BbCodeParser($vbulletin, fetch_tag_list());
+	$factory = new vB_Picture_CommentFactory($vbulletin, $bbcode, $pictureinfo);
 
 	$messagebits = '';
 
@@ -183,8 +192,10 @@ function fetch_picturecommentbits($pictureinfo, &$messagestats, &$pagenumber, &$
 		{
 			$vbulletin->db->query_write("
 				UPDATE " . TABLE_PREFIX . "user
-				SET pcunreadcount = IF(pcunreadcount >= $readpcs, pcunreadcount - $readpcs, 0)
-				WHERE userid = " . $vbulletin->userinfo['userid']
+				SET
+					 pcunreadcount = IF(pcunreadcount >= $readpcs, pcunreadcount - $readpcs, 0)
+				WHERE
+					userid = " . $vbulletin->userinfo['userid']
 			);
 		}
 	}
@@ -208,7 +219,7 @@ function fetch_picturecommentbits($pictureinfo, &$messagestats, &$pagenumber, &$
  */
 function fetch_picturecomment_editor($pictureinfo, $pagenumber, $messagestats)
 {
-	global $vbulletin, $stylevar, $vbphrase, $show;
+	global $vbulletin, $vbphrase, $show;
 
 	// Only allow AJAX QC on the first page
 	$show['quickcomment']  = ($vbulletin->userinfo['userid'] AND
@@ -220,7 +231,6 @@ function fetch_picturecomment_editor($pictureinfo, $pagenumber, $messagestats)
 	{
 		require_once(DIR . '/includes/functions_editor.php');
 
-		$stylevar['messagewidth'] = $stylevar['messagewidth_usercp'];
 		$editorid = construct_edit_toolbar(
 			'',
 			false,
@@ -228,7 +238,13 @@ function fetch_picturecomment_editor($pictureinfo, $pagenumber, $messagestats)
 			$vbulletin->options['allowsmilies'],
 			true,
 			false,
-			'qr_small'
+			'qr_small',
+			'',
+			array(),
+			'content',
+			'vBForum_PictureComment',
+			0,
+			$pictureinfo['attachmentid']
 		);
 	}
 	else
@@ -249,16 +265,20 @@ function fetch_picturecomment_editor($pictureinfo, $pagenumber, $messagestats)
  * @return	array	Comment Information
  *
  */
-function fetch_picturecommentinfo($pictureid, $commentid)
+function fetch_picturecommentinfo($filedataid, $userid, $commentid)
 {
 	global $vbulletin;
 
 	return $vbulletin->db->query_first("
 		SELECT *
 		FROM " . TABLE_PREFIX . "picturecomment
-		WHERE commentid = " . intval($commentid) . "
-			AND pictureid = " . intval($pictureid)
-	);
+		WHERE
+			commentid = " . intval($commentid) . "
+				AND
+			filedataid = " . intval($filedataid) . "
+				AND
+			userid = " . intval($userid) . "
+	");
 }
 
 
@@ -271,15 +291,20 @@ function fetch_picturecommentinfo($pictureid, $commentid)
 */
 function process_picture_comment_preview($message)
 {
-	global $vbulletin, $vbphrase, $stylevar, $show;
+	global $vbulletin, $vbphrase, $show;
 
 	require_once(DIR . '/includes/class_bbcode.php');
-	$bbcode_parser =& new vB_BbCodeParser($vbulletin, fetch_tag_list());
+	$bbcode_parser = new vB_BbCodeParser($vbulletin, fetch_tag_list());
 
 	$previewhtml = '';
 	if ($previewmessage = $bbcode_parser->parse($message['message'], 'socialmessage', $message['disablesmilies'] ? 0 : 1))
 	{
-		eval('$previewhtml = "' . fetch_template('picturecomment_preview'). '";');
+		$templater = vB_Template::create('newpost_preview');
+			$templater->register('errorlist', $errorlist);
+			$templater->register('message', $message);
+			$templater->register('newpost', $newpost);
+			$templater->register('previewmessage', $previewmessage);
+		$previewhtml = $templater->render();
 	}
 
 	return $previewhtml;
@@ -299,6 +324,9 @@ function build_picture_comment_counters($userid)
 	$userid = intval($userid);
 	if ($userid)
 	{
+		$types = vB_Types::instance();
+		$contenttypeid = intval($types->getContentTypeID('vBForum_Album'));
+
 		$coventry = '';
 		if ($vbulletin->options['globalignore'] != '')
 		{
@@ -307,29 +335,43 @@ function build_picture_comment_counters($userid)
 			$coventry = fetch_coventry('string', true);
 
 			$vbulletin->db->query_write("
-				UPDATE " . TABLE_PREFIX . "picture AS picture
-				INNER JOIN " . TABLE_PREFIX . "picturecomment AS picturecomment ON (picture.pictureid = picturecomment.pictureid)
-				SET picturecomment.messageread = 1
-				WHERE picture.userid = $userid
-				AND picturecomment.postuserid IN ($coventry)
+				UPDATE " . TABLE_PREFIX . "attachment AS attachment
+				INNER JOIN " . TABLE_PREFIX . "picturecomment AS picturecomment ON (attachment.filedataid = picturecomment.filedataid AND attachment.userid = picturecomment.userid)
+				SET
+					picturecomment.messageread = 1
+				WHERE
+					attachment.contenttypeid = $contenttypeid
+						AND
+					attachment.userid = $userid
+						AND
+					picturecomment.postuserid IN ($coventry)
 			");
 		}
 
 		list($unread) = $vbulletin->db->query_first("
 			SELECT COUNT(*) AS unread
-			FROM " . TABLE_PREFIX . "picture AS picture
-			INNER JOIN " . TABLE_PREFIX . "picturecomment AS picturecomment ON (picture.pictureid = picturecomment.pictureid)
-			WHERE picture.userid = $userid
-				AND picturecomment.state = 'visible'
-				AND picturecomment.messageread = 0", DBARRAY_NUM
+			FROM " . TABLE_PREFIX . "attachment AS attachment
+			INNER JOIN " . TABLE_PREFIX . "picturecomment AS picturecomment ON (attachment.filedataid = picturecomment.filedataid AND attachment.userid = picturecomment.userid)
+			WHERE
+				attachment.contenttypeid = $contenttypeid
+					AND
+				attachment.userid = $userid
+					AND
+				picturecomment.state = 'visible'
+					AND
+				picturecomment.messageread = 0", DBARRAY_NUM
 		);
 
 		list($moderated) = $vbulletin->db->query_first("
 			SELECT COUNT(*) AS moderation
-			FROM " . TABLE_PREFIX . "picture AS picture
-			INNER JOIN " . TABLE_PREFIX . "picturecomment AS picturecomment ON (picture.pictureid = picturecomment.pictureid)
-			WHERE picture.userid = $userid
-				AND picturecomment.state = 'moderation'
+			FROM " . TABLE_PREFIX . "attachment AS attachment
+			INNER JOIN " . TABLE_PREFIX . "picturecomment AS picturecomment ON (attachment.filedataid = picturecomment.filedataid AND attachment.userid = picturecomment.userid)
+			WHERE
+				attachment.contenttypeid = $contenttypeid
+					AND
+				attachment.userid = $userid
+					AND
+				picturecomment.state = 'moderation'
 			" . ($coventry ? "AND (picturecomment.postuserid NOT IN ($coventry) OR picturecomment.postuserid = $userid)" : '')
 			, DBARRAY_NUM
 		);
@@ -358,7 +400,7 @@ function fetch_user_picture_message_perm($perm, $pictureinfo, $message = array()
 
 	if ($message['state'] == 'deleted')
 	{
-		$can_view_deleted = (can_moderate()
+		$can_view_deleted = (can_moderate(0, 'canmoderatepicturecomments')
 			OR ($vbulletin->userinfo['userid'] == $pictureinfo['userid']
 				AND $vbulletin->userinfo['permissions']['albumpermissions'] & $vbulletin->bf_ugp_albumpermissions['canmanagepiccomment']
 			)
@@ -459,8 +501,8 @@ function fetch_user_picture_message_perm($perm, $pictureinfo, $message = array()
 
 /*======================================================================*\
 || ####################################################################
-|| # Downloaded: 16:21, Sat Apr 6th 2013
-|| # CVS: $RCSfile$ - $Revision: 26603 $
+|| # Downloaded: 14:57, Sun Aug 11th 2013
+|| # CVS: $RCSfile$ - $Revision: 63231 $
 || ####################################################################
 \*======================================================================*/
 ?>

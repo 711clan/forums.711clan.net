@@ -1,9 +1,9 @@
 <?php
 /*======================================================================*\
 || #################################################################### ||
-|| # vBulletin 3.7.2 Patch Level 2 - Licence Number VBF2470E4F
+|| # vBulletin 4.2.1 - Licence Number VBC2DDE4FB
 || # ---------------------------------------------------------------- # ||
-|| # Copyright ©2000-2013 Jelsoft Enterprises Ltd. All Rights Reserved. ||
+|| # Copyright ©2000-2013 vBulletin Solutions Inc. All Rights Reserved. ||
 || # This file may not be redistributed in whole or significant part. # ||
 || # ---------------- VBULLETIN IS NOT FREE SOFTWARE ---------------- # ||
 || # http://www.vbulletin.com | http://www.vbulletin.com/license.html # ||
@@ -16,7 +16,7 @@ error_reporting(E_ALL & ~E_NOTICE);
 ignore_user_abort(1);
 
 // ##################### DEFINE IMPORTANT CONSTANTS #######################
-define('CVS_REVISION', '$RCSfile$ - $Revision: 26665 $');
+define('CVS_REVISION', '$RCSfile$ - $Revision: 62690 $');
 define('NOZIP', 1);
 
 // #################### PRE-CACHE TEMPLATES AND DATA ######################
@@ -31,6 +31,8 @@ $specialtemplates = array('ranks');
 require_once('./global.php');
 require_once(DIR . '/includes/functions_databuild.php');
 
+vB_Router::setRelativePath('../'); // Needed ?
+
 // ######################## CHECK ADMIN PERMISSIONS #######################
 if (!can_administer('canadminmaintain'))
 {
@@ -44,8 +46,6 @@ log_admin_action();
 // ######################### START MAIN SCRIPT ############################
 // ########################################################################
 
-print_cp_header($vbphrase['maintenance']);
-
 if (empty($_REQUEST['do']))
 {
 	$_REQUEST['do'] = 'chooser';
@@ -55,6 +55,54 @@ $vbulletin->input->clean_array_gpc('r', array(
 	'perpage' => TYPE_UINT,
 	'startat' => TYPE_UINT
 ));
+
+// ###################### Start clear cache ########################
+if ($_REQUEST['do'] == 'clear_cache')
+{
+	print_cp_header($vbphrase['clear_system_cache']);
+	vB_Cache::instance()->clean(false);
+	print_cp_message($vbphrase['cache_cleared']);
+}
+else
+{
+	print_cp_header($vbphrase['maintenance']);
+}
+
+// ###################### Clear Autosave option #######################
+if ($_REQUEST['do'] == 'clearauto')
+{
+	print_form_header('misc', 'doclearauto');
+	print_table_header($vbphrase['clear_autosave_title']);
+	print_description_row($vbphrase['clear_autosave_desc']);
+	print_input_row($vbphrase['clear_autosave_limit'], 'cleandays', 21);
+	print_submit_row($vbphrase['clear_autosave_run']);
+}
+
+if ($_POST['do'] == 'rebuildactivity')
+{
+	vB_ActivityStream_Manage::rebuild();
+	vB_ActivityStream_Manage::updateScores();
+
+	print_stop_message('rebuild_activity_stream_done');
+}
+
+if ($_POST['do'] == 'doclearauto')
+{
+	$vbulletin->input->clean_array_gpc('p', array(
+		'cleandays' => TYPE_UINT
+	));
+
+	if ($vbulletin->GPC['cleandays'] < 7)
+	{
+		print_stop_message('clear_autosave_toolow');
+	}
+
+	// Clear out the actual autosave entries
+	$cleandate = TIMENOW - ($vbulletin->GPC['cleandays'] * 86400);
+	$vbulletin->db->query_write("DELETE FROM " . TABLE_PREFIX . "autosave WHERE dateline < $cleandate");
+
+	print_stop_message('clear_autosave_done');
+}
 
 // ###################### Rebuild all style info #######################
 if ($_POST['do'] == 'rebuildstyles')
@@ -66,7 +114,8 @@ if ($_POST['do'] == 'rebuildstyles')
 		'install'  => TYPE_BOOL
 	));
 
-	build_all_styles($vbulletin->GPC['renumber'], $vbulletin->GPC['install'], 'misc.php?' . $vbulletin->session->vars['sessionurl'] . 'do=chooser#style');
+	build_all_styles($vbulletin->GPC['renumber'], $vbulletin->GPC['install'], 'misc.php?' . $vbulletin->session->vars['sessionurl'] . 'do=chooser#style', false, 'standard', false);
+	build_all_styles($vbulletin->GPC['renumber'], $vbulletin->GPC['install'], 'misc.php?' . $vbulletin->session->vars['sessionurl'] . 'do=chooser#style', false, 'mobile');
 
 	print_stop_message('updated_styles_successfully');
 }
@@ -83,95 +132,148 @@ if ($_REQUEST['do'] == 'emptyindex')
 // ###################### Start emptying the index #######################
 if ($_POST['do'] == 'doemptyindex')
 {
-	$db->query_write("TRUNCATE TABLE " . TABLE_PREFIX . "postindex");
-	$db->query_write("TRUNCATE TABLE " . TABLE_PREFIX . "word");
+	define('CP_REDIRECT', 'misc.php');
+	require_once(DIR . '/vb/search/core.php');
+	vB_Search_Core::get_instance()->get_core_indexer()->empty_index();
 
 	define('CP_REDIRECT', 'misc.php');
 	print_stop_message('emptied_search_index_successfully');
+
 }
 
 // ###################### Start build search index #######################
-if ($_REQUEST['do'] == 'buildpostindex')
+if ($_REQUEST['do'] == 'doindextypes')
 {
+	require_once(DIR . '/includes/functions_misc.php');
+	require_once(DIR . '/vb/search/core.php');
+
 	$vbulletin->input->clean_array_gpc('r', array(
 		'doprocess'    => TYPE_UINT,
 		'autoredirect' => TYPE_BOOL,
-		'totalposts'   => TYPE_UINT,
+		'totalitems'   => TYPE_UINT,
+		'indextypes'   => TYPE_UINT
 	));
 
 	$starttime = microtime();
+	$end = false;
 
-	if (empty($vbulletin->GPC['perpage']))
+	//	Init Search & get the enabled types to be re-indexed
+	$types = vB_Search_Core::get_instance();
+	$indexed_types = $types->get_indexed_types();
+
+	if ($vbulletin->GPC['indextypes'] == 0)
 	{
-		$vbulletin->GPC['perpage'] = 250;
-	}
+		// Try getting an exsisting stack
+		$stack = $db->query_first("SELECT text FROM " . TABLE_PREFIX . "adminutil WHERE title='searchstack'");
 
-	echo '<p>' . $vbphrase['building_search_index'] . ' ';
-	vbflush();
-
-	$foruminfo = array('indexposts' => 1);
-	$firstpost = array();
-
-	$posts = $db->query_read("
-		SELECT postid, post.title, post.pagetext, post.threadid, thread.title AS threadtitle
-		FROM " . TABLE_PREFIX . "post AS post
-		INNER JOIN " . TABLE_PREFIX . "thread AS thread ON(thread.threadid = post.threadid)
-		INNER JOIN " . TABLE_PREFIX . "forum AS forum ON(forum.forumid = thread.forumid)
-		WHERE (forum.options & " . $vbulletin->bf_misc_forumoptions['indexposts'] . ")
-			AND post.postid >= " . $vbulletin->GPC['startat'] . "
-		ORDER BY post.postid
-		LIMIT " . $vbulletin->GPC['perpage']
-	);
-
-	echo $vbphrase['posts_queried'] . '</p><p>';
-	vbflush();
-
-	$finishat = $vbulletin->GPC['startat'];
-
-	while ($post = $db->fetch_array($posts) AND (!$vbulletin->GPC['doprocess'] OR $vbulletin->GPC['totalposts'] < $vbulletin->GPC['doprocess']))
-	{
-		$vbulletin->GPC['totalposts']++;
-
-		echo construct_phrase($vbphrase['processing_x'], $post['postid']) . ' ... ';
-		vbflush();
-
-		if (empty($firstpost["$post[threadid]"]))
+		if ($stack['text'])
 		{
-			echo '<i>' . $vbphrase['querying_first_post_of_thread'] . '</i> ';
-			vbflush();
-			$getfirstpost = $db->query_first("
-				SELECT MIN(postid) AS postid
-				FROM " . TABLE_PREFIX . "post
-				WHERE threadid = $post[threadid]
-			");
-			$firstpost["$post[threadid]"] = $getfirstpost['postid'];
+			$stack = unserialize($stack['text']);
+
+			if (!$stack['current'])
+			{
+				$stack['current'] = @array_shift($stack['next']);
+
+				if (!$stack['current'])
+				{
+					$end = true;
+				}
+			}
+		}
+		else
+		{ // or create a new one with all type that can be searched
+			$db->query_first("REPLACE INTO " . TABLE_PREFIX . "adminutil SET text='', title='searchstack'");
+
+			foreach ($indexed_types AS $id => $details)
+			{
+				$stack['next'][] = array('package' => $details['package'], 'classname' => $details['class']);
+			}
+
+			$stack['current'] = array_shift($stack['next']);
 		}
 
-		build_post_index($post['postid'], $foruminfo, iif($post['postid'] == $firstpost["$post[threadid]"], 1, 0), $post);
-
-		echo $vbphrase['done'] . "<br />\n";
-		vbflush();
-
-		$finishat = ($post['postid'] > $finishat ? $post['postid'] : $finishat);
-	}
-
-	$finishat++;
-
-	require_once(DIR . '/includes/functions_misc.php');
-	$pagetime = vb_number_format(fetch_microtime_difference($starttime), 2);
-	echo '</p><p><b>' . construct_phrase($vbphrase['processing_time_x'], $pagetime) . '<br />' . construct_phrase($vbphrase['total_posts_processed_x'], $vbulletin->GPC['totalposts']) . '</b></p>';
-	vbflush();
-
-	if (($vbulletin->GPC['totalposts'] < $vbulletin->GPC['doprocess'] OR !$vbulletin->GPC['doprocess']) AND $checkmore = $db->query_first("SELECT postid FROM " . TABLE_PREFIX . "post WHERE postid >= $finishat LIMIT 1"))
-	{
-		if ($vbulletin->GPC['autoredirect'] == 1)
+		if (ctype_alpha($stack['current']['package']) AND ctype_alpha($stack['current']['classname']))
 		{
-			print_cp_redirect("misc.php?" . $vbulletin->session->vars['sessionurl'] . "do=buildpostindex&startat=$finishat&pp=" . $vbulletin->GPC['perpage'] . "&autoredirect=" . $vbulletin->GPC['autoredirect'] . "&doprocess=" . $vbulletin->GPC['doprocess'] . "&totalposts=" . $vbulletin->GPC['totalposts']);
+			$indexer = vB_Search_Core::get_instance()->get_index_controller($stack['current']['package'], $stack['current']['classname']);
+			$indexed_types[$vbulletin->GPC['indextypes']]['class'] = $stack['current']['classname'];
 		}
-		echo "<p><a href=\"misc.php?" . $vbulletin->session->vars['sessionurl'] . "do=buildpostindex&amp;startat=$finishat&amp;pp=" . $vbulletin->GPC['perpage'] . "&amp;autoredirect=" . $vbulletin->GPC['autoredirect'] . "&amp;doprocess=" . $vbulletin->GPC['doprocess'] . "&amp;totalposts=" . $vbulletin->GPC['totalposts'] . "\">" . $vbphrase['click_here_to_continue_processing'] . "</a></p>";
+	}
+	elseif (array_key_exists($vbulletin->GPC['indextypes'], $indexed_types))
+	{
+		$indexer = vB_Search_Core::get_instance()->get_index_controller($indexed_types[$vbulletin->GPC['indextypes']]['package'], $indexed_types[$vbulletin->GPC['indextypes']]['class']);
 	}
 	else
 	{
+		print_stop_message('search_no_indexer');
+	}
+
+	$max_id = $indexer->get_max_id();
+	$finishat = min($vbulletin->GPC['startat'] + $vbulletin->GPC['perpage'], $max_id);
+	echo '<p>' . $vbphrase['building_search_index'] . ' ' .
+				 vB_Search_Core::get_instance()->get_search_type_from_id($vbulletin->GPC['indextypes'])->get_display_name() . ' ' .
+				 $vbulletin->GPC['startat']  . ' :: ' .
+				 $vbulletin->GPC['perpage'] . '</p>';
+	vbflush();
+
+
+	// Do the indexing
+	if (!$end)
+	{
+		$indexer->index_id_range($vbulletin->GPC['startat'], $finishat);
+	}
+
+	$pagetime = vb_number_format(fetch_microtime_difference($starttime), 2);
+
+	echo '</p><p><b>' . construct_phrase($vbphrase['processing_time_x'], $pagetime) . '<br />' . construct_phrase($vbphrase['total_items_processed_x'], $indexer->range_indexed) . '</b></p>';
+	vbflush();
+
+	// There is more to do of that type
+	if ($finishat < $max_id)
+	{
+		if ($vbulletin->GPC['autoredirect'] == 1)
+		{
+			print_cp_redirect("misc.php?" . $vbulletin->session->vars['sessionurl'] .
+				"do=doindextypes&startat=$finishat&pp=" . $vbulletin->GPC['perpage'] .
+				"&autoredirect=" . $vbulletin->GPC['autoredirect'] .
+				"&doprocess=" . $vbulletin->GPC['doprocess'] .
+				"&totalitems=" . $vbulletin->GPC['totalitems'] .
+				"&indextypes=" . $vbulletin->GPC['indextypes']);
+		}
+
+		echo "<p><a href=\"misc.php?" . $vbulletin->session->vars['sessionurl'] .
+			"do=doindextypes&amp;startat=$finishat&amp;pp=" . $vbulletin->GPC['perpage'] .
+			"&amp;autoredirect=" . $vbulletin->GPC['autoredirect'] .
+			"&amp;doprocess=" . $vbulletin->GPC['doprocess'] .
+			"&amp;totalitems=" . $vbulletin->GPC['indextypes'] .
+			"&amp;indextypes=" . $vbulletin->GPC['indextypes'] . "\">" .
+			$vbphrase['click_here_to_continue_processing'] . "</a></p>";
+	}
+	else
+	{
+		// If there is more on the stack to do
+		if (count($stack['next']))
+		{
+			// Save the stack, clear null, so next type is chosen
+			$stack['current'] = null;
+			$db->query_first("UPDATE " . TABLE_PREFIX . "adminutil SET text='" . $db->escape_string(serialize($stack)) . "' WHERE title='searchstack'");
+
+			if ($vbulletin->GPC['autoredirect'] == 1)
+			{
+				print_cp_redirect("misc.php?" . $vbulletin->session->vars['sessionurl'] . "do=doindextypes&startat=0&pp=" . $vbulletin->GPC['perpage'] . "&autoredirect=" . $vbulletin->GPC['autoredirect'] . "&doprocess=" . $vbulletin->GPC['doprocess'] . "&totalitems=" . $vbulletin->GPC['totalitems'] . "&indextypes=" . $vbulletin->GPC['indextypes']);
+			}
+			echo "<p><a href=\"misc.php?" . $vbulletin->session->vars['sessionurl'] . "do=doindextypes&amp;startat=0&amp;pp=" . $vbulletin->GPC['perpage'] . "&amp;autoredirect=" . $vbulletin->GPC['autoredirect'] . "&amp;doprocess=" . $vbulletin->GPC['doprocess'] . "&amp;totalitems=" . $vbulletin->GPC['indextypes'] . "&amp;indextypes=" . $vbulletin->GPC['indextypes'] . "\">" . $vbphrase['click_here_to_continue_processing'] . "</a></p>";
+		}
+		else
+		{
+			$end = true;
+		}
+	}
+
+	if ($end)
+	{
+		// Delete the stack
+		$db->query_first("DELETE FROM " . TABLE_PREFIX . "adminutil WHERE title='searchstack'");
+
 		define('CP_REDIRECT', 'misc.php');
 		print_stop_message('rebuilt_search_index_successfully');
 	}
@@ -524,11 +626,13 @@ if ($_REQUEST['do'] == 'updatesimilar')
 
 	while ($thread = $db->fetch_array($threads))
 	{
-		$similarthreads = fetch_similar_threads($thread['title'], $thread['threadid']);
+		require_once(DIR . '/vb/search/core.php');
+		$searchcontroller = vB_Search_Core::get_instance()->get_search_controller();
+		$similarthreads = $searchcontroller->get_similar_threads($thread['title'], $thread['threadid']);
 
 		$threadman =& datamanager_init('Thread', $vbulletin, ERRTYPE_CP, 'threadpost');
 		$threadman->set_existing($thread);
-		$threadman->set('similar', $similarthreads);
+		$threadman->set('similar', implode(',', $similarthreads));
 		$threadman->save();
 
 		echo construct_phrase($vbphrase['processing_x'], $thread['threadid']) . "<br />\n";
@@ -622,17 +726,17 @@ if ($_REQUEST['do'] == 'rebuildthumbs')
 	require_once(DIR . '/includes/class_image.php');
 	$image =& vB_Image::fetch_library($vbulletin);
 
-	//$validtypes = array('gif', 'jpg', 'jpe', 'jpeg', 'png', 'tif', 'tiff', 'psd', 'bmp');
 	$validtypes =& $image->thumb_extensions;
-
+	$extensions = array();
 	foreach ($vbulletin->attachmentcache AS $key => $value)
 	{
 		$key = strtolower($key);
-		if ($key != 'extensions' AND !empty($validtypes["$key"]) AND $vbulletin->attachmentcache["$key"]['thumbnail'])
+		if ($key != 'extensions' AND !empty($validtypes["$key"]))
 		{
-			$extensions .= iif($extensions, ', ') . "'$key'";
+			$extensions[] = "'$key'";
 		}
 	}
+	$extensions = implode(',', $extensions);
 
 	if (!$extensions)
 	{
@@ -652,10 +756,12 @@ if ($_REQUEST['do'] == 'rebuildthumbs')
 
 	if (!$vbulletin->GPC['startat'])
 	{
-		$firstattach = $db->query_first("SELECT MIN(attachmentid) AS min FROM " . TABLE_PREFIX . "attachment");
+		$firstattach = $db->query_first("
+			SELECT MIN(filedataid) AS min
+			FROM " . TABLE_PREFIX . "filedata"
+		);
 		$vbulletin->GPC['startat'] = intval($firstattach['min']);
 	}
-
 
 	echo '<p>' . construct_phrase($vbphrase['building_attachment_thumbnails'], "misc.php?" . $vbulletin->session->vars['sessionurl'] . "do=rebuildthumbs&startat=" . $vbulletin->GPC['startat'] . "&pp=" . $vbulletin->GPC['perpage'] . "&autoredirect=" . $vbulletin->GPC['autoredirect'] . "&quality=" . $vbulletin->GPC['quality']) . '</p>';
 
@@ -665,11 +771,12 @@ if ($_REQUEST['do'] == 'rebuildthumbs')
 	}
 
 	$attachments = $db->query_read("
-		SELECT attachmentid, filedata, userid, postid, filename, dateline
-		FROM " . TABLE_PREFIX . "attachment
-		WHERE attachmentid >= " . $vbulletin->GPC['startat'] . "
-			AND	SUBSTRING_INDEX(filename, '.', -1) IN ($extensions)
-		ORDER BY attachmentid
+		SELECT
+			filedataid, filedata, userid, extension, dateline, CONCAT('file.', extension) AS filename
+		FROM " . TABLE_PREFIX . "filedata
+		WHERE filedataid >= " . $vbulletin->GPC['startat'] . "
+			AND	extension IN ($extensions)
+		ORDER BY filedataid
 		LIMIT " . $vbulletin->GPC['perpage']
 	);
 
@@ -693,13 +800,10 @@ if ($_REQUEST['do'] == 'rebuildthumbs')
 		}
 		else
 		{
-			$attachmentids .= ",$attachment[attachmentid]";
-			$filename = fetch_attachment_path($attachment['userid'], $attachment['attachmentid']);
+			$filename = fetch_attachment_path($attachment['userid'], $attachment['filedataid']);
 		}
 
-		echo construct_phrase($vbphrase['processing_x'], "$vbphrase[attachment] : (" . file_extension($attachment['filename']) . ') ' .
-			construct_link_code($attachment['attachmentid'], "../attachment.php?" . $vbulletin->session->vars['sessionurl'] . "attachmentid=$attachment[attachmentid]&amp;d=$attachment[dateline]", 1) . " ($vbphrase[post] : " .
-			construct_link_code($attachment['postid'], "../showthread.php?" . $vbulletin->session->vars['sessionurl'] . "p=$attachment[postid]", 1) . " )") . ' ';
+		echo construct_phrase($vbphrase['processing_x'], "$vbphrase[attachment] : $attachment[filedataid] ($attachment[extension])");
 
 		if (!is_readable($filename) OR !@filesize($filename))
 		{
@@ -717,39 +821,43 @@ if ($_REQUEST['do'] == 'rebuildthumbs')
 			@unlink($filename);
 		}
 
+		$attachdata =& datamanager_init('Filedata', $vbulletin, ERRTYPE_SILENT, 'attachment');
+		$attachdata->set_existing($attachment);
+		$attachdata->set('width', $thumbnail['source_width']);
+		$attachdata->set('height', $thumbnail['source_height']);
 		if (!empty($thumbnail['filedata']))
 		{
-			$attachdata =& datamanager_init('Attachment', $vbulletin, ERRTYPE_SILENT);
-			$attachdata->set_existing($attachment);
 			$attachdata->setr('thumbnail', $thumbnail['filedata']);
 			$attachdata->set('thumbnail_dateline', TIMENOW);
-			if (!($result = $attachdata->save()))
-			{
-				if (!empty($attachdata->errors[0]))
-				{
-					echo $attacherror =& $attachdata->errors[0];
-				}
-			}
-			unset($attachdata);
+			$attachdata->set('thumbnail_width', $thumbnail['width']);
+			$attachdata->set('thumbnail_height', $thumbnail['height']);
 		}
+		if (!($result = $attachdata->save()))
+		{
+			if (!empty($attachdata->errors[0]))
+			{
+				echo $attacherror =& $attachdata->errors[0];
+			}
+		}
+		unset($attachdata);
 
 		if (!empty($thumbnail['imageerror']))
 		{
-			echo '<b>' . $vbphrase["error_$thumbnail[imageerror]"] . '</b>';
+			echo ' <b>' . $vbphrase["error_$thumbnail[imageerror]"] . '</b>';
 		}
 		else if (empty($thumbnail['filedata']))
 		{
-			echo '<b>' . $vbphrase['error'] . '</b>';
+			echo ' <b>' . $vbphrase['error'] . '</b>';
 		}
 		echo '<br />';
 		vbflush();
 
-		$finishat = ($attachment['attachmentid'] > $finishat ? $attachment['attachmentid'] : $finishat);
+		$finishat = ($attachment['filedataid'] > $finishat ? $attachment['filedataid'] : $finishat);
 	}
 
 	$finishat++;
 
-	if ($checkmore = $db->query_first("SELECT attachmentid FROM " . TABLE_PREFIX . "attachment WHERE attachmentid >= $finishat AND SUBSTRING_INDEX(filename, '.', -1) IN ('gif', 'jpg', 'jpeg', 'jpe', 'png') LIMIT 1"))
+	if ($checkmore = $db->query_first("SELECT filedataid FROM " . TABLE_PREFIX . "filedata WHERE filedataid >= $finishat AND extension IN ($extensions) ORDER BY filedataid LIMIT 1"))
 	{
 		if ($vbulletin->GPC['autoredirect'] == 1)
 		{
@@ -780,6 +888,11 @@ if ($_REQUEST['do'] == 'rebuildavatars')
 	{
 		//define('CP_REDIRECT', 'misc.php');
 		print_stop_message('your_version_no_image_support');
+	}
+
+	if ($vbulletin->options['usefileavatar'] AND !is_writable($vbulletin->options['avatarpath']))
+	{
+		print_stop_message('custom_avatarpath_not_writable', $vbulletin->options['avatarpath']);
 	}
 
 	if (empty($vbulletin->GPC['perpage']))
@@ -990,6 +1103,131 @@ if ($_REQUEST['do'] == 'rebuildadminavatars')
 	}
 
 }
+
+
+// ################## Start rebuilding sgicon thumbnails ################
+if ($_REQUEST['do'] == 'rebuildsgicons')
+{
+	$vbulletin->input->clean_array_gpc('r', array(
+		'quality'      => TYPE_UINT,
+		'autoredirect' => TYPE_BOOL,
+		'perpage'      => TYPE_UINT,
+		'startat'      => TYPE_UINT
+	));
+
+	// Increase memlimit
+	if (($memory_limit = ini_size_to_bytes(@ini_get('memory_limit'))) < 128 * 1024 * 1024 AND $memory_limit > 0)
+	{
+		@ini_set('memory_limit', 128 * 1024 * 1024);
+	}
+
+	// Get dimension constants
+	require_once(DIR . '/includes/functions_socialgroup.php');
+
+	// Get image handler
+	require_once(DIR . '/includes/class_image.php');
+	$image = vB_Image::fetch_library($vbulletin);
+
+	// Check if image manip is supported
+	if ($vbulletin->options['imagetype'] != 'Magick' AND !function_exists('imagetypes'))
+	{
+		print_stop_message('your_version_no_image_support');
+	}
+
+	$vbulletin->GPC['perpage'] = max($vbulletin->GPC['perpage'], 20);
+
+	echo '<p>' . construct_phrase($vbphrase['building_sgicon_thumbnails'], "misc.php?" . $vbulletin->session->vars['sessionurl'] . "do=rebuildsgicons&startat=" . $vbulletin->GPC['startat'] . "&pp=" . $vbulletin->GPC['perpage'] . "&autoredirect=" . $vbulletin->GPC['autoredirect'] . "&quality=" . $vbulletin->GPC['quality']) . '</p>';
+
+	// Get group info
+	$result = $vbulletin->db->query_read("
+		SELECT socialgroupicon.dateline, socialgroupicon.userid, socialgroupicon.filedata, socialgroupicon.extension,
+				socialgroupicon.width, socialgroupicon.height, socialgroupicon.groupid
+		FROM " . TABLE_PREFIX . "socialgroupicon AS socialgroupicon
+		LIMIT " . intval($vbulletin->GPC['startat']) . ', ' . intval($vbulletin->GPC['perpage'])
+	);
+
+	$checkmore = ($vbulletin->db->num_rows($result) >= $vbulletin->GPC['perpage']);
+
+	// Create dm for icon and ensure icon filedata is set but thumbdata is empty, so that thumbs are rebuilt by the dm
+	while ($icon = $vbulletin->db->fetch_array($result))
+	{
+		// some transaltion for group info
+		$icon['icondateline'] = $icon['dateline'];
+
+		echo construct_phrase($vbphrase['processing_x'], "$vbphrase[socialgroup_icon] $icon[groupid]<br />\n");
+		vbflush();
+
+		$filedata = false;
+
+		if ($vbulletin->options['usefilegroupicon'])
+		{
+			$iconpath = fetch_socialgroupicon_url($icon, false, true, true);
+			$thumbpath = fetch_socialgroupicon_url($group, true, true, true);
+			$filedata = @file_get_contents($iconpath);
+		}
+		else
+		{
+			$filedata = $icon['filedata'];
+		}
+
+		if ($filedata)
+		{
+			$icondm = datamanager_init('SocialGroupIcon', $vbulletin, ERRTYPE_CP);
+			$icondm->set_existing($icon);
+			$icondm->set('thumbnail_filedata', false);
+			$icondm->set('filedata', $filedata);
+			$icondm->set_info('thumbnail_quality', $vbulletin->GPC['quality']);
+
+			if (!$icondm->save())
+			{
+				echo ('<b>' . (!empty($icondm->errors[0]) ? $icondm->errors[0] : $vbphrase['error']) . '</b>');
+			}
+		}
+	}
+	$vbulletin->db->free_result($result);
+
+	echo '<br />';
+	vbflush();
+
+	$startat = $vbulletin->GPC['startat'] + $vbulletin->GPC['perpage'];
+
+	if ($checkmore)
+	{
+		if ($vbulletin->GPC['autoredirect'] == 1)
+		{
+			print_cp_redirect("misc.php?" . $vbulletin->session->vars['sessionurl'] . "do=rebuildsgicons&amp;startat=$startat&amp;pp=" . $vbulletin->GPC['perpage'] . "&amp;quality=" . $vbulletin->GPC['quality'] . "&amp;autoredirect=1");
+		}
+		echo "<p><a href=\"misc.php?" . $vbulletin->session->vars['sessionurl'] . "do=rebuildsgicons&amp;startat=$startat&amp;pp=" . $vbulletin->GPC['perpage'] . '&amp;quality=' . $vbulletin->GPC['quality'] . '>' . $vbphrase['click_here_to_continue_processing'] . '</a></p>';
+	}
+	else
+	{
+		// rebuild newest groups cache
+		fetch_socialgroup_newest_groups(true, false, !$vbulletin->options['sg_enablesocialgroupicons']);
+
+		define('CP_REDIRECT', 'misc.php');
+		print_stop_message('rebuilt_sgicon_thumbnails_successfully');
+	}
+}
+
+
+// ###################### Start rebuilding post cache #######################
+if ($_POST['do'] == 'rebuildalbumupdates')
+{
+	if (!$vbulletin->options['album_recentalbumdays'])
+	{
+		define('CP_REDIRECT', 'misc.php');
+		print_stop_message('recent_album_updates_disabled');
+	}
+
+	require_once(DIR . '/includes/functions_album.php');
+
+	exec_rebuild_album_updates();
+
+	define('CP_REDIRECT', 'misc.php');
+	print_stop_message('recent_album_updates_rebuilt');
+}
+
+
 // ###################### Start rebuilding post cache #######################
 if ($_REQUEST['do'] == 'buildpostcache')
 {
@@ -997,7 +1235,7 @@ if ($_REQUEST['do'] == 'buildpostcache')
 	$bbcodes = $db->query_read("
 		SELECT templateid,  template
 		FROM " . TABLE_PREFIX . "template
-		WHERE title IN ('bbcode_quote', 'bbcode_php', 'bbcode_code', 'bbcode_html')
+		WHERE title IN ('bbcode_quote', 'bbcode_php', 'bbcode_code', 'bbcode_html', 'bbcode_video')
 	");
 	while ($bbcode = $db->fetch_array($bbcodes))
 	{
@@ -1017,30 +1255,24 @@ if ($_REQUEST['do'] == 'buildpostcache')
 			'bbcode_code'  =>& $bbcodelist["$tlist[bbcode_code]"],
 			'bbcode_quote' =>& $bbcodelist["$tlist[bbcode_quote]"],
 			'bbcode_php'   =>& $bbcodelist["$tlist[bbcode_php]"],
-			'bbcode_html'  =>& $bbcodelist["$tlist[bbcode_html]"]
+			'bbcode_html'  =>& $bbcodelist["$tlist[bbcode_html]"],
+			'bbcode_video' =>& $bbcodelist["$tlist[bbcode_video]"],
 		);
 
 		$stylelist["$style[styleid]"]['idlist'] = array(
 			'bbcode_code'  => intval($tlist['bbcode_code_styleid']),
 			'bbcode_quote' => intval($tlist['bbcode_quote_styleid']),
 			'bbcode_php'   => intval($tlist['bbcode_php_styleid']),
-			'bbcode_html'  => intval($tlist['bbcode_html_styleid'])
+			'bbcode_html'  => intval($tlist['bbcode_html_styleid']),
+			'bbcode_video' => intval($tlist['bbcode_video_styleid']),
 		);
 
-		// The fact that we use $userinfo here means that if you were to use any language specific stylevars in these templates (which we don't do by default), they would be of this user's language
-		// The only remedy for this is to create even more scenarios in the post parsed table with left -> right, right -> left and the imageoverride folder :eek:
-		$stylelist["$style[styleid]"]['stylevar'] = fetch_stylevars($style, $vbulletin->userinfo);
-
-		/*$unique = "{$tlist['bbcode_code_styleid']}|{$tlist['bbcode_quote_styleid']}|{$tlist['bbcode_php_styleid']}|{$tlist['bbcode_html_styleid']}";
-		if (empty($uniquelist["$unique"]))
-		{
-			$uniquelist["$unique"] = $style['styleid'];
-		}*/
+		$stylelist["$style[styleid]"]['newstylevars'] = unserialize($style['newstylevars']);
 	}
 	$stylelist["0"] =& $stylelist["{$vbulletin->options['styleid']}"];
 
 	require_once(DIR . '/includes/class_bbcode.php');
-	$bbcode_parser =& new vB_BbCodeParser($vbulletin, fetch_tag_list());
+	$bbcode_parser = new vB_BbCodeParser($vbulletin, fetch_tag_list());
 
 	if (empty($vbulletin->GPC['perpage']))
 	{
@@ -1076,7 +1308,11 @@ if ($_REQUEST['do'] == 'buildpostcache')
 		{
 			$styleid = $vbulletin->forumcache["$post[forumid]"]['styleid'];
 			$vbulletin->templatecache =& $stylelist["$styleid"]['templatelist'];
-			$stylevar =& $stylelist["$styleid"]['stylevar'];
+
+			// The fact that we use $userinfo here means that if you were to use any language specific stylevars in these templates (which we don't do by default), they would be of this user's language
+			// The only remedy for this is to create even more scenarios in the post parsed table with left -> right, right -> left and the imageoverride folder :eek:
+			$vbulletin->stylevars = $stylelist["$styleid"]['newstylevars'];
+			fetch_stylevars($stylelist["$styleid"], $vbulletin->userinfo);
 
 			$parsedtext = $bbcode_parser->parse($post['pagetext'], $post['forumid'], $post['allowsmilie'], false, '', false, true);
 
@@ -1107,7 +1343,11 @@ if ($_REQUEST['do'] == 'buildpostcache')
 				}
 				echo " $count";
 				$vbulletin->templatecache =& $stylelist["$styleid"]['templatelist'];
-				$stylevar =& $stylelist["$styleid"]['stylevar'];
+
+				// The fact that we use $userinfo here means that if you were to use any language specific stylevars in these templates (which we don't do by default), they would be of this user's language
+				// The only remedy for this is to create even more scenarios in the post parsed table with left -> right, right -> left and the imageoverride folder :eek:
+				$vbulletin->stylevars = $stylelist["$styleid"]['newstylevars'];
+				fetch_stylevars($stylelist["$styleid"], $vbulletin->userinfo);
 
 				$parsedtext = $bbcode_parser->parse($post['pagetext'], $post['forumid'], $post['allowsmilie'], false, '', false, true);
 				$saveparsed .= ", ($post[postid],
@@ -1279,6 +1519,63 @@ if ($_POST['do'] == 'lostusers')
 
 	define('CP_REDIRECT', 'misc.php');
 	print_stop_message('user_records_repaired');
+}
+
+// ###################### Start add missing keywords #######################
+if ($_REQUEST['do'] == 'addmissingkeywords')
+{
+	require_once(DIR . '/includes/functions_newpost.php');
+
+	if (empty($vbulletin->GPC['perpage']))
+	{
+		$vbulletin->GPC['perpage'] = 50;
+	}
+
+	$finishat = intval($vbulletin->GPC['startat']);
+
+	$threads = $db->query_read($query = "
+		SELECT thread.threadid, thread.taglist, thread.prefixid, thread.title, post.pagetext AS firstpost
+		FROM " . TABLE_PREFIX . "thread AS thread
+		LEFT JOIN " . TABLE_PREFIX . "post AS post ON(post.postid = thread.firstpostid)
+		WHERE thread.keywords IS NULL
+		ORDER BY threadid ASC
+		LIMIT " . $vbulletin->GPC['startat'] . ", " . $vbulletin->GPC['perpage'] . "
+	");
+	while ($thread = $db->fetch_array($threads))
+	{
+		$gotsome = true;
+		$threadinfo = fetch_threadinfo($thread['threadid']);
+		if (!$threadinfo)
+		{
+			$finishat++;
+			continue;
+		}
+
+		$keywords = fetch_keywords_list($threadinfo, $thread['firstpost']);
+
+		$threadman =& datamanager_init('Thread', $vbulletin, ERRTYPE_SILENT, 'threadpost');
+		$threadman->set_existing($threadinfo);
+		$threadman->set('keywords', $keywords);
+
+		$threadman->save();
+
+		unset($threadman);
+
+		echo construct_phrase($vbphrase['processing_x'], $thread['threadid'])."<br />\n";
+		vbflush();
+	}
+
+	if ($gotsome)
+	{
+		print_cp_redirect("misc.php?" . $vbulletin->session->vars['sessionurl'] . "do=addmissingkeywords&pp=" . $vbulletin->GPC['perpage'] . "&startat=$finishat");
+		echo "<p><a href=\"misc.php?" . $vbulletin->session->vars['sessionurl'] . "do=addmissingkeywords&amp;pp=" . $vbulletin->GPC['perpage'] . "&amp;startat=$finishat\">" . $vbphrase['click_here_to_continue_processing'] . "</a></p>";
+	}
+	else
+	{
+		define('CP_REDIRECT', 'misc.php');
+		print_stop_message('added_missing_keywords_successfully');
+	}
+
 }
 
 // ###################### Start build statistics #######################
@@ -1470,6 +1767,173 @@ if ($_REQUEST['do'] == 'removeorphanposts')
 	}
 }
 
+// ###################### Start remove orphaned stylevars #######################
+if ($_REQUEST['do'] == 'removeorphanstylevars')
+{
+	// Get installed products (includes any that are disabled)
+	$products = "'" . implode("','", array_keys($vbulletin->products)) . "'";
+
+	/* Mark any definitions that arent
+	   part of an installed product as old */
+	$vbulletin->db->query_write("
+		UPDATE " . TABLE_PREFIX . "stylevardfn
+		SET styleid = IF(styleid = -1, -10, -20)
+		WHERE product NOT IN ($products)
+	");
+
+	// Zap old definitions
+	$vbulletin->db->query_write("
+		DELETE FROM " . TABLE_PREFIX . "stylevardfn
+		WHERE styleid IN (-10, -20)
+	");
+
+	// Get master stylevars that dont have a definition
+	$svdata = $vbulletin->db->query_read("
+		SELECT stylevar.stylevarid, stylevar.styleid
+		FROM " . TABLE_PREFIX . "stylevar AS stylevar
+		LEFT JOIN " . TABLE_PREFIX . "stylevardfn AS stylevardfn ON (stylevar.stylevarid = stylevardfn.stylevarid AND stylevar.styleid = stylevardfn.styleid)
+		WHERE
+			stylevar.styleid IN(-1, -2)
+				AND
+			stylevardfn.product IS NULL
+	");
+
+	$orphans = array();
+	$deletelist = array();
+	$masterlist = array();
+
+	// Build list, phrases will be removed later
+	while ($stylevar = $vbulletin->db->fetch_array($svdata))
+	{
+		$deletelist[$stylevar['styleid']][$stylevar['stylevarid']][] = $stylevar['styleid'];
+		$orphans[$stylevar['styleid']][] =  "'" . $stylevar['stylevarid'] . "'";
+	}
+
+	// Zap em !
+	if (!empty($orphans))
+	{
+		foreach ($orphans AS $masterstyleid => $orphans2)
+		{
+			$vbulletin->db->query_write("
+				DELETE FROM " . TABLE_PREFIX . "stylevar
+				WHERE
+					stylevarid IN (" . implode(',', $orphans2) . ")
+						AND
+					styleid = {$masterstyleid}
+			");
+		}
+	}
+
+	// Get remaining stylevar data
+	$svdata = $db->query_read("
+		SELECT stylevar.stylevarid, stylevar.styleid, style.type
+		FROM " . TABLE_PREFIX . "stylevar AS stylevar
+		LEFT JOIN " . TABLE_PREFIX . "style AS style ON (style.styleid = stylevar.styleid)
+	");
+
+	// Generate master and delete lists
+	while ($svlist = $db->fetch_array($svdata))
+	{
+		$style = $svlist['styleid'];
+		$stylevar = $svlist['stylevarid'];
+
+		if ($style == -1 OR $style == -2)
+		{
+			$masterlist[$style][$stylevar] = true;
+		}
+		else
+		{
+			$masterstyleid = ($svlist['type'] == 'standard') ? -1 : -2;
+			$deletelist[$masterstyleid][$stylevar][] = $style;
+		}
+	}
+
+	// Clear valid stylevars from delete list
+	foreach ($deletelist AS $masterstyleid => $deletelist2)
+	{
+		foreach($deletelist2 AS $stylevar => $styles)
+		{
+			if ($masterlist[$masterstyleid][$stylevar])
+			{
+				unset($deletelist[$masterstyleid][$stylevar]);
+			}
+		}
+	}
+
+	require_once(DIR . '/includes/adminfunctions_template.php');
+	cache_styles();
+	$standardstyles = array(-1);
+	$mobilestyles = array(-2);
+	foreach ($stylecache AS $styleid => $style)
+	{
+		if ($style['type'] == 'mobile')
+		{
+			$mobilestyles[] = $styleid;
+		}
+		else
+		{
+			$standardstyles[] = $styleid;
+		}
+	}
+	$mobileids = implode(',', $mobilestyles);
+	$standardids = implode(',', $standardstyles);
+
+	foreach ($deletelist AS $masterstyleid => $deletelist2)
+	{
+		/* What we have left is orphaned stylevars,
+		   so now its time to get rid of them */
+		foreach($deletelist2 AS $stylevar => $styles)
+		{
+			foreach($styles AS $style)
+			{
+				$rundelete = false;
+
+				if ($style == -1)
+				{
+					echo construct_phrase($vbphrase['orphan_stylevar_deleted_master'], $stylevar);
+				}
+				else if ($style == -2)
+				{
+					echo construct_phrase($vbphrase['orphan_stylevar_deleted_mobile_master'], $stylevar);
+				}
+				else
+				{
+					$rundelete = true; // We only deleted the master version earlier
+					echo construct_phrase($vbphrase['orphan_stylevar_deleted'], $stylevar, $style);
+				}
+			}
+
+			// Zap stylevar
+			if ($rundelete)
+			{
+				$db->query_write("
+					DELETE FROM " . TABLE_PREFIX . "stylevar
+					WHERE
+						stylevarid = '$stylevar'
+							AND
+						styleid IN (" . ($masterstyleid == -1 ? $standardids : $mobileids) . ")
+				");
+			}
+
+			$name = "stylevar_{$stylevar}_name" . ($masterstyleid == -1) ? '' : '_mobile';
+			$desc = "stylevar_{$stylevar}_description" . ($masterstyleid == -1) ? '' : '_mobile';
+			// Zap phrases
+			$db->query_write("
+				DELETE FROM " . TABLE_PREFIX . "phrase
+				WHERE fieldname = 'style' AND varname
+				IN ('" . $db->escape_string($name) . "', '" . $db->escape_string($desc) . "')
+			");
+		}
+	}
+
+	// Rebuild languages
+	require_once(DIR . '/includes/adminfunctions_language.php');
+	build_language();
+
+//	define('CP_REDIRECT', 'misc.php'); // removed for now so the list stays visible.
+	print_stop_message('deleted_orphan_stylevars_successfully');
+}
+
 // ###################### Anonymous Survey Code #######################
 if ($_REQUEST['do'] == 'survey')
 {
@@ -1504,7 +1968,7 @@ if ($_REQUEST['do'] == 'survey')
 	}
 
 	// Check to see if a recent version is being used
-	$php = @phpversion();
+	$php = PHP_VERSION;
 
 	// Check for common PHP Extensions
 	$php_extensions = @get_loaded_extensions();
@@ -1512,7 +1976,7 @@ if ($_REQUEST['do'] == 'survey')
 	// Various configuration options regarding PHP
 	$php_safe_mode = SAFEMODE ? $vbphrase['on'] : $vbphrase['off'];
 	$php_open_basedir = ((($bd = @ini_get('open_basedir')) AND $bd != '/') ? $vbphrase['on'] : $vbphrase['off']);
-	$php_memory_limit = ((function_exists('memory_get_usage') AND ($limit = @get_cfg_var('memory_limit'))) ? htmlspecialchars($limit) : $vbphrase['off']);
+	$php_memory_limit = ((function_exists('memory_get_usage') AND ($limit = @ini_get('memory_limit'))) ? htmlspecialchars($limit) : $vbphrase['off']);
 
 	// what version of MySQL
 	$mysql = $db->query_first("SELECT VERSION() AS version");
@@ -1677,17 +2141,32 @@ if ($_REQUEST['do'] == 'chooser')
 	print_input_row($vbphrase['number_of_forums_to_process_per_cycle'], 'perpage', 100);
 	print_submit_row($vbphrase['rebuild_forum_information']);
 
+	print_form_header('misc', 'addmissingkeywords');
+	print_table_header($vbphrase['add_missing_thread_keywords']);
+	print_input_row($vbphrase['number_of_threads_to_process_per_cycle'], 'perpage', 1000);
+	print_submit_row($vbphrase['add_keywords']);
+
 	print_form_header('misc', 'lostusers');
 	print_table_header($vbphrase['fix_broken_user_profiles']);
 	print_description_row($vbphrase['finds_users_without_complete_entries']);
 	print_submit_row($vbphrase['fix_broken_user_profiles']);
 
-	print_form_header('misc', 'buildpostindex');
+	print_form_header('misc', 'doindextypes');
 	print_table_header($vbphrase['rebuild_search_index'], 2, 0);
 	print_description_row(construct_phrase($vbphrase['note_reindexing_empty_indexes_x'], $vbulletin->session->vars['sessionurl']));
-	print_input_row($vbphrase['number_of_posts_to_process_per_cycle'], 'perpage', 250);
-	print_input_row($vbphrase['post_id_to_start_at'], 'startat', 0);
-	print_input_row($vbphrase['total_number_posts_process'], 'doprocess', 0);
+
+	// Get the current types
+	require_once(DIR . '/vb/search/core.php');
+	$indexer = vB_Search_Core::get_instance();
+
+	//don't use array_merge, it will (incorrectly) assume that the keys are index values
+	//instead of meaningful numeric keys and renumber them.
+	$types = array ( 0 => $vbphrase['all']) + vB_Search_Searchtools::get_type_options();
+
+	print_select_row($vbphrase['search_content_type_to_index'], 'indextypes', $types);
+	print_input_row($vbphrase['search_items_batch'], 'perpage', 250);
+	print_input_row($vbphrase['search_start_item_id'], 'startat', 0);
+	print_input_row($vbphrase['search_items_to_process'], 'doprocess', 0);
 	print_yes_no_row($vbphrase['include_automatic_javascript_redirect'], 'autoredirect', 1);
 	print_description_row($vbphrase['note_server_intensive']);
 	print_submit_row($vbphrase['rebuild_search_index']);
@@ -1749,6 +2228,23 @@ if ($_REQUEST['do'] == 'chooser')
 	print_yes_no_row($vbphrase['include_automatic_javascript_redirect'], 'autoredirect', 1);
 	print_submit_row($vbphrase['rebuild_avatar_thumbnails']);
 
+	print_form_header('misc', 'rebuildsgicons');
+	print_table_header($vbphrase['rebuild_sgicon_thumbnails'], 2, 0);
+	print_input_row($vbphrase['number_of_icons_to_process_per_cycle'], 'perpage', 25);
+	$quality = intval($vbulletin->options['thumbquality']);
+	if ($quality <= 0 OR $quality > 100)
+	{
+		$quality = 75;
+	}
+	print_input_row($vbphrase['thumbnail_quality'], 'quality', $quality);
+	print_yes_no_row($vbphrase['include_automatic_javascript_redirect'], 'autoredirect', 1);
+	print_submit_row($vbphrase['rebuild_sgicon_thumbnails']);
+
+	print_form_header('misc', 'rebuildalbumupdates');
+	print_table_header($vbphrase['rebuild_recently_updated_albums_list'], 1, 0);
+	print_description_row($vbphrase['rebuild_recently_updated_albums_description']);
+	print_submit_row($vbphrase['rebuild_album_updates']);
+
 	print_form_header('misc', 'rebuildreputation');
 	print_table_header($vbphrase['rebuild_user_reputation'], 2, 0);
 	print_description_row($vbphrase['function_rebuilds_reputation']);
@@ -1785,6 +2281,16 @@ if ($_REQUEST['do'] == 'chooser')
 	print_description_row($vbphrase['function_removes_orphan_posts']);
 	print_input_row($vbphrase['number_of_posts_to_process_per_cycle'], 'perpage', 50);
 	print_submit_row($vbphrase['remove_orphan_posts']);
+
+	print_form_header('misc', 'removeorphanstylevars');
+	print_table_header($vbphrase['remove_orphan_stylevars']);
+	print_description_row($vbphrase['function_removes_orphan_stylevars']);
+	print_submit_row($vbphrase['remove_orphan_stylevars'], 0);
+
+	print_form_header('misc', 'rebuildactivity');
+	print_table_header($vbphrase['rebuild_activity_stream']);
+	print_description_row(construct_phrase($vbphrase['rebuild_activity_stream_desc'], $vbulletin->options['as_expire']));
+	print_submit_row($vbphrase['rebuild_activity_stream'], 0);
 }
 
 ($hook = vBulletinHook::fetch_hook('admin_maintenance')) ? eval($hook) : false;
@@ -1793,8 +2299,7 @@ print_cp_footer();
 
 /*======================================================================*\
 || ####################################################################
-|| # Downloaded: 16:21, Sat Apr 6th 2013
-|| # CVS: $RCSfile$ - $Revision: 26665 $
+|| # Downloaded: 14:57, Sun Aug 11th 2013
+|| # CVS: $RCSfile$ - $Revision: 62690 $
 || ####################################################################
 \*======================================================================*/
-?>

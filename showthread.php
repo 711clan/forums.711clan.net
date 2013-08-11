@@ -1,9 +1,9 @@
 <?php
 /*======================================================================*\
 || #################################################################### ||
-|| # vBulletin 3.7.2 Patch Level 2 - Licence Number VBF2470E4F
+|| # vBulletin 4.2.1 - Licence Number VBC2DDE4FB
 || # ---------------------------------------------------------------- # ||
-|| # Copyright ©2000-2013 Jelsoft Enterprises Ltd. All Rights Reserved. ||
+|| # Copyright ©2000-2013 vBulletin Solutions Inc. All Rights Reserved. ||
 || # This file may not be redistributed in whole or significant part. # ||
 || # ---------------- VBULLETIN IS NOT FREE SOFTWARE ---------------- # ||
 || # http://www.vbulletin.com | http://www.vbulletin.com/license.html # ||
@@ -16,6 +16,7 @@ error_reporting(E_ALL & ~E_NOTICE);
 // #################### DEFINE IMPORTANT CONSTANTS #######################
 define('THIS_SCRIPT', 'showthread');
 define('CSRF_PROTECTION', true);
+define('FRIENDLY_URL_LINK', 'thread');
 
 // ################### PRE-CACHE TEMPLATES AND DATA ######################
 // get special phrase groups
@@ -37,9 +38,10 @@ $specialtemplates = array(
 
 // pre-cache templates used by all actions
 $globaltemplates = array(
-	'ad_showthread_beforeqr',
-	'ad_showthread_firstpost',
-	'forumdisplay_loggedinuser',
+	'ad_showthread_firstpost_start',
+	'ad_showthread_firstpost_sig',
+	'ad_thread_first_post_content',
+	'ad_thread_last_post_content',
 	'forumrules',
 	'im_aim',
 	'im_icq',
@@ -57,18 +59,16 @@ $globaltemplates = array(
 	'postbit_ignore_global',
 	'postbit_ip',
 	'postbit_onlinestatus',
-	'postbit_reputation',
 	'bbcode_code',
 	'bbcode_html',
 	'bbcode_php',
 	'bbcode_quote',
+	'bbcode_video',
 	'SHOWTHREAD',
 	'showthread_list',
 	'showthread_similarthreadbit',
 	'showthread_similarthreads',
-	'showthread_quickreply',
 	'showthread_bookmarksite',
-	'tagbit',
 	'tagbit_wrapper',
 	'polloptions_table',
 	'polloption',
@@ -76,10 +76,15 @@ $globaltemplates = array(
 	'pollresults_table',
 	'pollresult',
 	'threadadmin_imod_menu_post',
-	'editor_css',
+	'editor_smilie_category',
+	'editor_smilie_row',
+	'newpost_disablesmiliesoption',
 	'editor_clientscript',
+	'editor_ckeditor',
 	'editor_jsoptions_font',
 	'editor_jsoptions_size',
+	'facebook_publishcheckbox',
+	'facebook_likebutton',
 );
 
 // pre-cache templates used by specific actions
@@ -102,10 +107,13 @@ function exec_postvar_call_back()
 require_once('./global.php');
 require_once(DIR . '/includes/functions_bigthree.php');
 require_once(DIR . '/includes/class_postbit.php');
+require_once(DIR . '/includes/class_friendly_url.php');
 
 // #######################################################################
 // ######################## START MAIN SCRIPT ############################
 // #######################################################################
+
+verify_forum_url();
 
 ($hook = vBulletinHook::fetch_hook('showthread_start')) ? eval($hook) : false;
 
@@ -114,24 +122,41 @@ $vbulletin->input->clean_array_gpc('r', array(
 	'pagenumber' => TYPE_UINT,
 	'highlight'  => TYPE_STR,
 	'posted'     => TYPE_BOOL,
+	'viewfull'   => TYPE_BOOL,
+	'mode'       => TYPE_STR,
 ));
 
 // *********************************************************************************
 // set $threadedmode (continued from global.php)
-if ($vbulletin->options['allowthreadedmode'] AND !$show['search_engine'])
+if ($vbulletin->options['allowthreadedmode'] AND !$show['search_engine'] AND !VB_API)
 {
-	if (!isset($threadedmode))
+	if (!empty($vbulletin->GPC['mode']))
 	{
-		// Set threaded mode from user options if it doesn't exist in cookie or url passed form
-		DEVDEBUG('$threadedmode is empty');
-		if ($vbulletin->userinfo['threadedmode'] == 3)
+		// Look for command to switch types on the query string
+		switch ($vbulletin->GPC['mode'])
 		{
-			$threadedmode = 0;
+			case 'threaded': $threadedCookieVal = 'threaded'; break;
+			case 'hybrid':   $threadedCookieVal = 'hybrid'; break;
+			default:         $threadedCookieVal = 'linear';
 		}
-		else
+
+		vbsetcookie('threadedmode', $threadedCookieVal);
+		$vbulletin->GPC[COOKIE_PREFIX . 'threadedmode'] = $threadedCookieVal;
+		unset($threadedCookieVal);
+	}
+
+	if (!empty($vbulletin->GPC[COOKIE_PREFIX . 'threadedmode']))
+	{
+		switch ($vbulletin->GPC[COOKIE_PREFIX . 'threadedmode'])
 		{
-			$threadedmode = $vbulletin->userinfo['threadedmode'];
+			case 'threaded': $threadedmode = 1; break;
+			case 'hybrid':   $threadedmode = 2; break;
+			default:         $threadedmode = 0;
 		}
+	}
+	else
+	{
+		$threadedmode = ($vbulletin->userinfo['threadedmode'] == 3 ? 0 : $vbulletin->userinfo['threadedmode']);
 	}
 
 	switch ($threadedmode)
@@ -188,131 +213,43 @@ switch($vbulletin->GPC['goto'])
 	// *********************************************************************************
 	// go to next newest
 	case 'nextnewest':
-		$thread = verify_id('thread', $threadid, 1, 1);
-		$forumperms = fetch_permissions($thread['forumid']);
-
-		// remove threads from users on the global ignore list if user is not a moderator
-		if ($coventry = fetch_coventry('string') AND !can_moderate($thread['forumid']))
-		{
-			$globalignore = "AND postuserid NOT IN ($coventry)";
-		}
-		else
-		{
-			$globalignore = '';
-		}
-
-		if (!($forumperms & $vbulletin->bf_ugp_forumpermissions['canviewothers']))
-		{
-			$limitothers = "AND postuserid = " . $vbulletin->userinfo['userid'] . " AND " . $vbulletin->userinfo['userid'] . " <> 0";
-		}
-		else
-		{
-			$limitothers = '';
-		}
-
-		if ($vbulletin->userinfo['userid'] AND in_coventry($vbulletin->userinfo['userid'], true))
-		{
-			$lastpost_info = ",IF(tachythreadpost.userid IS NULL, thread.lastpost, tachythreadpost.lastpost) AS lastpost";
-			$tachyjoin = "LEFT JOIN " . TABLE_PREFIX . "tachythreadpost AS tachythreadpost ON " .
-				"(tachythreadpost.threadid = thread.threadid AND tachythreadpost.userid = " . $vbulletin->userinfo['userid'] . ')';
-			$lastpost_having = "HAVING lastpost > $thread[lastpost]";
-		}
-		else
-		{
-			$lastpost_info = "";
-			$tachyjoin = "";
-			$lastpost_having = "AND lastpost > $thread[lastpost]";
-		}
-
-		if ($getnextnewest = $db->query_first_slave("
-			SELECT thread.threadid
-				$lastpost_info
-			FROM " . TABLE_PREFIX . "thread AS thread
-			$tachyjoin
-			WHERE forumid = $thread[forumid]
-				AND visible = 1
-				AND open <> 10
-				$globalignore
-				$limitothers
-			$lastpost_having
-			ORDER BY lastpost
-			LIMIT 1
-		"))
-		{
-			$threadid = $getnextnewest['threadid'];
-			unset ($thread);
-		}
-		else
-		{
-			eval(standard_error(fetch_error('nonextnewest')));
-		}
+		$thread = goto_nextthread($threadid);
+		$threadid = $thread['threadid'];
+		unset($thread);
+		define('THREADNEXT', true);
 		break;
 	// *********************************************************************************
 	// go to next oldest
 	case 'nextoldest':
-		$thread = verify_id('thread', $threadid, 1, 1);
-		$forumperms = fetch_permissions($thread['forumid']);
-
-		// remove threads from users on the global ignore list if user is not a moderator
-		if ($coventry = fetch_coventry('string') AND !can_moderate($thread['forumid']))
-		{
-			$globalignore = "AND postuserid NOT IN ($coventry)";
-		}
-		else
-		{
-			$globalignore = '';
-		}
-
-		if (!($forumperms & $vbulletin->bf_ugp_forumpermissions['canviewothers']))
-		{
-			$limitothers = "AND postuserid = " . $vbulletin->userinfo['userid'] . " AND " . $vbulletin->userinfo['userid'] . " <> 0";
-		}
-		else
-		{
-			$limitothers = '';
-		}
-
-		if ($vbulletin->userinfo['userid'] AND in_coventry($vbulletin->userinfo['userid'], true))
-		{
-			$lastpost_info = ",IF(tachythreadpost.userid IS NULL, thread.lastpost, tachythreadpost.lastpost) AS lastpost";
-			$tachyjoin = "LEFT JOIN " . TABLE_PREFIX . "tachythreadpost AS tachythreadpost ON " .
-				"(tachythreadpost.threadid = thread.threadid AND tachythreadpost.userid = " . $vbulletin->userinfo['userid'] . ')';
-			$lastpost_having = "HAVING lastpost < $thread[lastpost]";
-		}
-		else
-		{
-			$lastpost_info = "";
-			$tachyjoin = "";
-			$lastpost_having = "AND lastpost < $thread[lastpost]";
-		}
-
-		if ($getnextoldest = $db->query_first_slave("
-			SELECT thread.threadid
-				$lastpost_info
-			FROM " . TABLE_PREFIX . "thread AS thread
-			$tachyjoin
-			WHERE forumid = $thread[forumid]
-				AND visible = 1
-				AND open <> 10
-				$globalignore
-				$limitothers
-			$lastpost_having
-			ORDER BY lastpost DESC
-			LIMIT 1
-		"))
-		{
-			$threadid = $getnextoldest['threadid'];
-			unset($thread);
-		}
-		else
-		{
-			eval(standard_error(fetch_error('nonextoldest')));
-		}
+		$thread = goto_prevthread($threadid);
+		$threadid = $thread['threadid'];
+		unset($thread);
+		define('THREADNEXT', true);
 		break;
+
 	// *********************************************************************************
 	// goto newest unread post
 	case 'newpost':
 		$threadinfo = verify_id('thread', $threadid, 1, 1);
+
+		// get forum info
+		$foruminfo = fetch_foruminfo($threadinfo['forumid']);
+
+		// *********************************************************************************
+		// check forum permissions
+		$forumperms = fetch_permissions($threadinfo['forumid']);
+		if (!($forumperms & $vbulletin->bf_ugp_forumpermissions['canview']) OR !($forumperms & $vbulletin->bf_ugp_forumpermissions['canviewthreads']))
+		{
+			print_no_permission();
+		}
+		if (!($forumperms & $vbulletin->bf_ugp_forumpermissions['canviewothers']) AND ($threadinfo['postuserid'] != $vbulletin->userinfo['userid'] OR $vbulletin->userinfo['userid'] == 0))
+		{
+			print_no_permission();
+		}
+
+		// *********************************************************************************
+		// check if there is a forum password and if so, ensure the user has it set
+		verify_forum_password($foruminfo['forumid'], $foruminfo['password']);
 
 		if ($vbulletin->options['threadmarking'] AND $vbulletin->userinfo['userid'])
 		{
@@ -321,6 +258,11 @@ switch($vbulletin->GPC['goto'])
 		else if (($tview = intval(fetch_bbarray_cookie('thread_lastview', $threadid))) > $vbulletin->userinfo['lastvisit'])
 		{
 			$vbulletin->userinfo['lastvisit'] = $tview;
+		}
+
+		if ($vbulletin->GPC['highlight'])
+		{
+			$pageinfo['highlight'] = urlencode($vbulletin->GPC['highlight']);
 		}
 
 		$coventry = fetch_coventry('string');
@@ -333,13 +275,18 @@ switch($vbulletin->GPC['goto'])
 				". ($coventry ? "AND userid NOT IN ($coventry)" : "") . "
 			LIMIT 1
 		");
+
 		if ($posts['postid'])
 		{
-			exec_header_redirect('showthread.php?' . $vbulletin->session->vars['sessionurl_js'] . "p=$posts[postid]$highlightwords#post$posts[postid]");
+			unset($pageinfo['goto']);
+			$pageinfo['p'] = $posts['postid'];
+			exec_header_redirect(fetch_seo_url('thread|js', $threadinfo, $pageinfo, null, null, true) . "#post$posts[postid]");
 		}
 		else
 		{
-			exec_header_redirect('showthread.php?' . $vbulletin->session->vars['sessionurl_js'] . "p=$threadinfo[lastpostid]$highlightwords#post$threadinfo[lastpostid]");
+			unset($pageinfo['goto']);
+			$pageinfo['p'] = $threadinfo['lastpostid'];
+			exec_header_redirect(fetch_seo_url('thread|js', $threadinfo, $pageinfo, null, null, true) . "#post$threadinfo[lastpostid]");
 		}
 		break;
 	// *********************************************************************************
@@ -376,16 +323,10 @@ $threadinfo =& $thread;
 
 // *********************************************************************************
 // check for visible / deleted thread
-if (((!$thread['visible'] AND !can_moderate($thread['forumid'], 'canmoderateposts'))) OR ($thread['isdeleted'] AND !can_moderate($thread['forumid'])))
+if ((!$thread['visible'] AND !can_moderate($thread['forumid'], 'canmoderateposts'))
+	OR ($thread['isdeleted'] AND !can_moderate($thread['forumid'])))
 {
 	eval(standard_error(fetch_error('invalidid', $vbphrase['thread'], $vbulletin->options['contactuslink'])));
-}
-
-// *********************************************************************************
-// jump page if thread is actually a redirect
-if ($thread['open'] == 10)
-{
-	exec_header_redirect('showthread.php?' . $vbulletin->session->vars['sessionurl_js'] . "t=$thread[pollid]");
 }
 
 // *********************************************************************************
@@ -404,11 +345,13 @@ if ($vbulletin->options['wordwrap'] != 0)
 
 $thread['title'] = fetch_censored_text($thread['title']);
 
+$thread['meta_description'] = strip_bbcode(strip_quotes($thread['description']), false, true);
+$thread['meta_description'] = htmlspecialchars_uni(fetch_censored_text(fetch_trimmed_title($thread['meta_description'], 500, false)));
+
 // *********************************************************************************
 // words to highlight from the search engine
 if (!empty($vbulletin->GPC['highlight']))
 {
-
 	$highlight = preg_replace('#\*+#s', '*', $vbulletin->GPC['highlight']);
 	if ($highlight != '*')
 	{
@@ -429,8 +372,13 @@ if (!empty($vbulletin->GPC['highlight']))
 
 // *********************************************************************************
 // make the forum jump in order to fill the forum caches
-$curforumid = $thread['forumid'];
-construct_forum_jump();
+$navpopup = array(
+	'id'    => 'showthread_navpopup',
+	'title' => $foruminfo['title_clean'],
+	'link'  => fetch_seo_url('thread', $threadinfo)
+);
+construct_quick_nav($navpopup);
+
 
 // *********************************************************************************
 // get forum info
@@ -452,6 +400,14 @@ if (!($forumperms & $vbulletin->bf_ugp_forumpermissions['canviewothers']) AND ($
 // *********************************************************************************
 // check if there is a forum password and if so, ensure the user has it set
 verify_forum_password($foruminfo['forumid'], $foruminfo['password']);
+
+// *********************************************************************************
+// jump page if thread is actually a redirect
+if ($thread['open'] == 10)
+{
+	$destthreadinfo = fetch_threadinfo($threadinfo['pollid']);
+	exec_header_redirect(fetch_seo_url('thread|js', $destthreadinfo, $pageinfo));
+}
 
 // *********************************************************************************
 // get ignored users
@@ -489,7 +445,7 @@ $url = $show['inlinemod'] ? SCRIPTPATH : '';
 // build inline moderation popup
 if ($show['popups'] AND $show['inlinemod'])
 {
-	eval('$threadadmin_imod_menu_post = "' . fetch_template('threadadmin_imod_menu_post') . '";');
+	$threadadmin_imod_menu_post = vB_Template::create('threadadmin_imod_menu_post')->render();
 }
 else
 {
@@ -502,34 +458,16 @@ if (!empty($postid) AND $threadedmode == 0)
 {
 	$postinfo = verify_id('post', $postid, 1, 1);
 	$threadid = $postinfo['threadid'];
+	$coventry = fetch_coventry('string');
 
 	$getpagenum = $db->query_first("
 		SELECT COUNT(*) AS posts
 		FROM " . TABLE_PREFIX . "post AS post
 		WHERE threadid = $threadid AND visible = 1
+		" . ($coventry ? "AND post.userid NOT IN ($coventry)" : '') . "
 		AND dateline " . iif(!$postorder, '<=', '>=') . " $postinfo[dateline]
 	");
 	$vbulletin->GPC['pagenumber'] = ceil($getpagenum['posts'] / $perpage);
-}
-
-// *********************************************************************************
-// update views counter
-if ($vbulletin->options['threadviewslive'])
-{
-	// doing it as they happen; for optimization purposes, this cannot use a DM!
-	$db->shutdown_query("
-		UPDATE " . TABLE_PREFIX . "thread
-		SET views = views + 1
-		WHERE threadid = " . intval($threadinfo['threadid'])
-	);
-}
-else
-{
-	// or doing it once an hour
-	$db->shutdown_query("
-		INSERT INTO " . TABLE_PREFIX . "threadviews (threadid)
-		VALUES (" . intval($threadinfo['threadid']) . ')'
-	);
 }
 
 // *********************************************************************************
@@ -563,28 +501,6 @@ if ($forum['allowratings'] == 1)
 }
 
 // *********************************************************************************
-// get some vars from the referring page in order
-// to put a nice back-to-forum link in the navbar
-/*
-unset($back);
-if (strpos($_SERVER['HTTP_REFERER'], 'forumdisplay') !== false)
-{
-	if ($vars = strchr($_SERVER['HTTP_REFERER'], '&'))
-	{
-		$pairs = explode('&', $vars);
-		foreach ($pairs AS $v)
-		{
-			$var = explode('=', $v);
-			if ($var[1] != '' and $var[0] != 'forumid')
-			{
-				$back["$var[0]"] = $var[1];
-			}
-		}
-	}
-}
-*/
-
-// *********************************************************************************
 // set page number
 if ($vbulletin->GPC['pagenumber'] < 1)
 {
@@ -594,6 +510,30 @@ else if ($vbulletin->GPC['pagenumber'] > ceil(($thread['replycount'] + 1) / $per
 {
 	$vbulletin->GPC['pagenumber'] = ceil(($thread['replycount'] + 1) / $perpage);
 }
+
+// verify that we are at the canonical SEO url and redirect to this if not
+verify_seo_url('thread|js', $threadinfo, array('pagenumber' => $vbulletin->GPC['pagenumber']));
+
+// *********************************************************************************
+// update views counter, moved after seo re-direct.
+if ($vbulletin->options['threadviewslive'])
+{
+	// doing it as they happen; for optimization purposes, this cannot use a DM!
+	$db->shutdown_query("
+		UPDATE " . TABLE_PREFIX . "thread
+		SET views = views + 1
+		WHERE threadid = " . intval($threadinfo['threadid'])
+	);
+}
+else
+{
+	// or doing it once an hour
+	$db->shutdown_query("
+		INSERT INTO " . TABLE_PREFIX . "threadviews (threadid)
+		VALUES (" . intval($threadinfo['threadid']) . ')'
+	);
+}
+
 // *********************************************************************************
 // initialise some stuff...
 $limitlower = ($vbulletin->GPC['pagenumber'] - 1) * $perpage;
@@ -634,11 +574,13 @@ if ($thread['pollid'])
 	");
 
 	require_once(DIR . '/includes/class_bbcode.php');
-	$bbcode_parser =& new vB_BbCodeParser($vbulletin, fetch_tag_list());
+	$bbcode_parser = new vB_BbCodeParser($vbulletin, fetch_tag_list());
 
 	$pollinfo['question'] = $bbcode_parser->parse(unhtmlspecialchars($pollinfo['question']), $forum['forumid'], true);
 
 	$splitoptions = explode('|||', $pollinfo['options']);
+	$splitoptions = array_map('rtrim', $splitoptions);
+
 	$splitvotes = explode('|||', $pollinfo['votes']);
 
 	$showresults = 0;
@@ -706,8 +648,10 @@ if ($thread['pollid'])
 		}
 	}
 
-	$option['open'] = $stylevar['left'][0];
-	$option['close'] = $stylevar['right'][0];
+	$left = vB_Template_Runtime::fetchStyleVar('left');
+	$right = vB_Template_Runtime::fetchStyleVar('right');
+	$option['open'] = $left[0];
+	$option['close'] = $right[0];
 
 	foreach ($splitvotes AS $index => $value)
 	{
@@ -718,7 +662,8 @@ if ($thread['pollid'])
 		// public link
 		if ($pollinfo['public'] AND $value)
 		{
-			$option['votes'] = '<a href="poll.php?' . $vbulletin->session->vars['sessionurl'] . 'do=showresults&amp;pollid=' . $pollinfo['pollid'] . '">' . vb_number_format($value) . '</a>';
+			$option['votes'] = '<a href="' . fetch_seo_url('poll', $pollinfo, array('do' => 'showresults')) .
+				'">' . vb_number_format($value) . '</a>';
 		}
 		else
 		{
@@ -733,16 +678,17 @@ if ($thread['pollid'])
 
 			if ($value <= 0)
 			{
-				$option['percent'] = 0;
+				$option['percentraw'] = 0;
 			}
 			else if ($pollinfo['multiple'])
 			{
-				$option['percent'] = vb_number_format(($value < $pollinfo['voters']) ? $value / $pollinfo['voters'] * 100 : 100, 2);
+				$option['percentraw'] = ($value < $pollinfo['voters']) ? $value / $pollinfo['voters'] * 100 : 100;
 			}
 			else
 			{
-				$option['percent'] = vb_number_format(($value < $pollinfo['numbervotes']) ? $value / $pollinfo['numbervotes'] * 100 : 100, 2);
+				$option['percentraw'] = ($value < $pollinfo['numbervotes']) ? $value / $pollinfo['numbervotes'] * 100 : 100;
 			}
+			$option['percent'] = vb_number_format($option['percentraw'], 2);
 
 			$option['graphicnumber'] = $option['number'] % 6 + 1;
 			$option['barnumber'] = round($option['percent']) * 2;
@@ -764,7 +710,10 @@ if ($thread['pollid'])
 
 			($hook = vBulletinHook::fetch_hook('showthread_polloption')) ? eval($hook) : false;
 
-			eval('$pollbits .= "' . fetch_template('pollresult') . '";');
+			$templater = vB_Template::create('pollresult');
+				$templater->register('names', $names);
+				$templater->register('option', $option);
+			$pollbits .= $templater->render();
 		}
 		else
 		{
@@ -772,11 +721,15 @@ if ($thread['pollid'])
 
 			if ($pollinfo['multiple'])
 			{
-				eval('$pollbits .= "' . fetch_template('polloption_multiple') . '";');
+				$templater = vB_Template::create('polloption_multiple');
+					$templater->register('option', $option);
+				$pollbits .= $templater->render();
 			}
 			else
 			{
-				eval('$pollbits .= "' . fetch_template('polloption') . '";');
+				$templater = vB_Template::create('polloption');
+					$templater->register('option', $option);
+				$pollbits .= $templater->render();
 			}
 		}
 		$counter++;
@@ -803,11 +756,22 @@ if ($thread['pollid'])
 
 	if ($showresults OR $uservoted)
 	{
-		eval('$poll = "' . fetch_template('pollresults_table') . '";');
+		$templater = vB_Template::create('pollresults_table');
+			$templater->register('pollbits', $pollbits);
+			$templater->register('pollenddate', $pollenddate);
+			$templater->register('pollendtime', $pollendtime);
+			$templater->register('pollinfo', $pollinfo);
+			$templater->register('pollstatus', $pollstatus);
+		$poll = $templater->render();
 	}
 	else
 	{
-		eval('$poll = "' . fetch_template('polloptions_table') . '";');
+		$templater = vB_Template::create('polloptions_table');
+			$templater->register('pollbits', $pollbits);
+			$templater->register('pollenddate', $pollenddate);
+			$templater->register('pollendtime', $pollendtime);
+			$templater->register('pollinfo', $pollinfo);
+		$poll = $templater->render();
 	}
 
 }
@@ -821,8 +785,9 @@ if (
 		($vbulletin->userinfo['userid'] == $threadinfo['postuserid'] AND $forumperms & $vbulletin->bf_ugp_forumpermissions['canreplyown'])
 		OR
 		($vbulletin->userinfo['userid'] != $threadinfo['postuserid'] AND $forumperms & $vbulletin->bf_ugp_forumpermissions['canreplyothers'])
-	) AND
-	($thread['open'] OR can_moderate($threadinfo['forumid'], 'canopenclose'))
+	)
+	AND ($thread['open'] OR can_moderate($threadinfo['forumid'], 'canopenclose'))
+	AND (!fetch_require_hvcheck('post'))
 )
 {
 	$show['quickreply'] = true;
@@ -833,7 +798,11 @@ else
 	$show['wysiwyg'] = 0;
 	$quickreply = '';
 }
+
+$show_reply_button = (($forumperms & $vbulletin->bf_ugp_forumpermissions['canreplyown'] AND $vbulletin->userinfo['userid'] == $threadinfo['postuserid']) OR ($forumperms & $vbulletin->bf_ugp_forumpermissions['canreplyothers'] AND $vbulletin->userinfo['userid'] != $threadinfo['postuserid']));
 $show['largereplybutton'] = (!$thread['isdeleted'] AND !$show['threadedmode'] AND $forum['allowposting'] AND !$show['search_engine']);
+$show['largereplybutton'] = ($show['largereplybutton'] AND $show_reply_button);
+
 if (!$forum['allowposting'])
 {
 	$show['quickreply'] = false;
@@ -849,16 +818,26 @@ if ($show['multiquote_global'])
 }
 
 // post is cachable if option is enabled, last post is newer than max age, and this user
-// isn't showing a sessionhash
+// isn't showing a sessionhash, and it's not an API call
 $post_cachable = (
 	$vbulletin->options['cachemaxage'] > 0 AND
 	(TIMENOW - ($vbulletin->options['cachemaxage'] * 60 * 60 * 24)) <= $thread['lastpost'] AND
-	$vbulletin->session->vars['sessionurl'] == ''
+	$vbulletin->session->vars['sessionurl'] == '' AND !VB_API
 );
+// sigs are cachable if this user isn't showing a sessionhash
+$sigs_cachable = ($vbulletin->session->vars['sessionurl'] == '');
 $saveparsed = '';
 $save_parsed_sigs = '';
 
 ($hook = vBulletinHook::fetch_hook('showthread_post_start')) ? eval($hook) : false;
+
+$fetch_api_info = false;
+$vbulletin->options['apipostidmanage'] = @unserialize($vbulletin->options['apipostidmanage']);
+if ($vbulletin->options['apipostidmanage']['enable'])
+{
+	$contenttypeid = vB_Types::instance()->getContentTypeID('vBForum_Post');
+	$fetch_api_info = true;
+}
 
 ################################################################################
 ####################### SHOW THREAD IN LINEAR MODE #############################
@@ -867,7 +846,7 @@ if ($threadedmode == 0)
 {
 	// allow deleted posts to not be counted in number of posts displayed on the page;
 	// prevents issue with page count on forum display being incorrect
-	$ids = '';
+	$ids = $attachids = array();
 	$lastpostid = 0;
 
 	$hook_query_joins = $hook_query_where = '';
@@ -885,9 +864,14 @@ if ($threadedmode == 0)
 		{
 			$coventry = fetch_coventry('string');
 		}
-
+		//VBIV-6889 hack to calculate the correct value for the total posts
+		$calc_found_rows = '';
+		if(!empty($hook_query_where))
+		{
+			$calc_found_rows = 'SQL_CALC_FOUND_ROWS';
+		}
 		$getpostids = $db->query_read("
-			SELECT post.postid
+			SELECT $calc_found_rows post.postid, post.attach
 			FROM " . TABLE_PREFIX . "post AS post
 			$hook_query_joins
 			WHERE post.threadid = $threadid
@@ -897,14 +881,24 @@ if ($threadedmode == 0)
 			ORDER BY post.dateline $postorder
 			LIMIT $limitlower, $perpage
 		");
+		//VBIV-6889 hack to calculate the correct value for the total posts
+		if(!empty($hook_query_where))
+		{
+			$calc_found_rows_array = $db->query_first("SELECT FOUND_ROWS() AS found_rows");
+			$totalposts = $calc_found_rows_array['found_rows'];
+		}
 		while ($post = $db->fetch_array($getpostids))
 		{
+			if ($post['attach'])
+			{
+				$attachids[] = $post['postid'];
+			}
 			if (!isset($qrfirstpostid))
 			{
 				$qrfirstpostid = $post['postid'];
 			}
 			$qrlastpostid = $post['postid'];
-			$ids .= ',' . $post['postid'];
+			$ids[] = $post['postid'];
 		}
 		$db->free_result($getpostids);
 
@@ -912,9 +906,8 @@ if ($threadedmode == 0)
 	}
 	else
 	{
-
 		$getpostids = $db->query_read("
-			SELECT post.postid, post.visible, post.userid
+			SELECT post.postid, post.visible, post.userid, post.attach
 			FROM " . TABLE_PREFIX . "post AS post
 			$hook_query_joins
 			WHERE post.threadid = $threadid
@@ -941,40 +934,34 @@ if ($threadedmode == 0)
 			{
 				$totalposts++;
 			}
+
+			if ($post['attach'])
+			{
+				$attachids[] = $post['postid'];
+			}
+
 			if ($totalposts < $limitlower OR $totalposts > $limitupper)
 			{
 				continue;
 			}
 
 			// remember, these are only added if they're going to be displayed
-			$ids .= ',' . $post['postid'];
+			$ids[] = $post['postid'];
 			$lastpostid = $post['postid'];
 		}
 		$db->free_result($getpostids);
 	}
-	$postids = "post.postid IN (0" . $ids . ")";
+
+	// '0' inside parenthesis in unlikely case we have no ids for this page
+	// (this could happen if the replycount is wrong in the db)
+	$postids = "post.postid IN (0" . implode(',', $ids) . ")";
 
 	// load attachments
 	if ($thread['attach'])
 	{
-		$attachments = $db->query_read("
-			SELECT dateline, thumbnail_dateline, filename, filesize, visible, attachmentid, counter,
-				postid, IF(thumbnail_filesize > 0, 1, 0) AS hasthumbnail, thumbnail_filesize,
-				attachmenttype.thumbnail AS build_thumbnail, attachmenttype.newwindow
-			FROM " . TABLE_PREFIX . "attachment
-			LEFT JOIN " . TABLE_PREFIX . "attachmenttype AS attachmenttype USING (extension)
-			WHERE postid IN (-1" . $ids . ")
-			ORDER BY attachmentid
-		");
-		$postattach = array();
-		while ($attachment = $db->fetch_array($attachments))
-		{
-			if (!$attachment['build_thumbnail'])
-			{
-				$attachment['hasthumbnail'] = false;
-			}
-			$postattach["$attachment[postid]"]["$attachment[attachmentid]"] = $attachment;
-		}
+		require_once(DIR . '/packages/vbattach/attach.php');
+		$attach = new vB_Attach_Display_Content($vbulletin, 'vBForum_Post');
+		$postattach = $attach->fetch_postattach(0, $attachids, null, true);
 	}
 
 	$hook_query_fields = $hook_query_joins = '';
@@ -988,12 +975,13 @@ if ($threadedmode == 0)
 			" . iif($vbulletin->options['avatarenabled'], 'avatar.avatarpath, NOT ISNULL(customavatar.userid) AS hascustomavatar, customavatar.dateline AS avatardateline,customavatar.width AS avwidth,customavatar.height AS avheight,') . "
 			" . ((can_moderate($thread['forumid'], 'canmoderateposts') OR can_moderate($thread['forumid'], 'candeleteposts')) ? 'spamlog.postid AS spamlog_postid,' : '') . "
 			" . iif($deljoin, 'deletionlog.userid AS del_userid, deletionlog.username AS del_username, deletionlog.reason AS del_reason,') . "
+			" . ($fetch_api_info ? "apipost.platformname AS mobile_platformname," : "") . "
 			editlog.userid AS edit_userid, editlog.username AS edit_username, editlog.dateline AS edit_dateline,
 			editlog.reason AS edit_reason, editlog.hashistory,
 			postparsed.pagetext_html, postparsed.hasimages,
 			sigparsed.signatureparsed, sigparsed.hasimages AS sighasimages,
 			sigpic.userid AS sigpic, sigpic.dateline AS sigpicdateline, sigpic.width AS sigpicwidth, sigpic.height AS sigpicheight,
-			IF(displaygroupid=0, user.usergroupid, displaygroupid) AS displaygroupid, infractiongroupid
+			IF(user.displaygroupid=0, user.usergroupid, user.displaygroupid) AS displaygroupid, infractiongroupid
 			" . iif(!($permissions['genericpermissions'] & $vbulletin->bf_ugp_genericpermissions['canseehiddencustomfields']), $vbulletin->profilefield['hidden']) . "
 			$hook_query_fields
 		FROM " . TABLE_PREFIX . "post AS post
@@ -1008,15 +996,20 @@ if ($threadedmode == 0)
 		LEFT JOIN " . TABLE_PREFIX . "postparsed AS postparsed ON(postparsed.postid = post.postid AND postparsed.styleid = " . intval(STYLEID) . " AND postparsed.languageid = " . intval(LANGUAGEID) . ")
 		LEFT JOIN " . TABLE_PREFIX . "sigparsed AS sigparsed ON(sigparsed.userid = user.userid AND sigparsed.styleid = " . intval(STYLEID) . " AND sigparsed.languageid = " . intval(LANGUAGEID) . ")
 		LEFT JOIN " . TABLE_PREFIX . "sigpic AS sigpic ON(sigpic.userid = post.userid)
+		" . ($fetch_api_info ? "LEFT JOIN " . TABLE_PREFIX . "apipost AS apipost ON (apipost.contenttypeid = $contenttypeid AND apipost.contentid = post.postid)" : "") . "
 			$hook_query_joins
 		WHERE $postids
 		ORDER BY post.dateline $postorder
 	");
 
+	if (!($forumperms & $vbulletin->bf_ugp_forumpermissions['canseethumbnails']))
+	{
+		$vbulletin->options['attachthumbs'] = 0;
+	}
+
 	if (!($forumperms & $vbulletin->bf_ugp_forumpermissions['cangetattachment']))
 	{
-		$vbulletin->options['viewattachedimages'] = 0;
-		$vbulletin->options['attachthumbs'] = 0;
+		$vbulletin->options['viewattachedimages'] = (($vbulletin->options['viewattachedimages'] AND $vbulletin->options['attachthumbs']) ? 1 : 0);
 	}
 
 	$postcount = ($vbulletin->GPC['pagenumber'] - 1) * $perpage;
@@ -1029,12 +1022,12 @@ if ($threadedmode == 0)
 	$counter = 0;
 	$postbits = '';
 
-	$postbit_factory =& new vB_Postbit_Factory();
+	$postbit_factory = new vB_Postbit_Factory();
 	$postbit_factory->registry =& $vbulletin;
 	$postbit_factory->forum =& $foruminfo;
 	$postbit_factory->thread =& $thread;
 	$postbit_factory->cache = array();
-	$postbit_factory->bbcode_parser =& new vB_BbCodeParser($vbulletin, fetch_tag_list());
+	$postbit_factory->bbcode_parser = new vB_BbCodeParser($vbulletin, fetch_tag_list());
 
 	while ($post = $db->fetch_array($posts))
 	{
@@ -1056,7 +1049,11 @@ if ($threadedmode == 0)
 			}
 		}
 
-		if ($tachyuser)
+		if ($post['visible'] == 2)
+		{
+			$fetchtype = 'post_deleted';
+		}
+		else if ($tachyuser)
 		{
 			$fetchtype = 'post_global_ignore';
 		}
@@ -1064,15 +1061,22 @@ if ($threadedmode == 0)
 		{
 			$fetchtype = 'post_ignore';
 		}
-		else if ($post['visible'] == 2)# OR ($thread['visible'] == 2 AND $postcount == 1))
-		{
-			$fetchtype = 'post_deleted';
-		}
 		else
 		{
 			$fetchtype = 'post';
 		}
 
+		if (
+			($vbulletin->GPC['viewfull'] AND $post['postid'] == $postinfo['postid'] AND $fetchtype != 'post')
+				AND
+			(can_moderate($threadinfo['forumid']) OR !$post['isdeleted'])
+		)
+		{
+			$fetchtype = 'post';
+		}
+
+		// create condition for the loading of vbulletin_post_loader.js
+		$show['postloader_js'] = ($show['postloader_js'] OR $fetchtype != 'post');
 		($hook = vBulletinHook::fetch_hook('showthread_postbit_create')) ? eval($hook) : false;
 
 		$postbit_obj =& $postbit_factory->fetch_postbit($fetchtype);
@@ -1083,17 +1087,13 @@ if ($threadedmode == 0)
 		$postbit_obj->cachable = $post_cachable;
 
 		$post['islastshown'] = ($post['postid'] == $lastpostid);
-		$post['attachments'] =& $postattach["$post[postid]"];
+		$post['isfirstshown'] = ($counter == 1 AND $fetchtype == 'post' AND $post['visible'] == 1);
+		$post['attachments'] = $postattach['byattachment'];
+		$post['allattachments'] = $postattach['bycontent'][$post['postid']];
 
 		$parsed_postcache = array('text' => '', 'images' => 1, 'skip' => false);
 
 		$postbits .= $postbit_obj->construct_postbit($post);
-
-		// Only show after the first post, counter isn't incremented for deleted posts
-		if ($counter == 1 AND $fetchtype == 'post')
-		{
-			eval('$postbits .= "' . fetch_template('ad_showthread_firstpost') . '";');
-		}
 
 		if ($post_cachable AND $post['pagetext_html'] == '')
 		{
@@ -1104,7 +1104,7 @@ if ($threadedmode == 0)
 			$saveparsed .= "($post[postid], " . intval($thread['lastpost']) . ', ' . intval($postbit_obj->post_cache['has_images']) . ", '" . $db->escape_string($postbit_obj->post_cache['text']) . "', " . intval(STYLEID) . ", " . intval(LANGUAGEID) . ")";
 		}
 
-		if (!empty($postbit_obj->sig_cache) AND $post['userid'])
+		if ($sigs_cachable AND !empty($postbit_obj->sig_cache) AND $post['userid'])
 		{
 			if (!empty($save_parsed_sigs))
 			{
@@ -1134,30 +1134,55 @@ if ($threadedmode == 0)
 
 	if ($postbits == '' AND $vbulletin->GPC['pagenumber'] > 1)
 	{
-		exec_header_redirect(
-			'showthread.php?' . $vbulletin->session->vars['sessionurl_js'] . "t=$threadid&page=" . ($vbulletin->GPC['pagenumber'] - 1) .
-			(!empty($vbulletin->GPC['perpage']) ? "&pp=$perpage" : "") .
-			"$highlightwords"
+		$pageinfo = array(
+			'page'     => $vbulletin->GPC['pagenumber'] - 1,
 		);
+		if (!empty($vbulletin->GPC['perpage']))
+		{
+			$pageinfo['pp'] = $perpage;
+		}
+		if (!empty($vbulletin->GPC['highlight']))
+		{
+			$pageinfo['highlight'] = urlencode($vbulletin->GPC['highlight']);
+		}
+
+		exec_header_redirect(fetch_seo_url('thread|js', $threadinfo, $pageinfo));
 	}
 
 	DEVDEBUG("First Post: $FIRSTPOSTID; Last Post: $LASTPOSTID");
 
-	$pagenav = construct_page_nav($vbulletin->GPC['pagenumber'], $perpage, $totalposts, "showthread.php?" . $vbulletin->session->vars['sessionurl'] . "t=$threadid", ""
-		. (!empty($vbulletin->GPC['perpage']) ? "&amp;pp=$perpage" : "")
-		. "$highlightwords"
+	$pageinfo = array();
+	if ($vbulletin->GPC['highlight'])
+	{
+		$pageinfo['highlight'] = urlencode($vbulletin->GPC['highlight']);
+	}
+	if (!empty($vbulletin->GPC['perpage']))
+	{
+		$pageinfo['pp'] = $perpage;
+	}
+
+	$pagenav = construct_page_nav(
+		$vbulletin->GPC['pagenumber'],
+		$perpage,
+		$totalposts,
+		'',
+		'',
+		'',
+		'thread',
+		$threadinfo,
+		$pageinfo
 	);
 
 	if ($thread['lastpost'] > $threadview)
 	{
 		if ($firstnew)
 		{
-			$firstunread = '#post' . $firstnew;
+			$firstunread = fetch_seo_url('thread', $threadinfo, array('page' => $vbulletin->GPC['pagenumber'])) . '#post' . $firstnew;
 			$show['firstunreadlink'] = true;
 		}
 		else
 		{
-			$firstunread = 'showthread.php?' . $vbulletin->session->vars['sessionurl'] . 't=' . $threadid . '&amp;goto=newpost';
+			$firstunread = fetch_seo_url('thread', $threadinfo, array('goto' => 'newpost'));
 			$show['firstunreadlink'] = true;
 		}
 	}
@@ -1222,7 +1247,7 @@ else
 
 	// $toppostid is the first post in the thread
 	// $curpostid is the postid passed from the URL, or if not specified, the first post in the thread
-	$ids = '';
+	$ids = array();
 	while ($post = $db->fetch_array($listposts))
 	{
 		if (($post['visible'] == 2 AND !$deljoin) OR ($post['visible'] == 0 AND !$show['approvepost']) OR (in_coventry($post['userid']) AND !can_moderate($thread['forumid'])))
@@ -1262,7 +1287,7 @@ else
 		$userarray["$post[userid]"] = $db->escape_string($post['username']);
 
 		$totalposts++;
-		$ids .= ",$post[postid]";
+		$ids[] = $post['postid'];
 	}
 	$db->free_result($listposts);
 
@@ -1294,23 +1319,9 @@ else
 
 	if ($thread['attach'])
 	{
-		$postattach = array();
-		$attachments = $db->query_read("
-			SELECT dateline, thumbnail_dateline,filename, filesize, visible, attachmentid, counter,
-				postid, IF(thumbnail_filesize > 0, 1, 0) AS hasthumbnail, thumbnail_filesize,
-				attachmenttype.thumbnail AS build_thumbnail, attachmenttype.newwindow
-			FROM " . TABLE_PREFIX . "attachment
-			LEFT JOIN " . TABLE_PREFIX . "attachmenttype AS attachmenttype USING (extension)
-			WHERE postid IN (-1$ids)
-		");
-		while ($attachment = $db->fetch_array($attachments))
-		{
-			if (!$attachment['build_thumbnail'])
-			{
-				$attachment['hasthumbnail'] = false;
-			}
-			$postattach["$attachment[postid]"]["$attachment[attachmentid]"] = $attachment;
-		}
+		require_once(DIR . '/packages/vbattach/attach.php');
+		$attach = new vB_Attach_Display_Content($vbulletin, 'vBForum_Post');
+		$postattach = $attach->fetch_postattach(0, $ids, null, true);
 	}
 
 	// get list of usernames from post list
@@ -1319,7 +1330,7 @@ else
 	{
 		if ($userid)
 		{
-			$userjs .= "pu[$userid] = \"$username\";\n";
+			$userjs .= "pu[$userid] = \"" . addslashes_js($username) . "\";\n";
 		}
 	}
 	unset($userarray, $userid, $username);
@@ -1368,11 +1379,28 @@ else
 				$LASTPOSTID = $hybridposts["$i"];
 			}
 		}
-		$pagenav = construct_page_nav($vbulletin->GPC['pagenumber'], $perpage, $numhybrids, 'showthread.php?' . $vbulletin->session->vars['sessionurl'] . 'p=' . $vbulletin->GPC['postid'], ""
-			. (!empty($vbulletin->GPC['perpage']) ? "&amp;pp=$perpage" : "")
-			. "$highlightwords"
-		);
 
+		$pageinfo = array('p' => $vbulletin->GPC['postid']);
+		if ($vbulletin->GPC['highlight'])
+		{
+			$pageinfo['highlight'] = urlencode($vbulletin->GPC['highlight']);
+		}
+		if (!empty($vbulletin->GPC['perpage']))
+		{
+			$pageinfo['pp'] = $perpage;
+		}
+
+		$pagenav = construct_page_nav(
+			$vbulletin->GPC['pagenumber'],
+			$perpage,
+			$numhybrids,
+			'',
+			'',
+			'',
+			'thread',
+			$threadinfo,
+			$pageinfo
+		);
 	}
 	else // threaded display mode
 	{
@@ -1409,15 +1437,15 @@ else
 		}
 		unset($curpostidkey);
 
-		foreach ($postorder AS $postkey => $postid)
+		foreach ($postorder AS $postkey => $pid)
 		{
 			if ($postkey > ($startat + $vbulletin->options['threaded_maxcache'])) // got enough entries now
 			{
 				break;
 			}
-			if ($postkey >= $startat AND empty($morereplies["$postid"]))
+			if ($postkey >= $startat AND empty($morereplies["$pid"]))
 			{
-				$cache_postids .= ',' . $postid;
+				$cache_postids .= ',' . $pid;
 			}
 		}
 
@@ -1425,21 +1453,20 @@ else
 		// key: NAVJS[postid][0] = prev post, [1] = next post
 		$NAVJS = array();
 		$prevpostid = 0;
-		foreach ($postorder AS $postid)
+		foreach ($postorder AS $pid)
 		{
-			$NAVJS["$postid"][0] = $prevpostid;
-			$NAVJS["$prevpostid"][1] = $postid;
-			$prevpostid = $postid;
+			$NAVJS["$pid"][0] = $prevpostid;
+			$NAVJS["$prevpostid"][1] = $pid;
+			$prevpostid = $pid;
 		}
-		$NAVJS["$toppostid"][0] = $postid; //prev button for first post
-		$NAVJS["$postid"][1] = $toppostid; //next button for last post
+		$NAVJS["$toppostid"][0] = $pid; //prev button for first post
+		$NAVJS["$pid"][1] = $toppostid; //next button for last post
 
 		$navjs = '';
-		foreach ($NAVJS AS $postid => $info)
+		foreach ($NAVJS AS $pid => $info)
 		{
-			$navjs .= "pn[$postid] = \"$info[0],$info[1]\";\n";
+			$navjs .= "pn[$pid] = \"$info[0],$info[1]\";\n";
 		}
-
 	}
 
 	unset($ipostarray, $postparent, $postorder, $NAVJS, $postid, $info, $prevpostid, $postkey);
@@ -1467,6 +1494,7 @@ else
 			postparsed.pagetext_html, postparsed.hasimages,
 			sigparsed.signatureparsed, sigparsed.hasimages AS sighasimages,
 			sigpic.userid AS sigpic, sigpic.dateline AS sigpicdateline, sigpic.width AS sigpicwidth, sigpic.height AS sigpicheight,
+			" . ($fetch_api_info ? "apipost.platformname AS mobile_platformname," : "") . "
 			IF(displaygroupid=0, user.usergroupid, displaygroupid) AS displaygroupid, infractiongroupid
 			" . iif(!($permissions['genericpermissions'] & $vbulletin->bf_ugp_genericpermissions['canseehiddencustomfields']), $vbulletin->profilefield['hidden']) . "
 			$hook_query_fields
@@ -1482,6 +1510,7 @@ else
 		LEFT JOIN " . TABLE_PREFIX . "postparsed AS postparsed ON(postparsed.postid = post.postid AND postparsed.styleid = " . intval(STYLEID) . " AND postparsed.languageid = " . intval(LANGUAGEID) . ")
 		LEFT JOIN " . TABLE_PREFIX . "sigparsed AS sigparsed ON(sigparsed.userid = user.userid AND sigparsed.styleid = " . intval(STYLEID) . " AND sigparsed.languageid = " . intval(LANGUAGEID) . ")
 		LEFT JOIN " . TABLE_PREFIX . "sigpic AS sigpic ON(sigpic.userid = post.userid)
+		" . ($fetch_api_info ? "LEFT JOIN " . TABLE_PREFIX . "apipost AS apipost ON (apipost.contenttypeid = $contenttypeid AND apipost.contentid = post.postid)" : "") . "
 			$hook_query_joins
 		WHERE post.postid IN (" . $cache_postids . ") $hook_query_where
 	");
@@ -1493,10 +1522,14 @@ else
 		$postarray["$post[postid]"] = $post;
 	}
 
+	if (!($forumperms & $vbulletin->bf_ugp_forumpermissions['canseethumbnails']))
+	{
+		$vbulletin->options['attachthumbs'] = 0;
+	}
+
 	if (!($forumperms & $vbulletin->bf_ugp_forumpermissions['cangetattachment']))
 	{
-		$vbulletin->options['viewattachedimages'] = 0;
-		$vbulletin->options['attachthumbs'] = 0;
+		$vbulletin->options['viewattachedimages'] = (($vbulletin->options['viewattachedimages'] AND $vbulletin->options['attachthumbs']) ? 1 : 0);
 	}
 
 	// init
@@ -1505,12 +1538,12 @@ else
 	$saveparsed = '';
 	$jspostbits = '';
 
-	$postbit_factory =& new vB_Postbit_Factory();
+	$postbit_factory = new vB_Postbit_Factory();
 	$postbit_factory->registry =& $vbulletin;
 	$postbit_factory->forum =& $foruminfo;
 	$postbit_factory->thread =& $thread;
 	$postbit_factory->cache = array();
-	$postbit_factory->bbcode_parser =& new vB_BbCodeParser($vbulletin, fetch_tag_list());
+	$postbit_factory->bbcode_parser = new vB_BbCodeParser($vbulletin, fetch_tag_list());
 
 	foreach (explode(',', $cache_postids) AS $id)
 	{
@@ -1525,7 +1558,12 @@ else
 		{
 			continue;
 		}
-		if ($tachyuser)
+
+		if ($post['visible'] == 2)
+		{
+			$fetchtype = 'post_deleted';
+		}
+		else if ($tachyuser)
 		{
 			$fetchtype = 'post_global_ignore';
 		}
@@ -1533,15 +1571,22 @@ else
 		{
 			$fetchtype = 'post_ignore';
 		}
-		else if ($post['visible'] == 2) #OR ($thread['visible'] == 2 AND $postcount == 0))
-		{
-			$fetchtype = 'post_deleted';
-		}
 		else
 		{
 			$fetchtype = 'post';
 		}
 
+		if (
+			($vbulletin->GPC['viewfull'] AND $post['postid'] == $postinfo['postid'] AND $fetchtype != 'post')
+				AND
+			(can_moderate($threadinfo['forumid']) OR !$post['isdeleted'])
+		)
+		{
+			$fetchtype = 'post';
+		}
+
+		// create condition for the loading of vbulletin_post_loader.js
+		$show['postloader_js'] = ($show['postloader_js'] OR $fetchtype != 'post');
 		($hook = vBulletinHook::fetch_hook('showthread_postbit_create')) ? eval($hook) : false;
 
 		$postbit_obj =& $postbit_factory->fetch_postbit($fetchtype);
@@ -1552,7 +1597,8 @@ else
 		$postbit_obj->cachable = $post_cachable;
 
 		$post['postcount'] = ++$postcount;
-		$post['attachments'] =& $postattach["$post[postid]"];
+		$post['attachments'] = $postattach['byattachment'];
+		$post['allattachments'] = $postattach['bycontent'][$post['postid']];
 
 		$parsed_postcache = array('text' => '', 'images' => 1);
 
@@ -1584,7 +1630,7 @@ else
 			$saveparsed .= "($post[postid], " . intval($thread['lastpost']) . ', ' . intval($postbit_obj->post_cache['has_images']) . ", '" . $db->escape_string($postbit_obj->post_cache['text']) . "'," . intval(STYLEID) . ", " . intval(LANGUAGEID) . ")";
 		}
 
-		if (!empty($postbit_obj->sig_cache) AND $post['userid'])
+		if ($sigs_cachable AND !empty($postbit_obj->sig_cache) AND $post['userid'])
 		{
 			if (!empty($save_parsed_sigs))
 			{
@@ -1610,31 +1656,16 @@ else
 		$postbits = $curpostbit;
 	}
 
-	if (!preg_match('#[^0-9]#', $stylevar['outertablewidth']))
-	{
-		$postlistwidth = $stylevar['outertablewidth'] - 2 * ($stylevar['spacersize'] + $stylevar['cellpadding'] + $stylevar['cellspacing'] + 3);
-		$postlistwidth .= 'px';
-	}
-	else
-	{
-		$postlistwidth = $stylevar['outertablewidth'];
-	}
-
-	if ($postlistwidth)
-	{
-		if (is_browser('ie'))
-		{
-			$show['postlistwidth'] = true;
-		}
-		else if (!preg_match('#[^0-9]#', $stylevar['outertablewidth']))
-		{
-			$show['postlistwidth'] = true;
-		}
-	}
-
-	eval('$threadlist = "' . fetch_template('showthread_list') . '";');
+	$templater = vB_Template::create('showthread_list');
+		$templater->register('curpostid', $curpostid);
+		$templater->register('highlightwords', $highlightwords);
+		$templater->register('jspostbits', $jspostbits);
+		$templater->register('links', $links);
+		$templater->register('navjs', $navjs);
+		$templater->register('threadedmode', $threadedmode);
+		$templater->register('userjs', $userjs);
+	$threadlist = $templater->render();
 	unset($curpostbit, $post, $cacheposts, $parsed_postcache, $postbit);
-
 }
 
 ################################################################################
@@ -1658,10 +1689,7 @@ if ((!$vbulletin->GPC['posted'] OR $updatethreadcookie) AND $displayed_dateline 
 
 if ($db->explain)
 {
-	$pageendtime = microtime();
-	$starttime = explode(' ', $pagestarttime);
-	$endtime = explode(' ', $pageendtime);
-	$aftertime = $endtime[0] - $starttime[0] + $endtime[1] - $starttime[1];
+	$aftertime = microtime(true) - TIMESTART;
 	echo "Time after parsing all posts:  $aftertime\n";
 	if (function_exists('memory_get_usage'))
 	{
@@ -1695,7 +1723,7 @@ $show['tag_box'] = false;
 
 if ($vbulletin->options['threadtagging'])
 {
-	$tag_list = fetch_tagbits($thread);
+	$tag_list = fetch_tagbits($thread['taglist']);
 
 	if (!$foruminfo['allowposting'])
 	{
@@ -1732,7 +1760,7 @@ if (($vbulletin->options['showthreadusers'] == 1 OR $vbulletin->options['showthr
 	// Don't put the inthread value in the WHERE clause as it might not be the newest location!
 	$threadusers = $db->query_read_slave("
 		SELECT user.username, user.usergroupid, user.membergroupids,
-			session.userid, session.inthread, session.lastactivity,
+			session.userid, session.inthread, session.lastactivity, session.badlocation,
 			IF(user.displaygroupid = 0, user.usergroupid, user.displaygroupid) AS displaygroupid, infractiongroupid,
 			IF(user.options & " . $vbulletin->bf_misc_useroptions['invisible'] . ", 1, 0) AS invisible
 		FROM " . TABLE_PREFIX . "session AS session
@@ -1743,7 +1771,9 @@ if (($vbulletin->options['showthreadusers'] == 1 OR $vbulletin->options['showthr
 
 	$numberguest = 0;
 	$numberregistered = 0;
+	$numbervisible = 0;
 	$doneuser = array();
+	$activeusers = array();
 
 	if ($vbulletin->userinfo['userid']) // fakes the user being in this thread
 	{
@@ -1760,14 +1790,19 @@ if (($vbulletin->options['showthreadusers'] == 1 OR $vbulletin->options['showthr
 		$numbervisible = 1;
 		fetch_online_status($loggedin);
 
-		$show['comma_leader'] = false;
-		eval('$activeusers = "' . fetch_template('forumdisplay_loggedinuser') . '";');
+		$loggedin['comma'] = $vbphrase['comma_space'];
+		$activeusers[$numberregistered] = $loggedin;
 		$doneuser["{$vbulletin->userinfo['userid']}"] = 1;
 	}
 
 	// this requires the query to have lastactivity ordered by DESC so that the latest location will be the first encountered.
 	while ($loggedin = $db->fetch_array($threadusers))
 	{
+		if ($loggedin['badlocation'])
+		{
+			continue;
+		}
+
 		if (empty($doneuser["$loggedin[userid]"]))
 		{
 			if ($loggedin['inthread'] == $threadinfo['threadid'])
@@ -1778,15 +1813,16 @@ if (($vbulletin->options['showthreadusers'] == 1 OR $vbulletin->options['showthr
 				}
 				else
 				{
-					fetch_musername($loggedin);
 					$numberregistered++;
 
 					($hook = vBulletinHook::fetch_hook('showthread_loggedinuser')) ? eval($hook) : false;
 
 					if (fetch_online_status($loggedin))
 					{
-						$show['comma_leader'] = ($activeusers != '');
-						eval('$activeusers .= "' . fetch_template('forumdisplay_loggedinuser') . '";');
+						$numbervisible++;
+						fetch_musername($loggedin);
+						$loggedin['comma'] = $vbphrase['comma_space'];
+						$activeusers[$numbervisible] = $loggedin;
 					}
 				}
 			}
@@ -1797,7 +1833,13 @@ if (($vbulletin->options['showthreadusers'] == 1 OR $vbulletin->options['showthr
 		}
 	}
 
-	if (!$vbulletin->userinfo['userid'])
+	// Last element
+	if ($numbervisible)
+	{
+		$activeusers[$numbervisible]['comma'] = '';
+	}
+
+	if (!$vbulletin->userinfo['userid'] AND !VB_API)
 	{
 		$numberguest = ($numberguest == 0) ? 1 : $numberguest;
 		if ($numberregistered == 0)
@@ -1907,7 +1949,7 @@ if ($vbulletin->options['showsimilarthreads'] AND $thread['similar'])
 		)
 		{
 			// format thread preview if there is one
-			if ($ignore["$simthread[postuserid]"])
+			if (isset($ignore["$simthread[postuserid]"]))
 			{
 				$simthread['preview'] = '';
 			}
@@ -1935,12 +1977,16 @@ if ($vbulletin->options['showsimilarthreads'] AND $thread['similar'])
 
 			($hook = vBulletinHook::fetch_hook('showthread_similarthreadbit')) ? eval($hook) : false;
 
-			eval('$similarthreadbits .= "' . fetch_template('showthread_similarthreadbit') . '";');
+			$templater = vB_Template::create('showthread_similarthreadbit');
+				$templater->register('simthread', $simthread);
+			$similarthreadbits .= $templater->render();
 		}
 	}
 	if ($similarthreadbits)
 	{
-		eval('$similarthreads = "' . fetch_template('showthread_similarthreads') . '";');
+		$templater = vB_Template::create('showthread_similarthreads');
+			$templater->register('similarthreadbits', $similarthreadbits);
+		$similarthreads = $templater->render();
 	}
 	else
 	{
@@ -1960,7 +2006,7 @@ if ($show['quickreply'])
 	require_once(DIR . '/includes/functions_editor.php');
 
 	$show['wysiwyg'] = ($forum['allowbbcode'] ? is_wysiwyg_compatible() : 0);
-	$istyles_js = construct_editor_styles_js();
+	$show['signaturecheckbox'] = ($permissions['genericpermissions'] & $vbulletin->bf_ugp_genericpermissions['canusesignature'] AND $vbulletin->userinfo['signature']);
 
 	// set show signature hidden field
 	$showsig = iif($vbulletin->userinfo['signature'], 1, 0);
@@ -1982,7 +2028,36 @@ if ($show['quickreply'])
 		$show['qr_require_click'] = 0;
 	}
 
-	$editorid = construct_edit_toolbar('', 0, $foruminfo['forumid'], ($foruminfo['allowsmilies'] ? 1 : 0), 1, false, 'qr');
+	$posthash = md5(TIMENOW . $vbulletin->userinfo['userid'] . $vbulletin->userinfo['salt']);
+	$poststarttime = TIMENOW;
+
+	if ($forumperms & $vbulletin->bf_ugp_forumpermissions['canpostattachment'] AND $vbulletin->userinfo['userid'] AND !empty($vbulletin->userinfo['attachmentextensions']))
+	{
+		$contenttypeid = vB_Types::instance()->getContentTypeID('vBForum_Post');
+	}
+	else
+	{
+		$contenttypeid = 0;
+	}
+
+	require_once(DIR . '/includes/functions_file.php');
+	$attachinfo = fetch_attachmentinfo($posthash, $poststarttime, $contenttypeid, array('t' => $threadinfo['threadid']));
+
+	$editorid = construct_edit_toolbar(
+		'',
+		0,
+		$foruminfo['forumid'],
+		($foruminfo['allowsmilies'] ? 1 : 0),
+		1,
+		false,
+		'qr',
+		'',
+		$attachinfo,
+		'forum',
+		'vBForum_Post',
+		0,
+		$threadinfo['threadid']
+	);
 	$messagearea = "
 		<script type=\"text/javascript\">
 		<!--
@@ -1990,6 +2065,7 @@ if ($show['quickreply'])
 			var require_click = $show[qr_require_click];
 			var is_last_page = $show[allow_ajax_qr]; // leave for people with cached JS files
 			var allow_ajax_qr = $show[allow_ajax_qr];
+			var last_post_id = $LASTPOSTID;
 			var ajax_last_post = " . intval($effective_lastpost) . ";
 		// -->
 		</script>
@@ -2013,23 +2089,8 @@ if ($show['quickreply'])
 		$show['quickreply_collapse'] = true;
 	}
 }
-else if ($show['ajax_js'])
-{
-	require_once(DIR . '/includes/functions_editor.php');
 
-	$vBeditJs = construct_editor_js_arrays();
-
-	// check that $editor_css has been built
-	if (!isset($GLOBALS['editor_css']))
-	{
-		eval('$GLOBALS[\'editor_css\'] = "' . fetch_template('editor_css') . '";');
-		$GLOBALS['headinclude'] .= "<!-- Editor CSS automatically added by " . substr(strrchr(__FILE__, DIRECTORY_SEPARATOR), 1) . " at line " . __LINE__ . " -->\n" . $GLOBALS['editor_css'];
-	}
-
-	eval('$vBeditTemplate[\'clientscript\'] = "' . fetch_template('editor_clientscript') . '";');
-}
-
-$show['quickedit'] = ($vbulletin->options['quickedit'] AND !$show['threadedmode']);
+$show['quickedit'] = ($vbulletin->options['quickedit'] AND $show['ajax_js']);
 
 // #############################################################################
 // make a displayable version of the thread notes
@@ -2049,7 +2110,9 @@ else
 $show['deleteposts'] = can_moderate($threadinfo['forumid'], 'candeleteposts') ? true : false;
 $show['editthread'] = can_moderate($threadinfo['forumid'], 'caneditthreads') ? true : false;
 $show['movethread'] = (can_moderate($threadinfo['forumid'], 'canmanagethreads') OR ($forumperms & $vbulletin->bf_ugp_forumpermissions['canmove'] AND $threadinfo['postuserid'] == $vbulletin->userinfo['userid'])) ? true : false;
+$show['stickunstick'] = can_moderate($threadinfo['forumid'], 'canmanagethreads') ? true : false;
 $show['openclose'] = (can_moderate($threadinfo['forumid'], 'canopenclose') OR ($forumperms & $vbulletin->bf_ugp_forumpermissions['canopenclose'] AND $threadinfo['postuserid'] == $vbulletin->userinfo['userid'])) ? true : false;
+$show['moderatethread'] = (can_moderate($threadinfo['forumid'], 'canmoderateposts') ? true : false);
 $show['deletethread'] = (($threadinfo['visible'] != 2 AND can_moderate($threadinfo['forumid'], 'candeleteposts')) OR can_moderate($threadinfo['forumid'], 'canremoveposts') OR ($forumperms & $vbulletin->bf_ugp_forumpermissions['candeletepost'] AND $forumperms & $vbulletin->bf_ugp_forumpermissions['candeletethread'] AND $vbulletin->userinfo['userid'] == $threadinfo['postuserid'] AND ($vbulletin->options['edittimelimit'] == 0 OR $threadinfo['dateline'] > (TIMENOW - ($vbulletin->options['edittimelimit'] * 60))))) ? true : false;
 $show['adminoptions'] = ($show['editpoll'] OR $show['movethread'] OR $show['deleteposts'] OR $show['editthread'] OR $show['managethread'] OR $show['openclose'] OR $show['deletethread']) ? true : false;
 
@@ -2078,7 +2141,9 @@ cache_permissions($guestuser);
 
 $bookmarksites = '';
 if (
-	$vbulletin->options['socialbookmarks'] AND is_array($vbulletin->bookmarksitecache) AND !empty($vbulletin->bookmarksitecache)
+	$thread['visible']
+		AND
+	!$thread['isdeleted']
 		AND
 	$guestuser['permissions']['forumpermissions'] & $vbulletin->bf_ugp_forumpermissions['canview']
 		AND
@@ -2089,53 +2154,213 @@ if (
 	($guestuser['forumpermissions']["$foruminfo[forumid]"] & $vbulletin->bf_ugp_forumpermissions['canviewothers'] OR $threadinfo['postuserid'] == 0)
 )
 {
-	foreach($vbulletin->bookmarksitecache AS $bookmarksite)
+	if ($vbulletin->options['socialbookmarks'] AND is_array($vbulletin->bookmarksitecache) AND !empty($vbulletin->bookmarksitecache))
 	{
-		$bookmarksite['link'] = str_replace(
-			array('{URL}', '{TITLE}'),
-			array(urlencode($vbulletin->options['bburl'] . '/showthread.php?t=' . $thread['threadid']), urlencode($thread['title'])),
-			$bookmarksite['url']
-		);
+		$raw_title = html_entity_decode($thread['title'], ENT_QUOTES);
+		foreach($vbulletin->bookmarksitecache AS $bookmarksite)
+		{
 
-		($hook = vBulletinHook::fetch_hook('showthread_bookmarkbit')) ? eval($hook) : false;
+			//this was done as a friendly url and then changed back as part of a bug ported from 3.8.x a while back.
+			//There appear to be some issues with UTF in titles and twitter (which was part of the bug fix from 3.8.x)
+			//This needs to be looked at in order to properly use the friendly urls, however I don't want to do it as part
+			//of this effort (making things available in subdirectories).  However I'm generating the url out of the
+			//seo url framework to centralized some of the other url logic made available.
+			$threadlink = vB_Friendly_Url::fetchLibrary($vbulletin, 'thread|nosession|bburl', $thread)->get_url(FRIENDLY_URL_OFF);
+			$bookmarksite['link'] = str_replace(
+				array('{URL}', '{TITLE}'),
+				array(urlencode($threadlink), urlencode($bookmarksite['utf8encode'] ? utf8_encode($raw_title) : $raw_title)),
+				$bookmarksite['url']
+			);
 
-		eval('$bookmarksites .= "' . fetch_template('showthread_bookmarksite') . '";');
+			($hook = vBulletinHook::fetch_hook('showthread_bookmarkbit')) ? eval($hook) : false;
+
+			$templater = vB_Template::create('showthread_bookmarksite');
+				$templater->register('bookmarksite', $bookmarksite);
+			$bookmarksites .= $templater->render();
+		}
+	}
+	$show['guestview'] = true;
+}
+else
+{
+	$show['guestview'] = false;
+}
+
+// Who Read
+// #############################################################################
+
+$show['wrt']= false;
+if ($vbulletin->options['who_read'])
+{
+	// Forum Check
+	if ($foruminfo['options'] & $vbulletin->bf_misc_forumoptions['displaywrt'])
+	{
+		// Usergroup & Author Check
+		if (($vbulletin->userinfo['permissions']['forumpermissions'] & $vbulletin->bf_ugp_forumpermissions['canwrtmembers'])
+		OR ($vbulletin->options['wrtauthor'] AND $threadinfo['postuserid'] == $vbulletin->userinfo['userid']))
+		{
+			$show['wrt'] = true;
+	 	}
 	}
 }
+
+if ($show['wrt'])
+{
+	$cutoff = $threadinfo['dateline'];
+	if ($vbulletin->options['wrtlimit'])
+	{
+		$cutoff = TIMENOW - (86400 * $vbulletin->options['wrtlimit']);
+	}
+
+	$wrt = array();
+	$wrtlist = array();
+	$wrt['threadid'] = $threadinfo['threadid'];
+	$contenttypeid = vB_Types::instance()->getContentTypeID('vBForum_Thread');
+
+	($hook = vBulletinHook::fetch_hook('showthread_whoread_prelist')) ? eval($hook) : false;
+
+	if ($vbulletin->options['wrtreaders'])
+	{
+		/* IP data isnt used in the display atm
+		but this is how you link to the new ip table */
+		$readlist = $vbulletin->db->query_read_slave("
+			SELECT user.userid, user.options, user.username, user.usergroupid,
+			user.displaygroupid, whoread.dateline #, ipdata.ip AS ipaddress, ipdata.altip
+			FROM " . TABLE_PREFIX . "contentread as whoread
+			INNER JOIN " . TABLE_PREFIX . "user as user USING (userid)
+#			LEFT JOIN " . TABLE_PREFIX . "ipdata as ipdata USING (ipid)
+			WHERE whoread.readtype = 'view'
+			AND whoread.contentid = $threadid
+			AND whoread.contenttypeid = $contenttypeid
+			AND whoread.dateline > $cutoff
+		");
+
+		$count = 0;
+		$wrt['trtotal'] = 0;
+
+		while ($threadreader = $vbulletin->db->fetch_array($readlist))
+		{
+			if (intval($threadreader['userid']))
+			{
+				$wrt['trtotal'] += 1;
+				$threadreader['markinv'] = '';
+				$threadreader[visible] = true ;
+
+				if ($threadreader['options'] & $vbulletin->bf_misc_useroptions['invisible'])
+				{
+					$threadreader['visible'] = false ;
+					if (($vbulletin->userinfo['permissions']['genericpermissions']
+					& $vbulletin->bf_ugp_genericpermissions['canseehidden'])
+					OR $threadreader['userid'] == $vbulletin->userinfo['userid'])
+					{
+						$threadreader['markinv'] = '*';
+						$threadreader['visible'] = true ;
+					}
+				}
+
+				if ($threadreader['visible'])
+				{
+					$count += 1;
+					fetch_musername($threadreader);
+					$threadreader['wrdate'] = $vbphrase['wrt_readtime'].' ';
+					$threadreader['comma'] = $vbphrase['comma_space'];
+					$threadreader['wrdate'] .= vbdate($vbulletin->options['dateformat'], $threadreader['dateline']).', ';
+					$threadreader['wrdate'] .= vbdate($vbulletin->options['timeformat'], $threadreader['dateline']);
+					$wrtlist[$count] = $threadreader;
+				}
+			}
+		}
+
+		if ($count)
+		{
+			$wrtlist[$count]['comma'] = '';
+		}
+
+		($hook = vBulletinHook::fetch_hook('showthread_whoread_list')) ? eval($hook) : false;
+	}
+	else
+	{
+		$readers = $vbulletin->db->query_first_slave("
+		SELECT COUNT(userid) AS whoread
+			FROM " . TABLE_PREFIX . "contentread as whoread
+			WHERE whoread.readtype = 'view'
+			AND whoread.contentid = $threadid
+			AND whoread.contenttypeid = $contenttypeid
+			AND whoread.dateline > $cutoff
+		");
+
+		($hook = vBulletinHook::fetch_hook('showthread_whoread_nonames')) ? eval($hook) : false;
+
+		$wrt['trtotal'] = $readers['whoread'];
+	}
+
+	if (!$vbulletin->options['wrtlimit'])
+	{
+		$wrt['trtitle'] = construct_phrase($vbphrase['who_read_thread'], $wrt['trtotal']);
+	}
+	else
+	{
+		$wrt['trtitle'] = construct_phrase($vbphrase['who_read_thread_days'], $vbulletin->options['wrtlimit'], $wrt['trtotal']);
+	}
+
+	if ($vbulletin->options['wrtcollapse'])
+	{
+		$keys = explode(chr(10),$_COOKIE['vbulletin_collapse']);
+		$collapse = array_fill_keys($keys,true);
+		$wrt['style'] = 'style="display: none"';
+		if (!array_key_exists('wrt_list', $collapse))
+		{
+			$wrt['collapse'] = '_collapsed';
+		}
+	}
+	else
+	{
+		$wrt['style'] = $wrt['collapse'] = '';
+	}
+
+	($hook = vBulletinHook::fetch_hook('showthread_whoread_postlist')) ? eval($hook) : false;
+}
+
 // #############################################################################
 // draw navbar
 $navbits = array();
+$navbits[fetch_seo_url('forumhome', array())] = $vbphrase['forum'];
 $parentlist = array_reverse(explode(',', substr($forum['parentlist'], 0, -3)));
 foreach ($parentlist AS $forumID)
 {
 	$forumTitle = $vbulletin->forumcache["$forumID"]['title'];
-	$navbits['forumdisplay.php?' . $vbulletin->session->vars['sessionurl'] . "f=$forumID"] = $forumTitle;
+	$navbits[fetch_seo_url('forum', array('forumid' => $forumID, 'title' => $forumTitle))] = $forumTitle;
 }
 $navbits[''] = $thread['prefix_rich'] . ' ' . $thread['title'];
 
 $navbits = construct_navbits($navbits);
-eval('$navbar = "' . fetch_template('navbar') . '";');
+$navbar = render_navbar_template($navbits);
 
 // #############################################################################
 // setup $show variables
-$show['lightbox'] = ($vbulletin->options['lightboxenabled'] AND $vbulletin->options['usepopups']);
-$show['search'] = (!$show['search_engine'] AND $forumperms & $vbulletin->bf_ugp_forumpermissions['cansearch'] AND $vbulletin->options['enablesearches'] AND ($vbulletin->userinfo['userid'] OR !$vbulletin->options['hvcheck_search'] OR !$vbulletin->options['hv_type']));
+$show['lightbox'] = ($vbulletin->options['lightboxenabled'] AND $vbulletin->options['usepopups'] AND !empty($postattach) AND ($forumperms & $vbulletin->bf_ugp_forumpermissions['cangetattachment']));
+$show['search'] = (!$show['search_engine'] AND $forumperms & $vbulletin->bf_ugp_forumpermissions['cansearch'] AND $vbulletin->options['enablesearches'] AND (!fetch_require_hvcheck('search')));
 $show['subscribed'] = iif($threadinfo['issubscribed'], true, false);
-$show['threadrating'] = iif($forum['allowratings'] AND $forumperms & $vbulletin->bf_ugp_forumpermissions['canthreadrate'], true, false);
+$show['threadrating'] = iif($forum['allowratings'] AND ($threadinfo['open'] OR can_moderate($threadinfo['forumid'], 'canopenclose')) AND ($forumperms & $vbulletin->bf_ugp_forumpermissions['canthreadrate']), true, false);
 $show['ratethread'] = iif($show['threadrating'] AND (!$threadinfo['vote'] OR $vbulletin->options['votechange']), true, false);
 $show['closethread'] = iif($threadinfo['open'], true, false);
+$show['approvethread'] = ($threadinfo['visible'] == 0 ? true : false);
 $show['unstick'] = iif($threadinfo['sticky'], true, false);
 $show['reputation'] = ($vbulletin->options['reputationenable']
 	AND $vbulletin->userinfo['userid']
 	AND $vbulletin->userinfo['permissions']['genericoptions'] & $vbulletin->bf_ugp_genericoptions['isnotbannedgroup']);
+$show['sendtofriend'] = ($forumperms & $vbulletin->bf_ugp_forumpermissions['canemail']);
 
 // next/prev links don't work for search engines or non-lastpost sort orders
+// Anyone remember why we hide these links from search engines?
 $show['next_prev_links'] = (!$show['search_engine']
 	AND ($foruminfo['defaultsortfield'] == 'lastpost' OR !$foruminfo['defaultsortfield'])
 );
-
-// deals with this: http://www.vbulletin.com/forum/project.php?issueid=22750 - don't apply for IE < 7
-$stylevar['margin_3px_fix'] = ((!is_browser('ie') OR is_browser('ie', 7)) ? 3 - $stylevar['cellpadding'] : 0);
+if ($show['next_prev_links'] AND $vbulletin->options['nextprevlinks'])
+{
+	$nextthreadinfo = goto_nextthread($thread['threadid'], false);
+	$prevthreadinfo = goto_prevthread($thread['threadid'], false);
+}
 
 $pagenumber = $vbulletin->GPC['pagenumber'];
 
@@ -2144,18 +2369,242 @@ if (!$show['threadrating'] OR !$vbulletin->options['allowthreadedmode'])
 	$nodhtmlcolspan = 'colspan="2"';
 }
 
-eval('$ad_location[\'ad_showthread_beforeqr\'] = "' . fetch_template('ad_showthread_beforeqr') . '";');
+$pageinfo_linear = array(
+	'p'    => $FIRSTPOSTID,
+	'mode' => 'linear'
+);
+$pageinfo_hybrid = array(
+	'mode' => 'hybrid',
+);
+$pageinfo_threaded = array(
+	'p'    => $FIRSTPOSTID,
+	'mode' => 'threaded',
+);
+if ($vbulletin->GPC['highlight'])
+{
+	$pageinfo_linear['highlight'] = $pageinfo_hybrid['highlight'] = $pageinfo_threaded['highlight'] = urlencode($vbulletin->GPC['highlight']);
+}
+
+if ($show['guestview'])
+{
+	// facebook options
+	if (is_facebookenabled())
+	{
+		// display publish to Facebook checkbox in quick editor?
+		$fbpublishcheckbox = construct_fbpublishcheckbox();
+	}
+	// display the like button for this thread?
+	$fblikebutton = construct_fblikebutton();
+}
+
+// Record thread as viewed.
+if ($vbulletin->options['who_read'])
+{
+	mark_content_read('vBForum_Thread', $thread['threadid'], 'view');
+}
 
 ($hook = vBulletinHook::fetch_hook('showthread_complete')) ? eval($hook) : false;
 
+$thread_url = vB_Friendly_Url::fetchLibrary($vbulletin, 'thread|js', $threadinfo, array('pagenumber' => $vbulletin->GPC['pagenumber']))->get_url();
+
 // #############################################################################
 // output page
-eval('print_output("' . fetch_template('SHOWTHREAD') . '");');
+$templater = vB_Template::create('SHOWTHREAD');
+	$templater->register_page_templates();
+
+	$templater->register('pagenumbers', fetch_start_end_total_array($vbulletin->GPC['pagenumber'], $perpage, $totalposts));
+	$templater->register('totalposts', $totalposts);
+	$templater->register('activeusers', $activeusers);
+	$templater->register('ad_location', $ad_location);
+	$templater->register('bookmarksites', $bookmarksites);
+	$templater->register('editorid', $editorid);
+	$templater->register('FIRSTPOSTID', $FIRSTPOSTID);
+	$templater->register('firstunread', $firstunread);
+	$templater->register('forumjump', $forumjump);
+	$templater->register('forumrules', $forumrules);
+	$templater->register('gobutton', $gobutton);
+	$templater->register('LASTPOSTID', $LASTPOSTID);
+	$templater->register('messagearea', $messagearea);
+	$templater->register('navbar', $navbar);
+	$templater->register('nextthreadinfo', $nextthreadinfo);
+	$templater->register('nodhtmlcolspan', $nodhtmlcolspan);
+	$templater->register('numberguest', $numberguest);
+	$templater->register('numberregistered', $numberregistered);
+	$templater->register('onload', $onload);
+	$templater->register('pageinfo_hybrid', $pageinfo_hybrid);
+	$templater->register('pageinfo_linear', $pageinfo_linear);
+	$templater->register('pageinfo_threaded', $pageinfo_threaded);
+	$templater->register('pagenav', $pagenav);
+	$templater->register('pagenumber', $pagenumber);
+	$templater->register('perpage', $perpage);
+	$templater->register('poll', $poll);
+	$templater->register('pollid', $pollid);
+	$templater->register('postbits', $postbits);
+	$templater->register('postid', $postid);
+	$templater->register('prevthreadinfo', $prevthreadinfo);
+	$templater->register('qrpostid', $qrpostid);
+	$templater->register('similarthreads', $similarthreads);
+	$templater->register('spacer_close', $spacer_close);
+	$templater->register('spacer_open', $spacer_open);
+	$templater->register('tag_list', $tag_list);
+	$templater->register('template_hook', $template_hook);
+	$templater->register('thread', $thread);
+	$templater->register('threadadmin_imod_menu_post', $threadadmin_imod_menu_post);
+	$templater->register('threadid', $threadid);
+	$templater->register('threadinfo', $threadinfo);
+	$templater->register('threadlist', $threadlist);
+	$templater->register('totalonline', $totalonline);
+	$templater->register('url', $url);
+	$templater->register('thread_url', $thread_url);
+	$templater->register('votechecked', $votechecked);
+	$templater->register('voteselected', $voteselected);
+	$templater->register('fbpublishcheckbox', $fbpublishcheckbox);
+	$templater->register('fblikebutton', $fblikebutton);
+	if ($show['quickedit'] AND !$show['quickreply'])
+	{
+		$templater->register('editor_clientscript', vB_Template::create('editor_clientscript')->render());
+		$templater->register('editor_js', vB_Ckeditor::getJsIncludes());
+	}
+	$templater->register('wrt',$wrt);
+	$templater->register('wrtlist',$wrtlist);
+
+print_output($templater->render());
+
+function goto_prevthread($threadid, $throwerror = true)
+{
+	global $vbulletin;
+
+	$thread = verify_id('thread', $threadid, $throwerror, 1);
+	$forumperms = fetch_permissions($thread['forumid']);
+
+	// remove threads from users on the global ignore list if user is not a moderator
+	if ($coventry = fetch_coventry('string') AND !can_moderate($thread['forumid']))
+	{
+		$globalignore = "AND postuserid NOT IN ($coventry)";
+	}
+	else
+	{
+		$globalignore = '';
+	}
+
+	if (!($forumperms & $vbulletin->bf_ugp_forumpermissions['canviewothers']))
+	{
+		$limitothers = "AND postuserid = " . $vbulletin->userinfo['userid'] . " AND " . $vbulletin->userinfo['userid'] . " <> 0";
+	}
+	else
+	{
+		$limitothers = '';
+	}
+
+	if ($vbulletin->userinfo['userid'] AND in_coventry($vbulletin->userinfo['userid'], true))
+	{
+		$lastpost_info = ",IF(tachythreadpost.userid IS NULL, thread.lastpost, tachythreadpost.lastpost) AS lastpost";
+		$tachyjoin = "LEFT JOIN " . TABLE_PREFIX . "tachythreadpost AS tachythreadpost ON " .
+			"(tachythreadpost.threadid = thread.threadid AND tachythreadpost.userid = " . $vbulletin->userinfo['userid'] . ')';
+		$lastpost_having = "HAVING lastpost < $thread[lastpost]";
+	}
+	else
+	{
+		$lastpost_info = "";
+		$tachyjoin = "";
+		$lastpost_having = "AND lastpost < $thread[lastpost]";
+	}
+
+	if ($getnextoldest = $vbulletin->db->query_first_slave("
+		SELECT thread.threadid, thread.title
+			$lastpost_info
+		FROM " . TABLE_PREFIX . "thread AS thread
+		$tachyjoin
+		WHERE forumid = $thread[forumid]
+			AND visible = 1
+			AND open <> 10
+			$globalignore
+			$limitothers
+		$lastpost_having
+		ORDER BY lastpost DESC
+		LIMIT 1
+	"))
+	{
+		$threadid = $getnextoldest['threadid'];
+		unset($thread);
+	}
+	else if ($throwerror)
+	{
+		eval(standard_error(fetch_error('nonextoldest')));
+	}
+
+	return $getnextoldest;
+}
+
+function goto_nextthread($threadid, $throwerror = true)
+{
+	global $vbulletin;
+
+	$thread = verify_id('thread', $threadid, $throwerror, 1);
+	$forumperms = fetch_permissions($thread['forumid']);
+
+	// remove threads from users on the global ignore list if user is not a moderator
+	if ($coventry = fetch_coventry('string') AND !can_moderate($thread['forumid']))
+	{
+		$globalignore = "AND postuserid NOT IN ($coventry)";
+	}
+	else
+	{
+		$globalignore = '';
+	}
+
+	if (!($forumperms & $vbulletin->bf_ugp_forumpermissions['canviewothers']))
+	{
+		$limitothers = "AND postuserid = " . $vbulletin->userinfo['userid'] . " AND " . $vbulletin->userinfo['userid'] . " <> 0";
+	}
+	else
+	{
+		$limitothers = '';
+	}
+
+	if ($vbulletin->userinfo['userid'] AND in_coventry($vbulletin->userinfo['userid'], true))
+	{
+		$lastpost_info = ",IF(tachythreadpost.userid IS NULL, thread.lastpost, tachythreadpost.lastpost) AS lastpost";
+		$tachyjoin = "LEFT JOIN " . TABLE_PREFIX . "tachythreadpost AS tachythreadpost ON " .
+			"(tachythreadpost.threadid = thread.threadid AND tachythreadpost.userid = " . $vbulletin->userinfo['userid'] . ')';
+		$lastpost_having = "HAVING lastpost > $thread[lastpost]";
+	}
+	else
+	{
+		$lastpost_info = "";
+		$tachyjoin = "";
+		$lastpost_having = "AND lastpost > $thread[lastpost]";
+	}
+
+	if ($getnextnewest = $vbulletin->db->query_first_slave("
+		SELECT thread.threadid, thread.title
+			$lastpost_info
+		FROM " . TABLE_PREFIX . "thread AS thread
+		$tachyjoin
+		WHERE forumid = $thread[forumid]
+			AND visible = 1
+			AND open <> 10
+			$globalignore
+			$limitothers
+		$lastpost_having
+		ORDER BY lastpost
+		LIMIT 1
+	"))
+	{
+		$threadid = $getnextnewest['threadid'];
+		unset($thread);
+	}
+	else if ($throwerror)
+	{
+		eval(standard_error(fetch_error('nonextnewest')));
+	}
+
+	return $getnextnewest;
+}
 
 /*======================================================================*\
 || ####################################################################
-|| # Downloaded: 16:21, Sat Apr 6th 2013
-|| # CVS: $RCSfile$ - $Revision: 26399 $
+|| # Downloaded: 14:57, Sun Aug 11th 2013
+|| # CVS: $RCSfile$ - $Revision: 74000 $
 || ####################################################################
 \*======================================================================*/
-?>

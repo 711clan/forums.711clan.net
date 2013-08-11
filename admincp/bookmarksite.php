@@ -1,9 +1,9 @@
 <?php
 /*======================================================================*\
 || #################################################################### ||
-|| # vBulletin 3.7.2 Patch Level 2 - Licence Number VBF2470E4F
+|| # vBulletin 4.2.1 - Licence Number VBC2DDE4FB
 || # ---------------------------------------------------------------- # ||
-|| # Copyright ©2000-2013 Jelsoft Enterprises Ltd. All Rights Reserved. ||
+|| # Copyright ©2000-2013 vBulletin Solutions Inc. All Rights Reserved. ||
 || # This file may not be redistributed in whole or significant part. # ||
 || # ---------------- VBULLETIN IS NOT FREE SOFTWARE ---------------- # ||
 || # http://www.vbulletin.com | http://www.vbulletin.com/license.html # ||
@@ -14,7 +14,7 @@
 error_reporting(E_ALL & ~E_NOTICE);
 
 // ##################### DEFINE IMPORTANT CONSTANTS #######################
-define('CVS_REVISION', '$RCSfile$ - $Revision: 26566 $');
+define('CVS_REVISION', '$RCSfile$ - $Revision: 35520 $');
 
 // #################### PRE-CACHE TEMPLATES AND DATA ######################
 $phrasegroups = array();
@@ -103,7 +103,8 @@ if ($_POST['do'] == 'update')
 		'iconpath' => TYPE_STR,
 		'active' => TYPE_BOOL,
 		'displayorder' => TYPE_UINT,
-		'url' => TYPE_STR
+		'url' => TYPE_STR,
+		'utf8encode' => TYPE_BOOL
 	));
 
 	$vbulletin->GPC['url'] = preg_replace('/&(?!(#[0-9]+|[a-z]+);)/U', '&amp;', $vbulletin->GPC['url']);
@@ -121,7 +122,8 @@ if ($_POST['do'] == 'update')
 				iconpath = '" . $db->escape_string($vbulletin->GPC['iconpath']) . "',
 				active = " . $vbulletin->GPC['active'] . ",
 				displayorder = " . $vbulletin->GPC['displayorder'] . ",
-				url = '" . $db->escape_string($vbulletin->GPC['url']) . "'
+				url = '" . $db->escape_string($vbulletin->GPC['url']) . "',
+				utf8encode = '" . $db->escape_string($vbulletin->GPC['utf8encode']) . "'
 			WHERE bookmarksiteid = " . $vbulletin->GPC['bookmarksiteid']
 		);
 	}
@@ -129,13 +131,14 @@ if ($_POST['do'] == 'update')
 	{
 		$db->query_write("
 			INSERT INTO " . TABLE_PREFIX . "bookmarksite
-				(title, iconpath, active, displayorder, url)
+				(title, iconpath, active, displayorder, url, utf8encode)
 			VALUES (
 				'" . $db->escape_string($vbulletin->GPC['title']) . "',
 				'" . $db->escape_string($vbulletin->GPC['iconpath']) . "',
 				" . $vbulletin->GPC['active'] . ",
 				" . $vbulletin->GPC['displayorder'] . ",
-				'" . $db->escape_string($vbulletin->GPC['url']) . "'
+				'" . $db->escape_string($vbulletin->GPC['url']) . "',
+				'" . $db->escape_string($vbulletin->GPC['utf8encode']) . "'
 			)
 		");
 	}
@@ -170,6 +173,7 @@ if ($_REQUEST['do'] == 'add' OR $_REQUEST['do'] == 'edit')
 		$bookmarksite['displayorder'] += 10;
 		$bookmarksite['url'] = 'http://';
 		$bookmarksite['active'] = true;
+		$bookmarksite['utf8encode'] = false;
 
 		print_table_header($vbphrase['add_new_social_bookmarking_site']);
 	}
@@ -179,6 +183,7 @@ if ($_REQUEST['do'] == 'add' OR $_REQUEST['do'] == 'edit')
 	print_input_row($vbphrase['link'] . '<dfn>' . $vbphrase['link_replacement_variables_help'] . '</dfn>', 'url', $bookmarksite['url'], true, 50);
 	print_input_row($vbphrase['display_order'], 'displayorder', $bookmarksite['displayorder'], true, 2);
 	print_yes_no_row($vbphrase['active'], 'active', $bookmarksite['active']);
+	print_yes_no_row($vbphrase['utf8encode_title'] . '<dfn>' . $vbphrase['utf8encode_title_help'] . '</dfn>', 'utf8encode', $bookmarksite['utf8encode']);
 	print_submit_row();
 }
 
@@ -306,13 +311,13 @@ if ($_REQUEST['do'] == 'modify')
 	if ($bookmarksite_count)
 	{
 		print_description_row('<label><input type="checkbox" id="allbox" checked="checked" />' . $vbphrase['toggle_active_status_for_all'] . '</label><input type="image" src="../' . $vbulletin->options['cleargifurl'] . '" name="normalsubmit" />', false, 3, 'thead" style="font-weight:normal; padding:0px 4px 0px 4px');
-		print_column_style_code(array('width:20%; white-space:nowrap', 'width:60%', "width:20%; white-space:nowrap; text-align:$stylevar[right]"));
+		print_column_style_code(array('width:20%; white-space:nowrap', 'width:60%', "width:20%; white-space:nowrap; text-align:" . vB_Template_Runtime::fetchStyleVar('right')));
 		while ($bookmarksite = $db->fetch_array($bookmarksites_result))
 		{
 			print_cells_row(array(
 				'<label class="smallfont"><input type="checkbox" name="active[' . $bookmarksite['bookmarksiteid'] . ']" value="1"' . ($bookmarksite['active'] ? ' checked="checked"' : '') . ' />' . $vbphrase['active'] . '</label> &nbsp; ' .
 				'<input type="image" src="../cpstyles/' . $vbulletin->options['cpstylefolder'] . '/move_down.gif" name="displayorderswap[' . $bookmarksite['bookmarksiteid'] . ',higher]" />' .
-				'<input type="text" name="displayorder[' . $bookmarksite['bookmarksiteid'] . ']" value="' . $bookmarksite['displayorder'] . '" class="bginput" size="4" title="' . $vbphrase['display_order'] . '" style="text-align:' . $stylevar['right'] . '" />' .
+				'<input type="text" name="displayorder[' . $bookmarksite['bookmarksiteid'] . ']" value="' . $bookmarksite['displayorder'] . '" class="bginput" size="4" title="' . $vbphrase['display_order'] . '" style="text-align:' . vB_Template_Runtime::fetchStyleVar('right') . '" />' .
 				'<input type="image" src="../cpstyles/' . $vbulletin->options['cpstylefolder'] . '/move_up.gif" name="displayorderswap[' . $bookmarksite['bookmarksiteid'] . ',lower]" />',
 
 				'<a href="bookmarksite.php?' . $vbulletin->session->vars['sessionurl'] . 'do=edit&amp;bookmarksiteid=' . $bookmarksite['bookmarksiteid'] . '" title="' . $vbphrase['edit'] . '">' . $bookmarksite['title'] . '</a>',
@@ -328,7 +333,7 @@ if ($_REQUEST['do'] == 'modify')
 		<td class="tfoot">' .
 		($bookmarksite_count ? '<input type="submit" class="button" accesskey="s" value="' . $vbphrase['save'] . '" /> <input type="reset" class="button" accesskey="r" value="' . $vbphrase['reset'] . '" />' : '&nbsp;') .
 		'</td>
-		<td class="tfoot" align="' . $stylevar['right'] . '" colspan="2"><input type="button" class="button" value="' . $vbphrase['add_new_social_bookmarking_site'] . '" onclick="window.location=\'bookmarksite.php?' . $vbulletin->session->vars['sessionurl'] . 'do=add\';" /></td>
+		<td class="tfoot" align="' . vB_Template_Runtime::fetchStyleVar('right') . '" colspan="2"><input type="button" class="button" value="' . $vbphrase['add_new_social_bookmarking_site'] . '" onclick="window.location=\'bookmarksite.php?' . $vbulletin->session->vars['sessionurl'] . 'do=add\';" /></td>
 	</tr>';
 	print_table_footer();
 
@@ -356,8 +361,8 @@ print_cp_footer();
 
 /*======================================================================*\
 || ####################################################################
-|| # Downloaded: 16:21, Sat Apr 6th 2013
-|| # CVS: $RCSfile$ - $Revision: 26566 $
+|| # Downloaded: 14:57, Sun Aug 11th 2013
+|| # CVS: $RCSfile$ - $Revision: 35520 $
 || ####################################################################
 \*======================================================================*/
 ?>

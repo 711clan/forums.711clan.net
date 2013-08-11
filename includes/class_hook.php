@@ -1,9 +1,9 @@
 <?php
 /*======================================================================*\
 || #################################################################### ||
-|| # vBulletin 3.7.2 Patch Level 2 - Licence Number VBF2470E4F
+|| # vBulletin 4.2.1 - Licence Number VBC2DDE4FB
 || # ---------------------------------------------------------------- # ||
-|| # Copyright ©2000-2013 Jelsoft Enterprises Ltd. All Rights Reserved. ||
+|| # Copyright ©2000-2013 vBulletin Solutions Inc. All Rights Reserved. ||
 || # This file may not be redistributed in whole or significant part. # ||
 || # ---------------- VBULLETIN IS NOT FREE SOFTWARE ---------------- # ||
 || # http://www.vbulletin.com | http://www.vbulletin.com/license.html # ||
@@ -18,27 +18,33 @@
 * Works the vBulletin Plugin Hook System
 *
 * @package 		vBulletin
-* @version		$Revision: 26661 $
+* @version		$Revision: 32878 $
 * @author		Kier & Mike
-* @date 		$Date: 2008-05-21 04:46:39 -0500 (Wed, 21 May 2008) $
+* @date 		$Date: 2009-10-28 11:38:49 -0700 (Wed, 28 Oct 2009) $
 * @copyright 	http://www.vbulletin.com/license.html
 *
 */
 class vBulletinHook
 {
 	/**
+	* Instance of this class, since we only want one
+	*
+	*/
+	private static $instance = null;
+
+	/**
 	* This holds the plugin data
 	*
 	* @var    array
 	*/
-	var $pluginlist = array();
+	private static $pluginlist = array();
 
 	/**
 	* This keeps track of which hooks have been used
 	*
 	* @var	array
 	*/
-	var $hookusage = array();
+	private static $hookusage = array();
 
 	/**
 	* Constructor - unserializes the plugin data from the datastore when class is initiated
@@ -52,26 +58,9 @@ class vBulletinHook
 	/**
 	* Sets the plugin list array
 	*/
-	function set_pluginlist(&$pluginlist)
+	public static function set_pluginlist($pluginlist)
 	{
-		$this->pluginlist =& $pluginlist;
-	}
-
-	/**
-	* Singleton emulation - use this function to instantiate the class
-	*
-	* @return	vBulletinHook
-	*/
-	function &init()
-	{
-		static $instance;
-
-		if (!$instance)
-		{
-			$instance = new vBulletinHook();
-		}
-
-		return $instance;
+		self::$pluginlist = $pluginlist;
 	}
 
 	/**
@@ -81,21 +70,21 @@ class vBulletinHook
 	*
 	* @return	string
 	*/
-	function fetch_hook_object($hookname)
+	private static function fetch_hook_object($hookname)
 	{
-		if (!empty($this->pluginlist["$hookname"]))
+		if (!empty(self::$pluginlist["$hookname"]))
 		{
-			if (!isset($this->hookusage["$hookname"]))
+			if (!isset(self::$hookusage["$hookname"]))
 			{
-				$this->hookusage["$hookname"] = true;
+				self::$hookusage["$hookname"] = true;
 			}
-			return $this->pluginlist["$hookname"];
+			return self::$pluginlist["$hookname"];
 		}
 		else
 		{
-			if (!isset($this->hookusage["$hookname"]))
+			if (!isset(self::$hookusage["$hookname"]))
 			{
-				$this->hookusage["$hookname"] = false;
+				self::$hookusage["$hookname"] = false;
 			}
 			return '';
 		}
@@ -108,16 +97,20 @@ class vBulletinHook
 	*
 	* @return	string
 	*/
-	function fetch_hook($hookname)
+	public static function fetch_hook($hookname = false)
 	{
-		$obj =& vBulletinHook::init();
-		return $obj->fetch_hook_object($hookname);
+		if (!$hookname)
+		{
+			return false;
+		}
+
+		return self::fetch_hook_object($hookname);
 	}
 
 	/**
 	* Builds the datastore for the hooks into the database.
 	*/
-	function build_datastore(&$dbobject)
+	public static function build_datastore(&$dbobject)
 	{
 		$code = array();
 		$admincode = array();
@@ -199,18 +192,17 @@ class vBulletinHook
 	/**
 	* Fetches the array of hooks that have been used.
 	*/
-	function fetch_hookusage()
+	public static function fetch_hookusage()
 	{
-		$obj =& vBulletinHook::init();
-		return $obj->hookusage;
+		return self::$hookusage;
 	}
 }
 
 
 /*======================================================================*\
 || ####################################################################
-|| # Downloaded: 16:21, Sat Apr 6th 2013
-|| # CVS: $RCSfile$ - $Revision: 26661 $
+|| # Downloaded: 14:57, Sun Aug 11th 2013
+|| # CVS: $RCSfile$ - $Revision: 32878 $
 || ####################################################################
 \*======================================================================*/
 ?>

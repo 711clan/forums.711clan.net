@@ -1,25 +1,19 @@
 <?php
 /*======================================================================*\
 || #################################################################### ||
-|| # vBulletin 3.7.2 Patch Level 2 - Licence Number VBF2470E4F
+|| # vBulletin 4.2.1 - Licence Number VBC2DDE4FB
 || # ---------------------------------------------------------------- # ||
-|| # Copyright ©2000-2013 Jelsoft Enterprises Ltd. All Rights Reserved. ||
+|| # Copyright ©2000-2013 vBulletin Solutions Inc. All Rights Reserved. ||
 || # This file may not be redistributed in whole or significant part. # ||
 || # ---------------- VBULLETIN IS NOT FREE SOFTWARE ---------------- # ||
 || # http://www.vbulletin.com | http://www.vbulletin.com/license.html # ||
 || #################################################################### ||
 \*======================================================================*/
 
-if (!defined('VB_AREA') AND !defined('THIS_SCRIPT'))
+// Force PHP 5.3.0+ to take time zone information from OS
+if (version_compare(phpversion(), '5.3.0', '>='))
 {
-	echo 'VB_AREA or THIS_SCRIPT must be defined to continue';
-	exit;
-}
-
-if (isset($_REQUEST['GLOBALS']) OR isset($_FILES['GLOBALS']))
-{
-	echo 'Request tainting attempted.';
-	exit;
+	@date_default_timezone_set(date_default_timezone_get());
 }
 
 // set the current unix timestamp
@@ -39,9 +33,10 @@ if (!defined('CWD'))
 // #############################################################################
 // fetch the core classes
 require_once(CWD . '/includes/class_core.php');
+require_once(CWD . '/includes/functions.php');
 
 // initialize the data registry
-$vbulletin =& new vB_Registry();
+$vbulletin = new vB_Registry();
 
 // parse the configuration ini file
 $vbulletin->fetch_config();
@@ -55,12 +50,28 @@ if (CWD == '.')
 	}
 	else
 	{
+		// This can not be phrased as it appears before phrase load and phrases won't load if we move this after ..
 		trigger_error('<strong>Configuration</strong>: You must insert a value for <strong>forumpath</strong> in config.php', E_USER_ERROR);
 	}
 }
 else
 {
 	define('DIR', CWD);
+}
+
+// Load Phrases
+$phrases = vB_Upgrade::fetch_language();
+
+if (!defined('VB_AREA') AND !defined('THIS_SCRIPT'))
+{
+	echo $phrases['core']['VB_AREA_not_defined'];
+	exit;
+}
+
+if (isset($_REQUEST['GLOBALS']) OR isset($_FILES['GLOBALS']))
+{
+	echo $phrases['core']['request_tainting_attempted'];
+	exit;
 }
 
 if (!empty($vbulletin->config['Misc']['datastorepath']))
@@ -80,7 +91,7 @@ switch (strtolower($vbulletin->config['Database']['dbtype']))
 	case 'mysql_slave':
 	case '':
 	{
-		$db =& new vB_Database($vbulletin);
+		$db = new vB_Database($vbulletin);
 		break;
 	}
 
@@ -88,7 +99,7 @@ switch (strtolower($vbulletin->config['Database']['dbtype']))
 	case 'mysqli':
 	case 'mysqli_slave':
 	{
-		$db =& new vB_Database_MySQLi($vbulletin);
+		$db = new vB_Database_MySQLi($vbulletin);
 		break;
 	}
 
@@ -97,12 +108,15 @@ switch (strtolower($vbulletin->config['Database']['dbtype']))
 	{
 	// this is not implemented fully yet
 	//	$db = 'vB_Database_' . $vbulletin->config['Database']['dbtype'];
-	//	$db =& new $db($vbulletin);
+	//	$db = new $db($vbulletin);
 		die('Fatal error: Database class not found');
 	}
 }
 
 $db->appshortname = 'vBulletin (' . VB_AREA . ')';
+
+// make $db a member of $vbulletin
+$vbulletin->db =& $db;
 
 if (!defined('SKIPDB'))
 {
@@ -125,13 +139,18 @@ if (!defined('SKIPDB'))
 		$vbulletin->config['Mysqli']['ini_file'],
 		$vbulletin->config['Mysqli']['charset']
 	);
-	if (!empty($vbulletin->config['Database']['force_sql_mode']))
+
+	//30443 Right now the product doesn't work in strict mode at all.  Its silly to make people have to edit their
+	//config to handle what appears to be a very common case (though the mysql docs say that no mode is the default)
+	//we no longer use the force_sql_mode parameter, though if the app is fixed to handle strict mode then we
+	//may wish to change the default again, in which case we should honor the force_sql_mode option.
+	//added the force parameter
+	//The same logic is in includes/init.php and should stay in sync.
+	//if (!empty($vbulletin->config['Database']['force_sql_mode']))
+	if (empty($vbulletin->config['Database']['no_force_sql_mode']))
 	{
 		$db->force_sql_mode('');
 	}
-
-	// make $db a member of $vbulletin
-	$vbulletin->db =& $db;
 
 	// #############################################################################
 	// fetch options and other data from the datastore
@@ -162,60 +181,39 @@ if (!defined('SKIPDB'))
 			$db->query_write("ALTER TABLE " . TABLE_PREFIX . "datastore ADD unserialize SMALLINT NOT NULL DEFAULT '2'");
 			$db->show_errors();
 
-			$datastore_class = (!empty($vbulletin->config['Datastore']['class'])) ? $vbulletin->config['Datastore']['class'] : 'vB_Datastore';
+			$datastore_class = (!empty($vbulletin->config['Datastore']['class']) AND !defined('STDIN')) ? $vbulletin->config['Datastore']['class'] : 'vB_Datastore';
 
 			if ($datastore_class != 'vB_Datastore')
 			{
 				require_once(DIR . '/includes/class_datastore.php');
 			}
-			$vbulletin->datastore =& new $datastore_class($vbulletin, $db);
+			$vbulletin->datastore = new $datastore_class($vbulletin, $db);
 			$vbulletin->datastore->fetch($specialtemplates);
 		}
 	}
-	else if (VB_AREA == 'Install')
+	else if (VB_AREA == 'Install' OR VB_AREA == 'tools')
 	{ // load it up but don't actually call fetch, we need the ability to overwrite fields.
-		$datastore_class = (!empty($vbulletin->config['Datastore']['class'])) ? $vbulletin->config['Datastore']['class'] : 'vB_Datastore';
+		$datastore_class = (!empty($vbulletin->config['Datastore']['class']) AND !defined('STDIN')) ? $vbulletin->config['Datastore']['class'] : 'vB_Datastore';
 
 		if ($datastore_class != 'vB_Datastore')
 		{
 			require_once(DIR . '/includes/class_datastore.php');
 		}
-		$vbulletin->datastore =& new $datastore_class($vbulletin, $db);
-	}
-
-	// ## Load latest bitfields, overwrite datastore versions (if they exist)
-	// ## (so latest upgrade script can access any new permissions)
-	require_once(DIR . '/includes/class_bitfield_builder.php');
-	if (vB_Bitfield_Builder::build_datastore() !== false)
-	{
-		$myobj =& vB_Bitfield_Builder::init();
-		require_once(DIR . '/includes/functions.php');
-		require_once(DIR . '/includes/functions_misc.php');
-
-		foreach (array_keys($myobj->datastore) AS $group)
-		{
-			$vbulletin->{'bf_' . $group} =& $myobj->datastore["$group"];
-			foreach (array_keys($myobj->datastore["$group"]) AS $subgroup)
-			{
-				$vbulletin->{'bf_' . $group . '_' . $subgroup} =& $myobj->datastore["$group"]["$subgroup"];
-			}
-		}
-	}
-	else
-	{
-		trigger_error('Error Building Bitfields', E_USER_ERROR);
+		$vbulletin->datastore = new $datastore_class($vbulletin, $db);
+		$vbulletin->datastore->fetch($specialtemplates);
 	}
 }
 
 // setup an empty hook class in case we run some of the main vB code
 require_once(DIR . '/includes/class_hook.php');
-$hookobj =& vBulletinHook::init();
 $vbulletin->pluginlist = '';
+
+bootstrap_framework(); // load the vB Framework.
 
 /*======================================================================*\
 || ####################################################################
-|| # Downloaded: 16:21, Sat Apr 6th 2013
-|| # CVS: $RCSfile$ - $Revision: 26885 $
+|| # Downloaded: 14:57, Sun Aug 11th 2013
+|| # CVS: $RCSfile$ - $Revision: 39181 $
 || ####################################################################
 \*======================================================================*/
 ?>

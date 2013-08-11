@@ -1,9 +1,9 @@
 <?php
 /*======================================================================*\
 || #################################################################### ||
-|| # vBulletin 3.7.2 Patch Level 2 - Licence Number VBF2470E4F
+|| # vBulletin 4.2.1 - Licence Number VBC2DDE4FB
 || # ---------------------------------------------------------------- # ||
-|| # Copyright ©2000-2013 Jelsoft Enterprises Ltd. All Rights Reserved. ||
+|| # Copyright ©2000-2013 vBulletin Solutions Inc. All Rights Reserved. ||
 || # This file may not be redistributed in whole or significant part. # ||
 || # ---------------- VBULLETIN IS NOT FREE SOFTWARE ---------------- # ||
 || # http://www.vbulletin.com | http://www.vbulletin.com/license.html # ||
@@ -45,22 +45,22 @@ while ($user = $vbulletin->db->fetch_array($users))
 	// make random number
 	if (empty($user['activationid']))
 	{ //none exists so create one
-		$user['activationid'] = vbrand(0, 100000000);
+		$user['activationid'] = fetch_random_string(40);
 		/*insert query*/
 		$vbulletin->db->query_write("
 			REPLACE INTO " . TABLE_PREFIX . "useractivation
 				(userid, dateline, activationid, type, usergroupid)
 			VALUES
-				($user[userid], " . TIMENOW . ", $user[activationid], 0, 2)
+				($user[userid], " . TIMENOW . ", '$user[activationid]', 0, 2)
 		");
 	}
 	else
 	{
-		$user['activationid'] = vbrand(0, 100000000);
+		$user['activationid'] = fetch_random_string(40);
 		$vbulletin->db->query_write("
 			UPDATE " . TABLE_PREFIX . "useractivation SET
 			dateline = " . TIMENOW . ",
-			activationid = $user[activationid]
+			activationid = '$user[activationid]'
 			WHERE userid = $user[userid] AND type = 0
 		");
 	}
@@ -86,8 +86,8 @@ vbmail_end();
 
 /*======================================================================*\
 || ####################################################################
-|| # Downloaded: 16:21, Sat Apr 6th 2013
-|| # CVS: $RCSfile$ - $Revision: 15476 $
+|| # Downloaded: 14:57, Sun Aug 11th 2013
+|| # CVS: $RCSfile$ - $Revision: 32878 $
 || ####################################################################
 \*======================================================================*/
 ?>

@@ -1,16 +1,16 @@
 <?php
 /*======================================================================*\
 || #################################################################### ||
-|| # vBulletin 3.7.2 Patch Level 2 - Licence Number VBF2470E4F
+|| # vBulletin 4.2.1 - Licence Number VBC2DDE4FB
 || # ---------------------------------------------------------------- # ||
-|| # Copyright ©2000-2013 Jelsoft Enterprises Ltd. All Rights Reserved. ||
+|| # Copyright ©2000-2013 vBulletin Solutions Inc. All Rights Reserved. ||
 || # This file may not be redistributed in whole or significant part. # ||
 || # ---------------- VBULLETIN IS NOT FREE SOFTWARE ---------------- # ||
 || # http://www.vbulletin.com | http://www.vbulletin.com/liceNse.html # ||
 || #################################################################### ||
 \*======================================================================*/
 
-if (!class_exists('vB_Datastore'))
+if (!class_exists('vB_Datastore', false))
 {
 	exit;
 }
@@ -19,8 +19,8 @@ if (!class_exists('vB_Datastore'))
 * Class for fetching and initializing the vBulletin datastore from eAccelerator
 *
 * @package	vBulletin
-* @version	$Revision: 26074 $
-* @date		$Date: 2008-03-13 10:44:45 -0500 (Thu, 13 Mar 2008) $
+* @version	$Revision: 64477 $
+* @date		$Date: 2012-07-17 14:36:53 -0700 (Tue, 17 Jul 2012) $
 */
 class vB_Datastore_eAccelerator extends vB_Datastore
 {
@@ -38,42 +38,39 @@ class vB_Datastore_eAccelerator extends vB_Datastore
 	*
 	* @return	void
 	*/
-	function fetch($itemarray)
+	function fetch($items)
 	{
 		if (!function_exists('eaccelerator_get'))
 		{
 			trigger_error('eAccelerator not installed', E_USER_ERROR);
 		}
 
-		$db =& $this->dbobject;
-
-		$itemlist = array();
-
-		foreach ($this->defaultitems AS $item)
+		if (!sizeof($items = $this->prepare_itemarray($items)))
 		{
-			$this->do_fetch($item, $itemlist);
+			return;
 		}
 
-		if (is_array($itemarray))
+		$unfetched_items = array();
+		foreach ($items AS $item)
 		{
-			foreach ($itemarray AS $item)
-			{
-				$this->do_fetch($item, $itemlist);
-			}
+			$this->do_fetch($item, $unfetched_items);
 		}
 
 		$this->store_result = true;
 
 		// some of the items we are looking for were not found, lets get them in one go
-		if (!empty($itemlist))
+		if (sizeof($unfetched_items))
 		{
-			$this->do_db_fetch(implode(',', $itemlist));
+			if (!($result = $this->do_db_fetch($this->prepare_itemlist($unfetched_items))))
+			{
+				return false;
+			}
 		}
 
 		$this->check_options();
+		$this->store_result = false;
 
-		// set the version number variable
-		$this->registry->versionnumber =& $this->registry->options['templateversion'];
+		return true;
 	}
 
 	/**
@@ -84,15 +81,16 @@ class vB_Datastore_eAccelerator extends vB_Datastore
 	*
 	* @return	boolean
 	*/
-	function do_fetch($title, &$itemlist)
+	function do_fetch($title, &$unfetched_items)
 	{
 		$ptitle = $this->prefix . $title;
 
 		if (($data = eaccelerator_get($ptitle)) === null)
 		{ // appears its not there, lets grab the data
-			$itemlist[] = "'" . $this->dbobject->escape_string($title) . "'";
+			$unfetched_items[] = $title;
 			return false;
 		}
+
 		$this->register($title, $data);
 		return true;
 	}
@@ -111,6 +109,7 @@ class vB_Datastore_eAccelerator extends vB_Datastore
 		{
 			$this->build($title, $data);
 		}
+
 		parent::register($title, $data, $unserialize_detect);
 	}
 
@@ -138,8 +137,8 @@ class vB_Datastore_eAccelerator extends vB_Datastore
 * Class for fetching and initializing the vBulletin datastore from a Memcache Server
 *
 * @package	vBulletin
-* @version	$Revision: 26074 $
-* @date		$Date: 2008-03-13 10:44:45 -0500 (Thu, 13 Mar 2008) $
+* @version	$Revision: 64477 $
+* @date		$Date: 2012-07-17 14:36:53 -0700 (Tue, 17 Jul 2012) $
 */
 class vB_Datastore_Memcached extends vB_Datastore
 {
@@ -181,7 +180,7 @@ class vB_Datastore_Memcached extends vB_Datastore
 	{
 		parent::vB_Datastore($registry, $dbobject);
 
-		if (!class_exists('Memcache'))
+		if (!class_exists('Memcache', false))
 		{
 			trigger_error('Memcache is not installed', E_USER_ERROR);
 		}
@@ -192,7 +191,7 @@ class vB_Datastore_Memcached extends vB_Datastore
 	/**
 	* Connect Wrapper for Memcache
 	*
-	* @return	integer	When a new connection is made 1 is returned, 2 if a connection already existed
+	* @return	integer	When a new connection is made 1 is returned, 2 if a connection already existed, 3 if a connection failed.
 	*/
 	function connect()
 	{
@@ -216,12 +215,12 @@ class vB_Datastore_Memcached extends vB_Datastore
 				}
 				else if (!$this->memcache->connect($this->registry->config['Misc']['memcacheserver'][1], $this->registry->config['Misc']['memcacheport'][1], $this->registry->config['Misc']['memcachetimeout'][1]))
 				{
-					trigger_error('Unable to connect to memcache server', E_USER_ERROR);
+					return 3;
 				}
 			}
 			else if (!$this->memcache->connect($this->registry->config['Misc']['memcacheserver'], $this->registry->config['Misc']['memcacheport']))
 			{
-				trigger_error('Unable to connect to memcache server', E_USER_ERROR);
+				return 3;
 			}
 			$this->memcache_connected = true;
 			return 1;
@@ -248,43 +247,70 @@ class vB_Datastore_Memcached extends vB_Datastore
 	*
 	* @return	void
 	*/
-	function fetch($itemarray)
+	function fetch($items)
 	{
 		$this->connect();
-
-		$this->memcache_set = false;
-
-		$itemlist = array();
-
-		foreach ($this->defaultitems AS $item)
+		if (!sizeof($items = $this->prepare_itemarray($items)))
 		{
-			$this->do_fetch($item, $itemlist);
+			return;
 		}
 
-		if (is_array($itemarray))
+		if (!$this->memcache_connected)
 		{
-			foreach ($itemarray AS $item)
+			return parent::fetch($items);
+		}
+
+		//this line must stay under the potential return statement above.
+		//this flag is intended to temporarily change the behavior of another function while
+		//this function is active (it has to do with the way things are overridden from the
+		//parent class).  If we leave this function with the flag set to false bad things can
+		//happen.
+		$this->memcache_set = false;
+
+		if ($this->prefix)
+		{
+			foreach ($items as $item)
 			{
-				$this->do_fetch($item, $itemlist);
+				$items_fetch[] = $this->prefix . $item;
 			}
+		}
+		else
+		{
+			$items_fetch =& $items;
+		}
+
+		$items_found = $this->memcache->get($items_fetch);
+		$unfetched_items = array_keys(array_diff_key(array_flip($items_fetch), $items_found));
+		foreach ($items_found AS $key => $data)
+		{
+			$this->register(substr($key, strlen($this->prefix), 50), $data);
 		}
 
 		$this->store_result = true;
 
 		// some of the items we are looking for were not found, lets get them in one go
-		if (!empty($itemlist))
+		if (!empty($unfetched_items))
 		{
-			$this->do_db_fetch(implode(',', $itemlist));
+			if($this->prefix)
+			{ // Remove any prefix for datastore call
+				foreach ($unfetched_items as &$data)
+				{
+					$data = substr_replace($data, '', 0, strlen($this->prefix));
+				}
+				unset($data);
+			}
+			if (!($result = $this->do_db_fetch($this->prepare_itemlist($unfetched_items))))
+			{
+				return false;
+			}
 		}
 
 		$this->memcache_set = true;
 
 		$this->check_options();
+		$this->store_result = false;
 
-		// set the version number variable
-		$this->registry->versionnumber =& $this->registry->options['templateversion'];
-
-		$this->close();
+		return true;
 	}
 
 	/**
@@ -295,15 +321,16 @@ class vB_Datastore_Memcached extends vB_Datastore
 	*
 	* @return	boolean
 	*/
-	function do_fetch($title, &$itemlist)
+	function do_fetch($title, &$unfetched_items)
 	{
 		$ptitle = $this->prefix . $title;
 
 		if (($data = $this->memcache->get($ptitle)) === false)
 		{ // appears its not there, lets grab the data
-			$itemlist[] = "'" . $this->dbobject->escape_string($title) . "'";
+			$unfetched_items[] = $title;
 			return false;
 		}
+
 		$this->register($title, $data);
 		return true;
 	}
@@ -332,23 +359,21 @@ class vB_Datastore_Memcached extends vB_Datastore
 	*
 	* @return	void
 	*/
-	function build($title, $data)
+	function build($title, $data, $expire = 0)
 	{
 		$ptitle = $this->prefix . $title;
 		$check = $this->connect();
-
+		if ($check == 3)
+		{ // Connection failed
+			trigger_error('Unable to connect to memcache server', E_USER_ERROR);
+		}
 		if ($this->memcache_set)
 		{
-			$this->memcache->set($ptitle, $data, MEMCACHE_COMPRESSED);
+			$this->memcache->set($ptitle, $data, MEMCACHE_COMPRESSED, $expire);
 		}
 		else
 		{
-			$this->memcache->add($ptitle, $data, MEMCACHE_COMPRESSED);
-		}
-		// if we caused the connection above, then close it
-		if ($check == 1)
-		{
-			$this->close();
+			$this->memcache->add($ptitle, $data, MEMCACHE_COMPRESSED, $expire);
 		}
 	}
 }
@@ -360,8 +385,8 @@ class vB_Datastore_Memcached extends vB_Datastore
 * Class for fetching and initializing the vBulletin datastore from APC
 *
 * @package	vBulletin
-* @version	$Revision: 26074 $
-* @date		$Date: 2008-03-13 10:44:45 -0500 (Thu, 13 Mar 2008) $
+* @version	$Revision: 64477 $
+* @date		$Date: 2012-07-17 14:36:53 -0700 (Tue, 17 Jul 2012) $
 */
 class vB_Datastore_APC extends vB_Datastore
 {
@@ -379,42 +404,39 @@ class vB_Datastore_APC extends vB_Datastore
 	*
 	* @return	void
 	*/
-	function fetch($itemarray)
+	function fetch($items)
 	{
 		if (!function_exists('apc_fetch'))
 		{
 			trigger_error('APC not installed', E_USER_ERROR);
 		}
 
-		$db =& $this->dbobject;
-
-		$itemlist = array();
-
-		foreach ($this->defaultitems AS $item)
+		if (!sizeof($items = $this->prepare_itemarray($items)))
 		{
-			$this->do_fetch($item, $itemlist);
+			return;
 		}
 
-		if (is_array($itemarray))
+		$unfetched_items = array();
+		foreach ($items AS $item)
 		{
-			foreach ($itemarray AS $item)
-			{
-				$this->do_fetch($item, $itemlist);
-			}
+			$this->do_fetch($item, $unfetched_items);
 		}
 
 		$this->store_result = true;
 
 		// some of the items we are looking for were not found, lets get them in one go
-		if (!empty($itemlist))
+		if (!empty($unfetched_items))
 		{
-			$this->do_db_fetch(implode(',', $itemlist));
+			if (!($result = $this->do_db_fetch($this->prepare_itemlist($unfetched_items))))
+			{
+				return false;
+			}
 		}
 
 		$this->check_options();
+		$this->store_result = false;
 
-		// set the version number variable
-		$this->registry->versionnumber =& $this->registry->options['templateversion'];
+		return true;
 	}
 
 	/**
@@ -425,13 +447,13 @@ class vB_Datastore_APC extends vB_Datastore
 	*
 	* @return	boolean
 	*/
-	function do_fetch($title, &$itemlist)
+	function do_fetch($title, &$unfetched_items)
 	{
 		$ptitle = $this->prefix . $title;
 
 		if (($data = apc_fetch($ptitle)) === false)
 		{ // appears its not there, lets grab the data, lock the shared memory and put it in
-			$itemlist[] = "'" . $this->dbobject->escape_string($title) . "'";
+			$unfetched_items[] = $title;
 			return false;
 		}
 		$this->register($title, $data);
@@ -480,8 +502,8 @@ class vB_Datastore_APC extends vB_Datastore
 * Class for fetching and initializing the vBulletin datastore from XCache
 *
 * @package	vBulletin
-* @version	$Revision: 26074 $
-* @date		$Date: 2008-03-13 10:44:45 -0500 (Thu, 13 Mar 2008) $
+* @version	$Revision: 64477 $
+* @date		$Date: 2012-07-17 14:36:53 -0700 (Tue, 17 Jul 2012) $
 */
 class vB_Datastore_XCache extends vB_Datastore
 {
@@ -499,7 +521,7 @@ class vB_Datastore_XCache extends vB_Datastore
 	*
 	* @return	void
 	*/
-	function fetch($itemarray)
+	function fetch($items)
 	{
 		if (!function_exists('xcache_get'))
 		{
@@ -511,35 +533,32 @@ class vB_Datastore_XCache extends vB_Datastore
 			trigger_error('Storing of variables is not enabled within XCache', E_USER_ERROR);
 		}
 
-		$db =& $this->dbobject;
-
-		$itemlist = array();
-
-		foreach ($this->defaultitems AS $item)
+		if (!sizeof($items = $this->prepare_itemarray($items)))
 		{
-			$this->do_fetch($item, $itemlist);
+			return;
 		}
 
-		if (is_array($itemarray))
+		$unfetched_items = array();
+		foreach ($items AS $item)
 		{
-			foreach ($itemarray AS $item)
-			{
-				$this->do_fetch($item, $itemlist);
-			}
+			$this->do_fetch($item, $unfetched_items);
 		}
 
 		$this->store_result = true;
 
 		// some of the items we are looking for were not found, lets get them in one go
-		if (!empty($itemlist))
+		if (sizeof($unfetched_items))
 		{
-			$this->do_db_fetch(implode(',', $itemlist));
+			if (!($result = $this->do_db_fetch($this->prepare_itemlist($unfetched_items))))
+			{
+				return false;
+			}
 		}
 
 		$this->check_options();
+		$this->store_result = false;
 
-		// set the version number variable
-		$this->registry->versionnumber =& $this->registry->options['templateversion'];
+		return true;
 	}
 
 	/**
@@ -550,15 +569,16 @@ class vB_Datastore_XCache extends vB_Datastore
 	*
 	* @return	boolean
 	*/
-	function do_fetch($title, &$itemlist)
+	function do_fetch($title, &$unfetched_items)
 	{
 		$ptitle = $this->prefix . $title;
 
 		if (!xcache_isset($ptitle))
 		{ // appears its not there, lets grab the data, lock the shared memory and put it in
-			$itemlist[] = "'" . $this->dbobject->escape_string($title) . "'";
+			$unfetched_items[] = $title;
 			return false;
 		}
+
 		$data = xcache_get($ptitle);
 		$this->register($title, $data);
 		return true;
@@ -606,8 +626,8 @@ class vB_Datastore_XCache extends vB_Datastore
 * Class for fetching and initializing the vBulletin datastore from files
 *
 * @package	vBulletin
-* @version	$Revision: 26074 $
-* @date		$Date: 2008-03-13 10:44:45 -0500 (Thu, 13 Mar 2008) $
+* @version	$Revision: 64477 $
+* @date		$Date: 2012-07-17 14:36:53 -0700 (Tue, 17 Jul 2012) $
 */
 class vB_Datastore_Filecache extends vB_Datastore
 {
@@ -617,6 +637,7 @@ class vB_Datastore_Filecache extends vB_Datastore
 	* @var	array
 	*/
 	var $cacheableitems = array(
+		'navdata',
 		'options',
 		'bitfields',
 		'forumcache',
@@ -650,7 +671,7 @@ class vB_Datastore_Filecache extends vB_Datastore
 	*
 	* @return	void
 	*/
-	function fetch($itemarray)
+	function fetch($items)
 	{
 		$include_return = @include_once(DATASTORE . '/datastore_cache.php');
 		if ($include_return === false)
@@ -661,59 +682,51 @@ class vB_Datastore_Filecache extends vB_Datastore
 			}
 			else
 			{
-				parent::fetch($itemarray);
+				parent::fetch($items);
 				return;
 			}
 		}
 
-		$itemlist = array();
+		// Ensure $this->cacheableitems are always fetched
+		$unfetched_items = array();
 		foreach ($this->cacheableitems AS $item)
 		{
-			if ($$item === '' OR !isset($$item))
+			if (!vB_DataStore::$registered[$item])
 			{
-				if (VB_AREA == 'AdminCP')
+				if ($$item === '' OR !isset($$item))
 				{
-					$$item = $this->fetch_build($item);
+					if (VB_AREA == 'AdminCP')
+					{
+						$$item = $this->fetch_build($item);
+					}
+					else
+					{
+						$unfetched_items[] = $item;
+						continue;
+					}
 				}
-				else
+
+				if ($this->register($item, $$item) === false)
 				{
-					$itemlist[] = "'" . $this->dbobject->escape_string($item) . "'";
-					continue;
+					trigger_error('Unable to register some datastore items', E_USER_ERROR);
 				}
-			}
-			if ($this->register($item, $$item) === false)
-			{
-				trigger_error('Unable to register some datastore items', E_USER_ERROR);
-			}
 
-			unset($$item);
-		}
-
-		foreach ($this->defaultitems AS $item)
-		{
-			if (!in_array($item, $this->cacheableitems))
-			{
-				$itemlist[] = "'" . $this->dbobject->escape_string($item) . "'";
+				unset($$item);
 			}
 		}
 
-		if (is_array($itemarray))
+		// fetch anything remaining
+		$items = $items ? array_merge($items, $unfetched_items) : $unfetched_items;
+		if ($items = $this->prepare_itemlist($items, true))
 		{
-			foreach ($itemarray AS $item)
+			if (!($result = $this->do_db_fetch($items)))
 			{
-				$itemlist[] = "'" . $this->dbobject->escape_string($item) . "'";
+				return false;
 			}
-		}
-
-		if (!empty($itemlist))
-		{
-			$this->do_db_fetch(implode(',', $itemlist));
 		}
 
 		$this->check_options();
-
-		// set the version number variable
-		$this->registry->versionnumber =& $this->registry->options['templateversion'];
+		return true;
 	}
 
 	/**
@@ -737,7 +750,7 @@ class vB_Datastore_Filecache extends vB_Datastore
 			return;
 		}
 
-		$data_code = var_export(unserialize(trim($data)), true);
+		$data_code = vb_var_export(unserialize(trim($data)), true);
 
 		if ($this->lock())
 		{
@@ -862,11 +875,13 @@ class vB_Datastore_Filecache extends vB_Datastore
 	function fetch_build($title)
 	{
 		$data = '';
+		$this->dbobject->hide_errors();
 		$dataitem = $this->dbobject->query_first("
 			SELECT title, data
 			FROM " . TABLE_PREFIX . "datastore
 			WHERE title = '" . $this->dbobject->escape_string($title) ."'
 		");
+		$this->dbobject->show_errors();
 		if (!empty($dataitem['title']))
 		{
 			$this->build($dataitem['title'], $dataitem['data']);
@@ -901,8 +916,8 @@ class vB_Datastore_Filecache extends vB_Datastore
 
 /*======================================================================*\
 || ####################################################################
-|| # Downloaded: 16:21, Sat Apr 6th 2013
-|| # CVS: $RCSfile$ - $Revision: 26074 $
+|| # Downloaded: 14:57, Sun Aug 11th 2013
+|| # CVS: $RCSfile$ - $Revision: 64477 $
 || ####################################################################
 \*======================================================================*/
 ?>

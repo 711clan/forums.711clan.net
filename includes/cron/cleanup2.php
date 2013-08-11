@@ -1,9 +1,9 @@
 <?php
 /*======================================================================*\
 || #################################################################### ||
-|| # vBulletin 3.7.2 Patch Level 2 - Licence Number VBF2470E4F
+|| # vBulletin 4.2.1 - Licence Number VBC2DDE4FB
 || # ---------------------------------------------------------------- # ||
-|| # Copyright ©2000-2013 Jelsoft Enterprises Ltd. All Rights Reserved. ||
+|| # Copyright ©2000-2013 vBulletin Solutions Inc. All Rights Reserved. ||
 || # This file may not be redistributed in whole or significant part. # ||
 || # ---------------- VBULLETIN IS NOT FREE SOFTWARE ---------------- # ||
 || # http://www.vbulletin.com | http://www.vbulletin.com/license.html # ||
@@ -43,6 +43,18 @@ $vbulletin->db->query_write("
 	WHERE dateline < " . (TIMENOW - 3600)
 );
 
+//expire groupmessage_hash after 5 minutes
+$vbulletin->db->query_write("
+ DELETE FROM " . TABLE_PREFIX . "groupmessage_hash
+ WHERE dateline < " . (TIMENOW - 300)
+);
+
+//expire picturecomment_hash after 5 minutes
+$vbulletin->db->query_write("
+ DELETE FROM " . TABLE_PREFIX . "picturecomment_hash
+ WHERE dateline < " . (TIMENOW - 300)
+);
+
 // expired cached posts
 $vbulletin->db->query_write("
 	DELETE FROM " . TABLE_PREFIX . "postparsed
@@ -50,14 +62,22 @@ $vbulletin->db->query_write("
 );
 
 // Orphaned Attachments are removed after one hour
-$attachdata =& datamanager_init('Attachment', $vbulletin, ERRTYPE_SILENT);
-$attachdata->set_condition("attachment.postid = 0 AND attachment.dateline < " . (TIMENOW - 3600));
+$attachdata =& datamanager_init('Attachment', $vbulletin, ERRTYPE_SILENT, 'attachment');
+$attachdata->set_condition("a.contentid = 0 AND a.dateline < " . (TIMENOW - 3600));
+$attachdata->delete(true, false);
+
+// Unused filedata is removed after one hour
+$attachdata =& datamanager_init('Filedata', $vbulletin, ERRTYPE_SILENT, 'attachment');
+$attachdata->set_condition("fd.refcount = 0 AND fd.dateline < " . (TIMENOW - 3600));
 $attachdata->delete();
 
 // Orphaned pmtext records are removed after one hour.
 // When we delete PMs we only delete the pm record, leaving
 // the pmtext record alone for this script to clean up
-$pmtexts = $vbulletin->db->query_read("
+// this is kind of an expensive query (needs to scan the entire pmtext table)
+// Moving it to the slave won't cause any real problems (might cause a delete
+// to be defered to a future cleanup)
+$pmtexts = $vbulletin->db->query_read_slave("
 	SELECT pmtext.pmtextid
 	FROM " . TABLE_PREFIX . "pmtext AS pmtext
 	LEFT JOIN " . TABLE_PREFIX . "pm AS pm USING(pmtextid)
@@ -80,14 +100,29 @@ $vbulletin->db->query_write("
 	WHERE dateline  < " . (TIMENOW - $vbulletin->options['externalcache'] * 60) . "
 ");
 
+// Stale pm throttle data
+if ($vbulletin->options['pmthrottleperiod'])
+{
+	$vbulletin->db->query_write("
+		DELETE FROM " . TABLE_PREFIX . "pmthrottle
+		WHERE dateline < " . (TIMENOW - $vbulletin->options['pmthrottleperiod'] * 60) . "
+	");
+}
+
+// Out of date album updates
+$vbulletin->db->query_write("
+	DELETE FROM " . TABLE_PREFIX . "albumupdate
+	WHERE dateline < " . (TIMENOW - $vbulletin->options['album_recentalbumdays'] * 86400) . "
+");
+
 ($hook = vBulletinHook::fetch_hook('cron_script_cleanup_hourly2')) ? eval($hook) : false;
 
 log_cron_action('', $nextitem, 1);
 
 /*======================================================================*\
 || ####################################################################
-|| # Downloaded: 16:21, Sat Apr 6th 2013
-|| # CVS: $RCSfile$ - $Revision: 26900 $
+|| # Downloaded: 14:57, Sun Aug 11th 2013
+|| # CVS: $RCSfile$ - $Revision: 38549 $
 || ####################################################################
 \*======================================================================*/
 ?>

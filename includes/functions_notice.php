@@ -1,9 +1,9 @@
 <?php
 /*======================================================================*\
 || #################################################################### ||
-|| # vBulletin 3.7.2 Patch Level 2 - Licence Number VBF2470E4F
+|| # vBulletin 4.2.1 - Licence Number VBC2DDE4FB
 || # ---------------------------------------------------------------- # ||
-|| # Copyright ©2000-2013 Jelsoft Enterprises Ltd. All Rights Reserved. ||
+|| # Copyright ©2000-2013 vBulletin Solutions Inc. All Rights Reserved. ||
 || # This file may not be redistributed in whole or significant part. # ||
 || # ---------------- VBULLETIN IS NOT FREE SOFTWARE ---------------- # ||
 || # http://www.vbulletin.com | http://www.vbulletin.com/license.html # ||
@@ -41,18 +41,51 @@ function check_notice_criteria_between($value, $cond1, $cond2)
 }
 
 /**
+* Fetches the IDs of the dismissed notices so we do not display them for the user.
+*
+*/
+function fetch_dismissed_notices()
+{
+	static $dismissed_notices = null;
+	if ($dismissed_notices === null)
+	{
+		global $vbulletin;
+
+		$dismissed_notices = array();
+
+		if (!$vbulletin->userinfo['userid'])
+		{
+			return $dismissed_notices;
+		}
+
+		$noticeids = $vbulletin->db->query_read("
+			SELECT noticeid
+			FROM " . TABLE_PREFIX . "noticedismissed AS noticedismissed
+			WHERE noticedismissed.userid = " . $vbulletin->userinfo['userid']
+		);
+
+		while($noticeid = $vbulletin->db->fetch_array($noticeids))
+		{
+			$dismissed_notices[] = $noticeid['noticeid'];
+		}
+		$vbulletin->db->free_result($noticeids);
+	}
+	return $dismissed_notices;
+}
+
+/**
 * Fetches the IDs of the notices to display on a particular page.
 *
 * @return	array	Array of IDs to display
 */
 function fetch_relevant_notice_ids()
 {
-	global $vbulletin, $vbphrase, $stylevar, $foruminfo, $threadinfo, $postinfo;
+	global $vbulletin, $vbphrase, $foruminfo, $threadinfo, $postinfo;
 
 
 	$forum_pages = array('poll', 'editpost', 'threadrate', 'postings', 'showthread', 'newthread', 'forumdisplay', 'newreply', 'threadtag', 'inlinemod', 'announcement', 'showpost');
 
-	$ignore_np_notices = explode(',', $_COOKIE[COOKIE_PREFIX . 'np_notices_displayed']);
+	$ignore_np_notices = isset($_COOKIE[COOKIE_PREFIX . 'np_notices_displayed']) ? explode(',', $_COOKIE[COOKIE_PREFIX . 'np_notices_displayed']) : array();
 	$display_notices = array();
 	$vbulletin->np_notices_displayed = array();
 
@@ -67,6 +100,14 @@ function fetch_relevant_notice_ids()
 				case 'persistent':
 				{
 					if ($conditions == 0 AND in_array($noticeid, $ignore_np_notices)) // session cookie set in print_output()
+					{
+						continue 3;
+					}
+					break;
+				}
+				case 'dismissible':
+				{
+					if ($conditions == 1 AND in_array($noticeid, fetch_dismissed_notices()))
 					{
 						continue 3;
 					}
@@ -106,7 +147,7 @@ function fetch_relevant_notice_ids()
 				}
 				case 'browsing_forum_x_and_children':
 				{
-					if (!in_array(intval($conditions[0]), explode(',', $foruminfo['parentlist'])) OR !in_array(THIS_SCRIPT, $forum_pages))
+					if (!in_array(THIS_SCRIPT, $forum_pages) OR !in_array(intval($conditions[0]), explode(',', $foruminfo['parentlist'])))
 					{
 						continue 3;
 					}
@@ -192,6 +233,12 @@ function fetch_relevant_notice_ids()
 					}
 					break;
 				}
+				case 'came_from_search_engine':
+					if (!is_came_from_search_engine())
+					{
+						continue 3;
+					}
+					break;
 				case 'style_is_x':
 				{
 					if (STYLEID != intval($conditions[0]))
@@ -210,7 +257,39 @@ function fetch_relevant_notice_ids()
 				}
 				case 'is_date':
 				{
-					if (vbdate('d-m-Y', TIMENOW, false, false) != $conditions[0])
+					if (empty($conditions[1]) AND vbdate('d-m-Y', TIMENOW, false, false) != $conditions[0]) // user timezone
+					{
+						continue 3;
+					}
+					else if ($conditions[1] AND gmdate('d-m-Y', TIMENOW) != $conditions[0]) // utc
+					{
+						continue 3;
+					}
+					break;
+				}
+				case 'is_time':
+				{
+					if (preg_match('#^(\d{1,2}):(\d{2})$#', $conditions[0], $start_time) AND preg_match('#^(\d{1,2}):(\d{2})$#', $conditions[1], $end_time))
+					{
+						if (empty($conditions[2])) // user timezone
+						{
+							$start = mktime($start_time[1], $start_time[2]) + $vbulletin->options['hourdiff'];
+							$end   = mktime($end_time[1], $end_time[2]) + $vbulletin->options['hourdiff'];
+							$now   = mktime() + $vbulletin->options['hourdiff'];
+						}
+						else // utc
+						{
+							$start = gmmktime($start_time[1], $start_time[2]);
+							$end   = gmmktime($end_time[1], $end_time[2]);
+							$now   = gmmktime();
+						}
+
+						if ($now < $start OR $now > $end)
+						{
+							continue 3;
+						}
+					}
+					else
 					{
 						continue 3;
 					}
@@ -257,8 +336,8 @@ function fetch_relevant_notice_ids()
 
 /*======================================================================*\
 || ####################################################################
-|| # Downloaded: 16:21, Sat Apr 6th 2013
-|| # CVS: $RCSfile$ - $Revision: 26621 $
+|| # Downloaded: 14:57, Sun Aug 11th 2013
+|| # CVS: $RCSfile$ - $Revision: 38992 $
 || ####################################################################
 \*======================================================================*/
 ?>

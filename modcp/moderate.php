@@ -1,9 +1,9 @@
 <?php
 /*======================================================================*\
 || #################################################################### ||
-|| # vBulletin 3.7.2 Patch Level 2 - Licence Number VBF2470E4F
+|| # vBulletin 4.2.1 - Licence Number VBC2DDE4FB
 || # ---------------------------------------------------------------- # ||
-|| # Copyright ©2000-2013 Jelsoft Enterprises Ltd. All Rights Reserved. ||
+|| # Copyright ©2000-2013 vBulletin Solutions Inc. All Rights Reserved. ||
 || # This file may not be redistributed in whole or significant part. # ||
 || # ---------------- VBULLETIN IS NOT FREE SOFTWARE ---------------- # ||
 || # http://www.vbulletin.com | http://www.vbulletin.com/license.html # ||
@@ -14,7 +14,7 @@
 error_reporting(E_ALL & ~E_NOTICE);
 
 // ##################### DEFINE IMPORTANT CONSTANTS #######################
-define('CVS_REVISION', '$RCSfile$ - $Revision: 26328 $');
+define('CVS_REVISION', '$RCSfile$ - $Revision: 63836 $');
 
 // #################### PRE-CACHE TEMPLATES AND DATA ######################
 $phrasegroups = array('thread',	'calendar', 'timezone', 'threadmanage');
@@ -174,11 +174,11 @@ if ($_REQUEST['do'] == 'events')
 
 			if (can_moderate_calendar($eventinfo['calendarid'], 'caneditevents'))
 			{
-				print_input_row('<b>' . $vbphrase['subject'] . '</b>', "eventsubject[$eventinfo[eventid]]", $eventinfo['subject']);
+				print_input_row('<b>' . $vbphrase['subject'] . '</b>', "eventsubject[$eventinfo[eventid]]", $eventinfo['subject'], false);
 			}
 			else
 			{
-				print_label_row('<b>' . $vbphrase['subject'] . '</b>', htmlspecialchars_uni($eventinfo['subject']));
+				print_label_row('<b>' . $vbphrase['subject'] . '</b>', $eventinfo['subject']);
 				construct_hidden_code("eventsubject[$eventinfo[eventid]]", $eventinfo['subject']);
 			}
 
@@ -411,13 +411,13 @@ if ($_REQUEST['do'] == 'posts')
 			}
 			if (!($vbulletin->userinfo['permissions']['adminpermissions'] & $vbulletin->bf_ugp_adminpermissions['cancontrolpanel']))
 			{
-				print_label_row('<b>' . $vbphrase['posted_by'] . '</b>', iif($thread['userid'], '<a href="user.php?' . $vbulletin->session->vars['sessionurl'] . "do=viewuser&u=$thread[userid]\" target=\"_blank\">$thread[username]</a>", $vbphrase['guest']));
+				print_label_row('<b>' . $vbphrase['posted_by'] . '</b>', iif($thread['userid'], '<a href="user.php?' . $vbulletin->session->vars['sessionurl'] . "do=viewuser&u=$thread[userid]\" target=\"_blank\">$thread[username]</a>", empty($thread['username']) ? $vbphrase['guest'] : $thread['username']));
 			}
 			else
 			{
-				print_label_row('<b>' . $vbphrase['posted_by'] . '</b>', iif($thread['userid'], '<a href="../' . $vbulletin->config['Misc']['admincpdir'] . '/user.php?' . $vbulletin->session->vars['sessionurl'] . "do=edit&u=$thread[userid]\" target=\"_blank\">$thread[username]</a>", $vbphrase['guest']));
+				print_label_row('<b>' . $vbphrase['posted_by'] . '</b>', iif($thread['userid'], '<a href="../' . $vbulletin->config['Misc']['admincpdir'] . '/user.php?' . $vbulletin->session->vars['sessionurl'] . "do=edit&u=$thread[userid]\" target=\"_blank\">$thread[username]</a>", empty($thread['username']) ? $vbphrase['guest'] : $thread['username']));
 			}
-			print_label_row('<b>' . $vbphrase['forum'] . '</b>', '<a href="../forumdisplay.php?' . $vbulletin->session->vars['sessionurl'] . "f=$thread[forumid]\" target=\"_blank\">" . $vbulletin->forumcache["$thread[forumid]"]['title'] . "</a>");
+			print_label_row('<b>' . $vbphrase['forum'] . '</b>', '<a href="../' . fetch_seo_url('forum', array('forumid' => $thread['forumid'], 'title' => $vbulletin->forumcache["$thread[forumid]"]['title'])) . "\" target=\"_blank\">" . $vbulletin->forumcache["$thread[forumid]"]['title'] . "</a>");
 
 			if (can_moderate(0, 'caneditthreads'))
 			{
@@ -474,7 +474,7 @@ if ($_REQUEST['do'] == 'posts')
 		$postids = implode(',', $postids);
 		$posts = $db->query_read("
 			SELECT postid, pagetext, post.dateline, post.userid, post.title AS post_title,
-			thread.title AS thread_title, thread.forumid AS forumid, username, thread.threadid
+			thread.title AS threadtitle, thread.forumid AS forumid, username, thread.threadid
 			FROM " . TABLE_PREFIX . "post AS post
 			LEFT JOIN " . TABLE_PREFIX . "thread AS thread ON(thread.threadid = post.threadid)
 			WHERE $sql AND postid IN($postids)
@@ -499,14 +499,14 @@ if ($_REQUEST['do'] == 'posts')
 			}
 			if (!($vbulletin->userinfo['permissions']['adminpermissions'] & $vbulletin->bf_ugp_adminpermissions['cancontrolpanel']))
 			{
-				print_label_row('<b>' . $vbphrase['posted_by'] . '</b>', iif($post['userid'], '<a href="user.php?' . $vbulletin->session->vars['sessionurl'] . "do=viewuser&u=$post[userid]\" target=\"_blank\">$post[username]</a>", $vbphrase['guest']));
+				print_label_row('<b>' . $vbphrase['posted_by'] . '</b>', iif($post['userid'], '<a href="user.php?' . $vbulletin->session->vars['sessionurl'] . "do=viewuser&u=$post[userid]\" target=\"_blank\">$post[username]</a>", empty($post['username']) ? $vbphrase['guest'] : $post['username']));
 			}
 			else
 			{
-				print_label_row('<b>' . $vbphrase['posted_by'] . '</b>', iif($post['userid'], '<a href="../' . $vbulletin->config['Misc']['admincpdir'] . '/user.php?' . $vbulletin->session->vars['sessionurl'] . "do=edit&u=$post[userid]\" target=\"_blank\">$post[username]</a>", $vbphrase['guest']));
+				print_label_row('<b>' . $vbphrase['posted_by'] . '</b>', iif($post['userid'], '<a href="../' . $vbulletin->config['Misc']['admincpdir'] . '/user.php?' . $vbulletin->session->vars['sessionurl'] . "do=edit&u=$post[userid]\" target=\"_blank\">$post[username]</a>", empty($post['username']) ? $vbphrase['guest'] : $post['username']));
 			}
-			print_label_row('<b>' . $vbphrase['thread'] . '</b>', '<a href="../showthread.php?' . $vbulletin->session->vars['sessionurl'] . "t=$post[threadid]\" target=\"_blank\">$post[thread_title]</a>");
-			print_label_row('<b>' . $vbphrase['forum'] . '</b> ', '<a href="../forumdisplay.php?' . $vbulletin->session->vars['sessionurl'] . "f=$post[forumid]\" target=\"_blank\">" . $vbulletin->forumcache["$post[forumid]"]['title'] . "</a>");
+			print_label_row('<b>' . $vbphrase['thread'] . '</b>', '<a href="../' . fetch_seo_url('thread', $post, null, 'threadid', 'threadtitle') . "\" target=\"_blank\">$post[threadtitle]</a>");
+			print_label_row('<b>' . $vbphrase['forum'] . '</b> ', '<a href="../' . fetch_seo_url('forum', array('forumid' => $post['forumid'], 'title' => $vbulletin->forumcache["$post[forumid]"]['title'])) . "\" target=\"_blank\">" . $vbulletin->forumcache["$post[forumid]"]['title'] . "</a>");
 
 			if (can_moderate(0, 'caneditposts'))
 			{
@@ -578,10 +578,6 @@ if ($_POST['do'] == 'doposts')
 
 	if (!empty($vbulletin->GPC['threadaction']))
 	{
-		if ($vbulletin->options['similarthreadsearch'])
-		{
-			require_once(DIR . '/includes/functions_search.php');
-		}
 		$modlog = array();
 		foreach ($vbulletin->GPC['threadaction'] AS $threadid => $action)
 		{
@@ -609,7 +605,11 @@ if ($_POST['do'] == 'doposts')
 				$threadman->set('notes', $vbulletin->GPC['threadnotes']["$threadid"]);
 				if ($vbulletin->options['similarthreadsearch'])
 				{
-					$threadman->set('similar', fetch_similar_threads($vbulletin->GPC['threadtitle']["$threadid"], $threadinfo['threadid']));
+					require_once(DIR . '/vb/search/core.php');
+					$searchcontroller = vB_Search_Core::get_instance()->get_search_controller();
+					$similarthreads = $searchcontroller->get_similar_threads($vbulletin->GPC['threadtitle']["$threadid"],
+					$threadinfo['threadid']);
+					$threadman->set('similar', implode(',', $similarthreads));
 				}
 				$threadman->save();
 				unset($threadman);
@@ -643,7 +643,6 @@ if ($_POST['do'] == 'doposts')
 						FROM " . TABLE_PREFIX . "post
 						WHERE threadid = $threadid AND visible = 1
 					");
-					$userbyuserid = array();
 					while ($post = $vbulletin->db->fetch_array($posts))
 					{
 						if (!isset($userbyuserid["$post[userid]"]))
@@ -875,66 +874,56 @@ if ($_POST['do'] == 'doposts')
 
 	define('CP_REDIRECT', 'moderate.php?do=posts');
 	print_stop_message('moderated_posts_successfully');
-
 }
-
 
 // ###################### Start attachment moderation #######################
 if ($_REQUEST['do'] == 'attachments')
 {
-	$sql = fetch_moderator_forum_list_sql('canmoderateattachments');
+	vB_Router::setRelativePath('../');
 
 	print_form_header('moderate', 'doattachments');
 	print_table_header($vbphrase['attachments_awaiting_moderation']);
 
 	$done = false;
-	if ($sql)
+
+	require_once(DIR . '/packages/vbattach/attach.php');
+	$attachmultiple = new vB_Attachment_Display_Multiple($vbulletin);
+	$attachments = $attachmultiple->fetch_results("a.state = 'moderation' AND a.contentid <> 0", false, 0, 0);
+
+	foreach ($attachments AS $attachment)
 	{
-		$attachments = $db->query_read("
-			SELECT user.username, post.username AS postusername, attachment.filename, attachment.postid, thread.forumid, thread.threadid, attachment.thumbnail_dateline,
-				attachment.attachmentid, IF(thumbnail_filesize > 0, 1, 0) AS hasthumbnail, thumbnail_filesize, attachment.filesize, attachment.dateline
-			FROM " . TABLE_PREFIX . "attachment AS attachment
-			LEFT JOIN " . TABLE_PREFIX . "post AS post ON (attachment.postid = post.postid)
-			LEFT JOIN " . TABLE_PREFIX . "thread AS thread ON (post.threadid = thread.threadid)
-			LEFT JOIN " . TABLE_PREFIX . "user AS user ON (attachment.userid = user.userid)
-			WHERE $sql AND attachment.visible = 0 AND attachment.postid <> 0
-		");
-		while ($attachment = $db->fetch_array($attachments))
+		if ($done)
 		{
-			if ($done)
+			print_description_row('<span class="smallfont">&nbsp;</span>', 0, 2, 'thead');
+		}
+		else
+		{
+			print_description_row('
+				<input type="button" value="' . $vbphrase['validate'] . '" onclick="js_check_all_option(this.form, 1);" class="button" title="' . $vbphrase['validate'] . '"
+				/>&nbsp;<input type="button" value="' . $vbphrase['delete'] . '" onclick="js_check_all_option(this.form, -1);" class="button" title="' . $vbphrase['delete'] . '"
+				/>&nbsp;<input type="button" value="' . $vbphrase['ignore'] . '" onclick="js_check_all_option(this.form, 0);" class="button" title="' . $vbphrase['ignore'] . '" />
+			', 0, 2, 'thead', 'center');
+		}
+		print_label_row($vbphrase['attachment'], '<b> ' . '<a href="../attachment.php?' . $vbulletin->session->vars['sessionurl'] . "attachmentid=$attachment[attachmentid]&amp;d=$attachment[dateline]\" target=\"_blank\">" . htmlspecialchars_uni($attachment['filename']) . '</a></b>' . ' (' . vb_number_format($attachment['filesize'], 1, true) . ')');
+		$extension = strtolower(file_extension($attachment['filename']));
+		if ($extension == 'gif' OR $extension == 'jpg' OR $extension == 'jpe' OR $extension == 'jpeg' OR $extension == 'png' OR $extension == 'bmp')
+		{
+			if ($attachment['hasthumbnail'])
 			{
-				print_description_row('<span class="smallfont">&nbsp;</span>', 0, 2, 'thead');
+				print_label_row($vbphrase['thumbnail'], '<a href="../attachment.php?' . $vbulletin->session->vars['sessionurl'] . "attachmentid=$attachment[attachmentid]&amp;stc=1&amp;d=$attachment[thumbnail_dateline]\" target=\"_blank\"><img src=\"../attachment.php?" . $vbulletin->session->vars['sessionurl'] . "attachmentid=$attachment[attachmentid]&amp;thumb=1&amp;d=$attachment[dateline]\" border=\"0\" style=\"border: outset 1px #AAAAAA\" alt=\"\" /></a>");
 			}
 			else
 			{
-				print_description_row('
-					<input type="button" value="' . $vbphrase['validate'] . '" onclick="js_check_all_option(this.form, 1);" class="button" title="' . $vbphrase['validate'] . '"
-					/>&nbsp;<input type="button" value="' . $vbphrase['delete'] . '" onclick="js_check_all_option(this.form, -1);" class="button" title="' . $vbphrase['delete'] . '"
-					/>&nbsp;<input type="button" value="' . $vbphrase['ignore'] . '" onclick="js_check_all_option(this.form, 0);" class="button" title="' . $vbphrase['ignore'] . '" />
-				', 0, 2, 'thead', 'center');
+				print_label_row($vbphrase['image'], '<img src="../attachment.php?' . $vbulletin->session->vars['sessionurl'] . "attachmentid=$attachment[attachmentid]&amp;d=$attachment[dateline]\" border=\"0\" />");
 			}
-			print_label_row($vbphrase['attachment'], '<b> ' . '<a href="../attachment.php?' . $vbulletin->session->vars['sessionurl'] . "attachmentid=$attachment[attachmentid]&amp;d=$attachment[dateline]\" target=\"_blank\">" . htmlspecialchars_uni($attachment['filename']) . '</a></b>' . ' (' . vb_number_format($attachment['filesize'], 1, true) . ')');
-
-			$extension = strtolower(file_extension($attachment['filename']));
-			if ($extension == 'gif' OR $extension == 'jpg' OR $extension == 'jpe' OR $extension == 'jpeg' OR $extension == 'png' OR $extension == 'bmp')
-			{
-				if ($attachment['hasthumbnail'])
-				{
-					print_label_row($vbphrase['thumbnail'], '<a href="../attachment.php?' . $vbulletin->session->vars['sessionurl'] . "attachmentid=$attachment[attachmentid]&amp;stc=1&amp;d=$attachment[thumbnail_dateline]\" target=\"_blank\"><img src=\"../attachment.php?" . $vbulletin->session->vars['sessionurl'] . "attachmentid=$attachment[attachmentid]&amp;thumb=1&amp;d=$attachment[dateline]\" border=\"0\" style=\"border: outset 1px #AAAAAA\" alt=\"\" /></a>");
-				}
-				else
-				{
-					print_label_row($vbphrase['image'], '<img src="../attachment.php?' . $vbulletin->session->vars['sessionurl'] . "attachmentid=$attachment[attachmentid]&amp;d=$attachment[dateline]\" border=\"0\" />");
-				}
-			}
-			print_label_row($vbphrase['posted_by'], iif($attachment['username'], $attachment['username'], $attachment['postusername']). ' ' . construct_link_code($vbphrase['view_post'], '../showthread.php?' . $vbulletin->session->vars['sessionurl'] . "p=$attachment[postid]", 1));
-			print_label_row($vbphrase['action'], "
-				<label for=\"val_$attachment[attachmentid]\"><input type=\"radio\" name=\"attachaction[$attachment[attachmentid]]\" value=\"1\" id=\"val_$attachment[attachmentid]\" tabindex=\"1\" />" . $vbphrase['validate'] . "</label>
-				<label for=\"del_$attachment[attachmentid]\"><input type=\"radio\" name=\"attachaction[$attachment[attachmentid]]\" value=\"-1\" id=\"del_$attachment[attachmentid]\" tabindex=\"1\" />" . $vbphrase['delete'] . "</label>
-				<label for=\"ign_$attachment[attachmentid]\"><input type=\"radio\" name=\"attachaction[$attachment[attachmentid]]\" value=\"0\" id=\"ign_$attachment[attachmentid]\" tabindex=\"1\" checked=\"checked\" />" . $vbphrase['ignore'] . "</label>
-			", '', 'top', 'attachaction');
-			$done = true;
 		}
+		print_label_row($vbphrase['posted_by'], iif($attachment['username'], $attachment['username'], $attachment['postusername']). ' ' . construct_link_code($vbphrase['view_content'], $attachmultiple->fetch_content_url($attachment, '../'), 1));
+		print_label_row($vbphrase['action'], "
+			<label for=\"val_$attachment[attachmentid]\"><input type=\"radio\" name=\"attachaction[$attachment[attachmentid]]\" value=\"1\" id=\"val_$attachment[attachmentid]\" tabindex=\"1\" />" . $vbphrase['validate'] . "</label>
+			<label for=\"del_$attachment[attachmentid]\"><input type=\"radio\" name=\"attachaction[$attachment[attachmentid]]\" value=\"-1\" id=\"del_$attachment[attachmentid]\" tabindex=\"1\" />" . $vbphrase['delete'] . "</label>
+			<label for=\"ign_$attachment[attachmentid]\"><input type=\"radio\" name=\"attachaction[$attachment[attachmentid]]\" value=\"0\" id=\"ign_$attachment[attachmentid]\" tabindex=\"1\" checked=\"checked\" />" . $vbphrase['ignore'] . "</label>
+		", '', 'top', 'attachaction');
+		$done = true;
 	}
 
 	if (!$done)
@@ -956,10 +945,10 @@ if ($_POST['do'] == 'doattachments')
 		'attachaction' => TYPE_ARRAY_INT
 	));
 
-	$deleteids = '';
-	$approvedids = '';
-	$finalapproveids = '';
-	$finaldeleteids = '';
+	$deleteids = array();
+	$approvedids = array();
+	$finalapproveids = array();
+	$finaldeleteids = array();
 	foreach ($vbulletin->GPC['attachaction'] AS $attachmentid => $action)
 	{
 		if ($action == 0)
@@ -971,68 +960,81 @@ if ($_POST['do'] == 'doattachments')
 
 		if ($action == 1)
 		{ // validate
-			$approveids .= ',' . $attachmentid;
+			$approveids[] = $attachmentid;
 		}
 		else if ($action == -1)
 		{ // delete
-			$deleteids .= ',' . $attachmentid;
+			$deleteids[] = $attachmentid;
 		}
 	}
 
 	if (!empty($approveids))
 	{
-		$ids = $db->query_read("
-			SELECT attachmentid, forumid
-			FROM " . TABLE_PREFIX . "attachment AS attachment
-			LEFT JOIN " . TABLE_PREFIX . "post AS post ON (attachment.postid = post.postid)
-			LEFT JOIN " . TABLE_PREFIX . "thread AS thread ON (post.threadid = thread.threadid)
-			WHERE attachmentid IN (-1$approveids)
-				AND attachment.visible = 0
-				AND attachment.postid <> 0
+		require_once(DIR . '/packages/vbattach/attach.php');
+		$attachmultiple = new vB_Attachment_Display_Multiple($vbulletin);
+		$attachments = $attachmultiple->fetch_results("a.attachmentid IN (" . implode(",", $approveids) . ") AND a.state = 'moderation' AND a.contentid <> 0", false, 0, 0);
+
+		$db->query_write("
+			UPDATE " . TABLE_PREFIX . "attachment
+			SET	state = 'visible'
+			WHERE attachmentid IN (" . implode(",", array_keys($attachments)) . ")
 		");
-		while ($id = $db->fetch_array($ids))
+
+		vB_Router::setRelativePath('../');
+		$contenttypeid = vB_Types::instance()->getContentTypeID('vBForum_Album');
+		$albums = array();
+
+		//Fetchs only contentid from attachments that are album pictures
+		$pictures = $db->query_read_slave($sql = "
+		SELECT attachmentid, contentid
+		FROM " . TABLE_PREFIX . "attachment
+		WHERE attachmentid IN (" . implode(',', array_keys($attachments)) . ")
+			AND contenttypeid = $contenttypeid
+		");
+
+		require_once(DIR . '/includes/functions_album.php');
+		while($picture = $db->fetch_array($pictures))
 		{
-			if (can_moderate($id['forumid'], 'canmoderateattachments'))
+			// check if album has cover if not save the possible attachment for cover
+			$album = fetch_albuminfo($picture['contentid']);
+			if($album['coverattachmentid'] == 0)
 			{
-				$finalapproveids .= ",$id[attachmentid]";
+				$albums[$album['albumid']][] = $picture['attachmentid'];
+			}
+			else
+			{
+				$albums[$album['albumid']] = '';
 			}
 		}
-		if (!empty($finalapproveids))
+
+		foreach ($albums as $albumid => $attachments)
 		{
-			$db->query_write("
-				UPDATE " . TABLE_PREFIX . "attachment SET
-					visible = 1
-				WHERE attachmentid IN (0$finalapproveids)
-			");
+			$albumid = array('albumid' => $albumid);
+			$albumdata =& datamanager_init('Album', $vbulletin, ERRTYPE_SILENT);
+			$albumdata->set_existing($albumid);
+			//look for possible covers
+			if($attachments[0])
+			{
+				$albumdata->set('coverattachmentid',$attachments[0]);
+			}
+			//update albums
+			$albumdata->rebuild_counts();
+			$albumdata->save();
+			unset($albumdata);
+			exec_album_updated($vbulletin->userinfo, $albumid);
 		}
 	}
 
 	if (!empty($deleteids))
 	{
-		$ids = $db->query_read("
-			SELECT attachmentid, forumid
-			FROM " . TABLE_PREFIX . "attachment AS attachment
-			LEFT JOIN " . TABLE_PREFIX . "post AS post ON (attachment.postid = post.postid)
-			LEFT JOIN " . TABLE_PREFIX . "thread AS thread ON (post.threadid = thread.threadid)
-			WHERE attachmentid IN (-1$deleteids)
-				AND attachment.visible = 0
-				AND attachment.postid <> 0
-		");
-		while ($id = $db->fetch_array($ids))
-		{
-			if (can_moderate($id['forumid'], 'canmoderateattachments'))
-			{
-				$finaldeleteids .= ",$id[attachmentid]";
-			}
-		}
-		if (!empty($finaldeleteids))
-		{
-			$attachdata =& datamanager_init('Attachment', $vbulletin, ERRTYPE_CP);
-			$attachdata->condition = "attachmentid IN (0$finaldeleteids)";
-			$attachdata->delete();
-			unset($attachdata);
-		}
-	}
+		require_once(DIR . '/packages/vbattach/attach.php');
+		$attachmultiple = new vB_Attachment_Display_Multiple($vbulletin);
+		$attachments = $attachmultiple->fetch_results("a.attachmentid IN (" . implode(",", $deleteids) . ") AND a.state = 'moderation' AND a.contentid <> 0", false, 0, 0);
+
+		$attachdata =& datamanager_init('Attachment', $vbulletin, ERRTYPE_CP, 'attachment');
+		$attachdata->condition = "a.attachmentid IN (" . implode(",", array_keys($attachments)) . ")";
+		$attachdata->delete(true, false);
+}
 
 	define('CP_REDIRECT', 'moderate.php?do=attachments');
 	print_stop_message('moderated_attachments_successfully');
@@ -1042,8 +1044,8 @@ print_cp_footer();
 
 /*======================================================================*\
 || ####################################################################
-|| # Downloaded: 16:21, Sat Apr 6th 2013
-|| # CVS: $RCSfile$ - $Revision: 26328 $
+|| # Downloaded: 14:57, Sun Aug 11th 2013
+|| # CVS: $RCSfile$ - $Revision: 63836 $
 || ####################################################################
 \*======================================================================*/
 ?>

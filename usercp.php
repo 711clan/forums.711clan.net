@@ -1,9 +1,9 @@
 <?php
 /*======================================================================*\
 || #################################################################### ||
-|| # vBulletin 3.7.2 Patch Level 2 - Licence Number VBF2470E4F
+|| # vBulletin 4.2.1 - Licence Number VBC2DDE4FB
 || # ---------------------------------------------------------------- # ||
-|| # Copyright ©2000-2013 Jelsoft Enterprises Ltd. All Rights Reserved. ||
+|| # Copyright ©2000-2013 vBulletin Solutions Inc. All Rights Reserved. ||
 || # This file may not be redistributed in whole or significant part. # ||
 || # ---------------- VBULLETIN IS NOT FREE SOFTWARE ---------------- # ||
 || # http://www.vbulletin.com | http://www.vbulletin.com/license.html # ||
@@ -16,6 +16,7 @@ error_reporting(E_ALL & ~E_NOTICE);
 // #################### DEFINE IMPORTANT CONSTANTS #######################
 define('THIS_SCRIPT', 'usercp');
 define('CSRF_PROTECTION', true);
+define('CONTENT_PAGE', false);
 
 // ################### PRE-CACHE TEMPLATES AND DATA ######################
 // get special phrase groups
@@ -37,30 +38,20 @@ $globaltemplates = array(
 	// subscribed threads templates
 	'threadbit',
 	// subscribed forums templates
+	'forumhome_subforums',
 	'forumhome_forumbit_level1_post',
 	'forumhome_forumbit_level1_nopost',
 	'forumhome_forumbit_level2_post',
 	'forumhome_forumbit_level2_nopost',
-	'forumhome_subforumbit_nopost',
-	'forumhome_subforumbit_post',
-	'forumhome_subforumseparator_nopost',
-	'forumhome_subforumseparator_post',
 	'forumhome_lastpostby',
-	'forumhome_moderator',
-	'forumhome_markread_script',
-	'forumdisplay_loggedinuser',
 	// private messages templates
 	'pm_messagelistbit',
 	'pm_messagelistbit_ignore',
-	'pm_messagelistbit_user',
-	// reputation templates
-	'usercp_reputationbits',
-	// infraction templates
-	'userinfraction_infobit',
+	// group templates
 	'usercp_newvisitormessagebit',
-	'usercp_pendingfriendbit',
-	'usercp_groupinvitebit',
-	'usercp_groupattentionbit',
+	'socialgroups_discussion',
+	'socialgroups_grouplist_bit',
+	'socialgroups_groupmodlist_bit'
 );
 
 // pre-cache templates used by specific actions
@@ -81,21 +72,27 @@ if (!$vbulletin->userinfo['userid'] OR !($permissions['forumpermissions'] & $vbu
 }
 
 // main page:
-
+$includecss = array();
+$includeiecss = array();
 ($hook = vBulletinHook::fetch_hook('usercp_start')) ? eval($hook) : false;
 
 // ############################### start reputation ###############################
 
-$show['reputation'] = false;
+$repreceived = $repgiven = array();
+$show['reputation'] = $show['reputation_given'] = false;
 
-if ($vbulletin->options['reputationenable'] AND ($vbulletin->userinfo['showreputation'] OR !($permissions['genericpermissions'] & $vbulletin->bf_ugp_genericpermissions['canhiderep'])))
+if ($vbulletin->options['reputationenable'])
 {
+	require_once(DIR . '/includes/class_bbcode.php');
+	$bbcode_parser = new vB_BbCodeParser($vbulletin, fetch_tag_list());
+
 	$vbulletin->options['showuserrates'] = intval($vbulletin->options['showuserrates']);
 	$vbulletin->options['showuserraters'] = $permissions['genericpermissions'] & $vbulletin->bf_ugp_genericpermissions['canseeownrep'];
+
 	$reputations = $db->query_read_slave("
 		SELECT
 			reputation.whoadded, reputation.postid, reputation.reputation, reputation.reason, reputation.dateline,
-			user.userid, user.username, post.threadid, thread.title
+			user.userid, user.username, post.threadid, thread.title, thread.threadid, thread.forumid
 		FROM " . TABLE_PREFIX . "reputation AS reputation
 		LEFT JOIN " . TABLE_PREFIX . "post AS post ON (reputation.postid = post.postid AND post.visible = 1)
 		LEFT JOIN " . TABLE_PREFIX . "thread AS thread ON (post.threadid = thread.threadid AND thread.visible = 1)
@@ -106,49 +103,131 @@ if ($vbulletin->options['reputationenable'] AND ($vbulletin->userinfo['showreput
 		LIMIT 0, " . $vbulletin->options['showuserrates']
 	);
 
-	$reputationcommentbits = '';
-	if ($vbulletin->options['showuserraters'])
-	{
-		$reputationcolspan = 5;
-		$reputationbgclass = 'alt2';
-	}
-	else
-	{
-		$reputationcolspan = 4;
-		$reputationbgclass = 'alt1';
-	}
-
-	require_once(DIR . '/includes/class_bbcode.php');
-	$bbcode_parser =& new vB_BbCodeParser($vbulletin, fetch_tag_list());
-
+	$templater = vB_Template::create('usercp_reputationbits');
 	while ($reputation = $db->fetch_array($reputations))
 	{
-		if ($reputation['reputation'] > 0)
+		$forumperms = fetch_permissions($reputation['forumid']);
+		if ((($forumperms & $vbulletin->bf_ugp_forumpermissions['canview']) AND ($forumperms & $vbulletin->bf_ugp_forumpermissions['canviewthreads']))
+		AND (($forumperms & $vbulletin->bf_ugp_forumpermissions['canviewothers']) OR ($reputation['postuserid'] == $vbulletin->userinfo['userid'])))
 		{
-			$posneg = 'pos';
-		}
-		else if ($reputation['reputation'] < 0)
-		{
-			$posneg = 'neg';
-		}
-		else
-		{
-			$posneg = 'balance';
-		}
-		$reputation['timeline'] = vbdate($vbulletin->options['timeformat'], $reputation['dateline']);
-		$reputation['dateline'] = vbdate($vbulletin->options['dateformat'], $reputation['dateline']);
-		$reputation['reason'] = $bbcode_parser->parse($reputation['reason']);
-		if (vbstrlen($reputation['title']) > 25)
-		{
-			$reputation['title'] = fetch_trimmed_title($reputation['title'], 24);
-		}
+			if ($reputation['reputation'] > 0)
+			{
+				$posneg = 'pos';
+			}
+			else if ($reputation['reputation'] < 0)
+			{
+				$posneg = 'neg';
+			}
+			else
+			{
+				$posneg = 'balance';
+			}
 
-		($hook = vBulletinHook::fetch_hook('usercp_reputationbit')) ? eval($hook) : false;
+			$reputation['timeline'] = vbdate($vbulletin->options['timeformat'], $reputation['dateline']);
+			$reputation['dateline'] = vbdate($vbulletin->options['dateformat'], $reputation['dateline']);
+			$reputation['reason'] = $bbcode_parser->parse($reputation['reason']);
 
-		eval('$reputationcommentbits .= "' . fetch_template('usercp_reputationbits') . '";');
-		$show['reputation'] = true;
+			if (empty($reputation['reason']))
+			{
+				$reputation['reason'] = $vbphrase['no_comment'];
+			}
+
+			$threadinfo = array(
+				'threadid' => $reputation['threadid'],
+				'title'    => $reputation['title']
+			);
+
+			$show['reputation'] = true;
+			$pageinfo = array(
+				'p' => $reputation['postid']
+			);
+
+			($hook = vBulletinHook::fetch_hook('usercp_reputationbit')) ? eval($hook) : false;
+
+			$reputation['posneg'] = $posneg;
+			$reputation['threadinfo'] = $threadinfo;
+			$reputation['pageinfo'] = $pageinfo;
+
+			$repreceived[] = $reputation;
+		}
 	}
-	unset($bbcode_parser);
+
+	$reputations = $db->query_read_slave("
+		SELECT 	user.username, reputation.userid, reputationid, reputation.postid, thread.postuserid,
+		reason, post.threadid, reputation.dateline, thread.title, thread.forumid, reputation.reputation
+		FROM " . TABLE_PREFIX . "reputation AS reputation
+		LEFT JOIN " . TABLE_PREFIX . "post AS post ON(reputation.postid = post.postid)
+		LEFT JOIN " . TABLE_PREFIX . "thread AS thread ON(post.threadid = thread.threadid)
+		LEFT JOIN " . TABLE_PREFIX . "user AS user ON(user.userid = reputation.userid)
+		WHERE reputation.whoadded = ".$vbulletin->userinfo['userid']."
+		ORDER BY reputation.dateline DESC
+		LIMIT 0, " . $vbulletin->options['showuserrates']
+	);
+
+	$templater = vB_Template::create('usercp_reputationbits_given');
+	while ($reputation=$db->fetch_array($reputations))
+	{
+		$forumperms = fetch_permissions($reputation['forumid']);
+		if ((($forumperms & $vbulletin->bf_ugp_forumpermissions['canview']) AND ($forumperms & $vbulletin->bf_ugp_forumpermissions['canviewthreads']))
+		AND (($forumperms & $vbulletin->bf_ugp_forumpermissions['canviewothers']) OR ($reputation['postuserid'] == $vbulletin->userinfo['userid'])))
+		{
+			if ($reputation['reputation'] > 0)
+			{
+				$posneg = 'pos';
+			}
+			else if ($reputation['reputation'] < 0)
+			{
+				$posneg = 'neg';
+			}
+			else
+			{
+				$posneg = 'balance';
+			}
+
+			$show['reputation_given'] = true;
+			$pageinfo = array(
+				'p'    => $reputation['postid'],
+			);
+
+			$threadinfo = array(
+				'title'    => $reputation['title'],
+				'threadid' => $reputation['threadid'],
+			);
+
+			$reputation['timestamp'] = $reputation['dateline'];
+			$reputation['timeline'] = vbdate($vbulletin->options['timeformat'], $reputation['dateline']);
+			$reputation['dateline'] = vbdate($vbulletin->options['dateformat'], $reputation['dateline']);
+			$reputation['reason'] = $bbcode_parser->parse($reputation['reason']);
+
+			if (empty($reputation['reason']))
+			{
+				$reputation['reason'] = $vbphrase['no_comment'];
+			}
+
+			$reputation['posneg'] = $posneg;
+			$reputation['threadinfo'] = $threadinfo;
+			$reputation['pageinfo'] = $pageinfo;
+
+			($hook = vBulletinHook::fetch_hook('usercp_reputationgivenbit')) ? eval($hook) : false;
+
+			$repgiven[] = $reputation;
+		}
+	}
+
+	if ($show['reputation_given'])
+	{
+		require_once(DIR . '/includes/functions_reputation.php');
+		$vbulletin->userinfo['reppower'] = fetch_reppower($vbulletin->userinfo, $permissions);
+	}
+
+	if ($show['reputation'] AND $vbulletin->userinfo['newrepcount'])
+	{
+		$vbulletin->db->query_write("
+			UPDATE " . TABLE_PREFIX . "user
+			SET newrepcount = 0
+			WHERE userid = ".$vbulletin->userinfo['userid']."
+		");
+	}
 }
 
 // ############################### start pending friends ###############################
@@ -156,54 +235,44 @@ if ($vbulletin->options['reputationenable'] AND ($vbulletin->userinfo['showreput
 $show['pendingfriendrequests'] = false;
 if ($vbulletin->options['socnet'] & $vbulletin->bf_misc_socnet['enable_friends'])
 {
-	list($pendingfriendrequests) = $vbulletin->db->query_first("
-		SELECT COUNT(*)
-		FROM " . TABLE_PREFIX . "userlist AS userlist
-		LEFT JOIN " . TABLE_PREFIX . "userlist AS userlist_ignore ON (userlist_ignore.userid = " . $vbulletin->userinfo['userid'] . " AND userlist_ignore.relationid = userlist.userid AND userlist_ignore.type = 'ignore')
-		WHERE userlist.relationid = " . $vbulletin->userinfo['userid'] . "
-			AND userlist.friend = 'pending' AND userlist_ignore.type IS NULL
-	", DBARRAY_NUM);
-
-	$show['pendingfriendrequests'] = ($pendingfriendrequests ? true : false);
-
-	if ($show['pendingfriendrequests'])
-	{
-		$pendingfriends = $vbulletin->db->query_read("
+		$pending = $vbulletin->db->query_read("
 			SELECT user.*
 			FROM " . TABLE_PREFIX . "userlist AS userlist
-			LEFT JOIN " . TABLE_PREFIX . "userlist AS userlist_ignore ON (userlist_ignore.userid = " . $vbulletin->userinfo['userid'] . " AND userlist_ignore.relationid = userlist.userid AND userlist_ignore.type = 'ignore')
-			INNER JOIN " . TABLE_PREFIX . "user AS user ON
-				(user.userid = userlist.userid)
+			LEFT JOIN " . TABLE_PREFIX . "userlist AS userlist_ignore
+				ON (userlist_ignore.userid = " . $vbulletin->userinfo['userid'] . "
+				AND userlist_ignore.relationid = userlist.userid AND userlist_ignore.type = 'ignore')
+			INNER JOIN " . TABLE_PREFIX . "user AS user ON (user.userid = userlist.userid)
 			WHERE userlist.relationid = " . $vbulletin->userinfo['userid'] . "
 				AND userlist.friend = 'pending' AND userlist_ignore.type IS NULL
-			ORDER BY user.lastactivity DESC
-			LIMIT " . min(5, $pendingfriendrequests)
-		);
+		");
 
-		$pendingfriendbits = array();
-		$pendingfriendbits_joined = '';
-		$i = 0;
+		$pendingfriends = array();
+		$pendingfriendrequests = 0;
 
-		while ($pendingfriend = $vbulletin->db->fetch_array($pendingfriends))
+		while ($pendingfriend = $vbulletin->db->fetch_array($pending))
 		{
-			$loggedin =& $pendingfriend;
-			fetch_musername($loggedin);
-
-			$show['comma_leader'] = ($pendingfriendbits_joined != '');
-			eval('$pendingfriendbits_joined .= "' . fetch_template('forumdisplay_loggedinuser') . '";');
+			$pendingfriendrequests++;
+			if ($pendingfriendrequests <= 5)
+			{
+				fetch_musername($pendingfriend);
+				$pendingfriend['comma'] = $vbphrase['comma_space'];
+				$pendingfriends[$pendingfriendrequests] = $pendingfriend;
+			}
+			$show['pendingfriendrequests'] = true;
 		}
 
 		if ($pendingfriendrequests > 5)
 		{
-			$pendingfriendstext = construct_phrase($vbphrase['you_have_pending_friend_requests_from_x_and_y_more'], $pendingfriendbits_joined, vb_number_format($pendingfriendrequests - 5));
+			$pendingfriends[5]['comma'] = '';
+			$pendingfriendstext = construct_phrase($vbphrase['and_x_others'], vb_number_format($pendingfriendrequests - 5));
 		}
 		else
 		{
-			$pendingfriendstext = construct_phrase($vbphrase['you_have_pending_friend_requests_from_x'], $pendingfriendbits_joined);
+			$pendingfriends[$pendingfriendrequests]['comma'] = '';
+			$pendingfriendstext = '';
 		}
 
 		$pendingfriendrequests = vb_number_format($pendingfriendrequests);
-	}
 }
 
 // ############################### start visitor messages ###############################
@@ -242,17 +311,21 @@ if (
 			LIMIT " . min($newvisitormessages, 5)
 		);
 
+		$pageinfo_vm = array(
+			'tab' => 'visitor_messaging',
+		);
+
 		$newvisitormessagebits = '';
 		while ($visitormessage = $db->fetch_array($visitormessages))
 		{
 			$visitormessage['formatteddate'] = vbdate($vbulletin->options['dateformat'], $visitormessage['dateline'], true);
 			$visitormessage['formattedtime'] = vbdate($vbulletin->options['timeformat'], $visitormessage['dateline'], true);
-			$visitormessage['summary'] = fetch_word_wrapped_string(fetch_censored_text(fetch_trimmed_title(strip_bbcode($visitormessage['pagetext'], true, true), 50)));
+			$visitormessage['summary'] = htmlspecialchars_uni(fetch_word_wrapped_string(fetch_censored_text(fetch_trimmed_title(strip_bbcode($visitormessage['pagetext'], true, true), 50))));
 
-			$username = $visitormessage["username"];
-			$userid = $visitormessage["userid"];
-			eval('$userbit = "' . fetch_template('pm_messagelistbit_user') . '";');
-			eval('$newvisitormessagebits .= "' . fetch_template('usercp_newvisitormessagebit') . '";');
+			$templater = vB_Template::create('usercp_newvisitormessagebit');
+				$templater->register('pageinfo_vm', $pageinfo_vm);
+				$templater->register('visitormessage', $visitormessage);
+			$newvisitormessagebits .= $templater->render();
 		}
 
 		$newpublicmessages = vb_number_format($newpublicmessages);
@@ -261,61 +334,54 @@ if (
 
 // ############################### start social groups ###############################
 
+$show['invitedgroups'] = false;
 $show['groupattention'] = false;
 
 if ($vbulletin->options['socnet'] & $vbulletin->bf_misc_socnet['enable_groups'])
 {
-
-	list($groupsneedattention) = $vbulletin->db->query_first("
-		SELECT COUNT(*)
+	$groups = $db->query_read_slave("
+		SELECT *
 		FROM " . TABLE_PREFIX . "socialgroup
 		WHERE creatoruserid = " . $vbulletin->userinfo['userid'] . "
 			AND moderatedmembers > 0
-	", DBARRAY_NUM);
-	$show['groupattention'] = ($groupsneedattention ? true : false);
+		ORDER by dateline ASC
+	");
 
-	if ($show['groupattention'])
+	$groupsneedattention = 0;
+	$groupswaiting = array();
+
+	while ($group = $db->fetch_array($groups))
 	{
-		$groups = $db->query_read("
-			SELECT *
-			FROM " . TABLE_PREFIX . "socialgroup
-			WHERE creatoruserid = " . $vbulletin->userinfo['userid'] . "
-				AND moderatedmembers > 0
-			ORDER by dateline ASC
-		");
-
-		$pendinggroups = array();
-
-		while ($group = $db->fetch_array($groups))
+		$groupsneedattention++;
+		if ($groupsneedattention <= 5)
 		{
+			$group['comma'] = $vbphrase['comma_space'];
 			$group['moderatedmembers'] = vb_number_format($group['moderatedmembers']);
-			eval('$pendinggroups[] = "' . fetch_template('usercp_groupattentionbit') . '";');
+			$groupswaiting[$groupsneedattention] = $group;
 		}
-
-		$groups_awaiting = implode(', ', $pendinggroups);
-
-		if ($groupsneedattention > 5)
-		{
-			$groupsawaitingtext = construct_phrase($vbphrase['x_and_y_more'], $groups_awaiting, vb_number_format($groupsneedtending - 5));
-		}
-		else
-		{
-			$groupsawaitingtext = $groups_awaiting;
-		}
-
-		$groupsneedattention = vb_number_format($groupsneedattention);
 	}
-}
 
-$show['invitedgroups'] = false;
+	// Last element
+	if ($groupsneedattention)
+	{
+		$clc = sizeof($groupswaiting);
+		$groupswaiting[$clc]['comma'] = '';
+	}
 
-if ($vbulletin->options['socnet'] & $vbulletin->bf_misc_socnet['enable_groups'])
-{
+	if ($groupsneedattention > 5)
+	{
+		$show['moregroups'] = true;
+	}
+
+	$show['groupattention'] = ($groupsneedattention ? true : false);
+	$groupsleft = vb_number_format($groupsneedattention - 5);
+	$groupsneedattention = vb_number_format($groupsneedattention);
+
 	if ($vbulletin->userinfo['socgroupinvitecount'] > 0)
 	{
 		$show['invitedgroups'] = true;
 
-		$groups = $db->query_read("
+		$groups = $db->query_read_slave("
 			SELECT socialgroup.* FROM " . TABLE_PREFIX . "socialgroupmember AS socialgroupmember
 			INNER JOIN " . TABLE_PREFIX . "socialgroup AS socialgroup
 				ON (socialgroupmember.groupid = socialgroup.groupid)
@@ -325,22 +391,27 @@ if ($vbulletin->options['socnet'] & $vbulletin->bf_misc_socnet['enable_groups'])
 			LIMIT " . min($vbulletin->userinfo['socgroupinvitecount'], 5) . "
 		");
 
+		$clc = 0;
 		$pendinginvites = array();
 		while($group = $db->fetch_array($groups))
 		{
-			eval('$pendinginvites[] = "' . fetch_template('usercp_groupinvitebit') . '";');
+			$clc++;
+			$group['comma'] = $vbphrase['comma_space'];
+			$pendinginvites[$clc] = $group;
 		}
 
-		$pendinginvites_joined = implode(', ', $pendinginvites);
+		// Last element
+		if ($clc)
+		{
+			$pendinginvites[$clc]['comma'] = '';
+		}
+
 		if ($vbulletin->userinfo['socgroupinvitecount'] > 5)
 		{
-			$invitetext = construct_phrase($vbphrase['x_and_y_more'], $pendinginvites_joined, vb_number_format($vbulletin->userinfo['socgroupinvitecount'] - 5));
-		}
-		else
-		{
-			$invitetext = $pendinginvites_joined;
+			$show['moreinvites'] = true;
 		}
 
+		$invitesleft = vb_number_format($vbulletin->userinfo['socgroupinvitecount'] - 5);
 		$vbulletin->userinfo['socgroupinvitecount'] = vb_number_format($vbulletin->userinfo['socgroupinvitecount']);
 	}
 }
@@ -406,7 +477,11 @@ if ($vbulletin->options['enablepms'] AND ($permissions['pmquota'] > 0 OR $vbulle
 				}
 				else
 				{
-					eval('$messagelistbits .= "' . fetch_template('pm_messagelistbit_ignore') . '";');
+					$templater = vB_Template::create('pm_messagelistbit_ignore');
+						$templater->register('groupid', $groupid);
+						$templater->register('pm', $pm);
+						$templater->register('pmid', $pmid);
+					$messagelistbits .= $templater->render();
 
 					$shown_unread_pms++;
 					$show['privatemessages'] = true;
@@ -414,7 +489,11 @@ if ($vbulletin->options['enablepms'] AND ($permissions['pmquota'] > 0 OR $vbulle
 			}
 			else if ($pm['ignored'])
 			{
-				eval('$messagelistbits .= "' . fetch_template('pm_messagelistbit_ignore') . '";');
+				$templater = vB_Template::create('pm_messagelistbit_ignore');
+					$templater->register('groupid', $groupid);
+					$templater->register('pm', $pm);
+					$templater->register('pmid', $pmid);
+				$messagelistbits .= $templater->render();
 
 				$shown_unread_pms++;
 				$show['privatemessages'] = true;
@@ -424,14 +503,21 @@ if ($vbulletin->options['enablepms'] AND ($permissions['pmquota'] > 0 OR $vbulle
 				$pm['senddate'] = vbdate($vbulletin->options['dateformat'], $pm['dateline'], 1);
 				$pm['sendtime'] = vbdate($vbulletin->options['timeformat'], $pm['dateline']);
 				$pm['statusicon'] = 'new';
-				$userid =& $pm['fromuserid'];
-				$username =& $pm['fromusername'];
+
+				$userinfo = array(
+					'userid'   => $pm['fromuserid'],
+					'username' => $pm['fromusername'],
+				);
 
 				$show['pmicon'] = iif($pm['iconpath'], true, false);
 				$show['unread'] = iif(!$pm['messageread'], true, false);
 
-				eval('$userbit = "' . fetch_template('pm_messagelistbit_user') . '";');
-				eval('$messagelistbits .= "' . fetch_template('pm_messagelistbit') . '";');
+				$templater = vB_Template::create('pm_messagelistbit');
+					$templater->register('groupid', $groupid);
+					$templater->register('pm', $pm);
+					$templater->register('pmid', $pmid);
+					$templater->register('userbit', array($userinfo));
+				$messagelistbits .= $templater->render();
 
 				$shown_unread_pms++;
 				$show['privatemessages'] = true;
@@ -440,6 +526,12 @@ if ($vbulletin->options['enablepms'] AND ($permissions['pmquota'] > 0 OR $vbulle
 
 		$numpms = max($shown_unread_pms, $vbulletin->userinfo['pmunread']);
 		$show['more_pms_link'] = ($numpms > 5);
+
+		if ($messagelistbits)
+		{
+			$includecss['postbit-lite'] = 'private.css';
+			$includeiecss['postbit-lite'] = 'private-ie.css';
+		}
 	}
 }
 
@@ -467,8 +559,10 @@ if ($show['forums'])
 		cache_moderators($vbulletin->userinfo['userid']);
 	}
 	fetch_last_post_array();
+
+	$show['collapsable_forums'] = true;
 	$forumbits = construct_forum_bit(-1, 0, 1);
-	eval('$forumbits .= "' . fetch_template('forumhome_markread_script') . '";');
+
 	if ($forumshown == 1)
 	{
 		$show['forums'] = true;
@@ -615,6 +709,7 @@ if (!empty($threadids))
 	{
 		$lastpost_info = "IF(tachythreadpost.userid IS NULL, thread.lastpost, tachythreadpost.lastpost) AS lastpost, " .
 			"IF(tachythreadpost.userid IS NULL, thread.lastposter, tachythreadpost.lastposter) AS lastposter, " .
+			"IF(tachythreadpost.userid IS NULL, thread.lastposterid, tachythreadpost.lastposterid) AS lastposterid, " .
 			"IF(tachythreadpost.userid IS NULL, thread.lastpostid, tachythreadpost.lastpostid) AS lastpostid";
 
 		$tachyjoin = "LEFT JOIN " . TABLE_PREFIX . "tachythreadpost AS tachythreadpost ON " .
@@ -622,7 +717,7 @@ if (!empty($threadids))
 	}
 	else
 	{
-		$lastpost_info = 'thread.lastpost, thread.lastposter, thread.lastpostid';
+		$lastpost_info = 'thread.lastpost, thread.lastposter, thread.lastposterid, thread.lastpostid';
 		$tachyjoin = '';
 	}
 
@@ -631,8 +726,10 @@ if (!empty($threadids))
 
 	$getthreads = $db->query_read_slave("
 		SELECT $previewfield
-			thread.threadid, thread.title AS threadtitle, forumid, pollid, open, replycount, postusername, postuserid,
-			thread.prefixid, thread.taglist, thread.dateline, views, thread.iconid AS threadiconid, notes, thread.visible,
+			thread.threadid, thread.title AS threadtitle, thread.forumid, thread.pollid,
+			thread.open, thread.replycount, thread.postusername, thread.postuserid,
+			thread.prefixid, thread.taglist, thread.dateline, thread.views, thread.iconid AS threadiconid,
+			thread.notes, thread.visible,
 			$lastpost_info
 			" . ($vbulletin->options['threadmarking'] ? ", threadread.readtime AS threadread" : '') . "
 			$hook_query_fields
@@ -709,6 +806,7 @@ if (!empty($threadids))
 		}
 
 		$threadbits = '';
+		$pageinfo = array();
 		foreach ($threads AS $threadid => $thread)
 		{
 			$thread = process_thread_array($thread, $lastread["$thread[forumid]"]);
@@ -716,7 +814,27 @@ if (!empty($threadids))
 
 			($hook = vBulletinHook::fetch_hook('threadbit_display')) ? eval($hook) : false;
 
-			eval('$threadbits .= "' . fetch_template('threadbit') . '";');
+			$pageinfo_lastpage = array();
+			if ($show['pagenavmore'])
+			{
+				$pageinfo_lastpage['page'] = $thread['totalpages'];
+			}
+			$pageinfo_newpost = array('goto' => 'newpost');
+			$pageinfo_lastpost = array('p' => $thread['lastpostid']);
+
+			// prepare the member action drop-down menu
+			$memberaction_dropdown = construct_memberaction_dropdown(fetch_lastposter_userinfo($thread));
+
+			$templater = vB_Template::create('threadbit');
+				$templater->register('pageinfo', $pageinfo);
+				$templater->register('pageinfo_lastpage', $pageinfo_lastpage);
+				$templater->register('pageinfo_lastpost', $pageinfo_lastpost);
+				$templater->register('pageinfo_newpost', $pageinfo_newpost);
+				$templater->register('subscribethread', $subscribethread);
+				$templater->register('memberaction_dropdown', $memberaction_dropdown);
+				$templater->register('thread', $thread);
+				$templater->register('threadid', $threadid);
+			$threadbits .= $templater->render();
 			$numthreads ++;
 		}
 
@@ -724,12 +842,121 @@ if (!empty($threadids))
 	}
 }
 
+// ############################## start subscribed to groups #################################
+
+$show['socialgroups'] = false;
+
+if (($vbulletin->options['socnet'] & $vbulletin->bf_misc_socnet['enable_groups'])
+	AND ($vbulletin->userinfo['permissions']['socialgrouppermissions'] & $vbulletin->bf_ugp_socialgrouppermissions['canviewgroups'])
+	AND $vbulletin->options['socnet_groups_msg_enabled']
+)
+{
+	require_once(DIR . '/includes/functions_socialgroup.php');
+	require_once(DIR . '/includes/class_socialgroup_search.php');
+
+	$socialgroupsearch = new vB_SGSearch($vbulletin);
+	$socialgroupsearch->add('subscribed', $vbulletin->userinfo['userid']);
+	$socialgroupsearch->set_sort('lastpost', 'ASC');
+	$socialgroupsearch->check_read($vbulletin->options['threadmarking']);
+
+ 	($hook = vBulletinHook::fetch_hook('group_list_filter')) ? eval($hook) : false;
+
+	if ($numsocialgroups = $socialgroupsearch->execute(true))
+	{
+		$groups = $socialgroupsearch->fetch_results();
+
+		$show['pictureinfo'] = ($vbulletin->options['socnet_groups_pictures_enabled']) ? true : false;
+
+		$lastpostalt = ($show['pictureinfo'] ? 'alt2' : 'alt1');
+
+		if (is_array($groups))
+		{
+			$grouplist = '';
+			foreach ($groups AS $group)
+			{
+				$group = prepare_socialgroup($group);
+
+				$show['pending_link'] = (fetch_socialgroup_modperm('caninvitemoderatemembers', $group) AND $group['moderatedmembers'] > 0);
+				$show['lastpostinfo'] = ($group['lastpost']);
+
+				($hook = vBulletinHook::fetch_hook('group_list_groupbit')) ? eval($hook) : false;
+
+				$templater = vB_Template::create('socialgroups_groupmodlist_bit');
+					$templater->register('group', $group);
+				$grouplist .= $templater->render();
+			}
+		}
+
+		$show['socialgroups'] = true;
+	}
+
+	unset($socialgroupsearch);
+}
+
+// ############################ start new subscribed to discussions ##############################
+
+$show['discussions'] = false;
+
+if (($vbulletin->options['socnet'] & $vbulletin->bf_misc_socnet['enable_groups'])
+	AND ($vbulletin->userinfo['permissions']['socialgrouppermissions'] & $vbulletin->bf_ugp_socialgrouppermissions['canviewgroups'])
+	AND $vbulletin->options['socnet_groups_msg_enabled']
+)
+{
+	require_once(DIR . '/includes/class_groupmessage.php');
+
+	// Create message collection
+	$collection_factory = new vB_Group_Collection_Factory($vbulletin);
+	$collection = $collection_factory->create('discussion', false, $vbulletin->GPC['pagenumber'], false, false, true);
+
+	$collection->set_ignore_marking(false);
+	$collection->filter_show_unsubscribed(false);
+
+	// Check if the user is subscribed to any discussions
+	if ($collection->fetch_count())
+	{
+		if(!$vbulletin->input->clean_gpc('r', 'viewalldiscussions', TYPE_BOOL))
+		{
+			// only show unread
+			$collection->filter_show_read(false);
+		}
+
+		$numdiscussions = $collection->fetch_count();
+
+		// Show group name in messages
+		$show['group'] = true;
+
+		// Create bit factory
+		$bit_factory = new vB_Group_Bit_Factory($vbulletin, $itemtype);
+
+		// Build message bits for all items
+		$messagebits = '';
+		while ($item = $collection->fetch_item())
+		{
+			$group = fetch_socialgroupinfo($item['groupid']);
+
+			// add group name to message
+			$group['name'] = fetch_word_wrapped_string(fetch_censored_text($group['name']));
+
+			// add bit
+			$bit =& $bit_factory->create($item, $group);
+			$bit->show_moderation_tools(false);
+			$messagebits .= $bit->construct();
+		}
+
+		$show['discussions'] = true;
+
+		unset($bit, $bit_factory, $collection_factory, $collection);
+	}
+}
+
+// ##################################### start infractions #######################################
+
 require_once(DIR . '/includes/class_bbcode.php');
-$bbcode_parser =& new vB_BbCodeParser($vbulletin, fetch_tag_list());
+$bbcode_parser = new vB_BbCodeParser($vbulletin, fetch_tag_list());
 
 $infractions = $db->query_read_slave("
-	SELECT points, infraction.*, thread.title, thread.forumid, thread.postuserid, user.username,
-	thread.visible AS thread_visible, post.visible, thread.postuserid, IF(ISNULL(post.postid) AND infraction.postid != 0, 1, 0) AS postdeleted
+	SELECT infraction.*, thread.title, thread.threadid, thread.forumid, thread.postuserid, user.username,
+	thread.visible AS thread_visible, post.visible, IF(ISNULL(post.postid) AND infraction.postid != 0, 1, 0) AS postdeleted
 	FROM " . TABLE_PREFIX . "infraction AS infraction
 	LEFT JOIN " . TABLE_PREFIX . "post AS post ON (infraction.postid = post.postid)
 	LEFT JOIN " . TABLE_PREFIX . "thread AS thread ON (post.threadid = thread.threadid)
@@ -738,39 +965,37 @@ $infractions = $db->query_read_slave("
 	ORDER BY infraction.dateline DESC
 	LIMIT 5
 ");
+
+$infractionbits = array();
+
 while ($infraction = $db->fetch_array($infractions))
 {
-	$show['threadtitle'] = true;
-	$show['postdeleted'] = false;
+	$infraction['threadtitle'] = true;
 	if ($infraction['postid'] != 0)
 	{
-		if ($infraction['postdeleted'])
+		if ((!$infraction['visible'] OR !$infraction['thread_visible']) AND !can_moderate($infraction['forumid'], 'canmoderateposts'))
 		{
-			$show['postdeleted'] = true;
-		}
-		else if ((!$infraction['visible'] OR !$infraction['thread_visible']) AND !can_moderate($infraction['forumid'], 'canmoderateposts'))
-		{
-			$show['threadtitle'] = false;
+			$infraction['threadtitle'] = false;
 		}
 		else if (($infraction['visible'] == 2 OR $infraction['thread_visible'] == 2) AND !can_moderate($infraction['forumid'], 'candeleteposts'))
 		{
-			$show['threadtitle'] = false;
+			$infraction['threadtitle'] = false;
 		}
 		else
 		{
 			$forumperms = fetch_permissions($infraction['forumid']);
 			if (!($forumperms & $vbulletin->bf_ugp_forumpermissions['canview']))
 			{
-				$show['threadtitle'] = false;
+				$infraction['threadtitle'] = false;
 			}
 			if (!($forumperms & $vbulletin->bf_ugp_forumpermissions['canviewothers']) AND ($infraction['postuserid'] != $vbulletin->userinfo['userid'] OR $vbulletin->userinfo['userid'] == 0))
 			{
-				$show['threadtitle'] = false;
+				$infraction['threadtitle'] = false;
 			}
 		}
 	}
-	$show['expired'] = $show['reversed'] = $show['neverexpires'] = false;
-	$card = ($infraction['points'] > 0) ? 'redcard' : 'yellowcard';
+	$infraction['expired'] = $infraction['reversed'] = $infraction['neverexpires'] = false;
+	$infraction['card'] = ($infraction['points'] > 0) ? 'redcard' : 'yellowcard';
 	$infraction['timeline'] = vbdate($vbulletin->options['timeformat'], $infraction['dateline']);
 	$infraction['dateline'] = vbdate($vbulletin->options['dateformat'], $infraction['dateline']);
 	switch($infraction['action'])
@@ -780,31 +1005,40 @@ while ($infraction = $db->fetch_array($infractions))
 			{
 				$infraction['expires_timeline'] = vbdate($vbulletin->options['timeformat'], $infraction['expires']);
 				$infraction['expires_dateline'] = vbdate($vbulletin->options['dateformat'], $infraction['expires']);
-				$show['neverexpires'] = false;
+				$infraction['neverexpires'] = false;
 			}
 			else
 			{
-				$show['neverexpires'] = true;
+				$infraction['neverexpires'] = true;
 			}
 			break;
 		case 1:
-			$show['expired'] = true;
+			$infraction['expired'] = true;
 			break;
 		case 2:
-			$show['reversed'] = true;
+			$infraction['reversed'] = true;
 			break;
 	}
-	if (vbstrlen($infraction['title']) > 25)
-	{
-		$infraction['title'] = fetch_trimmed_title($infraction['title'], 24);
-	}
+
+	$infraction['threadinfo'] = array(
+		'threadid' => $infraction['threadid'],
+		'title'    => $infraction['title'],
+	);
+
+	$infraction['pageinfo'] = array(
+		'p' => $infraction['postid']
+	);
+
+	$show['infractions'] = true;
 	$infraction['reason'] = !empty($vbphrase['infractionlevel' . $infraction['infractionlevelid'] . '_title']) ? $vbphrase['infractionlevel' . $infraction['infractionlevelid'] . '_title'] : ($infraction['customreason'] ? $infraction['customreason'] : $vbphrase['n_a']);
+
 	($hook = vBulletinHook::fetch_hook('usercp_infractioninfobit')) ? eval($hook) : false;
 
-	eval('$infractionbits .= "' . fetch_template('userinfraction_infobit') . '";');
-	$show['infractions'] = true;
+	$infractionbits[] = $infraction;
 }
+
 unset($bbcode_parser);
+
 
 require_once(DIR . '/includes/functions_misc.php');
 
@@ -821,22 +1055,69 @@ if (!($permissions['genericpermissions'] & $vbulletin->bf_ugp_genericpermissions
 // draw cp nav bar
 construct_usercp_nav('usercp');
 
-$frmjmpsel['usercp'] = 'class="fjsel" selected="selected"';
-construct_forum_jump();
+$navpopup = array(
+	'id'    => 'usercp_navpopup',
+	'title' => $vbphrase['user_control_panel'],
+	'link'  => 'usercp.php' . $vbulletin->session->vars['sessionurl_q'],
+);
+construct_quick_nav($navpopup);
 
 ($hook = vBulletinHook::fetch_hook('usercp_complete')) ? eval($hook) : false;
 
-eval('$HTML = "' . fetch_template('USERCP') . '";');
+$templater = vB_Template::create('USERCP');
+	$templater->register('forumbits', $forumbits);
+	$templater->register('forumjump', $forumjump);
+	$templater->register('grouplist', $grouplist);
+	$templater->register('invitesleft', $invitesleft);
+	$templater->register('pendinginvites', $pendinginvites);
+	$templater->register('groupsneedattention', $groupsneedattention);
+	$templater->register('groupswaiting', $groupswaiting);
+	$templater->register('groupsleft', $groupsleft);
+	$templater->register('infractionbits', $infractionbits);
+	$templater->register('messagebits', $messagebits);
+	$templater->register('messagelistbits', $messagelistbits);
+	$templater->register('newvisitormessagebits', $newvisitormessagebits);
+	$templater->register('newvisitormessages', $newvisitormessages);
+	$templater->register('numdiscussions', $numdiscussions);
+	$templater->register('numpms', $numpms);
+	$templater->register('numsocialgroups', $numsocialgroups);
+	$templater->register('numthreads', $numthreads);
+	$templater->register('pageinfo_vm', $pageinfo_vm);
+	$templater->register('pendingfriends', $pendingfriends);
+	$templater->register('pendingfriendstext', $pendingfriendstext);
+	$templater->register('pendingfriendrequests', $pendingfriendrequests);
+	$templater->register('subscribedthreadscolspan', $subscribedthreadscolspan);
+	$templater->register('template_hook', $template_hook);
+	$templater->register('threadbits', $threadbits);
+	$templater->register('repgiven',$repgiven);
+	$templater->register('repreceived',$repreceived);
+	$HTML = $templater->render();
+
+	if (!$vbulletin->options['storecssasfile'])
+	{
+		$includecss = implode(',', $includecss);
+		$includeiecss = implode(',', $includeiecss);
+	}
 
 // build navbar
 $navbits = construct_navbits(array('' => $vbphrase['user_control_panel']));
-eval('$navbar = "' . fetch_template('navbar') . '";');
-eval('print_output("' . fetch_template('USERCP_SHELL') . '");');
+$navbar = render_navbar_template($navbits);
+$templater = vB_Template::create('USERCP_SHELL');
+	$templater->register_page_templates();
+	$templater->register('cpnav', $cpnav);
+	$templater->register('HTML', $HTML);
+	$templater->register('navbar', $navbar);
+	$templater->register('navclass', $navclass);
+	$templater->register('onload', $onload);
+	$templater->register('pagetitle', $pagetitle);
+	$templater->register('template_hook', $template_hook);
+	$templater->register('includecss', $includecss);
+	$templater->register('includeiecss', $includeiecss);
+print_output($templater->render());
 
 /*======================================================================*\
 || ####################################################################
-|| # Downloaded: 16:21, Sat Apr 6th 2013
-|| # CVS: $RCSfile$ - $Revision: 26399 $
+|| # Downloaded: 14:57, Sun Aug 11th 2013
+|| # CVS: $RCSfile$ - $Revision: 64239 $
 || ####################################################################
 \*======================================================================*/
-?>

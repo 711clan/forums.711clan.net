@@ -1,9 +1,9 @@
 <?php
 /*======================================================================*\
 || #################################################################### ||
-|| # vBulletin 3.7.2 Patch Level 2 - Licence Number VBF2470E4F
+|| # vBulletin 4.2.1 - Licence Number VBC2DDE4FB
 || # ---------------------------------------------------------------- # ||
-|| # Copyright ©2000-2013 Jelsoft Enterprises Ltd. All Rights Reserved. ||
+|| # Copyright ©2000-2013 vBulletin Solutions Inc. All Rights Reserved. ||
 || # This file may not be redistributed in whole or significant part. # ||
 || # ---------------- VBULLETIN IS NOT FREE SOFTWARE ---------------- # ||
 || # http://www.vbulletin.com | http://www.vbulletin.com/license.html # ||
@@ -14,7 +14,7 @@
 error_reporting(E_ALL & ~E_NOTICE);
 
 // ##################### DEFINE IMPORTANT CONSTANTS #######################
-define('CVS_REVISION', '$RCSfile$ - $Revision: 25433 $');
+define('CVS_REVISION', '$RCSfile$ - $Revision: 39293 $');
 
 // #################### PRE-CACHE TEMPLATES AND DATA ######################
 $phrasegroups = array('prefix', 'prefixadmin');
@@ -55,6 +55,476 @@ if (empty($_REQUEST['do']))
 
 // notes on phrases:
 // prefixset_ID_title (prefixes), prefix_ID_title_plain (global), prefix_ID_title_rich (global)
+
+// ########################################################################
+
+if ($_REQUEST['do'] == 'duplicate')
+{
+	$prefixes = array();
+
+	$prefixes_result = $vbulletin->db->query_read("
+		SELECT prefix.prefixid, prefixset.prefixsetid
+		FROM " . TABLE_PREFIX . "prefix AS prefix
+		INNER JOIN " . TABLE_PREFIX . "prefixset AS prefixset ON (prefix.prefixsetid = prefixset.prefixsetid)
+		ORDER BY prefixset.displayorder ASC, prefix.displayorder ASC
+	");
+
+	while ($prefix = $vbulletin->db->fetch_array($prefixes_result))
+	{
+		$prefixsetphrase = htmlspecialchars_uni($vbphrase["prefixset_{$prefix[prefixsetid]}_title"]);
+
+		$prefixes["$prefixsetphrase"]["$prefix[prefixid]"] = htmlspecialchars_uni($vbphrase["prefix_{$prefix[prefixid]}_title_plain"]);
+	}
+
+	if (empty($prefixes))
+	{
+		print_cp_message($vbphrase['no_prefix_sets_defined_click_create']);
+	}
+
+	print_form_header('prefix', 'doduplicate');
+	print_table_header($vbphrase['thread_prefixes'], 2);
+	print_select_row($vbphrase['copy_permissions_from'], 'from', $prefixes);
+	print_select_row($vbphrase['copy_permissions_to'], 'copyto[]', $prefixes, '', false, 10, true);
+	print_yes_no_row($vbphrase['overwrite_customized_permissions_no_restrictions'], 'overwrite', 0);
+	print_submit_row();
+}
+
+// ########################################################################
+
+if ($_POST['do'] == 'doduplicate')
+{
+	$vbulletin->input->clean_array_gpc('p', array(
+		'from'      => TYPE_STR,
+		'copyto'    => TYPE_ARRAY_STR,
+		'overwrite' => TYPE_BOOL
+	));
+
+	$from_prefixid = $vbulletin->GPC['from'];
+
+	if (empty($vbulletin->GPC['copyto'])
+		OR (count($vbulletin->GPC['copyto']) == 1 AND reset($vbulletin->GPC['copyto']) == $from_prefixid)
+	)
+	{
+		print_stop_message('did_not_select_any_valid_prefixes_to_copy_to');
+	}
+
+	$prefix_restrictions = array();
+	$prefix_options = array();
+
+	$prefixes_result = $vbulletin->db->query_read("
+		SELECT prefix.prefixid, prefix.options, prefixpermission.usergroupid AS restriction
+		FROM " . TABLE_PREFIX . "prefix AS prefix
+		LEFT JOIN " . TABLE_PREFIX . "prefixpermission AS prefixpermission ON (prefix.prefixid = prefixpermission.prefixid)
+		WHERE prefix.prefixid IN ('" . $vbulletin->db->escape_string($from_prefixid) . "',
+			'" . implode("', '", array_map(array($vbulletin->db, 'escape_string'), $vbulletin->GPC['copyto'])) . "')
+	");
+	while ($prefix = $vbulletin->db->fetch_array($prefixes_result))
+	{
+		if (empty($prefix_restrictions["$prefix[prefixid]"]))
+		{
+			$prefix_restrictions["$prefix[prefixid]"] = array();
+			$prefix_options["$prefix[prefixid]"] = $prefix['options'];
+		}
+
+		if ($prefix['restriction'])
+		{
+			$prefix_restrictions["$prefix[prefixid]"][] = $prefix['restriction'];
+		}
+	}
+
+	if (!isset($prefix_options["$from_prefixid"]))
+	{
+		print_stop_message('you_did_not_select_any_prefixes');
+	}
+
+	$update_prefixids = array();
+
+	foreach ($prefix_restrictions AS $prefixid => $restrictions)
+	{
+		if ($prefixid != $from_prefixid)
+		{
+			if (empty($restrictions) OR $vbulletin->GPC['overwrite'])
+			{
+				$update_prefixids[] = $prefixid;
+			}
+		}
+	}
+
+	if (!empty($update_prefixids))
+	{
+		$from_options = $prefix_options["$from_prefixid"];
+		$from_restrictions = $prefix_restrictions["$from_prefixid"];
+		$to_prefixes_in = "('" . implode("', '", array_map(array($vbulletin->db, 'escape_string'), $update_prefixids)) . "')";
+
+		foreach ($update_prefixids AS $prefixid)
+		{
+			foreach ($from_restrictions AS $usergroupid)
+			{
+				$restriction_insert[] = "('" . $vbulletin->db->escape_string($prefixid) . "', $usergroupid)";
+			}
+		}
+
+		$vbulletin->db->query_write("
+			UPDATE " . TABLE_PREFIX . "prefix SET
+				options = $from_options
+			WHERE prefixid IN $to_prefixes_in
+		");
+
+		$vbulletin->db->query_write("
+			DELETE FROM " . TABLE_PREFIX . "prefixpermission
+			WHERE prefixid IN $to_prefixes_in
+		");
+
+		$restriction_insert = array();
+
+		foreach ($update_prefixids AS $prefixid)
+		{
+			foreach ($from_restrictions AS $usergroupid)
+			{
+				$restriction_insert[] = "('" . $vbulletin->db->escape_string($prefixid) . "', $usergroupid)";
+			}
+		}
+
+		$vbulletin->db->query_replace(TABLE_PREFIX . "prefixpermission", '(prefixid, usergroupid)', $restriction_insert);
+
+		build_prefix_datastore();
+	}
+
+	define('CP_REDIRECT', 'prefix.php');
+	print_stop_message('duplicated_prefix_permissions');
+}
+
+// ########################################################################
+
+$vbulletin->input->clean_array_gpc('p', array(
+	'dopermissionsmultiple' => TYPE_STR
+));
+
+if ($vbulletin->GPC['dopermissionsmultiple'])
+{
+	$vbulletin->input->clean_array_gpc('p', array(
+		'prefixids' => TYPE_ARRAY_KEYS_STR
+	));
+
+	if (empty($vbulletin->GPC['prefixids']))
+	{
+		print_stop_message('you_did_not_select_any_prefixes');
+	}
+
+	$_POST['do'] = $_REQUEST['do'] = 'permissions';
+}
+
+// ########################################################################
+
+if ($_REQUEST['do'] == 'permissions')
+{
+	if (empty($vbulletin->GPC['prefixids']))
+	{
+		$vbulletin->input->clean_array_gpc('r', array(
+			'prefixid' => TYPE_STR
+		));
+
+		$prefixids = array($vbulletin->GPC['prefixid']);
+	}
+	else
+	{
+		$prefixids = $vbulletin->GPC['prefixids'];
+	}
+
+	$prefixes = $vbulletin->db->query_read("
+		SELECT prefix.prefixid, prefix.options, prefixpermission.usergroupid AS restriction FROM " . TABLE_PREFIX . "prefix AS prefix
+		LEFT JOIN " . TABLE_PREFIX . "prefixpermission AS prefixpermission ON (prefix.prefixid = prefixpermission.prefixid)
+		WHERE prefix.prefixid IN ('" . implode("', '", array_map(array($vbulletin->db, 'escape_string'), $prefixids)) . "')
+	");
+
+	$prefixdefaults = array();
+
+	while ($prefix = $vbulletin->db->fetch_array($prefixes))
+	{
+		if (empty($prefixpermissions["$prefix[prefixid]"]))
+		{
+			$prefixpermissions["$prefix[prefixid]"] = array(intval($prefix['restriction']));
+		}
+		else
+		{
+			$prefixpermissions["$prefix[prefixid]"][] = intval($prefix['restriction']);
+		}
+
+		$prefixdefaults[] = !$prefix['options'] & $vbulletin->bf_misc_prefixoptions['deny_by_default'];
+	}
+	$vbulletin->db->free_result($prefixes);
+
+	$usergroupperms = array();
+	foreach ($prefixpermissions AS $prefixid => $restrictions)
+	{
+		foreach ($restrictions AS $restriction)
+		{
+			if ($restriction)
+			{
+				if (empty($usergroupperms["$restriction"]))
+				{
+					$usergroupperms["$restriction"] = array($prefixid);
+				}
+				else
+				{
+					$usergroupperms["$restriction"][] = $prefixid;
+				}
+			}
+		}
+	}
+
+	$conflicts = array();
+	foreach ($usergroupperms AS $usergroup => $prefixes)
+	{
+		if (array_diff($prefixids, $prefixes))
+		{
+				$conflicts[] = $usergroup;
+		}
+	}
+
+	if (!empty($conflicts))
+	{
+		$conflict_options = array(
+			$vbphrase['do_not_resolve_permission_conflict'],
+			$vbphrase['grant_permission_for_selected_prefixes'],
+			$vbphrase['deny_permission_for_selected_prefixes']
+		);
+	}
+
+	$prefix_html = array();
+	foreach ($prefixids AS $prefixid)
+	{
+		$prefix_html[] = '<a href="prefix.php?do=editprefix&amp;prefixid=' . htmlspecialchars_uni($prefixid) . '">' . htmlspecialchars_uni($vbphrase["prefix_{$prefixid}_title_plain"]) . '</a>';
+	}
+
+	?>
+	<script type="text/javascript">
+	<!--
+	function check_all_checkable(toggle)
+	{
+		var els = YAHOO.util.Dom.getElementsByClassName('checkable');
+
+		for (var i = 0; i < els.length; i++)
+		{
+			els[i].checked = toggle.checked;
+		}
+	}
+	// -->
+	</script>
+	<?php
+
+	print_form_header('prefix', 'savepermissions');
+	print_table_header($vbphrase['edit_thread_prefix_permissions']);
+
+	construct_hidden_code('prefixids', sign_client_string(serialize($prefixids)));
+	construct_hidden_code('shownusergroups', sign_client_string(serialize(array_keys($vbulletin->usergroupcache))));
+
+	print_description_row(construct_phrase($vbphrase['editing_permissions_for_x'], implode(', ', $prefix_html)));
+	if (count(array_unique($prefixdefaults)) <= 1)
+	{
+		print_yes_no_row($vbphrase['allow_new_groups_to_use_selected_prefixes'], 'default', $prefixdefaults[0]);
+	}
+	else
+	{
+		$conflict_options_default = array(
+			'-1' => $vbphrase['leave_default_permissions_unchanged'],
+			'1'  => $vbphrase['new_groups_may_use_selected_prefixes'],
+			'0'  => $vbphrase['new_groups_may_not_use_selected_prefixes']
+		);
+
+		print_label_row(
+			$vbphrase['allow_new_groups_to_use_selected_prefixes'],
+			"<label for=\"sel_default\" class=\"smallfont\">" . $vbphrase['set_default_permissions'] . ": <select name=\"default\" id=\"sel_default\">" . construct_select_options($conflict_options_default, '-1') . "</select>"
+		);
+	}
+
+	print_description_row('<label for="cb_allbox"><input type="checkbox" name="allbox" id="cb_allbox" onclick="check_all_checkable(this)"' . (empty($usergroupperms) ? ' checked="checked"' : '') . " />$vbphrase[check_uncheck_all]</label>", false, 2, 'thead');
+
+	foreach ($vbulletin->usergroupcache AS $usergroupid => $usergroup)
+	{
+		if (in_array($usergroupid, $conflicts))
+		{
+			print_label_row(
+				"<label for=\"cb_ug$usergroupid\"><input type=\"checkbox\" disabled=\"disabled\" id=\"cb_ug$usergroupid\" />$usergroup[title]</label>",
+				"<label for=\"sel_ug$usergroupid\" class=\"smallfont\">" . $vbphrase['resolve_permission_conflict'] . ": <select name=\"conflict[$usergroupid]\" id=\"sel_ug$usergroupid\">" . construct_select_options($conflict_options, 0) . "</select>"
+
+			);
+		}
+		else
+		{
+			print_description_row("<label for=\"cb_ug$usergroupid\"><input type=\"checkbox\" name=\"usergroup[$usergroupid]\" id=\"cb_ug$usergroupid\" class=\"checkable\"" . (empty($usergroupperms["$usergroupid"]) ? ' checked="checked"' : '') . " />$usergroup[title]</label>");
+
+		}
+	}
+
+	print_submit_row();
+}
+
+// ########################################################################
+
+if ($_POST['do'] == 'savepermissions')
+{
+	$vbulletin->input->clean_array_gpc('p', array(
+		'prefixids' => TYPE_NOCLEAN,
+		'conflict' => TYPE_ARRAY_INT
+	));
+
+	$prefixids_raw = unserialize(verify_client_string($vbulletin->GPC['prefixids']));
+
+	$prefixids = array();
+
+	foreach ($prefixids_raw AS $prefixid)
+	{
+		$prefixids[] = $vbulletin->input->do_clean($prefixid, TYPE_STR);
+	}
+
+	if (empty($prefixids))
+	{
+		print_stop_message('you_did_not_select_any_prefixes');
+	}
+
+	$prefixes = $vbulletin->db->query_read("
+		SELECT prefix.prefixid, prefix.options, prefixpermission.usergroupid AS restriction FROM " . TABLE_PREFIX . "prefix AS prefix
+		LEFT JOIN " . TABLE_PREFIX . "prefixpermission AS prefixpermission ON (prefix.prefixid = prefixpermission.prefixid)
+		WHERE prefix.prefixid IN ('" . implode("', '", array_map(array($vbulletin->db, 'escape_string'), $prefixids)) . "')
+	");
+
+	$prefixdefaults = array();
+
+	while ($prefix = $vbulletin->db->fetch_array($prefixes))
+	{
+		if (empty($prefixpermissions["$prefix[prefixid]"]))
+		{
+			$prefixpermissions["$prefix[prefixid]"] = array(intval($prefix['restriction']));
+		}
+		else
+		{
+			$prefixpermissions["$prefix[prefixid]"][] = intval($prefix['restriction']);
+		}
+
+		$prefixdefaults[] = !$prefix['options'] & $vbulletin->bf_misc_prefixoptions['deny_by_default'];
+	}
+	$vbulletin->db->free_result($prefixes);
+
+	$usergroupperms = array();
+	foreach ($prefixpermissions AS $prefixid => $restrictions)
+	{
+		foreach ($restrictions AS $restriction)
+		{
+			if ($restriction)
+			{
+				if (empty($usergroupperms["$restriction"]))
+				{
+					$usergroupperms["$restriction"] = array($prefixid);
+				}
+				else
+				{
+					$usergroupperms["$restriction"][] = $prefixid;
+				}
+			}
+		}
+	}
+
+	$conflicts = array();
+	$override_no = array();
+	foreach ($usergroupperms AS $usergroup => $prefixes)
+	{
+		if (in_array($usergroup, array_keys($vbulletin->GPC['conflict'])))
+		{
+			if ($vbulletin->GPC['conflict']["$usergroup"] === 0)
+			{
+				$conflicts[] = $usergroup;
+			}
+			else if ($vbulletin->GPC['conflict']["$usergroup"] === 2)
+			{
+				$override_no[] = $usergroup;
+			}
+		}
+		else if (array_diff($prefixids, $prefixes)) // Marks as conflict when saving in race condition
+		{
+			if ($vbulletin->GPC['conflict']["$usergroup"] === 0)
+			{
+				$conflicts[] = $usergroup;
+			}
+		}
+	}
+
+	$vbulletin->input->clean_array_gpc('p', array(
+		'shownusergroups' => TYPE_NOCLEAN
+	));
+
+	$shownusergroups_raw = unserialize(verify_client_string($vbulletin->GPC['shownusergroups']));
+
+	$shownusergroups = array();
+	foreach ($shownusergroups_raw AS $shownusergroup)
+	{
+		$shownusergroups[] = $vbulletin->input->do_clean($shownusergroup, TYPE_UINT);
+	}
+
+	if (empty($shownusergroups))
+	{ // This shouldn't trigger - probably a suhosin issue if it does
+		print_stop_message('variables_missing_suhosin');
+	}
+
+	$vbulletin->input->clean_array_gpc('p', array(
+		'usergroup' => TYPE_ARRAY_KEYS_INT
+	));
+
+	$vbulletin->db->query_write("
+		DELETE FROM " . TABLE_PREFIX . "prefixpermission
+		WHERE prefixid IN ('" . implode("', '", array_map(array($vbulletin->db, 'escape_string'), $prefixids)) . "')
+		" . (!empty($conflicts) ? "AND usergroupid NOT IN (" . implode(', ', $conflicts) . ")" : '')
+	);
+
+	$todeny = array();
+
+	foreach ($shownusergroups AS $shownusergroup)
+	{
+		if (array_key_exists($shownusergroup, $vbulletin->usergroupcache))
+		{
+			if (!in_array($shownusergroup, $conflicts))
+			{
+				if (!in_array($shownusergroup, $vbulletin->GPC['usergroup']) AND !in_array($shownusergroup, array_keys($vbulletin->GPC['conflict'])))
+				{
+					$todeny[] = $shownusergroup;
+				}
+			}
+		}
+	}
+
+	$todeny = array_merge($todeny, $override_no);
+
+	$sql_values = array();
+
+	foreach ($prefixids AS $prefixid)
+	{
+		foreach ($todeny AS $deny)
+		{
+			$sql_values[] = "('" . $vbulletin->db->escape_string($prefixid) . "', " . $deny . ")";
+		}
+	}
+
+	if (!empty($sql_values))
+	{
+		$vbulletin->db->query_replace(TABLE_PREFIX . "prefixpermission", '(prefixid, usergroupid)', $sql_values);
+	}
+
+	$vbulletin->input->clean_array_gpc('p', array(
+		'default' => TYPE_INT
+	));
+
+	if ($vbulletin->GPC['default'] != -1)
+	{
+		$vbulletin->db->query_write("
+			UPDATE " . TABLE_PREFIX . "prefix SET options = options " . (empty($vbulletin->GPC['default']) ? '| ' : '& ~') . $vbulletin->bf_misc_prefixoptions['deny_by_default'] . "
+			WHERE prefixid IN ('" . implode("', '", array_map(array($vbulletin->db, 'escape_string'), $prefixids)) . "')
+		");
+	}
+	build_prefix_datastore();
+	
+	define('CP_REDIRECT', 'prefix.php?do=list');
+	print_stop_message('saved_prefix_permissions');
+}
 
 // ########################################################################
 
@@ -132,7 +602,8 @@ if ($_POST['do'] == 'insertprefix')
 	$prefixdm->set('displayorder', $vbulletin->GPC['displayorder']);
 	$prefixdm->set_info('title_plain', $vbulletin->GPC['title_plain']);
 	$prefixdm->set_info('title_rich', $vbulletin->GPC['title_rich']);
-
+	$prefixdm->set('options', $vbulletin->bf_misc_prefixoptions['deny_by_default']);
+	
 	$prefixdm->save();
 
 	define('CP_REDIRECT', 'prefix.php?do=list');
@@ -201,7 +672,7 @@ if ($_REQUEST['do'] == 'addprefix' OR $_REQUEST['do'] == 'editprefix')
 	else
 	{
 		print_table_header($vbphrase['adding_prefix']);
-		print_input_row($vbphrase['prefix_id_alphanumeric_note'], 'prefixid');
+		print_input_row($vbphrase['prefix_id_alphanumeric_note'], 'prefixid', '', true, 35, 25);
 	}
 
 	$prefixsets_sql = $db->query_read("
@@ -421,7 +892,7 @@ if ($_REQUEST['do'] == 'addset' OR $_REQUEST['do'] == 'editset')
 	else
 	{
 		print_table_header($vbphrase['adding_prefix_set']);
-		print_input_row($vbphrase['prefix_set_id_alphanumeric_note'], 'prefixsetid');
+		print_input_row($vbphrase['prefix_set_id_alphanumeric_note'], 'prefixsetid', '', true, 35, 25);
 	}
 
 	$trans_link = "phrase.php?" . $vbulletin->session->vars['sessionurl'] . "do=edit&fieldname=prefix&t=1&varname="; // has varname appended
@@ -523,6 +994,25 @@ if ($_REQUEST['do'] == 'list')
 	print_form_header('prefix', 'displayorder');
 	print_table_header($vbphrase['thread_prefixes'], 3);
 
+	?>
+	<script type="text/javascript">
+	<!--
+	function selectprefixes(prefixset)
+	{
+		var els = YAHOO.util.Dom.getElementsByClassName(prefixset);
+
+		var toggle = document.getElementById(prefixset);
+
+		for (var i = 0; i < els.length; i++)
+		{
+			els[i].checked = toggle.checked;
+		}
+
+	}
+	// -->
+	</script>
+	<?php
+
 	if (!$prefixsets)
 	{
 		print_description_row($vbphrase['no_prefix_sets_defined_click_create'], false, 3, '', 'center');
@@ -533,9 +1023,10 @@ if ($_REQUEST['do'] == 'list')
 		foreach ($prefixsets AS $prefixset)
 		{
 			print_cells_row(array(
-				htmlspecialchars_uni($vbphrase["prefixset_$prefixset[prefixsetid]_title"]),
+				'<input id="' . $prefixset['prefixsetid'] . '" type="checkbox" onclick="selectprefixes(\'' . $prefixset['prefixsetid'] . '\')" />' .
+				'<label for="' . $prefixset['prefixsetid'] . '">' . htmlspecialchars_uni($vbphrase["prefixset_$prefixset[prefixsetid]_title"]) . '</label>',
 				'<input type="text" size="3" class="bginput" name="prefixset_order[' . $prefixset['prefixsetid'] . ']" value="' . $prefixset['displayorder'] . '" />',
-				'<div align="right" class="smallfont">'
+				'<div class="normal">'
 					. construct_link_code($vbphrase['add_prefix'], "prefix.php?do=addprefix&amp;prefixsetid=$prefixset[prefixsetid]")
 					. construct_link_code($vbphrase['edit'], "prefix.php?do=editset&amp;prefixsetid=$prefixset[prefixsetid]")
 					. construct_link_code($vbphrase['delete'], "prefix.php?do=deleteset&amp;prefixsetid=$prefixset[prefixsetid]")
@@ -551,11 +1042,15 @@ if ($_REQUEST['do'] == 'list')
 				foreach ($prefixset['prefixes'] AS $prefix)
 				{
 					print_cells_row(array(
-						htmlspecialchars_uni($vbphrase["prefix_$prefix[prefixid]_title_plain"]),
+						'<label for="' . $prefixset['prefixsetid'] . '_' . $prefix['prefixid'] . '">' .
+							'<input type="checkbox" name="prefixids[' . $prefix["prefixid"] . ']" id="' . $prefixset['prefixsetid'] . '_' . $prefix['prefixid'] . '" class="' . $prefixset['prefixsetid'] . '" />' .
+							htmlspecialchars_uni($vbphrase["prefix_$prefix[prefixid]_title_plain"]) .
+						'</label>',
 						'<input type="text" size="3" class="bginput" name="prefix_order[' . $prefix['prefixid'] . ']" value="' . $prefix['displayorder'] . '" />',
-						'<div align="right" class="smallfont">'
+						'<div class="smallfont">'
 							. construct_link_code($vbphrase['edit'], "prefix.php?do=editprefix&amp;prefixid=$prefix[prefixid]")
 							. construct_link_code($vbphrase['delete'], "prefix.php?do=deleteprefix&amp;prefixid=$prefix[prefixid]")
+							. construct_link_code($vbphrase['edit_permissions'], "prefix.php?do=permissions&amp;prefixid=$prefix[prefixid]")
 						. '</div>'
 					));
 				}
@@ -563,17 +1058,22 @@ if ($_REQUEST['do'] == 'list')
 		}
 	}
 
-	print_submit_row($vbphrase['save_display_order'], false, 3);
+	print_cells_row(array(
+		'<input type="image" style="width: 1px; height: 1px;" src="' . $vbulletin->options['cleargifurl'] . '" />' .
+		'<input class="button" type="submit" name="dopermissionsmultiple" value="' . $vbphrase['edit_selected_prefix_permissions'] . '" />',
+		'<input class="button" type="submit" value="'. $vbphrase['save_display_order'] . '" />',
+		'<input class="button" type="button" onclick="window.location = \'prefix.php?do=addset\';" value="'. $vbphrase['add_prefix_set'] . '" />'
+	), false, 'tfoot');
 
-	echo '<p align="center">' . construct_link_code($vbphrase['add_prefix_set'], 'prefix.php?do=addset') . '</p>';
+	print_table_footer();
 }
 
 print_cp_footer();
 
 /*======================================================================*\
 || ####################################################################
-|| # Downloaded: 16:21, Sat Apr 6th 2013
-|| # CVS: $RCSfile$ - $Revision: 25433 $
+|| # Downloaded: 14:57, Sun Aug 11th 2013
+|| # CVS: $RCSfile$ - $Revision: 39293 $
 || ####################################################################
 \*======================================================================*/
 ?>

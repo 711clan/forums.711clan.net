@@ -1,16 +1,16 @@
 <?php
 /*======================================================================*\
 || #################################################################### ||
-|| # vBulletin 3.7.2 Patch Level 2 - Licence Number VBF2470E4F
+|| # vBulletin 4.2.1 - Licence Number VBC2DDE4FB
 || # ---------------------------------------------------------------- # ||
-|| # Copyright ©2000-2013 Jelsoft Enterprises Ltd. All Rights Reserved. ||
+|| # Copyright ©2000-2013 vBulletin Solutions Inc. All Rights Reserved. ||
 || # This file may not be redistributed in whole or significant part. # ||
 || # ---------------- VBULLETIN IS NOT FREE SOFTWARE ---------------- # ||
 || # http://www.vbulletin.com | http://www.vbulletin.com/license.html # ||
 || #################################################################### ||
 \*======================================================================*/
 
-if (!class_exists('vB_DataManager'))
+if (!class_exists('vB_DataManager', false))
 {
 	exit;
 }
@@ -19,8 +19,8 @@ if (!class_exists('vB_DataManager'))
 * Class to do data save/delete operations for infractions
 *
 * @package	vBulletin
-* @version	$Revision: 23864 $
-* @date		$Date: 2007-09-18 08:57:22 -0500 (Tue, 18 Sep 2007) $
+* @version	$Revision: 41072 $
+* @date		$Date: 2010-12-14 08:36:30 -0800 (Tue, 14 Dec 2010) $
 */
 class vB_DataManager_Infraction extends vB_DataManager
 {
@@ -303,8 +303,21 @@ class vB_DataManager_Infraction extends vB_DataManager
 					{
 						$infractioninfo['prefix_plain'] = '';
 					}
-					
-					eval(fetch_email_phrases($postinfo ? 'infraction_thread_post' : 'infraction_thread_profile', 0, $points > 0 ? 'infraction_thread_infraction' : 'infraction_thread_warning'));
+
+					//variables for phrase eval below
+					if ($postinfo)
+					{
+						$infractioninfo['postlink'] = fetch_seo_url('thread|nosession|bburl|js', 
+							array('threadid' => $threadinfo['threadid'], 'title' => $infractioninfo['threadtitle']), 
+							array('p' => $postinfo['postid'])) . "#post$postinfo[postid]";
+					}
+
+					$infractioninfo['userlink'] = fetch_seo_url('member|nosession|bburl|js', 
+						array('userid' => $userinfo['userid'], 'username' => $infractioninfo['username']));
+
+					//creates magic vars $subject and $message -- uses variables from current scope.	
+					eval(fetch_email_phrases($postinfo ? 'infraction_thread_post' : 'infraction_thread_profile', 0, 
+						$points > 0 ? 'infraction_thread_infraction' : 'infraction_thread_warning'));
 
 					$dataman =& datamanager_init('Thread_FirstPost', $this->registry, ERRTYPE_SILENT, 'threadpost');
 					$dataman->set_info('forum', $foruminfo);
@@ -377,8 +390,8 @@ class vB_DataManager_Infraction extends vB_DataManager
 
 /*======================================================================*\
 || ####################################################################
-|| # Downloaded: 16:21, Sat Apr 6th 2013
-|| # CVS: $RCSfile$ - $Revision: 23864 $
+|| # Downloaded: 14:57, Sun Aug 11th 2013
+|| # CVS: $RCSfile$ - $Revision: 41072 $
 || ####################################################################
 \*======================================================================*/
 ?>

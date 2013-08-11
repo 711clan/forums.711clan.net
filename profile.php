@@ -1,9 +1,9 @@
 <?php
 /*======================================================================*\
 || #################################################################### ||
-|| # vBulletin 3.7.2 Patch Level 2 - Licence Number VBF2470E4F
+|| # vBulletin 4.2.1 - Licence Number VBC2DDE4FB
 || # ---------------------------------------------------------------- # ||
-|| # Copyright ©2000-2013 Jelsoft Enterprises Ltd. All Rights Reserved. ||
+|| # Copyright ©2000-2013 vBulletin Solutions Inc. All Rights Reserved. ||
 || # This file may not be redistributed in whole or significant part. # ||
 || # ---------------- VBULLETIN IS NOT FREE SOFTWARE ---------------- # ||
 || # http://www.vbulletin.com | http://www.vbulletin.com/license.html # ||
@@ -28,7 +28,7 @@ $specialtemplates = array(
 	'bbcodecache',
 	'banemail',
 	'ranks',
-	'noavatarperms'
+	'noavatarperms',
 );
 
 // pre-cache templates used by all actions
@@ -67,9 +67,11 @@ $actiontemplates = array(
 		'userfield_textbox',
 		'userfield_wrapper',
 	),
+	'editconnections' =>array(
+		'modifyconnections'
+	),
 	'editavatar' => array(
 		'modifyavatar',
-		'help_avatars_row',
 		'modifyavatar_category',
 		'modifyavatarbit',
 		'modifyavatarbit_custom',
@@ -80,8 +82,7 @@ $actiontemplates = array(
 		'modifyusergroups_joinrequestbit',
 		'modifyusergroups_memberbit',
 		'modifyusergroups_nonmemberbit',
-		'modifyusergroups_displaybit',
-		'modifyusergroups_groupleader',
+		'modifyusergroups_displaybit'
 	),
 	'editsignature' => array(
 		'modifysignature',
@@ -98,12 +99,14 @@ $actiontemplates = array(
 		'modifyprofilepic'
 	),
 	'joingroup' => array(
-		'modifyusergroups_requesttojoin',
-		'modifyusergroups_groupleader'
+		'modifyusergroups_requesttojoin'
 	),
 	'editattachments' => array(
 		'GENERIC_SHELL',
 		'modifyattachmentsbit',
+		'modifyattachmentsbit_post',
+		'modifyattachmentsbit_album',
+		'modifyattachmentsbit_group',
 		'modifyattachments'
 	),
 	'addlist' => array(
@@ -115,12 +118,10 @@ $actiontemplates = array(
 	'buddylist' => array(
 		'modifybuddylist',
 		'modifybuddylist_user',
-		'modifyuserlist_headinclude',
 	),
 	'ignorelist' => array(
 		'modifyignorelist',
 		'modifyignorelist_user',
-		'modifyuserlist_headinclude',
 	),
 	'customize' => array(
 		'memberinfo_usercss',
@@ -131,7 +132,16 @@ $actiontemplates = array(
 		'modifyusercss_error',
 		'modifyusercss_error_link',
 		'modifyusercss_headinclude',
+		'modifyprivacy_bit',
 	),
+	'privacy' => array(
+		'modifyprofileprivacy',
+		'modifyprivacy_bit'
+	),
+	'doprivacy' => array(
+		'modifyprofileprivacy',
+		'modifyprivacy_bit'
+	)
 );
 $actiontemplates['docustomize'] = $actiontemplates['customize'];
 
@@ -162,7 +172,7 @@ if (empty($vbulletin->userinfo['userid']))
 
 // set shell template name
 $shelltemplatename = 'USERCP_SHELL';
-$templatename = '';
+$includecss = array();
 
 // initialise onload event
 $onload = '';
@@ -206,7 +216,7 @@ if ($_POST['do'] == 'dst')
 		$userdata->save();
 	}
 
-	eval(print_standard_redirect('redirect_dst'));
+	print_standard_redirect('redirect_dst');  
 }
 
 // ############################### toggle user css ###############################
@@ -222,6 +232,8 @@ if ($_REQUEST['do'] == 'switchusercss')
 		print_no_permission();
 	}
 
+	$userinfo = verify_id('user', $vbulletin->GPC['userid'], true, true);
+
 	if ($vbulletin->options['socnet'] & $vbulletin->bf_misc_socnet['enable_profile_styling'])
 	{
 		$userdata =& datamanager_init('User', $vbulletin, ERRTYPE_STANDARD);
@@ -232,11 +244,11 @@ if ($_REQUEST['do'] == 'switchusercss')
 		$userdata->save();
 	}
 
-	if ($vbulletin->GPC['userid'] AND $vbulletin->url == $vbulletin->options['forumhome'] . '.php')
+	if ($vbulletin->GPC['userid'] AND $vbulletin->url == fetch_seo_url('forumhome|nosession', array()))
 	{
-		$vbulletin->url = 'member.php?' . $vbulletin->session->vars['sessionurl'] . 'u=' . $vbulletin->GPC['userid'];
+		$vbulletin->url = fetch_seo_url('member', $userinfo);
 	}
-	eval(print_standard_redirect('redirect_usercss_toggled'));
+	print_standard_redirect('redirect_usercss_toggled');  
 }
 
 // ############################################################################
@@ -265,10 +277,14 @@ if ($_REQUEST['do'] == 'editpassword')
 		$navbits[''] = $vbphrase['edit_email_and_password'];
 	}
 
+	// only show old password input if user is vb user,
+	// and not facebook only user (which means they have no password)
+	$show['oldpasswordinput'] = ($vbulletin->userinfo['logintype'] == 'vb');
+
 	// don't show optional because password expired
 	$show['password_optional'] = !$show['passwordexpired'];
 
-	$templatename = 'modifypassword';
+	$page_templater = vB_Template::create('modifypassword');
 }
 
 // ############################### start update password ###############################
@@ -291,8 +307,20 @@ if ($_POST['do'] == 'updatepassword')
 
 	($hook = vBulletinHook::fetch_hook('profile_updatepassword_start')) ? eval($hook) : false;
 
-	// validate old password
-	if ($userdata->hash_password($userdata->verify_md5($vbulletin->GPC['currentpassword_md5']) ? $vbulletin->GPC['currentpassword_md5'] : $vbulletin->GPC['currentpassword'], $vbulletin->userinfo['salt']) != $vbulletin->userinfo['password'])
+	// if this is a Facebook only user, we will only use this form to add a password
+	// so we will ignore old password, email, and set the user logintype to be a vB user
+	if (is_facebookenabled() AND $vbulletin->userinfo['logintype'] == 'fb')
+	{
+		$userdata->set('logintype', 'vb');
+		// if a new email was not submitted, use whats already in the DB
+		if (!$vbulletin->GPC_exists['email'])
+		{
+			$vbulletin->GPC['email'] = $vbulletin->GPC['emailconfirm'] = $vbulletin->userinfo['email'];
+		}
+	}
+
+	// if not Facebook user, validate old password
+	else if ($userdata->hash_password($userdata->verify_md5($vbulletin->GPC['currentpassword_md5']) ? $vbulletin->GPC['currentpassword_md5'] : $vbulletin->GPC['currentpassword'], $vbulletin->userinfo['salt']) != $vbulletin->userinfo['password'])
 	{
 		eval(standard_error(fetch_error('badpassword', $vbulletin->options['bburl'], $vbulletin->session->vars['sessionurl'])));
 	}
@@ -339,9 +367,11 @@ if ($_POST['do'] == 'updatepassword')
 		{
 			vbsetcookie('password', md5(md5($vbulletin->GPC['newpassword'] . $vbulletin->userinfo['salt']) . COOKIE_SALT), true, true, true);
 		}
+		$activate = false;
 	}
 
 	// update email only if user is not banned (see bug 2142) and email is changed
+	// also, do not update
 	if ($permissions['genericoptions'] & $vbulletin->bf_ugp_genericoptions['isnotbannedgroup'] AND ($vbulletin->GPC['email'] != $vbulletin->userinfo['email'] OR $vbulletin->GPC['emailconfirm'] != $vbulletin->userinfo['email']))
 	{
 		// check that new email addresses match
@@ -402,12 +432,12 @@ if ($_POST['do'] == 'updatepassword')
 	if ($activate)
 	{
 		$vbulletin->url = 'usercp.php' . $vbulletin->session->vars['sessionurl_q'];
-		eval(print_standard_redirect('redirect_updatethanks_newemail', true, true));
+		print_standard_redirect(array('redirect_updatethanks_newemail',$vbulletin->userinfo['username']), true, true);  
 	}
 	else
 	{
 		$vbulletin->url = 'usercp.php' . $vbulletin->session->vars['sessionurl_q'];
-		eval(print_standard_redirect('redirect_updatethanks'));
+		print_standard_redirect(array('redirect_updatethanks',$vbulletin->userinfo['username']), true, true);  
 	}
 }
 else if ($_GET['do'] == 'updatepassword')
@@ -449,26 +479,26 @@ if ($_REQUEST['do'] == 'addlist')
 		{
 			if ($ouruser['friend'] == 'pending' OR $ouruser['friend'] == 'denied')
 			{	// We are pending friends
-				eval(print_standard_redirect('redirect_friendspending', true, true));
+				print_standard_redirect(array('redirect_friendspending',$userinfo['username']), true, true);  
 			}
 			else if ($ouruser['friend'] == 'yes')
 			{	// We are already friends
-				eval(print_standard_redirect('redirect_friendsalready', true, true));
+				print_standard_redirect(array('redirect_friendsalready',$userinfo['username']), true, true);  
 			}
 			else if ($vbulletin->GPC['userid'] == $vbulletin->userinfo['userid'])
 			{ // You can't be friends with yourself
-				eval(print_standard_redirect('redirect_friendswithself', true, true));
+				print_standard_redirect('redirect_friendswithself', true, true);  
 			}
 		}
 		else if ($ouruser)
 		{
 			if ($ouruser['friend'] == 'yes')
 			{
-				eval(print_standard_redirect('redirect_friendsalready', true, true));
+				print_standard_redirect(array('redirect_friendsalready',$userinfo['username']), true, true);  
 			}
 			else
 			{
-				eval(print_standard_redirect('redirect_contactsalready', true, true));
+				print_standard_redirect(array('redirect_contactsalready',$userinfo['username']), true, true);  
 			}
 		}
 	}
@@ -518,7 +548,17 @@ if ($_REQUEST['do'] == 'addlist')
 	$userid = $userinfo['userid'];
 	$userlist = $vbulletin->GPC['userlist'];
 	$url =& $vbulletin->url;
-	$templatename = 'modifyuserlist_confirm';
+
+	$page_templater = vB_Template::create('modifyuserlist_confirm');
+	$page_templater->register('action', $action);
+	$page_templater->register('confirm_phrase', $confirm_phrase);
+	$page_templater->register('friend_checked', $friend_checked);
+	$page_templater->register('list', $list);
+	$page_templater->register('supplemental_phrase', $supplemental_phrase);
+	$page_templater->register('url', $url);
+	$page_templater->register('userid', $userid);
+	$page_templater->register('userinfo', $userinfo);
+	$page_templater->register('userlist', $userlist);
 }
 
 if ($_REQUEST['do'] == 'removelist')
@@ -560,7 +600,17 @@ if ($_REQUEST['do'] == 'removelist')
 	$userid = $userinfo['userid'];
 	$userlist = $vbulletin->GPC['userlist'];
 	$url =& $vbulletin->url;
-	$templatename = 'modifyuserlist_confirm';
+
+	$page_templater = vB_Template::create('modifyuserlist_confirm');
+	$page_templater->register('action', $action);
+	$page_templater->register('confirm_phrase', $confirm_phrase);
+	$page_templater->register('friend_checked', $friend_checked);
+	$page_templater->register('list', $list);
+	$page_templater->register('supplemental_phrase', $supplemental_phrase);
+	$page_templater->register('url', $url);
+	$page_templater->register('userid', $userid);
+	$page_templater->register('userinfo', $userinfo);
+	$page_templater->register('userlist', $userlist);
 }
 
 // ############################### start add to list ###############################
@@ -579,15 +629,15 @@ if ($_POST['do'] == 'doaddlist')
 	($hook = vBulletinHook::fetch_hook('profile_doaddlist_start')) ? eval($hook) : false;
 
 	// no referring URL, send them back to the profile page
-	if ($vbulletin->url == $vbulletin->options['forumhome'] . '.php')
+	if ($vbulletin->url == fetch_seo_url('forumhome|nosession', array()))
 	{
-		$vbulletin->url = 'member.php?' . $vbulletin->session->vars['sessionurl'] . "u=$userinfo[userid]";
+		$vbulletin->url = fetch_seo_url('member', $userinfo);
 	}
 
 	// No was clicked
 	if ($vbulletin->GPC['deny'])
 	{
-		eval(print_standard_redirect('action_cancelled'));
+		print_standard_redirect('action_cancelled');  
 	}
 
 	if ($vbulletin->GPC['userlist'] != 'ignore')
@@ -633,7 +683,7 @@ if ($_POST['do'] == 'doaddlist')
 					(" . $vbulletin->userinfo['userid'] . ", " . intval($userinfo['userid']) . ", 'ignore', 'no')
 			");
 			$users[] = $vbulletin->userinfo['userid'];
-			$redirect_phrase = 'redirect_addlist_ignore';
+			$redirect_phrase = array('redirect_addlist_ignore',$userinfo['username']);
 		break;
 		default:
 			standard_error(fetch_error('invalidid', 'list', $vbulletin->options['contactuslink']));
@@ -651,21 +701,21 @@ if ($_POST['do'] == 'doaddlist')
 			");
 			$users[] = $vbulletin->userinfo['userid'];
 		}
-		$redirect_phrase = 'redirect_addlist_contact';
+		$redirect_phrase = array('redirect_addlist_contact',$userinfo['username']);
 	}
 	else if ($vbulletin->GPC['userlist'] == 'friend')
 	{
 		if ($ouruser['friend'] == 'pending' OR $ouruser['friend'] == 'denied')
 		{	// We are pending friends
-			eval(print_standard_redirect('redirect_friendspending', true, true));
+			print_standard_redirect(array('redirect_friendspending',$userinfo['username']), true, true);  
 		}
 		else if ($ouruser['friend'] == 'yes')
 		{	// We are already friends
-			eval(print_standard_redirect('redirect_friendsalready', true, true));
+			print_standard_redirect(array('redirect_friendsalready',$userinfo['username']), true, true);  
 		}
 		else if ($vbulletin->GPC['userid'] == $vbulletin->userinfo['userid'])
 		{ // You can't be friends with yourself
-			eval(print_standard_redirect('redirect_friendswithself', true, true));
+			print_standard_redirect('redirect_friendswithself', true, true);  
 		}
 
 		// No slave here
@@ -701,7 +751,7 @@ if ($_POST['do'] == 'doaddlist')
 
 			$users[] = $vbulletin->userinfo['userid'];
 			$users[] = $userinfo['userid'];
-			$redirect_phrase = 'redirect_friendadded';
+			$redirect_phrase = array('redirect_friendadded',$userinfo['username']);
 		}
 		else
 		{
@@ -721,7 +771,7 @@ if ($_POST['do'] == 'doaddlist')
 
 				eval(fetch_email_phrases('friendship_request_email', $touserinfo['languageid']));
 				require_once(DIR . '/includes/class_bbcode_alt.php');
-				$plaintext_parser =& new vB_BbCodeParser_PlainText($vbulletin, fetch_tag_list());
+				$plaintext_parser = new vB_BbCodeParser_PlainText($vbulletin, fetch_tag_list());
 				$plaintext_parser->set_parsing_language($touserinfo['languageid']);
 				$message = $plaintext_parser->parse($message, 'privatemessage');
 				vbmail($touserinfo['email'], $subject, $message);
@@ -734,7 +784,7 @@ if ($_POST['do'] == 'doaddlist')
 			);
 
 			$users[] = $vbulletin->userinfo['userid'];
-			$redirect_phrase = 'redirect_friendrequested';
+			$redirect_phrase = array('redirect_friendrequested',$userinfo['username']);
 		}
 	}
 
@@ -746,7 +796,7 @@ if ($_POST['do'] == 'doaddlist')
 
 	($hook = vBulletinHook::fetch_hook('profile_doaddlist_complete')) ? eval($hook) : false;
 
-	eval(print_standard_redirect($redirect_phrase, true, true));
+	print_standard_redirect($redirect_phrase, true, true);  
 }
 
 if ($_POST['do'] == 'doremovelist')
@@ -764,15 +814,15 @@ if ($_POST['do'] == 'doremovelist')
 	($hook = vBulletinHook::fetch_hook('profile_doremovelist_start')) ? eval($hook) : false;
 
 	// no referring URL, send them back to the profile page
-	if ($vbulletin->url == $vbulletin->options['forumhome'] . '.php')
+	if ($vbulletin->url == fetch_seo_url('forumhome|nosession', array()))
 	{
-		$vbulletin->url = 'member.php?' . $vbulletin->session->vars['sessionurl'] . "u=$userinfo[userid]";
+		$vbulletin->url = fetch_seo_url('member', $userinfo);
 	}
 
 	// No was clicked
 	if ($vbulletin->GPC['deny'])
 	{
-		eval(print_standard_redirect('action_cancelled'));
+		print_standard_redirect('action_cancelled');  
 	}
 
 	$users = array();
@@ -867,7 +917,7 @@ if ($_POST['do'] == 'doremovelist')
 
 	($hook = vBulletinHook::fetch_hook('profile_doremovelist_complete')) ? eval($hook) : false;
 
-	eval(print_standard_redirect('redirect_removelist_' . $vbulletin->GPC['userlist'], true, true));
+	print_standard_redirect(array('redirect_removelist_' . $vbulletin->GPC['userlist'],$userinfo['username']), true, true);  
 }
 
 // ############################### start update list ###############################
@@ -940,8 +990,6 @@ if ($_POST['do'] == 'updatelist')
 				WHERE username = '" . $db->escape_string(vbstrtolower($vbulletin->GPC['username'])) . "'
 			") AND (!$vbulletin->GPC_exists['makefriends'] OR $userinfo['userid'] != $vbulletin->userinfo['userid']))
 			{ // user exists and its either not making friends or the user id is different
-				$userinfo = array_merge($userinfo , convert_bits_to_array($userinfo['options'] , $vbulletin->bf_misc_useroptions));
-				$cansendemail = (($userinfo['adminemail'] OR $userinfo['showemail']) AND $vbulletin->options['enableemail'] AND $vbulletin->userinfo['permissions']['genericpermissions'] & $vbulletin->bf_ugp_genericpermissions['canemailmember']);
 
 				cache_permissions($userinfo);
 
@@ -1279,6 +1327,8 @@ if ($_POST['do'] == 'updatelist')
 					$pendingcache["$pending_check[type]"]["$pending_check[userid]"] = $pending_check;
 				}
 
+				$browsing_user_in_coventry = in_coventry($vbulletin->userinfo['userid'], true);
+
 				foreach ($add['friend'] AS $userid => $userinfo)
 				{
 					if (isset($usercache['buddy']["$userid"]) AND $usercache['buddy']["$userid"]['friend'] == 'yes')
@@ -1305,15 +1355,23 @@ if ($_POST['do'] == 'updatelist')
 					");
 
 					($hook = vBulletinHook::fetch_hook('profile_updatelist_addfriend')) ? eval($hook) : false;
+
 					// Send notification to user that a friend request has been made for them
-					if ($cansendemail AND $userinfo['options'] & $vbulletin->bf_misc_useroptions['receivefriendemailrequest'] AND !isset($usercache['ignore']["$userid"]))
+					$userinfo = array_merge($userinfo , convert_bits_to_array($userinfo['options'] , $vbulletin->bf_misc_useroptions));
+					$cansendemail = (($userinfo['adminemail'] OR $userinfo['showemail']) AND $vbulletin->options['enableemail'] AND $vbulletin->userinfo['permissions']['genericpermissions'] & $vbulletin->bf_ugp_genericpermissions['canemailmember']);
+
+					if ($cansendemail AND $userinfo['options'] & $vbulletin->bf_misc_useroptions['receivefriendemailrequest']
+						AND !isset($usercache['ignore']["$userid"]) // I'm not ignoring them
+						AND !isset($pendingcache['ignore']["$userid"]) // they're not ignoring me
+						AND !$browsing_user_in_coventry
+					)
 					{
 						$fromuserinfo =& $vbulletin->userinfo;
 						$touserinfo =& $userinfo;
 
 						eval(fetch_email_phrases('friendship_request_email', $touserinfo['languageid']));
 						require_once(DIR . '/includes/class_bbcode_alt.php');
-						$plaintext_parser =& new vB_BbCodeParser_PlainText($vbulletin, fetch_tag_list());
+						$plaintext_parser = new vB_BbCodeParser_PlainText($vbulletin, fetch_tag_list());
 						$plaintext_parser->set_parsing_language($touserinfo['languageid']);
 						$message = $plaintext_parser->parse($message, 'privatemessage');
 						vbmail($touserinfo['email'], $subject, $message);
@@ -1409,14 +1467,26 @@ if ($_POST['do'] == 'updatelist')
 
 	if (!empty($rebuild_friendreqcount))
 	{
+		if (trim($vbulletin->options['globalignore']) != '')
+		{
+			$coventry = preg_split('#\s+#s', $vbulletin->options['globalignore'], -1, PREG_SPLIT_NO_EMPTY);
+			$coventry_query = 'AND userlist.userid NOT IN (' . implode(',', $coventry) . ')';
+		}
+		else
+		{
+			$coventry_query = '';
+		}
+
 		foreach (array_keys($rebuild_friendreqcount) AS $userid)
 		{
 			// The user could have been a friend too
 			list($pendingcount) = $db->query_first("
 				SELECT COUNT(*)
 				FROM " . TABLE_PREFIX . "userlist AS userlist
-				LEFT JOIN " . TABLE_PREFIX . "userlist AS userlist_ignore ON(userlist_ignore.userid = " . $userid . " AND userlist_ignore.relationid = userlist.userid AND userlist_ignore.type = 'ignore')
+				LEFT JOIN " . TABLE_PREFIX . "userlist AS userlist_ignore ON
+					(userlist_ignore.userid = " . $userid . " AND userlist_ignore.relationid = userlist.userid AND userlist_ignore.type = 'ignore')
 				WHERE userlist.relationid = " . $userid . "
+					$coventry_query
 					AND userlist.type = 'buddy'
 					AND userlist.friend = 'pending'
 					AND userlist_ignore.type IS NULL", DBARRAY_NUM
@@ -1460,30 +1530,89 @@ if ($_POST['do'] == 'updatelist')
 	}
 	else
 	{
-		eval(print_standard_redirect('updatelist_' . $vbulletin->GPC['userlist']));
+		print_standard_redirect('updatelist_' . $vbulletin->GPC['userlist']);  
 	}
 }
 
 // ################# start edit buddy list ###############
 if ($_REQUEST['do'] == 'buddylist')
 {
+	$perpage = $vbulletin->input->clean_gpc('r', 'perpage', TYPE_UINT);
+	$pagenumber = $vbulletin->input->clean_gpc('r', 'pagenumber', TYPE_UINT);
+	$vbulletin->input->clean_array_gpc('r', array(
+		'filter' => TYPE_NOHTML
+	));
+
+	$vbulletin->input->clean_array_gpc('p', array(
+		'ajax' => TYPE_BOOL,
+	));
+
+	if ($vbulletin->GPC['ajax'])
+	{
+		$ajax = true;
+	}
+
 	$buddylist = '';
 	$incominglist = '';
 	$friend_list = array();
 
+	$js_userlist = array();
+
 	$show['friend_controls'] = ($vbulletin->options['socnet'] & $vbulletin->bf_misc_socnet['enable_friends'] AND $vbulletin->userinfo['permissions']['genericpermissions2'] & $vbulletin->bf_ugp_genericpermissions2['canusefriends']);
 
-	$users_result = $db->query_read_slave("
-		SELECT user.*, userlist.type, userlist.friend
-		" . ($vbulletin->options['avatarenabled'] ? ', avatar.avatarpath, NOT ISNULL(customavatar.userid) AS hascustomavatar, customavatar.dateline AS avatardateline, customavatar.width_thumb AS avwidth_thumb, customavatar.height_thumb AS avheight_thumb, customavatar.width as avwidth, customavatar.height as avheight, customavatar.filedata_thumb' : '') . "
-		FROM " . TABLE_PREFIX . "userlist AS userlist
-		INNER JOIN " . TABLE_PREFIX . "user AS user ON (user.userid = userlist.relationid)
-		" . ($vbulletin->options['avatarenabled'] ? "LEFT JOIN " . TABLE_PREFIX . "avatar AS avatar ON (avatar.avatarid = user.avatarid) LEFT JOIN " . TABLE_PREFIX . "customavatar AS customavatar ON (customavatar.userid = user.userid) " : '') . "
-		WHERE userlist.userid = " . $vbulletin->userinfo['userid'] . " AND userlist.type = 'buddy'
-		ORDER BY user.username
-	");
+	$perpage = (!$perpage OR $perpage > 100) ? 20 : $perpage;
+	$pagenumber = !$vbulletin->GPC['pagenumber'] ? 1 : $vbulletin->GPC['pagenumber'];
+	$totalfriends = 0;
+
+	$condition1 = $condition2 = array(
+		"userlist.userid = " . $vbulletin->userinfo['userid'],
+		"userlist.type = 'buddy'"
+	);
+	if ($vbulletin->GPC['filter'])
+	{
+		$condition1[] = "user.username LIKE '" . $vbulletin->db->escape_string($vbulletin->GPC['filter']) . "%'";
+	}
+
+	$redo = false;
+	do
+	{
+		$start = ($pagenumber - 1) * $perpage;
+
+		$users_result = $db->query_read_slave("
+			SELECT SQL_CALC_FOUND_ROWS
+				user.*, userlist.type, userlist.friend
+				" . ($vbulletin->options['avatarenabled'] ? ', avatar.avatarpath, NOT ISNULL(customavatar.userid) AS hascustomavatar, customavatar.dateline AS avatardateline, customavatar.width_thumb AS avwidth_thumb, customavatar.height_thumb AS avheight_thumb, customavatar.width as avwidth, customavatar.height as avheight, customavatar.filedata_thumb' : '') . "
+			FROM " . TABLE_PREFIX . "userlist AS userlist
+			INNER JOIN " . TABLE_PREFIX . "user AS user ON (user.userid = userlist.relationid)
+			" . ($vbulletin->options['avatarenabled'] ? "LEFT JOIN " . TABLE_PREFIX . "avatar AS avatar ON (avatar.avatarid = user.avatarid) LEFT JOIN " . TABLE_PREFIX . "customavatar AS customavatar ON (customavatar.userid = user.userid) " : '') . "
+			WHERE
+				" . implode($condition1, " AND ") . "
+			ORDER BY user.username
+			LIMIT $start, $perpage
+		");
+
+		$totalfriends = $db->found_rows();
+
+		// Switch to condition with no filter
+		if (!$totalfriends AND $vbulletin->GPC['filter'] AND !$redo)
+		{
+			$condition1 = $condition2;
+			$redo = true;
+		}
+		else
+		{
+			if ($start >= $totalfriends)
+			{
+				$pagenumber = ceil($totalfriends / $perpage);
+			}
+			$redo = false;
+		}
+	}
+	while (($start >= $totalfriends AND $totalfriends) OR $redo);
+
 	while ($user = $db->fetch_array($users_result))
 	{
+
 		$user['extended_type'] = $user['type'];
 		if ($vbulletin->options['socnet'] & $vbulletin->bf_misc_socnet['enable_friends'])
 		{
@@ -1510,21 +1639,54 @@ if ($_REQUEST['do'] == 'buddylist')
 		$user['checked'] = ' checked="checked"';
 		$friend_list["$user[userid]"] = $user['friend'];
 
+		$js_userlist["$user[username]"] = $user['userid'];
+
 		$show['friend_checkbox'] = (($show['friend_controls'] AND ($user['permissions']['genericpermissions2'] & $vbulletin->bf_ugp_genericpermissions2['canusefriends']) AND $vbulletin->userinfo['userid'] != $user['userid']) OR (!empty($friendcheck_checked) AND $vbulletin->options['socnet'] & $vbulletin->bf_misc_socnet['enable_friends']));
-		eval('$buddylist .= "' . fetch_template('modifybuddylist_user') . '";');
+		$templater = vB_Template::create('modifybuddylist_user');
+			$templater->register('container', $container);
+			$templater->register('friendcheck_checked', $friendcheck_checked);
+			$templater->register('user', $user);
+		$buddylist .= $templater->render();
 	}
 
-	$buddycount = $db->num_rows($users_result);
+	$buddycount = $totalfriends;
+
+	$sorturl = 'profile.php?' . $vbulletin->session->vars['sessionurl'] . 'do=buddylist';
+	if ($perpage != 20)
+	{
+		$sorturl .= "&amp;pp=$perpage";
+	}
+	if ($vbulletin->GPC['filter'])
+	{
+		$sorturl .= "&amp;filter=" . $vbulletin->GPC['filter'];
+	}
+	$pagenav = construct_page_nav($pagenumber, $perpage, $totalfriends, $sorturl);
+
+	if (trim($vbulletin->options['globalignore']) != '')
+	{
+		$coventry = preg_split('#\s+#s', $vbulletin->options['globalignore'], -1, PREG_SPLIT_NO_EMPTY);
+		$coventry_query = 'AND userlist.userid NOT IN (' . implode(',', $coventry) . ')';
+	}
+	else
+	{
+		$coventry_query = '';
+	}
 
 	$incomingcount = 0;
 	$users_result = $db->query_read_slave("
-		SELECT user.*, userlist.type, userlist.friend
+		SELECT
+			user.*, userlist.type, userlist.friend
 		" . ($vbulletin->options['avatarenabled'] ? ', avatar.avatarpath, NOT ISNULL(customavatar.userid) AS hascustomavatar, customavatar.dateline AS avatardateline, customavatar.width_thumb AS avwidth_thumb, customavatar.height_thumb AS avheight_thumb, customavatar.width as avwidth, customavatar.height as avheight, customavatar.filedata_thumb' : '') . "
 		FROM " . TABLE_PREFIX . "userlist AS userlist
-		LEFT JOIN " . TABLE_PREFIX . "userlist AS userlist_ignore ON (userlist_ignore.userid = " . $vbulletin->userinfo['userid'] . " AND userlist_ignore.relationid = userlist.userid AND userlist_ignore.type = 'ignore')
+		LEFT JOIN " . TABLE_PREFIX . "userlist AS userlist_ignore ON
+			(userlist_ignore.userid = " . $vbulletin->userinfo['userid'] . " AND userlist_ignore.relationid = userlist.userid AND userlist_ignore.type = 'ignore')
 		INNER JOIN " . TABLE_PREFIX . "user AS user ON (user.userid = userlist.userid)
 		" . ($vbulletin->options['avatarenabled'] ? "LEFT JOIN " . TABLE_PREFIX . "avatar AS avatar ON (avatar.avatarid = user.avatarid) LEFT JOIN " . TABLE_PREFIX . "customavatar AS customavatar ON (customavatar.userid = user.userid) " : '') . "
-		WHERE userlist.relationid = " . $vbulletin->userinfo['userid'] . " AND userlist.type = 'buddy' AND userlist.friend = 'pending' AND userlist_ignore.type IS NULL
+		WHERE userlist.relationid = " . $vbulletin->userinfo['userid'] . "
+			$coventry_query
+			AND userlist.type = 'buddy'
+			AND userlist.friend = 'pending'
+			AND userlist_ignore.type IS NULL
 		ORDER BY user.username
 	");
 	while ($user = $db->fetch_array($users_result))
@@ -1552,7 +1714,13 @@ if ($_REQUEST['do'] == 'buddylist')
 		$show['friend_checkbox'] = false;
 		$incomingcount++;
 
-		eval('$incominglist .= "' . fetch_template('modifybuddylist_user') . '";');
+		$js_userlist["$user[username]"] = $user['userid'];
+
+		$templater = vB_Template::create('modifybuddylist_user');
+			$templater->register('container', $container);
+			$templater->register('friendcheck_checked', $friendcheck_checked);
+			$templater->register('user', $user);
+		$incominglist .= $templater->render();
 	}
 
 	$show['incominglist'] = !empty($incominglist);
@@ -1571,22 +1739,44 @@ if ($_REQUEST['do'] == 'buddylist')
 	{
 		require_once(DIR . '/includes/class_xml.php');
 		$xml = new vB_AJAX_XML_Builder($vbulletin, 'text/xml');
+
 		$xml->add_group('userlists');
-		$xml->add_tag('userlist', process_replacement_vars($buddylist), array('type' => 'buddylist'));
-		$xml->add_tag('userlist', process_replacement_vars($incominglist), array('type' => 'incomingreqs'));
-		$xml->add_group('counts');
-		$xml->add_tag('buddycount', $buddycount);
+			$xml->add_tag('userlist', process_replacement_vars($buddylist), array('type' => 'buddylist'));
+			$xml->add_tag('userlist', process_replacement_vars($incominglist), array('type' => 'incomingreqs'));
+			$xml->add_tag('pagenav', process_replacement_vars($pagenav));
+			$xml->add_tag('pagenumber', $pagenumber);
+
+			$xml->add_group('counts');
+				$xml->add_tag('buddycount', $totalfriends);
+			$xml->close_group();
+
+			$xml->add_group('rollcall');
+
+				foreach ($js_userlist AS $username => $id)
+				{
+					$xml->add_tag('user', false, array('username' => $username, 'userid' => $id));
+				}
+
+			$xml->close_group();
+
 		$xml->close_group();
-		$xml->close_group();
+
 		$xml->print_xml();
 		exit;
 	}
 	else
 	{
+		// build JS username array
+		$js_userlist_array = array();
+		foreach ($js_userlist AS $username => $userid)
+		{
+			$js_userlist_array[] = "\"$username\" : $userid";
+		}
+		$js_userlist_array = implode(",\n\t", $js_userlist_array);
+
 		// draw cp nav bar
 		construct_usercp_nav('buddylist');
 
-		eval('$headinclude .= "' . fetch_template('modifyuserlist_headinclude') . '";');
 		if ($show['friend_controls'])
 		{
 			$navbits[''] = $vbphrase['contacts_and_friends'];
@@ -1598,8 +1788,19 @@ if ($_REQUEST['do'] == 'buddylist')
 
 		$showavatarchecked = ($vbulletin->userinfo['showavatars'] ? ' checked="checked"' : '');
 		$show['avatars'] = $vbulletin->userinfo['showavatars'];
+		$includecss['buddylist'] = 'buddylist.css';
 
-		$templatename = 'modifybuddylist';
+		$page_templater = vB_Template::create('modifybuddylist');
+		$page_templater->register('buddycount', $totalfriends);
+		$page_templater->register('buddylist', $buddylist);
+		$page_templater->register('buddy_username', $buddy_username);
+		$page_templater->register('incominglist', $incominglist);
+		$page_templater->register('js_userlist_array', $js_userlist_array);
+		$page_templater->register('showavatarchecked', $showavatarchecked);
+		$page_templater->register('perpage', $perpage);
+		$page_templater->register('pagenumber', $pagenumber);
+		$page_templater->register('pagenav', $pagenav);
+		$page_templater->register('filtertext', $vbulletin->GPC['filter']);
 	}
 }
 
@@ -1616,7 +1817,9 @@ if ($_REQUEST['do'] == 'ignorelist')
 	");
 	while ($user = $db->fetch_array($users_result))
 	{
-		eval('$ignorelist .= "' . fetch_template('modifyignorelist_user') . '";');
+		$templater = vB_Template::create('modifyignorelist_user');
+			$templater->register('user', $user);
+		$ignorelist .= $templater->render();
 	}
 
 	$show['ignorelist'] = !empty($ignorelist);
@@ -1635,18 +1838,20 @@ if ($_REQUEST['do'] == 'ignorelist')
 	{
 		// draw cp nav bar
 		construct_usercp_nav('ignorelist');
-
-		eval('$headinclude .= "' . fetch_template('modifyuserlist_headinclude') . '";');
+		$includecss['buddylist'] = 'buddylist.css';
 
 		$navbits[''] = $vbphrase['edit_ignore_list'];
-		$templatename = 'modifyignorelist';
+
+		$page_templater = vB_Template::create('modifyignorelist');
+		$page_templater->register('ignorelist', $ignorelist);
+		$page_templater->register('ignore_username', $ignore_username);
 	}
 }
 
 // ############################################################################
 // ALL FUNCTIONS BELOW HERE REQUIRE 'canmodifyprofile' PERMISSION, SO CHECK IT
 
-if (!($permissions['genericpermissions'] & $vbulletin->bf_ugp_genericpermissions['canmodifyprofile']) AND !$templatename)
+if (!($permissions['genericpermissions'] & $vbulletin->bf_ugp_genericpermissions['canmodifyprofile']) AND empty($page_templater))
 {
 	print_no_permission();
 }
@@ -1684,8 +1889,8 @@ if ($_REQUEST['do'] == 'editprofile')
 	// custom user title
 	if ($permissions['genericpermissions'] & $vbulletin->bf_ugp_genericpermissions['canusecustomtitle'])
 	{
-		exec_switch_bg();
-		if ($vbulletin->userinfo['customtitle'] == 2)
+		// fetch_musername modifies this value. How evil!
+		if ($vbulletin->userinfo['customtitle'] == 2 AND !isset($vbulletin->userinfo['musername']))
 		{
 			$vbulletin->userinfo['usertitle'] = htmlspecialchars_uni($vbulletin->userinfo['usertitle']);
 		}
@@ -1731,9 +1936,19 @@ if ($_REQUEST['do'] == 'editprofile')
 	// draw cp nav bar
 	construct_usercp_nav('profile');
 
-	eval('$birthdaybit = "' . fetch_template('modifyprofile_birthday') . '";');
+	$templater = vB_Template::create('modifyprofile_birthday');
+		$templater->register('birthdate', $birthdate);
+		$templater->register('dayselected', $dayselected);
+		$templater->register('monthselected', $monthselected);
+		$templater->register('sbselected', $sbselected);
+		$templater->register('year', $year);
+	$birthdaybit = $templater->render();
+
 	$navbits[''] = $vbphrase['edit_your_details'];
-	$templatename = 'modifyprofile';
+
+	$page_templater = vB_Template::create('modifyprofile');
+	$page_templater->register('birthdaybit', $birthdaybit);
+	$page_templater->register('customfields', $customfields);
 }
 
 // ############################### start update profile ###############################
@@ -1756,7 +1971,7 @@ if ($_POST['do'] == 'updateprofile')
 		// birthday fields
 		'day'          => TYPE_INT,
 		'month'        => TYPE_INT,
-		'year'         => TYPE_INT,
+		'year'         => TYPE_STR,
 		'oldbirthday'  => TYPE_STR,
 		'showbirthday' => TYPE_UINT,
 		// redirect button
@@ -1764,6 +1979,13 @@ if ($_POST['do'] == 'updateprofile')
 		// custom profile fields
 		'userfield'    => TYPE_ARRAY,
 	));
+
+	// don't make the password button submit all the details; this is confusing to users
+	if (!empty($vbulletin->GPC['gotopassword']))
+	{
+		exec_header_redirect('profile.php?' . $vbulletin->session->vars['sessionurl'] . 'do=editpassword');
+		exit;
+	}
 
 	// init user data manager
 	$userdata =& datamanager_init('User', $vbulletin, ERRTYPE_STANDARD);
@@ -1814,16 +2036,41 @@ if ($_POST['do'] == 'updateprofile')
 		$vbulletin->session->set('profileupdate', 0);
 	}
 
-	if (empty($vbulletin->GPC['gotopassword']))
+	$vbulletin->url = 'profile.php?' . $vbulletin->session->vars['sessionurl'] . 'do=editprofile';
+	print_standard_redirect(array('redirect_updatethanks',$vbulletin->userinfo['username']), true, true);  
+}
+
+// ############################### start edit connections ###############################
+if ($_REQUEST['do'] == 'editconnections')
+{
+	// if facebook connect is not enabled, go to the general settings page
+	if (!is_facebookenabled())
 	{
-		$vbulletin->url = 'usercp.php' . $vbulletin->session->vars['sessionurl_q'];
+		$_REQUEST['do'] = 'editoptions';
 	}
 	else
 	{
-		$vbulletin->url = 'profile.php?' . $vbulletin->session->vars['sessionurl'] . 'do=editpassword';
-	}
+		($hook = vBulletinHook::fetch_hook('profile_editconnections_start')) ? eval($hook) : false;
 
-	eval(print_standard_redirect('redirect_updatethanks'));
+		// draw cp nav bar
+		construct_usercp_nav('connections');
+
+		// set up navbits for shell template
+		$navbits[''] = $vbphrase['edit_connections'];
+
+		$show['fbaccount'] = !empty($vbulletin->userinfo['fbuserid']);
+
+		// if user is Facebook only login, allow them to add a vbpassword
+		$show['fbaddpasswordform'] = ($vbulletin->userinfo['logintype'] == 'fb');
+
+		$page_templater = vB_Template::create('modifyconnections');
+		$page_templater->register('fbuserid', $vbulletin->userinfo['fbuserid']);
+		$page_templater->register('fbname', $vbulletin->userinfo['fbname']);
+		$page_templater->register('fbjoindate', vbdate($vbulletin->options['dateformat'], $vbulletin->userinfo['fbjoindate'], true));
+		$page_templater->register('fbjoindatetime', vbdate($vbulletin->options['timeformat'], $vbulletin->userinfo['fbjoindate']));
+		$page_templater->register('fbprofileurl', get_fbprofileurl());
+		$page_templater->register('fbprofilepicurl', get_fbprofilepicurl());
+	}
 }
 
 // ############################################################################
@@ -1872,7 +2119,8 @@ if ($_REQUEST['do'] == 'editoptions')
 
 	// PM options
 	$show['pmoptions'] = ($vbulletin->options['enablepms'] AND $permissions['pmquota'] > 0) ? true : false;
-	$show['friend_email_request'] = ($vbulletin->options['socnet'] & $vbulletin->bf_misc_socnet['enable_friends'] ? true : false);
+	$show['friend_email_request'] = (($vbulletin->options['socnet'] & $vbulletin->bf_misc_socnet['enable_friends']) AND
+								($vbulletin->userinfo['permissions']['genericpermissions2'] & $vbulletin->bf_ugp_genericpermissions2) ? true : false);
 
 	// VM Options
 	$show['vmoptions'] = (
@@ -1938,9 +2186,12 @@ if ($_REQUEST['do'] == 'editoptions')
 	{
 		$optiontitle = $vbphrase["$timezonephrase"];
 		$optionselected = iif($optionvalue == $vbulletin->userinfo['timezoneoffset'], 'selected="selected"', '');
-		eval('$timezoneoptions .= "' . fetch_template('option') . '";');
+		$timezoneoptions .= render_option_template($optiontitle, $optionvalue, $optionselected, $optionclass);
 	}
-	eval('$timezoneoptions = "' . fetch_template('modifyoptions_timezone') . '";');
+	$templater = vB_Template::create('modifyoptions_timezone');
+		$templater->register('selectdst', $selectdst);
+		$templater->register('timezoneoptions', $timezoneoptions);
+	$timezoneoptions = $templater->render();
 
 	// start of the week
 	if ($vbulletin->userinfo['startofweek'] > 0)
@@ -1969,35 +2220,46 @@ if ($_REQUEST['do'] == 'editoptions')
 	$selectvbcode = array($vbulletin->userinfo['showvbcode'] => ' selected="selected"');
 
 	//MaxPosts by User
-	$optionArray = explode(',', $vbulletin->options['usermaxposts']);
 	$foundmatch = 0;
-	foreach ($optionArray AS $optionvalue)
+	if ($vbulletin->options['usermaxposts'])
 	{
-		if ($optionvalue == $vbulletin->userinfo['maxposts'])
+		$optionArray = explode(',', $vbulletin->options['usermaxposts']);
+		foreach ($optionArray AS $optionvalue)
 		{
-			$optionselected = 'selected="selected"';
-			$foundmatch = 1;
+			if ($optionvalue == $vbulletin->userinfo['maxposts'])
+			{
+				$optionselected = 'selected="selected"';
+				$foundmatch = 1;
+			}
+			else
+			{
+				$optionselected = '';
+			}
+			$optiontitle = construct_phrase($vbphrase['show_x_posts_per_page'], $optionvalue);
+			$maxpostsoptions .= render_option_template($optiontitle, $optionvalue, $optionselected, $optionclass);
 		}
-		else
-		{
-			$optionselected = '';
-		}
-		$optiontitle = construct_phrase($vbphrase['show_x_posts_per_page'], $optionvalue);
-		eval ('$maxpostsoptions .= "' . fetch_template('option') . '";');
 	}
 	if ($foundmatch == 0)
 	{
 		$postsdefaultselected = 'selected="selected"';
 	}
+	$show['maxpostsoptions'] = ($vbulletin->options['usermaxposts'] ? true : false);
 
-	if ($vbulletin->options['allowchangestyles'])
+	if (
+		$vbulletin->options['allowchangestyles']
+			OR
+		$vbulletin->options['mobilestyleid_advanced']
+			OR
+		$vbulletin->options['mobilestyleid_basic']		
+	)
 	{
 		$stylecount = 0;
 		if ($vbulletin->stylecache !== null)
 		{
-			$stylesetlist = construct_style_options();
+			$stylesetlist1 = construct_style_options(-1, '', true, false, $stylecount);
+			$stylesetlist2 = construct_style_options(-2, '', $stylesetlist1 ? false : true, false, $stylecount);
 		}
-		$show['styleoption'] = iif($stylecount > 1, true, false);
+		$show['styleoption'] = $stylecount > 1 ? true : false;
 	}
 	else
 	{
@@ -2011,8 +2273,8 @@ if ($_REQUEST['do'] == 'editoptions')
 	{
 		foreach ($languages AS $optionvalue => $optiontitle)
 		{
-			$optionselected = iif($vbulletin->userinfo['languageid'] == $optionvalue, 'selected="selected"', '');
-			eval('$languagelist .= "' . fetch_template('option') . '";');
+			$optionselected = iif($vbulletin->userinfo['saved_languageid'] == $optionvalue, 'selected="selected"', '');
+			$languagelist .= render_option_template($optiontitle, $optionvalue, $optionselected, $optionclass);
 		}
 		$show['languageoption'] = true;
 	}
@@ -2027,9 +2289,8 @@ if ($_REQUEST['do'] == 'editoptions')
 	$bgclass4 = 'alt1'; // Date/Time Section
 	$bgclass5 = 'alt1'; // Other Section
 
-	// Social Networking Stuff
-	// TODO: needs to check option to see if its enabled
-	$show['usercssoption'] = false;
+	// View other users' profile styling
+	$show['usercssoption'] = $vbulletin->options['socnet'] & $vbulletin->bf_misc_socnet['enable_profile_styling'];
 
 	// Get custom otions
 	$customfields = array();
@@ -2039,7 +2300,42 @@ if ($_REQUEST['do'] == 'editoptions')
 	construct_usercp_nav('options');
 
 	$navbits[''] = $vbphrase['edit_options'];
-	$templatename = 'modifyoptions';
+
+	$page_templater = vB_Template::create('modifyoptions');
+	$page_templater->register('block_data', $block_data);
+	$page_templater->register('checked', $checked);
+	$page_templater->register('customfields', $customfields);
+	$page_templater->register('day1selected', $day1selected);
+	$page_templater->register('day2selected', $day2selected);
+	$page_templater->register('day3selected', $day3selected);
+	$page_templater->register('day4selected', $day4selected);
+	$page_templater->register('day5selected', $day5selected);
+	$page_templater->register('day6selected', $day6selected);
+	$page_templater->register('day7selected', $day7selected);
+	$page_templater->register('days1selected', $days1selected);
+	$page_templater->register('days2selected', $days2selected);
+	$page_templater->register('days7selected', $days7selected);
+	$page_templater->register('days10selected', $days10selected);
+	$page_templater->register('days14selected', $days14selected);
+	$page_templater->register('days30selected', $days30selected);
+	$page_templater->register('days45selected', $days45selected);
+	$page_templater->register('days60selected', $days60selected);
+	$page_templater->register('days75selected', $days75selected);
+	$page_templater->register('days100selected', $days100selected);
+	$page_templater->register('days365selected', $days365selected);
+	$page_templater->register('daysallselected', $daysallselected);
+	$page_templater->register('daysdefaultselected', $daysdefaultselected);
+	$page_templater->register('emailchecked', $emailchecked);
+	$page_templater->register('languagelist', $languagelist);
+	$page_templater->register('maxpostsoptions', $maxpostsoptions);
+	$page_templater->register('postsdefaultselected', $postsdefaultselected);
+	$page_templater->register('selectvbcode', $selectvbcode);
+	$page_templater->register('checkvbcode', $checkvbcode);
+	$page_templater->register('stylesetlist1', $stylesetlist1);
+	$page_templater->register('stylesetlist2', $stylesetlist2);
+	$page_templater->register('template_hook', $template_hook);
+	$page_templater->register('threaddisplaymode', $threaddisplaymode);
+	$page_templater->register('timezoneoptions', $timezoneoptions);
 }
 
 // ############################### start update options ###############################
@@ -2124,7 +2420,7 @@ if ($_POST['do'] == 'updateoptions')
 	}
 	else
 	{
-		$vbulletin->url = 'usercp.php' . $vbulletin->session->vars['sessionurl_q'];
+		$vbulletin->url = 'profile.php?' . $vbulletin->session->vars['sessionurl'] . 'do=editoptions';
 	}
 
 	// recache the global group to get the stuff from the new language
@@ -2137,28 +2433,27 @@ if ($_POST['do'] == 'updateoptions')
 	{
 		$vbphrase = array_merge($vbphrase, unserialize($globalgroup['phrasegroup_global']));
 
-		global $stylevar;
-		if ($stylevar['charset'] != $globalgroup['charset'])
+		if (vB_Template_Runtime::fetchStyleVar('charset') != $globalgroup['charset'])
 		{
 			// change the character set in a bunch of places - a total hack
 			global $headinclude;
 
 			$headinclude = str_replace(
-				"content=\"text/html; charset=$stylevar[charset]\"",
+				"content=\"text/html; charset=" . vB_Template_Runtime::fetchStyleVar('charset') . "\"",
 				"content=\"text/html; charset=$globalgroup[charset]\"",
 				$headinclude
 			);
 
-			$stylevar['charset'] = $globalgroup['charset'];
+			vB_Template_Runtime::addStyleVar('charset', $globalgroup['charset']);
 			$vbulletin->userinfo['lang_charset'] = $globalgroup['charset'];
 
 			exec_headers();
 		}
 
-		$stylevar['languagecode'] = $globalgroup['languagecode'];
+		vB_Template_Runtime::addStyleVar('languagecode', $globalgroup['languagecode']);
 	}
 
-	eval(print_standard_redirect('redirect_updatethanks', true, false, $userdata->fetch_field('languageid')));
+	print_standard_redirect(array('redirect_updatethanks',$vbulletin->userinfo['username']), true, true, $userdata->fetch_field('languageid'));  
 }
 
 // ############################################################################
@@ -2197,9 +2492,9 @@ if ($_POST['do'] == 'updatesignature')
 	// DO WYSIWYG processing to get to BB code.
 	if ($vbulletin->GPC['wysiwyg'])
 	{
-		require_once(DIR . '/includes/functions_wysiwyg.php');
-
-		$signature = convert_wysiwyg_html_to_bbcode($vbulletin->GPC['message'], $permissions['signaturepermissions'] & $vbulletin->bf_ugp_signaturepermissions['allowhtml']);
+		require_once(DIR . '/includes/class_wysiwygparser.php');
+		$html_parser = new vB_WysiwygHtmlParser($vbulletin);
+		$signature = $html_parser->parse_wysiwyg_html_to_bbcode($vbulletin->GPC['message'], $permissions['signaturepermissions'] & $vbulletin->bf_ugp_signaturepermissions['allowhtml']);
 	}
 	else
 	{
@@ -2258,21 +2553,35 @@ if ($_POST['do'] == 'updatesignature')
 	}
 
 	// Max number of images in the sig if imgs are allowed.
-	if ($vbulletin->userinfo['permissions']['sigmaximages'])
+	if ($vbulletin->userinfo['permissions']['sigmaximages'] OR $vbulletin->userinfo['permissions']['sigmaxvideos'])
 	{
 		// Parsing the signature into BB code.
 		require_once(DIR . '/includes/class_bbcode_alt.php');
-		$bbcode_parser =& new vB_BbCodeParser_ImgCheck($vbulletin, fetch_tag_list());
+		require_once(DIR . '/includes/functions_video.php');
+
+		$bbcode_parser = new vB_BbCodeParser_ImgCheck($vbulletin, fetch_tag_list());
 		$bbcode_parser->set_parse_userinfo($userinfo_sigpic, $vbulletin->userinfo['permissions']);
+		$signature = parse_video_bbcode($signature);
 		$parsedsig = $bbcode_parser->parse($signature, 'signature');
 
-		$imagecount = fetch_character_count($parsedsig, '<img');
-
 		// Count the images
-		if ($imagecount > $vbulletin->userinfo['permissions']['sigmaximages'])
+		if ($vbulletin->userinfo['permissions']['sigmaximages'])
 		{
-			$vbulletin->GPC['preview'] = true;
-			$errors[] = fetch_error('toomanyimages', $imagecount, $vbulletin->userinfo['permissions']['sigmaximages']);
+			$imagecount = fetch_character_count($parsedsig, '<img');
+			if ($imagecount > $vbulletin->userinfo['permissions']['sigmaximages'])
+			{
+				$vbulletin->GPC['preview'] = true;
+				$errors[] = fetch_error('toomanyimages', $imagecount, $vbulletin->userinfo['permissions']['sigmaximages']);
+			}
+		}
+		if ($vbulletin->userinfo['permissions']['sigmaxvideos'])
+		{
+			$videocount = fetch_character_count($parsedsig, '<video />');
+			if ($videocount > $vbulletin->userinfo['permissions']['sigmaxvideos'])
+			{
+				$vbulletin->GPC['preview'] = true;
+				$errors[] = fetch_error('toomanyvideos', $videocount, $vbulletin->userinfo['permissions']['sigmaxvideos']);
+			}
 		}
 	}
 
@@ -2292,13 +2601,14 @@ if ($_POST['do'] == 'updatesignature')
 	if ($vbulletin->userinfo['permissions']['sigmaxlines'] > 0)
 	{
 		require_once(DIR . '/includes/class_sigparser_char.php');
-		$char_counter =& new vB_SignatureParser_CharCount($vbulletin, fetch_tag_list(), $vbulletin->userinfo['permissions'], $vbulletin->userinfo['userid']);
+		$char_counter = new vB_SignatureParser_CharCount($vbulletin, fetch_tag_list(), $vbulletin->userinfo['permissions'], $vbulletin->userinfo['userid']);
 		$line_count_text = $char_counter->parse(trim($signature));
 
 		if ($vbulletin->options['softlinebreakchars'] > 0)
 		{
 			// implicitly wrap after X characters without a break
-			$line_count_text = preg_replace('#([^\r\n]{' . $vbulletin->options['softlinebreakchars'] . '})#', "\\1\n", $line_count_text);
+			//trim it to get rid of the trailing whitechars that are inserted by the replace
+			$line_count_text = trim(preg_replace('#([^\r\n]{' . $vbulletin->options['softlinebreakchars'] . '})#', "\\1\n", $line_count_text));
 		}
 
 		// + 1, since 0 linebreaks still means 1 line
@@ -2309,6 +2619,7 @@ if ($_POST['do'] == 'updatesignature')
 			$vbulletin->GPC['preview'] = true;
 			$errors[] = fetch_error('sigtoomanylines', $vbulletin->userinfo['permissions']['sigmaxlines']);
 		}
+
 	}
 
 	if ($vbulletin->userinfo['permissions']['signaturepermissions'] & $vbulletin->bf_ugp_signaturepermissions['canbbcode'])
@@ -2320,10 +2631,13 @@ if ($_POST['do'] == 'updatesignature')
 		$signature = preg_replace('#\[color=(&quot;|"|\'|)([a-f0-9]{6})\\1]#i', '[color=\1#\2\1]', $signature);
 
 		// Turn the text into bb code.
-		$signature = convert_url_to_bbcode($signature);
+		if ($vbulletin->userinfo['permissions']['signaturepermissions'] & $vbulletin->bf_ugp_signaturepermissions['canbbcodelink'])
+		{
+			$signature = convert_url_to_bbcode($signature);
+		}
 
 		// Create the parser with the users sig permissions
-		$sig_parser =& new vB_SignatureParser($vbulletin, fetch_tag_list(), $vbulletin->userinfo['permissions'], $vbulletin->userinfo['userid']);
+		$sig_parser = new vB_SignatureParser($vbulletin, fetch_tag_list(), $vbulletin->userinfo['permissions'], $vbulletin->userinfo['userid']);
 
 		// Parse the signature
 		$previewmessage = $sig_parser->parse($signature);
@@ -2342,23 +2656,27 @@ if ($_POST['do'] == 'updatesignature')
 	// If they are previewing the signature or there were usergroup rules broken and there are $errors[]
 	if (!empty($errors) OR $vbulletin->GPC['preview'] != '')
 	{
+		$errorlist = '';
 		if (!empty($errors))
 		{
-			$errorlist = '';
-			foreach ($errors AS $key => $errormessage)
-			{
-				eval('$errorlist .= "' . fetch_template('newpost_errormessage') . '";');
-			}
 			$show['errors'] = true;
+			$templater = vB_Template::create('newpost_errormessage');
+			$templater->register('errors', $errors);
+			$errorlist .= $templater->render();
 		}
 
-		$bbcode_parser =& new vB_BbCodeParser($vbulletin, fetch_tag_list());
+		$bbcode_parser = new vB_BbCodeParser($vbulletin, fetch_tag_list());
 		$bbcode_parser->set_parse_userinfo($userinfo_sigpic, $vbulletin->userinfo['permissions']);
 		$previewmessage = $bbcode_parser->parse($signature, 'signature');
 
 		// save a conditional by just overwriting the phrase
 		$vbphrase['submit_message'] =& $vbphrase['save_signature'];
-		eval('$preview = "' . fetch_template('newpost_preview') . '";');
+		$templater = vB_Template::create('newpost_preview');
+			$templater->register('errorlist', $errorlist);
+			$templater->register('newpost', $newpost);
+			$templater->register('post', $post);
+			$templater->register('previewmessage', $previewmessage);
+		$preview = $templater->render();
 		$_REQUEST['do'] = 'editsignature';
 
 		$preview_error_signature = $signature;
@@ -2375,11 +2693,17 @@ if ($_POST['do'] == 'updatesignature')
 
 		$userdata->save();
 
+		clear_autosave_text('vBForum_Signature', 0, 0, $vbulletin->userinfo['userid']);
+
 		if ($redirectsig)
 		{
 			$vbulletin->url = 'profile.php?' . $vbulletin->session->vars['sessionurl'] . 'do=editsignature&amp;url=' . $vbulletin->url . '#sigpic';
 		}
-		eval(print_standard_redirect('redirect_updatethanks'));
+		else
+		{
+			$vbulletin->url = 'usercp.php' . $vbulletin->session->vars['sessionurl_q'];
+		}
+		print_standard_redirect(array('redirect_updatethanks',$vbulletin->userinfo['username']));  
 	}
 }
 
@@ -2439,7 +2763,7 @@ if ($_POST['do'] == 'updatesigpic')
 	($hook = vBulletinHook::fetch_hook('profile_updatesigpic_complete')) ? eval($hook) : false;
 
 	$vbulletin->url = 'profile.php?' . $vbulletin->session->vars['sessionurl'] . 'do=editsignature#sigpic';
-	eval(print_standard_redirect('redirect_updatethanks'));
+	print_standard_redirect(array('redirect_updatethanks',$vbulletin->userinfo['username']));  
 }
 
 // ############################ start edit signature ##########################
@@ -2459,12 +2783,12 @@ if ($_REQUEST['do'] == 'editsignature')
 	require_once(DIR . '/includes/class_sigparser.php');
 
 	// Create the parser with the users sig permissions
-	$sig_parser =& new vB_SignatureParser($vbulletin, fetch_tag_list(), $vbulletin->userinfo['permissions'], $vbulletin->userinfo['userid']);
+	$sig_parser = new vB_SignatureParser($vbulletin, fetch_tag_list(), $vbulletin->userinfo['permissions'], $vbulletin->userinfo['userid']);
 
 	// Build $show variables for each signature bitfield permission
 	foreach ($vbulletin->bf_ugp_signaturepermissions AS $bit_name => $bit_value)
 	{
-		if ($bbcode = preg_match('#canbbcode(\w+)#i', $bit_name, $matches) AND $matches[1])
+		if ($bbcode = preg_match('#canbbcode(\w+)#i', $bit_name, $matches) AND $matches[1] AND $matches[1] != 'quote')
 		{
 			$term = $matches[1] == 'link' ? 'URL' : strtoupper($matches[1]);
 			$show["$bit_name"] = ($permissions['signaturepermissions'] & $bit_value AND $vbulletin->options['allowedbbcodes'] & @constant('ALLOW_BBCODE_' . $term))  ? true : false;
@@ -2504,25 +2828,35 @@ if ($_REQUEST['do'] == 'editsignature')
 		if (!$previewmessage)
 		{
 			require_once(DIR . '/includes/class_bbcode.php');
-			$bbcode_parser =& new vB_BbCodeParser($vbulletin, fetch_tag_list());
+			$bbcode_parser = new vB_BbCodeParser($vbulletin, fetch_tag_list());
 			$bbcode_parser->set_parse_userinfo(fetch_userinfo($vbulletin->userinfo['userid'], FETCH_USERINFO_SIGPIC), $vbulletin->userinfo['permissions']);
 			$previewmessage = $bbcode_parser->parse($signature, 'signature');
 		}
 
 		// save a conditional by just overwriting the phrase
 		$vbphrase['submit_message'] =& $vbphrase['save_signature'];
-		eval('$preview = "' . fetch_template('newpost_preview') . '";');
+		$templater = vB_Template::create('newpost_preview');
+			$templater->register('errorlist', $errorlist);
+			$templater->register('newpost', $newpost);
+			$templater->register('post', $post);
+			$templater->register('previewmessage', $previewmessage);
+		$preview = $templater->render();
 	}
 
 	require_once(DIR . '/includes/functions_editor.php');
 
-	// set message box width to usercp size
-	$stylevar['messagewidth'] = $stylevar['messagewidth_usercp'];
 	$editorid = construct_edit_toolbar(
 		htmlspecialchars_uni($signature),
 		0,
 		'signature',
-		$vbulletin->userinfo['permissions']['signaturepermissions'] & $vbulletin->bf_ugp_signaturepermissions['allowsmilies']
+		$vbulletin->userinfo['permissions']['signaturepermissions'] & $vbulletin->bf_ugp_signaturepermissions['allowsmilies'],
+		true,
+		false,
+		'fe',
+		'',
+		array(),
+		'content',
+		'vBForum_Signature'
 	);
 
 	$show['canbbcode'] = ($vbulletin->userinfo['permissions']['signaturepermissions'] & $vbulletin->bf_ugp_signaturepermissions['canbbcode']) ? true : false;
@@ -2562,7 +2896,7 @@ if ($_REQUEST['do'] == 'editsignature')
 			else
 			{
 				// sigpic stored in the FS
-				$sigpicurl = $vbulletin->options['sigpicpath'] . '/sigpic' . $vbulletin->userinfo['userid'] . '_' . $vbulletin->userinfo['sigpicrevision'] . '.gif';
+				$sigpicurl = $vbulletin->options['sigpicurl'] . '/sigpic' . $vbulletin->userinfo['userid'] . '_' . $vbulletin->userinfo['sigpicrevision'] . '.gif';
 			}
 		}
 		else // No sigpic yet
@@ -2578,8 +2912,17 @@ if ($_REQUEST['do'] == 'editsignature')
 	construct_usercp_nav('signature');
 
 	$navbits[''] = $vbphrase['edit_signature'];
-	$templatename = 'modifysignature';
 	$url =& $vbulletin->url;
+
+	$page_templater = vB_Template::create('modifysignature');
+	$page_templater->register('editorid', $editorid);
+	$page_templater->register('inimaxattach', $inimaxattach);
+	$page_templater->register('maxnote', $maxnote);
+	$page_templater->register('messagearea', $messagearea);
+	$page_templater->register('preview', $preview);
+	$page_templater->register('sigperms', $sigperms);
+	$page_templater->register('sigpicurl', $sigpicurl);
+	$page_templater->register('url', $url);
 }
 
 // ############################################################################
@@ -2599,8 +2942,6 @@ if ($_REQUEST['do'] == 'editavatar')
 
 	($hook = vBulletinHook::fetch_hook('profile_editavatar_start')) ? eval($hook) : false;
 
-	// initialise vars
-	$avatarchecked["{$vbulletin->userinfo['avatarid']}"] = 'checked="checked"';
 	$categorycache = array();
 	$bbavatar = array();
 	$donefirstcategory = 0;
@@ -2622,9 +2963,15 @@ if ($_REQUEST['do'] == 'editavatar')
 
 		$avatar = $db->query_first_slave("SELECT * FROM " . TABLE_PREFIX . "avatar WHERE avatarid = " . $vbulletin->userinfo['avatarid']);
 		$avatarid =& $avatar['avatarid'];
-		eval('$currentavatar = "' . fetch_template('modifyavatarbit') . '";');
+		$avatarchecked = ($avatarid == $vbulletin->userinfo['avatarid']) ? 'checked="checked"' : '';
+		$templater = vB_Template::create('modifyavatarbit');
+			$templater->register('avatar', $avatar);
+			$templater->register('avatarchecked', $avatarchecked);
+			$templater->register('avatarid', $avatarid);
+		$currentavatar = $templater->render();
 		// store avatar info in $bbavatar for later use
 		$bbavatar = $avatar;
+		$avatarchecked = '';
 	}
 	else
 	{
@@ -2645,14 +2992,15 @@ if ($_REQUEST['do'] == 'editavatar')
 			{
 				$vbulletin->userinfo['avatarurl'] .= "\" width=\"$avatar[width]\" height=\"$avatar[height]";
 			}
-			eval('$currentavatar = "' . fetch_template('modifyavatarbit_custom') . '";');
+			$currentavatar = vB_Template::create('modifyavatarbit_custom')->render();
+			$avatarchecked[0] = 'checked="checked"';
 		}
 		else
 		{
 		// no avatar specified
 			$nouseavatarchecked = 'checked="checked"';
 			$avatarchecked[0] = '';
-			eval('$currentavatar = "' . fetch_template('modifyavatarbit_noavatar') . '";');
+			$currentavatar = vB_Template::create('modifyavatarbit_noavatar')->render();
 		}
 	}
 	// get rid of any lingering $avatar variables
@@ -2687,7 +3035,11 @@ if ($_REQUEST['do'] == 'editavatar')
 		{
 			$thiscategoryid = $category['imagecategoryid'];
 			$selected = iif($thiscategoryid == $vbulletin->GPC['categoryid'], ' selected="selected"', '');
-			eval('$categorybits .= "' . fetch_template('modifyavatar_category') . '";');
+			$templater = vB_Template::create('modifyavatar_category');
+				$templater->register('category', $category);
+				$templater->register('selected', $selected);
+				$templater->register('thiscategoryid', $thiscategoryid);
+			$categorybits .= $templater->render();
 		}
 	}
 	else
@@ -2730,11 +3082,6 @@ if ($_REQUEST['do'] == 'editavatar')
 		");
 		$avatarsonthispage = $db->num_rows($avatars);
 
-		$cols = intval($vbulletin->options['numavatarswide']);
-		$cols = iif($cols, $cols, 5);
-		$cols = iif($cols > $avatarsonthispage, $avatarsonthispage, $cols);
-
-		$bits = array();
 		while ($avatar = $db->fetch_array($avatars))
 		{
 			$categoryname = $avatar['category'];
@@ -2742,26 +3089,11 @@ if ($_REQUEST['do'] == 'editavatar')
 
 			($hook = vBulletinHook::fetch_hook('profile_editavatar_bit')) ? eval($hook) : false;
 
-			eval('$bits[] = "' . fetch_template('modifyavatarbit') . '";');
-			if (sizeof($bits) == $cols)
-			{
-				$avatarcells = implode('', $bits);
-				$bits = array();
-				eval('$avatarlist .= "' . fetch_template('help_avatars_row') . '";');
-				exec_switch_bg();
-			}
-		}
-
-		// initialize remaining columns
-		$remainingcolumns = 0;
-
-		$remaining = sizeof($bits);
-		if ($remaining)
-		{
-			$remainingcolumns = $cols - $remaining;
-			$avatarcells = implode('', $bits);
-			eval('$avatarlist .= "' . fetch_template('help_avatars_row') . '";');
-			exec_switch_bg();
+			$templater = vB_Template::create('modifyavatarbit');
+				$templater->register('avatar', $avatar);
+				//$templater->register('avatarchecked', $avatarchecked);
+				$templater->register('avatarid', $avatarid);
+			$avatarlist .= $templater->render();
 		}
 
 		$show['forumavatars'] = true;
@@ -2807,7 +3139,19 @@ if ($_REQUEST['do'] == 'editavatar')
 	construct_usercp_nav('avatar');
 
 	$navbits[''] = $vbphrase['edit_avatar'];
-	$templatename = 'modifyavatar';
+	$includecss['editavatar'] = 'editavatar.css';
+
+	$page_templater = vB_Template::create('modifyavatar');
+	$page_templater->register('avatarchecked', $avatarchecked);
+	$page_templater->register('avatarlist', $avatarlist);
+	$page_templater->register('categorybits', $categorybits);
+	$page_templater->register('categoryname', $categoryname);
+	$page_templater->register('cols', $cols);
+	$page_templater->register('currentavatar', $currentavatar);
+	$page_templater->register('inimaxattach', $inimaxattach);
+	$page_templater->register('maxnote', $maxnote);
+	$page_templater->register('nouseavatarchecked', $nouseavatarchecked);
+	$page_templater->register('pagenav', $pagenav);
 }
 
 // ############################################################################
@@ -2863,7 +3207,10 @@ if ($_REQUEST['do'] == 'editprofilepic')
 		construct_usercp_nav('profilepic');
 
 		$navbits[''] = $vbphrase['edit_profile_picture'];
-		$templatename = 'modifyprofilepic';
+
+		$page_templater = vB_Template::create('modifyprofilepic');
+		$page_templater->register('inimaxattach', $inimaxattach);
+		$page_templater->register('maxnote', $maxnote);
 	}
 	else
 	{
@@ -2979,7 +3326,7 @@ if ($_POST['do'] == 'updateavatar')
 	$userdata->save();
 
 	$vbulletin->url = 'profile.php?' . $vbulletin->session->vars['sessionurl'] . 'do=editavatar';
-	eval(print_standard_redirect('redirect_updatethanks'));
+	print_standard_redirect(array('redirect_updatethanks',$vbulletin->userinfo['username']));  
 
 }
 
@@ -3035,7 +3382,7 @@ if ($_POST['do'] == 'updateprofilepic')
 	($hook = vBulletinHook::fetch_hook('profile_updateprofilepic_complete')) ? eval($hook) : false;
 
 	$vbulletin->url = 'profile.php?' . $vbulletin->session->vars['sessionurl'] . 'do=editprofilepic';
-	eval(print_standard_redirect('redirect_updatethanks'));
+	print_standard_redirect(array('redirect_updatethanks',$vbulletin->userinfo['username']));  
 }
 
 // ############################### start choose displayed usergroup ###############################
@@ -3086,7 +3433,7 @@ if ($_POST['do'] == 'updatedisplaygroup')
 
 			$userdata->save();
 
-			eval(print_standard_redirect('usergroup_displaygroupupdated'));
+			print_standard_redirect(array('usergroup_displaygroupupdated',$display_usergroup['title']));  
 		}
 		else
 		{
@@ -3154,7 +3501,7 @@ if ($_POST['do'] == 'leavegroup')
 
 			$userdata->save();
 
-			eval(print_standard_redirect('usergroup_nolongermember'));
+			print_standard_redirect('usergroup_nolongermember');  
 		}
 	}
 
@@ -3176,7 +3523,7 @@ if ($_POST['do'] == 'insertjoinrequest')
 	if ($request = $db->query_first("SELECT * FROM " . TABLE_PREFIX . "usergrouprequest WHERE userid=" . $vbulletin->userinfo['userid'] . " AND usergroupid=" . $vbulletin->GPC['usergroupid']))
 	{
 		// request already exists, just say okay...
-		eval(print_standard_redirect('usergroup_requested'));
+		print_standard_redirect('usergroup_requested');  
 	}
 	else
 
@@ -3189,7 +3536,7 @@ if ($_POST['do'] == 'insertjoinrequest')
 			VALUES
 				(" . $vbulletin->userinfo['userid'] . ", " . $vbulletin->GPC['usergroupid'] . ", '" . $db->escape_string($vbulletin->GPC['reason']) . "', " . TIMENOW . ")
 		");
-		eval(print_standard_redirect('usergroup_requested'));
+		print_standard_redirect('usergroup_requested');  
 	}
 
 }
@@ -3220,16 +3567,23 @@ if ($_POST['do'] == 'joingroup')
 				INNER JOIN " . TABLE_PREFIX . "user AS user USING(userid)
 				WHERE ugl.usergroupid = $usergroupid
 			");
-			if ($db->num_rows($leaders))
-			{
-				// group is moderated: show join request page
 
-				$_groupleaders = array();
+			if ($db->num_rows($leaders))
+			{ // group is moderated: show join request page
+				$clc = 0;
+				$groupleaders = array();
 				while ($leader = $db->fetch_array($leaders))
 				{
-					eval('$_groupleaders[] = "' . fetch_template('modifyusergroups_groupleader') . '";');
+					$clc++;
+					$leader['comma'] = $vbphrase['comma_space'];
+					$groupleaders[$clc] = $leader;
 				}
-				$groupleaders = implode(', ', $_groupleaders);
+
+				// Last element
+				if ($clc) 
+				{
+					$groupleaders[$clc]['comma'] = '';
+				}
 
 				$navbits['profile.php?' . $vbulletin->session->vars['sessionurl'] . 'do=editusergroups'] = $vbphrase['group_memberships'];
 				$navbits[''] = $vbphrase['join_request'];
@@ -3238,8 +3592,12 @@ if ($_POST['do'] == 'joingroup')
 
 				// draw cp nav bar
 				construct_usercp_nav('usergroups');
-				$templatename = 'modifyusergroups_requesttojoin';
+				$includecss['joinrequests'] = 'joinrequests.css';
 
+				$page_templater = vB_Template::create('modifyusergroups_requesttojoin');
+				$page_templater->register('groupleaders', $groupleaders);
+				$page_templater->register('usergroup', $usergroup);
+				$page_templater->register('usergroupid', $usergroupid);
 			}
 			else
 			{
@@ -3254,7 +3612,7 @@ if ($_POST['do'] == 'joingroup')
 				$userdata->save();
 
 				$usergroupname = $usergroup['title'];
-				eval(print_standard_redirect('usergroup_welcome'));
+				print_standard_redirect(array('usergroup_welcome',$usergroupname));  
 			}
 
 		}
@@ -3338,7 +3696,10 @@ if ($_REQUEST['do'] == 'editusergroups')
 			{
 				exec_switch_bg();
 				$joinrequest['requests'] = vb_number_format($joinrequest['requests']);
-				eval('$joinrequestbits .= "' . fetch_template('modifyusergroups_joinrequestbit') . '";');
+				$templater = vB_Template::create('modifyusergroups_joinrequestbit');
+					$templater->register('bgclass', $bgclass);
+					$templater->register('joinrequest', $joinrequest);
+				$joinrequestbits .= $templater->render();
 			}
 			unset($joinrequest);
 			$db->free_result($joinrequests);
@@ -3382,16 +3743,24 @@ if ($_REQUEST['do'] == 'editusergroups')
 			foreach ($groups['notmember'] AS $usergroupid => $usergroup)
 			{
 				$joinrequested = 0;
-				exec_switch_bg();
+				$groupleaders = array();
 				if (is_array($leaders["$usergroupid"]))
 				{
-					$_groupleaders = array();
+					$clc = 0;
+					$ismoderated = 1;
 					foreach ($leaders["$usergroupid"] AS $leader)
 					{
-						eval('$_groupleaders[] = "' . fetch_template('modifyusergroups_groupleader') . '";');
+						$clc++;
+						$leader['comma'] = $vbphrase['comma_space'];
+						$groupleaders[$clc] = $leader;
 					}
-					$ismoderated = 1;
-					$groupleaders = implode(', ', $_groupleaders);
+
+					// Last element
+					if ($clc) 
+					{
+						$groupleaders[$clc]['comma'] = '';
+					}
+
 					if (isset($requests["$usergroupid"]))
 					{
 						$joinrequest = $requests["$usergroupid"];
@@ -3401,15 +3770,20 @@ if ($_REQUEST['do'] == 'editusergroups')
 					}
 				}
 				else
-
 				{
 					$ismoderated = 0;
-					$groupleaders = '';
 				}
 
 				($hook = vBulletinHook::fetch_hook('profile_editusergroups_nonmemberbit')) ? eval($hook) : false;
 
-				eval('$nonmembergroupbits .= "' . fetch_template('modifyusergroups_nonmemberbit') . '";');
+				$templater = vB_Template::create('modifyusergroups_nonmemberbit');
+					$templater->register('bgclass', $bgclass);
+					$templater->register('groupleaders', $groupleaders);
+					$templater->register('ismoderated', $ismoderated);
+					$templater->register('joinrequest', $joinrequest);
+					$templater->register('joinrequested', $joinrequested);
+					$templater->register('usergroup', $usergroup);
+				$nonmembergroupbits .= $templater->render();
 			}
 		}
 
@@ -3421,6 +3795,7 @@ if ($_REQUEST['do'] == 'editusergroups')
 
 		// do groups user IS a member of
 		$membergroupbits = '';
+		$show['canleave'] = false;
 		foreach ($groups['member'] AS $usergroupid => $usergroup)
 		{
 			if ($usergroupid != $vbulletin->userinfo['usergroupid'] AND $usergroup['ispublicgroup'])
@@ -3437,11 +3812,15 @@ if ($_REQUEST['do'] == 'editusergroups')
 				else
 				{
 					$show['isleader'] = false;
+					$show['canleave'] = true;
 				}
 
 				($hook = vBulletinHook::fetch_hook('profile_editusergroups_memberbit')) ? eval($hook) : false;
 
-				eval('$membergroupbits .= "' . fetch_template('modifyusergroups_memberbit') . '";');
+				$templater = vB_Template::create('modifyusergroups_memberbit');
+					$templater->register('bgclass', $bgclass);
+					$templater->register('usergroup', $usergroup);
+				$membergroupbits .= $templater->render();
 			}
 		}
 
@@ -3466,7 +3845,12 @@ if ($_REQUEST['do'] == 'editusergroups')
 
 				($hook = vBulletinHook::fetch_hook('profile_editusergroups_displaybit')) ? eval($hook) : false;
 
-				eval('$displaygroupbits .= "' . fetch_template('modifyusergroups_displaybit') . '";');
+				$templater = vB_Template::create('modifyusergroups_displaybit');
+					$templater->register('bgclass', $bgclass);
+					$templater->register('checked', $checked);
+					$templater->register('usergroup', $usergroup);
+					$templater->register('usergroupid', $usergroupid);
+				$displaygroupbits .= $templater->render();
 			}
 		}
 
@@ -3478,7 +3862,16 @@ if ($_REQUEST['do'] == 'editusergroups')
 		}
 
 		$navbits[''] = $vbphrase['group_memberships'];
-		$templatename = 'modifyusergroups';
+		$includecss['joinrequests'] = 'joinrequests.css';
+
+		$page_templater = vB_Template::create('modifyusergroups');
+		$page_templater->register('checked', $checked);
+		$page_templater->register('displaygroupbits', $displaygroupbits);
+		$page_templater->register('joinrequestbits', $joinrequestbits);
+		$page_templater->register('membergroupbits', $membergroupbits);
+		$page_templater->register('nonmembergroupbits', $nonmembergroupbits);
+		$page_templater->register('primarygroup', $primarygroup);
+		$page_templater->register('primarygroupid', $primarygroupid);
 	}
 }
 
@@ -3542,7 +3935,7 @@ if ($_POST['do'] == 'deleteusergroups')
 			}
 
 			$vbulletin->url = 'memberlist.php?' . $vbulletin->session->vars['sessionurl'] . 'usergroupid=' . $vbulletin->GPC['usergroupid'];
-			eval(print_standard_redirect('redirect_removedusers'));
+			print_standard_redirect('redirect_removedusers');  
 		}
 		else
 		{
@@ -3566,89 +3959,38 @@ if ($_POST['do'] == 'deleteattachments')
 	}
 
 	$vbulletin->input->clean_array_gpc('p', array(
-		'deletebox'    => TYPE_ARRAY_BOOL,
-		'perpage'      => TYPE_UINT,
-		'pagenumber'   => TYPE_UINT,
-		'showthumbs'   => TYPE_BOOL,
-		'userid'       => TYPE_UINT
+		'attachmentslist' => TYPE_ARRAY_BOOL,
+		'perpage'         => TYPE_UINT,
+		'pagenumber'      => TYPE_UINT,
+		'showthumbs'      => TYPE_BOOL,
+		'userid'          => TYPE_UINT
 	));
-
-	if (empty($vbulletin->GPC['deletebox']))
-	{
-		eval(standard_error(fetch_error('attachdel')));
-	}
 
 	($hook = vBulletinHook::fetch_hook('profile_deleteattachments_start')) ? eval($hook) : false;
 
-	// Get forums that allow canview access
-	foreach ($vbulletin->userinfo['forumpermissions'] AS $forumid => $perm)
+	$idlist = array();
+	foreach (array_keys($vbulletin->GPC['attachmentslist']) AS $attachmentid)
 	{
-		if (($perm & $vbulletin->bf_ugp_forumpermissions['canview']) AND ($perm & $vbulletin->bf_ugp_forumpermissions['canviewthreads']) AND ($perm & $vbulletin->bf_ugp_forumpermissions['cangetattachment']))
-		{
-			if ($userid != $vbulletin->userinfo['userid'] AND !($perm & $vbulletin->bf_ugp_forumpermissions['canviewothers']))
-			{
-				// Viewing non-self and don't have permission to view other's threads in this forum
-				continue;
-			}
-			$forumids .= ",$forumid";
-		}
+		$idlist[] = intval($attachmentid);
 	}
 
-	foreach (array_keys($vbulletin->GPC['deletebox']) AS $attachmentid)
+	if (empty($vbulletin->GPC['attachmentslist']) OR empty($idlist))
 	{
-		$idlist .= ',' . intval($attachmentid);
-	}
-	// Verify that $vbulletin->userinfo owns these attachments before allowing deletion
-	$validids = $db->query_read_slave("
-		SELECT attachment.attachmentid, attachment.postid, post.threadid, thread.forumid, thread.open, attachment.userid, post.dateline as p_dateline,
-			IF(attachment.postid = 0, 1, 0) AS inprogress
-		FROM " . TABLE_PREFIX . "attachment AS attachment
-		LEFT JOIN " . TABLE_PREFIX . "post AS post ON (attachment.postid = post.postid)
-		LEFT JOIN " . TABLE_PREFIX . "thread AS thread ON (thread.threadid = post.threadid)
-		WHERE attachmentid IN (0$idlist) AND attachment.userid = " . $vbulletin->GPC['userid'] . "
-			AND	((forumid IN(0$forumids) AND thread.visible = 1 AND post.visible = 1) " . iif($vbulletin->GPC['userid'] == $vbulletin->userinfo['userid'], "OR attachment.postid = 0") . ")
-	");
-	unset($idlist);
-	while ($attachment = $db->fetch_array($validids))
-	{
-		if (!$attachment['inprogress'])
-		{
-			if (!$attachment['open'] AND !can_moderate($attachment['forumid'], 'canopenclose') AND !$vbulletin->options['allowclosedattachdel'])
-			{
-				continue;
-			}
-			else if (!can_moderate($attachment['forumid'], 'caneditposts'))
-			{
-				$forumperms = fetch_permissions($attachment['forumid']);
-				if (!($forumperms & $vbulletin->bf_ugp_forumpermissions['caneditpost']) OR $vbulletin->userinfo['userid'] != $attachment['userid'])
-				{
-					continue;
-				}
-				else
-				{
-					if (!$vbulletin->options['allowattachdel'] AND $vbulletin->options['edittimelimit'] AND $attachment['p_dateline'] < TIMENOW - $vbulletin->options['edittimelimit'] * 60)
-					{
-						continue;
-					}
-				}
-			}
-		}
-
-		$idlist .= ',' . $attachment['attachmentid'];
+		eval(standard_error(fetch_error('attachdel')));
 	}
 
 	require_once(DIR . '/includes/functions_file.php');
 	if (!empty($idlist))
 	{
 		$attachdata =& datamanager_init('Attachment', $vbulletin, ERRTYPE_STANDARD);
-		$attachdata->condition = "attachmentid IN (-1$idlist)";
+		$attachdata->condition = "attachmentid IN (" . implode(", ", $idlist) . ")";
 		$attachdata->delete();
 	}
 
 	($hook = vBulletinHook::fetch_hook('profile_deleteattachments_complete')) ? eval($hook) : false;
 
 	$vbulletin->url = 'profile.php?' . $vbulletin->session->vars['sessionurl'] . 'do=editattachments&amp;pp=' . $vbulletin->GPC['perpage'] . '&amp;page=' . $vbulletin->GPC['pagenumber'] . '&amp;showthumbs=' . $vbulletin->GPC['showthumbs'] . '&amp;u=' . $vbulletin->GPC['userid'];
-	eval(print_standard_redirect('redirect_attachdel'));
+	print_standard_redirect('redirect_attachdel');  
 
 }
 
@@ -3664,13 +4006,12 @@ if ($_REQUEST['do'] == 'editattachments')
 		'userid' => TYPE_UINT
 	));
 
-	$templatename = 'modifyattachments';
-
 	$show['attachment_list'] = true;
 
 	if (!$vbulletin->GPC['userid'] OR $vbulletin->GPC['userid'] == $vbulletin->userinfo['userid'])
 	{
 		// show own attachments in user cp
+		$userinfo =& $vbulletin->userinfo;
 		$userid = $vbulletin->userinfo['userid'];
 		$username = $vbulletin->userinfo['username'];
 		$show['attachquota'] = true;
@@ -3686,33 +4027,13 @@ if ($_REQUEST['do'] == 'editattachments')
 
 	($hook = vBulletinHook::fetch_hook('profile_editattachments_start')) ? eval($hook) : false;
 
-	// Get forums that allow canview access
-	foreach ($vbulletin->userinfo['forumpermissions'] AS $forumid => $perm)
-	{
-		if (($perm & $vbulletin->bf_ugp_forumpermissions['canview']) AND ($perm & $vbulletin->bf_ugp_forumpermissions['canviewthreads']) AND ($perm & $vbulletin->bf_ugp_forumpermissions['cangetattachment']))
-		{
-			if ($userid != $vbulletin->userinfo['userid'] AND !($perm & $vbulletin->bf_ugp_forumpermissions['canviewothers']))
-			{
-				// Viewing non-self and don't have permission to view other's threads in this forum
-				continue;
-			}
-			$forumids .= ",$forumid";
-		}
-	}
-
 	// Get attachment count
-	$attachments = $db->query_first_slave("
-		SELECT COUNT(*) AS total,
-			SUM(filesize) AS sum
-		FROM " . TABLE_PREFIX . "attachment AS attachment
-		LEFT JOIN " . TABLE_PREFIX . "post AS post ON (post.postid = attachment.postid)
-		LEFT JOIN " . TABLE_PREFIX . "thread AS thread ON (post.threadid = thread.threadid)
-		WHERE attachment.userid = $userid
-			AND	((forumid IN(0$forumids) AND thread.visible = 1 AND post.visible = 1) " . iif($userid==$vbulletin->userinfo['userid'], "OR attachment.postid = 0") . ")
-	");
+	require_once(DIR . '/packages/vbattach/attach.php');
+	$attachmultiple = new vB_Attachment_Display_Multiple($vbulletin);
+	$attachments = $attachmultiple->fetch_results("a.userid = $userid", true);
 
-	$totalattachments = intval($attachments['total']);
-	$attachsum = intval($attachments['sum']);
+	$totalattachments = intval($attachments['count']);
+	$attachsum = $attachments['uniquesum'];
 
 	if (!$totalattachments AND $userid != $vbulletin->userinfo['userid'])
 	{
@@ -3753,6 +4074,7 @@ if ($_REQUEST['do'] == 'editattachments')
 			$maxperpage = 200;
 			$defaultperpage = 20;
 		}
+
 		sanitize_pageresults($totalattachments, $pagenumber, $perpage, $maxperpage, $defaultperpage);
 
 		$limitlower = ($pagenumber - 1) * $perpage + 1;
@@ -3771,74 +4093,7 @@ if ($_REQUEST['do'] == 'editattachments')
 			$limitlower = 1;
 		}
 
-		// Get attachment info
-		$attachments = $db->query_read_slave("
-			SELECT thread.forumid, post.postid, post.threadid AS p_threadid, post.title AS p_title, post.dateline AS p_dateline, attachment.attachmentid,
-				thread.title AS t_title, attachment.filename, attachment.counter, attachment.filesize AS size, IF(thumbnail_filesize > 0, 1, 0) AS hasthumbnail,
-				thumbnail_filesize, user.username, thread.open, attachment.userid " . iif($userid==$vbulletin->userinfo['userid'], ", IF(attachment.postid = 0, 1, 0) AS inprogress") . ",
-				attachment.dateline, attachment.thumbnail_dateline
-			FROM " . TABLE_PREFIX . "attachment AS attachment
-			LEFT JOIN " . TABLE_PREFIX . "post AS post ON (post.postid = attachment.postid)
-			LEFT JOIN " . TABLE_PREFIX . "thread AS thread ON (post.threadid = thread.threadid)
-			LEFT JOIN " . TABLE_PREFIX . "user AS user ON (attachment.userid = user.userid)
-			WHERE attachment.userid = $userid
-				AND ((forumid IN (0$forumids) AND thread.visible = 1 AND post.visible = 1) " . iif($userid == $vbulletin->userinfo['userid'], "OR attachment.postid = 0") . ")
-			ORDER BY attachment.attachmentid DESC
-			LIMIT " . ($limitlower - 1) . ", $perpage
-		");
-
-		$template['attachmentlistbits'] = '';
-		while ($post = $db->fetch_array($attachments))
-		{
-			$post['filename'] = htmlspecialchars_uni($post['filename']);
-
-			if (!$post['p_title'])
-			{
-				$post['p_title'] = '&laquo;' . $vbphrase['n_a'] . '&raquo;';
-			}
-
-			$post['counter'] = vb_number_format($post['counter']);
-			$post['size'] = vb_number_format($post['size'], 1, true);
-			$post['postdate'] = vbdate($vbulletin->options['dateformat'], $post['p_dateline'], true);
-			$post['posttime'] = vbdate($vbulletin->options['timeformat'], $post['p_dateline']);
-
-			$post['attachmentextension'] = strtolower(file_extension($post['filename']));
-			$show['thumbnail'] = iif($post['hasthumbnail'] == 1 AND $vbulletin->options['attachthumbs'] AND $showthumbs, 1, 0);
-			$show['inprogress'] = iif(!$post['postid'], true, false);
-
-			$show['deletebox'] = false;
-			if ($post['inprogress'])
-			{
-				$show['deletebox'] = true;
-			}
-			else if ($post['open'] OR $vbulletin->options['allowclosedattachdel'] OR can_moderate($post['forumid'], 'canopenclose'))
-			{
-				if (can_moderate($post['forumid'], 'caneditposts'))
-				{
-					$show['deletebox'] = true;
-				}
-				else
-				{
-					$forumperms = fetch_permissions($post['forumid']);
-					if (($forumperms & $vbulletin->bf_ugp_forumpermissions['caneditpost'] AND $vbulletin->userinfo['userid'] == $post['userid']))
-					{
-						if ($vbulletin->options['allowattachdel'] OR !$vbulletin->options['edittimelimit'] OR $post['p_dateline'] >= TIMENOW - $vbulletin->options['edittimelimit'] * 60)
-						{
-							$show['deletebox'] = true;
-						}
-					}
-				}
-			}
-
-			if ($show['deletebox'])
-			{
-				$show['deleteoption'] = true;
-			}
-
-			($hook = vBulletinHook::fetch_hook('profile_editattachments_bit')) ? eval($hook) : false;
-
-			eval('$template[\'attachmentlistbits\'] .= "' . fetch_template('modifyattachmentsbit') . '";');
-		}
+		$attachments = $attachmultiple->fetch_results("a.userid = $userid", false, $limitlower - 1, $perpage, 'dateline');
 
 		$sorturl = 'profile.php?' . $vbulletin->session->vars['sessionurl'] . 'do=editattachments';
 		if ($userid != $vbulletin->userinfo['userid'])
@@ -3853,8 +4108,34 @@ if ($_REQUEST['do'] == 'editattachments')
 		{
 			$sorturl .= "&amp;showthumbs=1";
 		}
-
 		$pagenav = construct_page_nav($pagenumber, $perpage, $totalattachments, $sorturl);
+
+		foreach($attachments AS $attachment)
+		{
+			$result = $attachmultiple->process_attachment($attachment, $showthumbs);
+			if ($show['candelete'])
+			{
+				$show['deleteoption'] = true;
+			}
+			$templater = vB_Template::create('modifyattachmentsbit_' . $result['template']);
+			#unset($result['template']);
+			foreach ($result AS $key => $value)
+			{
+				$templater->register($key, $value);
+			}
+			$uniquebit = $templater->render();
+
+			$templater = vB_Template::create('modifyattachmentsbit');
+			foreach ($result AS $key => $value)
+			{
+				if ($key == $result['template'])
+				{
+					$templater->register('info', $value);
+				}
+			}
+			$templater->register('uniquebit', $uniquebit);
+			$attachmentlistbits .= $templater->render();
+		}
 
 		$totalattachments = vb_number_format($totalattachments);
 
@@ -3880,12 +4161,30 @@ if ($_REQUEST['do'] == 'editattachments')
 		$pagetitle = construct_phrase($vbphrase['attachments_posted_by_x'], $username);
 
 		$navbits = array(
-			'member.php?' . $vbulletin->session->vars['sessionurl'] . "u=$userid" => $vbphrase['view_profile'],
+			fetch_seo_url('member', $userinfo) => $vbphrase['view_profile'],
 			'' => $pagetitle
 		);
 
 		$shelltemplatename = 'GENERIC_SHELL';
 	}
+
+	$includecss['attachments'] = 'attachments.css';
+	$includecss['lightbox'] = 'lightbox.css';
+
+	$page_templater = vB_Template::create('modifyattachments');
+	$page_templater->register('attachlimit', $attachlimit);
+	$page_templater->register('attachsize', $attachsize);
+	$page_templater->register('attachsum', $attachsum);
+	$page_templater->register('pagenav', $pagenav);
+	$page_templater->register('pagenumber', $pagenumber);
+	$page_templater->register('perpage', $perpage);
+	$page_templater->register('showthumbs', $showthumbs);
+	$page_templater->register('template', $template);
+	$page_templater->register('totalattachments', $totalattachments);
+	$page_templater->register('totalsize', $totalsize);
+	$page_templater->register('userid', $userid);
+	$page_templater->register('username', $username);
+	$page_templater->register('attachmentlistbits', $attachmentlistbits);
 }
 
 // #######################################################################
@@ -3895,6 +4194,7 @@ if ($_REQUEST['do'] == 'customize' OR $_POST['do'] == 'docustomize')
 	{
 		print_no_permission();
 	}
+	print_no_permission();
 
 	require_once(DIR . '/includes/class_usercss.php');
 
@@ -3918,7 +4218,9 @@ if ($_REQUEST['do'] == 'customize' OR $_POST['do'] == 'docustomize')
 		'caneditfontsize'   => $vbulletin->userinfo['permissions']['usercsspermissions'] & $vbulletin->bf_ugp_usercsspermissions['caneditfontsize'] ? true : false,
 		'caneditcolors'     => $vbulletin->userinfo['permissions']['usercsspermissions'] & $vbulletin->bf_ugp_usercsspermissions['caneditcolors'] ? true : false,
 		'caneditbgimage'    => ($vbulletin->options['socnet'] & $vbulletin->bf_misc_socnet['enable_albums'] AND $vbulletin->userinfo['permissions']['usercsspermissions'] & $vbulletin->bf_ugp_usercsspermissions['caneditbgimage']) ? true : false,
-		'caneditborders'    => $vbulletin->userinfo['permissions']['usercsspermissions'] & $vbulletin->bf_ugp_usercsspermissions['caneditborders'] ? true : false
+		'caneditborders'    => $vbulletin->userinfo['permissions']['usercsspermissions'] & $vbulletin->bf_ugp_usercsspermissions['caneditborders'] ? true : false,
+		'canusetheme'    => $vbulletin->userinfo['permissions']['usercsspermissions'] & $vbulletin->bf_ugp_usercsspermissions['canusetheme'] ? true : false,
+		'cancustomize'    => $vbulletin->userinfo['permissions']['usercsspermissions'] & $vbulletin->bf_ugp_usercsspermissions['cancustomize'] ? true : false
 	);
 
 	$usercss = new vB_UserCSS($vbulletin, $vbulletin->userinfo['userid']);
@@ -3943,7 +4245,7 @@ if ($_POST['do'] == 'docustomize')
 	{
 		if (!isset($usercss->cssedit["$selectorname"]) OR !empty($usercss->cssedit["$selectorname"]['noinputset']))
 		{
-			$usercss->error[] = fetch_error('invalid_selector_name_x', $selectorname);
+			$usercss->error[] = fetch_error('invalid_selector_name_x', htmlspecialchars_uni($selectorname));
 			continue;
 		}
 
@@ -3958,7 +4260,7 @@ if ($_POST['do'] == 'docustomize')
 
 			if (empty($usercsspermissions["$prop_perms"]) OR !in_array($property, $usercss->cssedit["$selectorname"]['properties']))
 			{
-				$usercss->error[] = fetch_error('no_permission_edit_selector_x_property_y', $selectorname, $property);
+				$usercss->error[] = fetch_error('no_permission_edit_selector_x_property_y', htmlspecialchars_uni($selectorname), htmlspecialchars_uni($property));
 				continue;
 			}
 
@@ -4004,7 +4306,7 @@ if ($_POST['do'] == 'docustomize')
 	{
 		$usercss->save();
 		$vbulletin->url = "profile.php?"  . $vbulletin->session->vars['sessionurl'] . "do=customize";
-		eval(print_standard_redirect('usercss_saved'));
+		print_standard_redirect('usercss_saved');  
 	}
 	else if (!empty($usercss->error))
 	{
@@ -4087,7 +4389,11 @@ if ($_REQUEST['do'] == 'customize')
 					$selectorinvalid["$this_property"] = $usercss->invalid["$this_selector"]["$this_property"];
 
 					$error_link_phrase = $vbphrase["usercss_$this_property"];
-					eval('$invalidpropertyphrases[] = "' . fetch_template("modifyusercss_error_link") . '";');
+					$templater = vB_Template::create('modifyusercss_error_link');
+						$templater->register('error_link_phrase', $error_link_phrase);
+						$templater->register('selectorname', $selectorname);
+						$templater->register('this_property', $this_property);
+					$invalidpropertyphrases[] = $templater->render();
 				}
 			}
 			else if (isset($selectors_saved["$this_selector"]["$this_property"]))
@@ -4099,7 +4405,11 @@ if ($_REQUEST['do'] == 'customize')
 		if ($invalidpropertyphrases)
 		{
 			$invalid_properties_string = implode(", ", $invalidpropertyphrases);
-			eval('$errors .= "' . fetch_template('modifyusercss_error') . '";');
+			$templater = vB_Template::create('modifyusercss_error');
+				$templater->register('invalid_properties_string', $invalid_properties_string);
+				$templater->register('selector', $selector);
+				$templater->register('selectorname', $selectorname);
+			$errors .= $templater->render();
 		}
 
 		$show['textcolor'] = ($field_names['color'] OR $field_names['linkcolor'] OR $field_names['shadecolor']);
@@ -4117,7 +4427,7 @@ if ($_REQUEST['do'] == 'customize')
 				$optionselected = ($font == $selector['font_family'] ? ' selected="selected"' : '');
 				$optiontitle = !empty($vbphrase["usercss_font_$key"]) ? $vbphrase["usercss_font_$key"] : $key;
 
-				eval('$fontselect .= "' . fetch_template('option') . '";');
+				$fontselect .= render_option_template($optiontitle, $optionvalue, $optionselected, $optionclass);
 			}
 		}
 
@@ -4131,7 +4441,7 @@ if ($_REQUEST['do'] == 'customize')
 				$optionselected = ($fontsize == $selector['font_size'] ? ' selected="selected"' : '');
 				$optiontitle = !empty($vbphrase["usercss_fontsize_$key"]) ? $vbphrase["usercss_fontsize_$key"] : $key;
 
-				eval('$fontsizeselect .= "' . fetch_template('option') . '";');
+				$fontsizeselect .= render_option_template($optiontitle, $optionvalue, $optionselected, $optionclass);
 			}
 		}
 
@@ -4145,7 +4455,7 @@ if ($_REQUEST['do'] == 'customize')
 				$optionselected = ($borderwidth == $selector["border_width"] ? ' selected="selected"' : '');
 				$optiontitle = !empty($vbphrase["usercss_borderwidth_$key"]) ? $vbphrase["usercss_borderwidth_$key"] : $key;
 
-				eval('$borderwidthselect .= "' . fetch_template('option') . '";');
+				$borderwidthselect .= render_option_template($optiontitle, $optionvalue, $optionselected, $optionclass);
 			}
 		}
 
@@ -4155,7 +4465,7 @@ if ($_REQUEST['do'] == 'customize')
 			{
 				if (preg_match("/^([0-9]+),([0-9]+)$/", $selector['background_image'], $picture))
 				{
-					$selector['background_image'] = create_full_url("picture.php?albumid=" . $picture[1] . "&pictureid=" . $picture[2]);
+					$selector['background_image'] = create_full_url("attachment.php?attachmentid=" . $picture[2] . "&amp;albumid=" . $picture[1]);
 				}
 			}
 		}
@@ -4171,7 +4481,7 @@ if ($_REQUEST['do'] == 'customize')
 				$optionselected = ($padding == $selector['padding'] ? ' selected="selected"' : '');
 				$optiontitle = !empty($vbphrase["usercss_padding_$key"]) ? $vbphrase["usercss_padding_$key"] : $key;
 
-				eval('$paddingselect .= "' . fetch_template('option') . '";');
+				$paddingselect .= render_option_template($optiontitle, $optionvalue, $optionselected, $optionclass);
 			}
 		}
 
@@ -4196,106 +4506,348 @@ if ($_REQUEST['do'] == 'customize')
 
 			($hook = vBulletinHook::fetch_hook('profile_customize_bit')) ? eval($hook) : false;
 
-			eval('$usercssbits .= "' . fetch_template('modifyusercss_bit') . '";');
+			$templater = vB_Template::create('modifyusercss_bit');
+				$templater->register('borderwidthselect', $borderwidthselect);
+				$templater->register('border_style_selected', $border_style_selected);
+				$templater->register('field_names', $field_names);
+				$templater->register('fontselect', $fontselect);
+				$templater->register('fontsizeselect', $fontsizeselect);
+				$templater->register('paddingselect', $paddingselect);
+				$templater->register('repeat_selected', $repeat_selected);
+				$templater->register('selector', $selector);
+				$templater->register('selectorinvalid', $selectorinvalid);
+				$templater->register('selectorname', $selectorname);
+			$usercssbits .= $templater->render();
 		}
 	}
 
-	if (!$usercssbits)
+	if ($usercssbits)
 	{
-		print_no_permission();
-	}
+		$types = vB_Types::instance();
+		$contenttypeid = $types->getContentTypeID('vBForum_Album');
 
-	$albumbits = '';
-	$picturerowbits = '';
-	$count = 0;
-	$albums = array();
-	$profilealbums = $db->query_read("
-		SELECT
-			album.title, album.albumid,
-			albumpicture.dateline, albumpicture.pictureid, picture.caption, picture.extension, picture.filesize, picture.idhash,
-			picture.thumbnail_filesize, picture.thumbnail_dateline, picture.thumbnail_width, picture.thumbnail_height
-		FROM " . TABLE_PREFIX . "album AS album
-		INNER JOIN " . TABLE_PREFIX . "albumpicture AS albumpicture ON (album.albumid = albumpicture.albumid)
-		INNER JOIN " . TABLE_PREFIX . "picture AS picture ON (albumpicture.pictureid = picture.pictureid)
-		WHERE album.state = 'profile'
-			AND album.userid = " . $vbulletin->userinfo['userid'] . "
-			AND picture.state = 'visible'
-		ORDER BY album.albumid, picture.pictureid
-	");
-	while ($album = $db->fetch_array($profilealbums))
-	{
-		$albums[$album['albumid']]['title'] = $album['title'];
-		$albums[$album['albumid']]['pictures'][] = $album;
-	}
-
-	require_once(DIR . '/includes/functions_album.php');
-	foreach ($albums AS $albumid => $info)
-	{
-		$picturebits = '';
-		$show['backgroundpicker'] = true;
-		$optionvalue = $albumid;
-
-		// Need to shorten album titles here
-		$optiontitle = "{$info['title']} (" . count($info['pictures']) . ")";
-		$optionselected = empty($albumbits) ? 'selected="selected"' : '';
-		eval('$albumbits .= "' . fetch_template('option') . '";');
-		$show['hidediv'] = empty($picturerowbits) ? false : true;
-		foreach($info['pictures'] AS $picture)
+		$albumbits = '';
+		$picturerowbits = '';
+		$count = 0;
+		$albums = array();
+		$profilealbums = $db->query_read("
+			SELECT
+				album.title, album.albumid,
+				a.dateline, a.attachmentid, a.caption,
+				fd.filesize, fd.thumbnail_filesize, fd.thumbnail_dateline, fd.thumbnail_width, fd.thumbnail_height, IF(fd.thumbnail_filesize > 0, 1, 0) AS hasthumbnail
+			FROM " . TABLE_PREFIX . "album AS album
+			INNER JOIN " . TABLE_PREFIX . "attachment AS a ON (a.contentid = album.albumid)
+			INNER JOIN " . TABLE_PREFIX . "filedata AS fd ON (fd.filedataid = a.filedataid)
+			WHERE
+				album.state = 'profile'
+					AND
+				album.userid = " . $vbulletin->userinfo['userid'] . "
+					AND
+				a.state = 'visible'
+					AND
+				a.contenttypeid = $contenttypeid
+			ORDER BY
+				album.albumid, a.attachmentid
+		");
+		while ($album = $db->fetch_array($profilealbums))
 		{
-			$picture['caption_preview'] = fetch_censored_text(fetch_trimmed_title(
-				$picture['caption'],
-				$vbulletin->options['album_captionpreviewlen']
-			));
-			$picture['thumburl'] = ($picture['thumbnail_filesize'] ? fetch_picture_url($picture, $picture, true) : '');
-			$picture['dimensions'] = ($picture['thumbnail_width'] ? "width=\"$picture[thumbnail_width]\" height=\"$picture[thumbnail_height]\"" : '');
-			eval('$picturebits .= "' . fetch_template('modifyusercss_backgroundbit') . '";');
+			$albums[$album['albumid']]['title'] = $album['title'];
+			$albums[$album['albumid']]['pictures'][] = $album;
 		}
 
-		eval('$picturerowbits .= "' . fetch_template('modifyusercss_backgroundrow') . '";');
-	}
+		require_once(DIR . '/includes/functions_album.php');
+		foreach ($albums AS $albumid => $info)
+		{
+			$picturebits = '';
+			$show['backgroundpicker'] = true;
+			$optionvalue = $albumid;
 
-	$show['albumselect'] = (count($albums) == 1) ? false : true;
+			// Need to shorten album titles here
+			$optiontitle = "{$info['title']} (" . count($info['pictures']) . ")";
+			$optionselected = empty($albumbits) ? 'selected="selected"' : '';
+			$albumbits .= render_option_template($optiontitle, $optionvalue, $optionselected, $optionclass);
+			$show['hidediv'] = empty($picturerowbits) ? false : true;
+			foreach($info['pictures'] AS $picture)
+			{
+				$picture['caption_preview'] = fetch_censored_text(fetch_trimmed_title(
+					$picture['caption'],
+					$vbulletin->options['album_captionpreviewlen']
+				));
+				$picture['dimensions'] = ($picture['thumbnail_width'] ? "width=\"$picture[thumbnail_width]\" height=\"$picture[thumbnail_height]\"" : '');
+				$templater = vB_Template::create('modifyusercss_backgroundbit');
+					$templater->register('picture', $picture);
+				$picturebits .= $templater->render();
+			}
 
-	$vbulletin->userinfo['cachedcss'] = $usercss->build_css($usercss->fetch_effective());
-	$vbulletin->userinfo['cachedcss'] = str_replace('/*sessionurl*/', $vbulletin->session->vars['sessionurl_js'], $vbulletin->userinfo['cachedcss']);
-	if ($vbulletin->userinfo['cachedcss'])
-	{
-		$userinfo = $vbulletin->userinfo;
-		eval('$usercss_string = "' . fetch_template('memberinfo_usercss') . '";');
+			$templater = vB_Template::create('modifyusercss_backgroundrow');
+				$templater->register('albumid', $albumid);
+				$templater->register('picturebits', $picturebits);
+			$picturerowbits .= $templater->render();
+		}
+
+		$show['albumselect'] = (count($albums) == 1) ? false : true;
+
+		$vbulletin->userinfo['cachedcss'] = $usercss->build_css($usercss->fetch_effective());
+		$vbulletin->userinfo['cachedcss'] = str_replace('/*sessionurl*/', $vbulletin->session->vars['sessionurl_js'], $vbulletin->userinfo['cachedcss']);
+		if ($vbulletin->userinfo['cachedcss'])
+		{
+			$userinfo = $vbulletin->userinfo;
+			$templater = vB_Template::create('memberinfo_usercss');
+				$templater->register('userinfo', $userinfo);
+			$usercss_string = $templater->render();
+		}
+		else
+		{
+			$usercss_string = '';
+		}
+
+		$show['usercss'] = true;
 	}
 	else
 	{
-		$usercss_string = '';
+		$show['usercss'] = false;
 	}
 
-	eval('$headinclude .= "' . fetch_template('modifyusercss_headinclude') . '";');
+	$clientscripts_template = vB_Template::create('modifyusercss_scripts');
+		$templater->register('usercss_string', $usercss_string);
 
 	$navbits[''] = $vbphrase['customize_profile'];
 
 	construct_usercp_nav('customize');
-	$templatename = 'modifyusercss';
+
+	$page_templater = vB_Template::create('modifyusercss');
+	$page_templater->register('albumbits', $albumbits);
+	$page_templater->register('errors', $errors);
+	$page_templater->register('picturerowbits', $picturerowbits);
+	$page_templater->register('usercssbits', $usercssbits);
+	$page_templater->register('usercsspermissions', $usercsspermissions);
+}
+
+// #######################################################################
+if ($_REQUEST['do'] == 'privacy' OR $_POST['do'] == 'doprivacy')
+{
+	if (!$vbulletin->options['profileprivacy'])
+	{
+		print_no_permission();
+	}
+
+	if (!($permissions['usercsspermissions'] & $vbulletin->bf_ugp_usercsspermissions['caneditprivacy']))
+	{
+		print_no_permission();
+	}
+
+	// Create the configurable blocks
+	$blocks = array(
+		'contactinfo' => array(
+			'name' => $vbphrase['contact_info'],
+			'requirement' => 0,
+			'enabled' => true
+		),
+		'profile_picture' => array(
+			'name' => $vbphrase['profile_picture'],
+			'requirement' => 0,
+			'enabled' => $vbulletin->options['profilepicenabled']
+		),
+		'visitor_messaging' => array(
+			'name' => $vbphrase['visitor_messages'],
+			'requirement' => 0,
+			'enabled' => ($vbulletin->options['socnet'] & $vbulletin->bf_misc_socnet['enable_visitor_messaging'])
+		),
+		'albums' => array(
+			'name' => $vbphrase['albums'],
+			'requirement' => 0,
+			'enabled' => (($vbulletin->options['socnet'] & $vbulletin->bf_misc_socnet['enable_albums'])
+							AND (($vbulletin->userinfo['permissions']['albumpermissions'] & $vbulletin->bf_ugp_albumpermissions['canalbum'])
+								OR can_moderate(0, 'canmoderatepictures')))
+		),
+		'aboutme' => array(
+			'name' => $vbphrase['about_me'],
+			'requirement' => 0,
+			'enabled' => true
+		),
+		'friends' => array(
+			'name' => $vbphrase['friends'],
+			'requirement' => 0,
+			'enabled' => ($vbulletin->options['socnet'] & $vbulletin->bf_misc_socnet['enable_friends'])
+		),
+		'visitors' => array(
+			'name' => $vbphrase['recent_visitors'],
+			'requirement' => 0,
+			'enabled' => ($vbulletin->options['socnet'] & $vbulletin->bf_misc_socnet['enable_visitor_tracking'])
+		),
+		'groups' => array(
+			'name' => $vbphrase['group_memberships'],
+			'requirement' => 0,
+			'enabled' => ($vbulletin->options['socnet'] & $vbulletin->bf_misc_socnet['enable_groups'])
+		),
+	);
+
+	// Get custom fields
+	$custom_blocks = $vbulletin->db->query_read_slave("
+		SELECT pfc.profilefieldcategoryid AS id
+		FROM " . TABLE_PREFIX . "profilefieldcategory AS pfc
+		INNER JOIN " . TABLE_PREFIX . "profilefield pf
+		 ON pf.profilefieldcategoryid = pfc.profilefieldcategoryid
+		WHERE pfc.allowprivacy = 1
+		GROUP BY pfc.profilefieldcategoryid
+		ORDER BY pfc.location, pfc.displayorder
+	");
+
+	while($block = $vbulletin->db->fetch_array($custom_blocks))
+	{
+		$blocks["profile_cat$block[id]"] = array (
+			'name' => $vbphrase["category$block[id]_title"],
+			'requirement' => 0,
+			'enabled' => true
+		);
+	}
+	$vbulletin->db->free_result($custom_blocks);
+}
+
+// #######################################################################
+if ($_POST['do'] == 'doprivacy')
+{
+	$vbulletin->input->clean_gpc('r',
+		'blockprivacy',	TYPE_ARRAY_UINT
+	);
+
+	$values = array();
+	foreach($vbulletin->GPC['blockprivacy'] AS $blockid => $requirement)
+	{
+		if (isset($blocks[$blockid]))
+		{
+			$blocks[$blockid]['requirement'] = $requirement;
+			$values[] = "({$vbulletin->userinfo['userid']}, '$blockid', $requirement)";
+		}
+	}
+
+	if (sizeof($values))
+	{
+		$vbulletin->db->query_write($sql = "
+			REPLACE INTO " . TABLE_PREFIX . "profileblockprivacy
+				(userid, blockid, requirement)
+			VALUES " . implode(',', $values) . "
+		");
+	}
+
+	$vbulletin->url = "profile.php?"  . $vbulletin->session->vars['sessionurl'] . "do=privacy";
+	print_standard_redirect('profile_privacy_saved');  
+}
+
+// #######################################################################
+if ($_REQUEST['do'] == 'privacy')
+{
+	// Get current privacy settings
+	if (!isset($_POST['do']))
+	{
+		$results = $vbulletin->db->query_read_slave("
+			SELECT blockid, requirement
+			FROM " . TABLE_PREFIX . "profileblockprivacy
+			WHERE userid = " . intval($vbulletin->userinfo['userid']) . "
+		");
+
+		while ($result = $vbulletin->db->fetch_array($results))
+		{
+			if (isset($blocks[$result['blockid']]))
+			{
+				$blocks[$result['blockid']]['requirement'] = $result['requirement'];
+			}
+		}
+		$vbulletin->db->free_result($results);
+	}
+
+	foreach($blocks as $blockid => $block)
+	{
+		if ($block['enabled'])
+		{
+			$selected = array($block['requirement'] => 'selected="selected"');
+			$templater = vB_Template::create('modifyprivacy_bit');
+				$templater->register('block', $block);
+				$templater->register('blockid', $blockid);
+				$templater->register('selected', $selected);
+			$profileprivacybits .= $templater->render();
+		}
+	}
+
+	$navbits[''] = $vbphrase['profile_privacy'];
+
+	construct_usercp_nav('privacy');
+
+	$page_templater = vB_Template::create('modifyprofileprivacy');
+	$page_templater->register('errors', $errors);
+	$page_templater->register('profileprivacybits', $profileprivacybits);
+}
+
+// #############################################################################
+// dismiss notice (non-ajax / no js user)
+if ($_POST['do'] == 'dismissnotice')
+{
+	$vbulletin->input->clean_array_gpc('p', array(
+		'dismiss_noticeid' => TYPE_UINT
+	));
+
+	$dismiss_noticeid = $vbulletin->GPC['dismiss_noticeid'];
+
+	// in IE, clicking the image won't send a value, so pull it out of the element's name
+	foreach (array_keys($_POST) AS $input_name)
+	{
+		if (preg_match('#^dismiss_noticeid_(\d+)_x$#', $input_name, $match))
+		{
+			$dismiss_noticeid = intval($match[1]);
+			break;
+		}
+	}
+
+	if ($dismiss_noticeid)
+	{
+		$db->query_write("
+			REPLACE INTO " . TABLE_PREFIX . "noticedismissed
+				(noticeid, userid)
+			VALUES
+				(" . intval($dismiss_noticeid) . ", " . $vbulletin->userinfo['userid'] .")
+		");
+	}
+
+	print_standard_redirect('redirect_notice_dismissed');  
 }
 
 // #############################################################################
 // spit out final HTML if we have got this far
 
-if ($templatename != '')
+if (!empty($page_templater))
 {
 	// make navbar
 	$navbits = construct_navbits($navbits);
-	eval('$navbar = "' . fetch_template('navbar') . '";');
+	$navbar = render_navbar_template($navbits);
 
 	($hook = vBulletinHook::fetch_hook('profile_complete')) ? eval($hook) : false;
 
+	// add any extra clientscripts
+	$clientscripts = (isset($clientscripts_template) ? $clientscripts_template->render() : '');
+
+	if (!$vbulletin->options['storecssasfile'])
+	{
+		$includecss = implode(',', $includecss);
+	}
+
 	// shell template
-	eval('$HTML = "' . fetch_template($templatename) . '";');
-	eval('print_output("' . fetch_template($shelltemplatename) . '");');
+	$templater = vB_Template::create($shelltemplatename);
+		$templater->register_page_templates();
+		$templater->register('includecss', $includecss);
+		$templater->register('cpnav', $cpnav);
+		$templater->register('HTML', $page_templater->render());
+		$templater->register('navbar', $navbar);
+		$templater->register('navclass', $navclass);
+		$templater->register('onload', $onload);
+		$templater->register('pagetitle', $pagetitle);
+		$templater->register('template_hook', $template_hook);
+		$templater->register('clientscripts', $clientscripts);
+	print_output($templater->render());
 }
 
 /*======================================================================*\
 || ####################################################################
-|| # Downloaded: 16:21, Sat Apr 6th 2013
-|| # CVS: $RCSfile$ - $Revision: 26937 $
+|| # Downloaded: 14:57, Sun Aug 11th 2013
+|| # CVS: $RCSfile$ - $Revision: 63231 $
 || ####################################################################
 \*======================================================================*/
-?>

@@ -1,9 +1,9 @@
 <?php
 /*======================================================================*\
 || #################################################################### ||
-|| # vBulletin 3.7.2 Patch Level 2 - Licence Number VBF2470E4F
+|| # vBulletin 4.2.1 - Licence Number VBC2DDE4FB
 || # ---------------------------------------------------------------- # ||
-|| # Copyright ©2000-2013 Jelsoft Enterprises Ltd. All Rights Reserved. ||
+|| # Copyright ©2000-2013 vBulletin Solutions Inc. All Rights Reserved. ||
 || # This file may not be redistributed in whole or significant part. # ||
 || # ---------------- VBULLETIN IS NOT FREE SOFTWARE ---------------- # ||
 || # http://www.vbulletin.com | http://www.vbulletin.com/license.html # ||
@@ -15,8 +15,8 @@
 * Class that provides payment verification and form generation functions
 *
 * @package	vBulletin
-* @version	$Revision: 26966 $
-* @date		$Date: 2008-06-18 04:38:54 -0500 (Wed, 18 Jun 2008) $
+* @version	$Revision: 58238 $
+* @date		$Date: 2012-01-25 15:38:12 -0800 (Wed, 25 Jan 2012) $
 *
 * @abstract
 *
@@ -263,12 +263,6 @@ class vB_PaidSubscription
 
 		// now lets add the appropriate terms
 		$time = strtotime("$formatted + $length " . $units_full["$units"]);
-
-		// Protect against possible errors with PHP 5.1.x
-		if ($time <= 0)
-		{
-			trigger_error('strtotime returned an invalid value, upgrade PHP to at least 5.1.2', E_USER_ERROR);
-		}
 
 		return $time;
 	}
@@ -553,13 +547,27 @@ class vB_PaidSubscription
 			}
 
 			//access masks
-			if (!empty($sub['forums']) AND @unserialize($sub['forums']) !== NULL)
+			if (!empty($sub['forums']))
 			{
-				$this->registry->db->query_write("
-					DELETE FROM " . TABLE_PREFIX . "access
-					WHERE forumid IN ($sub[forums]) AND
-						userid = $userid
-				");
+				if ($old_sub_masks = @unserialize($sub['forums']) AND is_array($old_sub_masks))
+				{
+					// old format is serialized array with forumids for keys
+					$access_forums = array_keys($old_sub_masks);
+				}
+				else
+				{
+					// new format is comma-delimited string
+					$access_forums = explode(',', $sub['forums']);
+				}
+
+				if ($access_forums)
+				{
+					$this->registry->db->query_write("
+						DELETE FROM " . TABLE_PREFIX . "access
+						WHERE forumid IN (" . implode(',', array_map('intval', $access_forums))  . ") AND
+							userid = $userid
+					");
+				}
 			}
 			$countaccess = $this->registry->db->query_first("
 				SELECT COUNT(*) AS masks
@@ -787,8 +795,8 @@ class vB_PaidSubscription
 
 /*======================================================================*\
 || ####################################################################
-|| # Downloaded: 16:21, Sat Apr 6th 2013
-|| # CVS: $RCSfile$ - $Revision: 26966 $
+|| # Downloaded: 14:57, Sun Aug 11th 2013
+|| # CVS: $RCSfile$ - $Revision: 58238 $
 || ####################################################################
 \*======================================================================*/
 ?>

@@ -1,9 +1,9 @@
 <?php
 /*======================================================================*\
 || #################################################################### ||
-|| # vBulletin 3.7.2 Patch Level 2 - Licence Number VBF2470E4F
+|| # vBulletin 4.2.1 - Licence Number VBC2DDE4FB
 || # ---------------------------------------------------------------- # ||
-|| # Copyright ©2000-2013 Jelsoft Enterprises Ltd. All Rights Reserved. ||
+|| # Copyright ©2000-2013 vBulletin Solutions Inc. All Rights Reserved. ||
 || # This file may not be redistributed in whole or significant part. # ||
 || # ---------------- VBULLETIN IS NOT FREE SOFTWARE ---------------- # ||
 || # http://www.vbulletin.com | http://www.vbulletin.com/license.html # ||
@@ -66,6 +66,8 @@ if (empty($_REQUEST['do']))
 	$_REQUEST['do'] = 'list';
 }
 
+$includecss = array('payments' => 'payments.css');
+
 $subobj = new vB_PaidSubscription($vbulletin);
 
 $subscribed = array();
@@ -123,6 +125,10 @@ if ($_REQUEST['do'] == 'list')
 	$subscribedbits = '';
 	$subscriptionbits = '';
 
+	$membergroupids = fetch_membergroupids_array($vbulletin->userinfo);
+	$allow_secondary_groups = $vbulletin->bf_ugp_genericoptions['allowmembergroups'] & 
+	$vbulletin->usergroupcache[$vbulletin->userinfo['usergroupid']]['genericoptions'];
+
 	($hook = vBulletinHook::fetch_hook('paidsub_list_start')) ? eval($hook) : false;
 
 	foreach ($subobj->subscriptioncache AS $subscription)
@@ -139,7 +145,11 @@ if ($_REQUEST['do'] == 'list')
 
 			($hook = vBulletinHook::fetch_hook('paidsub_list_activebit')) ? eval($hook) : false;
 
-			eval('$subscribedbits .= "' . fetch_template('subscription_activebit') . '";');
+			$templater = vB_Template::create('subscription_activebit');
+				$templater->register('enddate', $enddate);
+				$templater->register('joindate', $joindate);
+				$templater->register('subscription', $subscription);
+			$subscribedbits .= $templater->render();
 
 		}
 
@@ -153,7 +163,15 @@ if ($_REQUEST['do'] == 'list')
 				}
 			}
 
-			if (!empty($subscription['deniedgroups']) AND !count(array_diff(fetch_membergroupids_array($vbulletin->userinfo), $subscription['deniedgroups'])))
+			if (
+				!empty($subscription['deniedgroups'])
+				AND
+				(
+					($allow_secondary_groups AND !count(array_diff($membergroupids, $subscription['deniedgroups'])))
+					OR
+					(!$allow_secondary_groups AND in_array($vbulletin->userinfo['usergroupid'], $subscription['deniedgroups']))
+				)
+			)
 			{
 					continue;
 			}
@@ -187,7 +205,10 @@ if ($_REQUEST['do'] == 'list')
 
 			($hook = vBulletinHook::fetch_hook('paidsub_list_availablebit')) ? eval($hook) : false;
 
-			eval('$subscriptionbits .= "' . fetch_template('subscription_availablebit') . '";');
+			$templater = vB_Template::create('subscription_availablebit');
+				$templater->register('subscription', $subscription);
+				$templater->register('subscriptionid', $subscriptionid);
+			$subscriptionbits .= $templater->render();
 		}
 	}
 
@@ -225,7 +246,9 @@ if ($_REQUEST['do'] == 'list')
 
 	$navbits[''] = $vbphrase['paid_subscriptions'];
 
-	$templatename = 'subscription';
+	$page_templater = vB_Template::create('subscription');
+	$page_templater->register('subscribedbits', $subscribedbits);
+	$page_templater->register('subscriptionbits', $subscriptionbits);
 }
 
 // #############################################################################
@@ -249,13 +272,25 @@ if ($_POST['do'] == 'order')
 
 	$sub = $subobj->subscriptioncache["$subscriptionid"];
 
-	if (!empty($sub['deniedgroups']) AND !count(array_diff(fetch_membergroupids_array($vbulletin->userinfo), $sub['deniedgroups'])))
+	// first check this is active if not die
+	if (!$sub['active'])
 	{
 		eval(standard_error(fetch_error('invalidid', $vbphrase['subscription'], $vbulletin->options['contactuslink'])));
 	}
 
-	// first check this is active if not die
-	if (!$subobj->subscriptioncache["$subscriptionid"]['active'])
+	$membergroupids = fetch_membergroupids_array($vbulletin->userinfo);
+	$allow_secondary_groups = $vbulletin->bf_ugp_genericoptions['allowmembergroups'] & 
+	$vbulletin->usergroupcache[$vbulletin->userinfo['usergroupid']]['genericoptions'];
+
+	if (
+		!empty($sub['deniedgroups'])
+		AND
+		(
+			($allow_secondary_groups AND !count(array_diff($membergroupids, $sub['deniedgroups'])))
+			OR
+			(!$allow_secondary_groups AND in_array($vbulletin->userinfo['usergroupid'], $sub['deniedgroups']))
+		)
+	)
 	{
 		eval(standard_error(fetch_error('invalidid', $vbphrase['subscription'], $vbulletin->options['contactuslink'])));
 	}
@@ -331,22 +366,29 @@ if ($_POST['do'] == 'order')
 
 				($hook = vBulletinHook::fetch_hook('paidsub_order_paymentbit')) ? eval($hook) : false;
 
-				eval('$orderbits .= "' . fetch_template('subscription_paymentbit') . '";');
+				$templater = vB_Template::create('subscription_paymentbit');
+					$templater->register('form', $form);
+					$templater->register('method', $method);
+					$templater->register('typetext', $typetext);
+				$orderbits .= $templater->render();
 			}
 		}
 	}
 
 	$navbits['payments.php' . $vbulletin->session->vars['sessionurl_q']] = $vbphrase['paid_subscriptions'];
-	$navbits[''] = $vbphrase['select_payment_method'];
+	$navbits[''] = $vbphrase['subscription_payment_method'];
 
-	$templatename = 'subscription_payment';
+	$page_templater = vB_Template::create('subscription_payment');
+	$page_templater->register('orderbits', $orderbits);
+	$page_templater->register('subscription_cost', $subscription_cost);
+	$page_templater->register('subscription_length', $subscription_length);
+	$page_templater->register('subscription_title', $subscription_title);
 }
 
 // #############################################################################
 
-if ($templatename != '')
+if (!empty($page_templater))
 {
-
 	// build the cp nav
 	require_once(DIR . '/includes/functions_user.php');
 	construct_usercp_nav('paid_subscriptions');
@@ -354,16 +396,31 @@ if ($templatename != '')
 	($hook = vBulletinHook::fetch_hook('paidsub_complete')) ? eval($hook) : false;
 
 	$navbits = construct_navbits($navbits);
-	eval('$navbar = "' . fetch_template('navbar') . '";');
-	eval('$HTML = "' . fetch_template($templatename) . '";');
-	eval('print_output("' . fetch_template('USERCP_SHELL') . '");');
+	$navbar = render_navbar_template($navbits);
+
+	if (!$vbulletin->options['storecssasfile'])
+	{
+		$includecss = implode(',', $includecss);
+	}
+
+	$templater = vB_Template::create('USERCP_SHELL');
+		$templater->register_page_templates();
+		$templater->register('cpnav', $cpnav);
+		$templater->register('HTML', $page_templater->render());
+		$templater->register('navbar', $navbar);
+		$templater->register('navclass', $navclass);
+		$templater->register('onload', $onload);
+		$templater->register('pagetitle', $pagetitle);
+		$templater->register('template_hook', $template_hook);
+		$templater->register('includecss', $includecss);
+	print_output($templater->render());
 
 }
 
 /*======================================================================*\
 || ####################################################################
-|| # Downloaded: 16:21, Sat Apr 6th 2013
-|| # CVS: $RCSfile$ - $Revision: 26981 $
+|| # Downloaded: 14:57, Sun Aug 11th 2013
+|| # CVS: $RCSfile$ - $Revision: 58240 $
 || ####################################################################
 \*======================================================================*/
 ?>

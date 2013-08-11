@@ -1,9 +1,9 @@
 <?php
 /*======================================================================*\
 || #################################################################### ||
-|| # vBulletin 3.7.2 Patch Level 2 - Licence Number VBF2470E4F
+|| # vBulletin 4.2.1 - Licence Number VBC2DDE4FB
 || # ---------------------------------------------------------------- # ||
-|| # Copyright ©2000-2013 Jelsoft Enterprises Ltd. All Rights Reserved. ||
+|| # Copyright ©2000-2013 vBulletin Solutions Inc. All Rights Reserved. ||
 || # This file may not be redistributed in whole or significant part. # ||
 || # ---------------- VBULLETIN IS NOT FREE SOFTWARE ---------------- # ||
 || # http://www.vbulletin.com | http://www.vbulletin.com/license.html # ||
@@ -46,12 +46,11 @@ $globaltemplates = array(
 	'postbit_attachmentmoderated',
 	'postbit_ip',
 	'postbit_onlinestatus',
-	'postbit_reputation',
 	'bbcode_code',
 	'bbcode_html',
 	'bbcode_php',
 	'bbcode_quote',
-	'SHOWTHREAD_SHOWPOST'
+	'bbcode_video',
 );
 
 // pre-cache templates used by specific actions
@@ -66,9 +65,12 @@ require_once(DIR . '/includes/class_postbit.php');
 // ######################## START MAIN SCRIPT ############################
 // #######################################################################
 
+verify_forum_url();
+
 $vbulletin->input->clean_array_gpc('r', array(
 	'highlight'	=> TYPE_STR,
 	'postcount'	=> TYPE_UINT,
+	'prefix'	=> TYPE_UINT,
 ));
 
 // words to highlight from the search engine
@@ -95,7 +97,7 @@ if (!$postinfo['postid'])
 	eval(standard_error(fetch_error('invalidid', $vbphrase['post'], $vbulletin->options['contactuslink'])));
 }
 
-if ((!$postinfo['visible'] OR $postinfo ['isdeleted']) AND !can_moderate($threadinfo['forumid']))
+if ((!$postinfo['visible'] OR $postinfo['isdeleted']) AND !can_moderate($threadinfo['forumid']))
 {
 	eval(standard_error(fetch_error('invalidid', $vbphrase['post'], $vbulletin->options['contactuslink'])));
 }
@@ -117,6 +119,12 @@ if (!($forumperms & $vbulletin->bf_ugp_forumpermissions['canviewothers']) AND ($
 
 // check if there is a forum password and if so, ensure the user has it set
 verify_forum_password($foruminfo['forumid'], $foruminfo['password']);
+
+if ($_SERVER['REQUEST_METHOD'] != 'POST' OR !$vbulletin->GPC['ajax'])
+{
+	// redirect to showthread with a 301
+	exec_header_redirect(fetch_seo_url('thread|js', $threadinfo, array('p' => $postinfo['postid'])). "#post$postinfo[postid]", 301);
+}
 
 $hook_query_fields = $hook_query_joins = '';
 ($hook = vBulletinHook::fetch_hook('showpost_start')) ? eval($hook) : false;
@@ -165,61 +173,101 @@ if (in_coventry($post['userid']) AND !can_moderate($threadinfo['forumid']))
 // check for attachments
 if ($post['attach'])
 {
+	$types = vB_Types::instance();
+	$contenttypeid = $types->getContentTypeID('vBForum_Post');
+
 	$attachments = $db->query_read_slave("
-		SELECT dateline, thumbnail_dateline, filename, filesize, visible, attachmentid, counter,
-			postid, IF(thumbnail_filesize > 0, 1, 0) AS hasthumbnail, thumbnail_filesize,
-			attachmenttype.thumbnail AS build_thumbnail, attachmenttype.newwindow
-		FROM " . TABLE_PREFIX . "attachment
-		LEFT JOIN " . TABLE_PREFIX . "attachmenttype AS attachmenttype USING (extension)
-		WHERE postid = $postid
-		ORDER BY attachmentid
+		SELECT
+			fd.thumbnail_dateline, fd.filesize, IF(fd.thumbnail_filesize > 0, 1, 0) AS hasthumbnail, fd.thumbnail_filesize,
+			a.dateline, a.state, a.attachmentid, a.counter, a.contentid AS postid, a.filename,
+			type.contenttypes
+		FROM " . TABLE_PREFIX . "attachment AS a
+		INNER JOIN " . TABLE_PREFIX . "filedata AS fd ON (a.filedataid = fd.filedataid)
+		LEFT JOIN " . TABLE_PREFIX . "attachmenttype AS type ON (fd.extension = type.extension)
+		WHERE
+			a.contentid = $postid
+				AND
+			a.contenttypeid = $contenttypeid
+		ORDER BY a.displayorder
 	");
 	while ($attachment = $db->fetch_array($attachments))
 	{
-		if (!$attachment['build_thumbnail'])
-		{
-			$attachment['hasthumbnail'] = false;
-		}
+		$content = @unserialize($attachment['contenttypes']);
+		$attachment['newwindow'] = $content["$contenttypeid"]['n'];
 		$post['attachments']["$attachment[attachmentid]"] = $attachment;
 	}
 }
 
+if (!($forumperms & $vbulletin->bf_ugp_forumpermissions['canseethumbnails']))
+{
+	$vbulletin->options['attachthumbs'] = 0;
+}
 if (!($forumperms & $vbulletin->bf_ugp_forumpermissions['cangetattachment']))
 {
-	$vbulletin->options['viewattachedimages'] = 0;
-	$vbulletin->options['attachthumbs'] = 0;
+	$vbulletin->options['viewattachedimages'] = (($vbulletin->options['viewattachedimages'] AND $vbulletin->options['attachthumbs']) ? 1 : 0);
 }
 
 // needed for deleted post management
 $show['managepost'] = (can_moderate($threadinfo['forumid'], 'candeleteposts') OR can_moderate($threadinfo['forumid'], 'canremoveposts')) ? true : false;
-
-if ($vbulletin->GPC['ajax'])
+$show['approvepost'] = (can_moderate($threadinfo['forumid'], 'canmoderateposts')) ? true : false;
+$show['managethread'] = (can_moderate($threadinfo['forumid'], 'canmanagethreads')) ? true : false;
+$show['inlinemod'] = ($show['managethread'] OR $show['managepost'] OR $show['approvepost']) ? true : false;
+$show['multiquote_global'] = ($vbulletin->options['multiquote'] AND $vbulletin->userinfo['userid']);
+if ($show['multiquote_global'])
 {
-	$show['approvepost'] = (can_moderate($threadinfo['forumid'], 'canmoderateposts')) ? true : false;
-	$show['managethread'] = (can_moderate($threadinfo['forumid'], 'canmanagethreads')) ? true : false;
-	$show['inlinemod'] = ($show['managethread'] OR $show['managepost'] OR $show['approvepost']) ? true : false;
+	$vbulletin->input->clean_array_gpc('c', array(
+		'vbulletin_multiquote' => TYPE_STR
+	));
+	$vbulletin->GPC['vbulletin_multiquote'] = explode(',', $vbulletin->GPC['vbulletin_multiquote']);
+}
+// work out if quickreply should be shown or not
+if (
+	$vbulletin->options['quickreply']
+	AND
+	!$threadinfo['isdeleted'] AND !is_browser('netscape') AND $vbulletin->userinfo['userid']
+	AND (
+		($vbulletin->userinfo['userid'] == $threadinfo['postuserid'] AND $forumperms & $vbulletin->bf_ugp_forumpermissions['canreplyown'])
+		OR
+		($vbulletin->userinfo['userid'] != $threadinfo['postuserid'] AND $forumperms & $vbulletin->bf_ugp_forumpermissions['canreplyothers'])
+	)
+	AND ($threadinfo['open'] OR can_moderate($threadinfo['forumid'], 'canopenclose'))
+	AND (!fetch_require_hvcheck('post'))
+)
+{
+	$show['quickreply'] = true;
 }
 else
 {
-	$show['inlinemod'] = false;
+	$show['quickreply'] = false;
 }
-
 $show['lightbox'] = ($vbulletin->options['lightboxenabled'] AND $vbulletin->options['usepopups']);
+$show['spacer'] = false;
 
 $saveparsed = ''; // inialise
 
-$show['spacer'] = false;
-
 $post['postcount'] =& $vbulletin->GPC['postcount'];
 
-$postbit_factory =& new vB_Postbit_Factory();
+$postbit_factory = new vB_Postbit_Factory();
 $postbit_factory->registry =& $vbulletin;
 $postbit_factory->forum =& $foruminfo;
 $postbit_factory->thread =& $threadinfo;
 $postbit_factory->cache = array();
-$postbit_factory->bbcode_parser =& new vB_BbCodeParser($vbulletin, fetch_tag_list());
+$postbit_factory->bbcode_parser = new vB_BbCodeParser($vbulletin, fetch_tag_list());
 
 $postbit_obj =& $postbit_factory->fetch_postbit('post');
+if ($vbulletin->GPC['prefix'])
+{
+	$postbit_obj->set_template_prefix('vbcms_');
+	if ($vbulletin->options['avatarenabled'] AND $vbulletin->userinfo['showavatars'] AND !$post['hascustomavatar'] AND !$post['avatarid'])
+	{
+		$post['hascustomavatar'] = 1;
+		$post['avatarid'] = true;
+		// explicity setting avatarurl to allow guests comments to show unknown avatar
+		$post['avatarurl'] = $post['avatarpath'] = vB_Template_Runtime::fetchStyleVar('imgdir_misc') . '/unknown.gif';
+		$post['avwidth'] = 60;
+		$post['avheight'] = 60;	
+	}
+}
 $postbit_obj->highlight =& $replacewords;
 $postbit_obj->cachable = (!$post['pagetext_html'] AND $vbulletin->options['cachemaxage'] > 0 AND (TIMENOW - ($vbulletin->options['cachemaxage'] * 60 * 60 * 24)) <= $threadinfo['lastpost']);
 
@@ -246,23 +294,15 @@ if ($postbit_obj->cachable)
 
 ($hook = vBulletinHook::fetch_hook('showpost_complete')) ? eval($hook) : false;
 
-//if ($_SERVER['REQUEST_METHOD'] == 'POST' AND
-if ($vbulletin->GPC['ajax'])
-{
-	require_once(DIR . '/includes/class_xml.php');
-	$xml = new vB_AJAX_XML_Builder($vbulletin, 'text/xml');
-	$xml->add_tag('postbit', process_replacement_vars($postbits));
-	$xml->print_xml();
-}
-else
-{
-	eval('print_output("' . fetch_template('SHOWTHREAD_SHOWPOST') . '");');
-}
+require_once(DIR . '/includes/class_xml.php');
+$xml = new vB_AJAX_XML_Builder($vbulletin, 'text/xml');
+$xml->add_tag('postbit', process_replacement_vars($postbits));
+$xml->print_xml();
 
 /*======================================================================*\
 || ####################################################################
-|| # Downloaded: 16:21, Sat Apr 6th 2013
-|| # CVS: $RCSfile$ - $Revision: 26399 $
+|| # Downloaded: 14:57, Sun Aug 11th 2013
+|| # CVS: $RCSfile$ - $Revision: 63221 $
 || ####################################################################
 \*======================================================================*/
 ?>

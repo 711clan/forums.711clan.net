@@ -1,9 +1,9 @@
 <?php
 /*======================================================================*\
 || #################################################################### ||
-|| # vBulletin 3.7.2 Patch Level 2 - Licence Number VBF2470E4F
+|| # vBulletin 4.2.1 - Licence Number VBC2DDE4FB
 || # ---------------------------------------------------------------- # ||
-|| # Copyright ©2000-2013 Jelsoft Enterprises Ltd. All Rights Reserved. ||
+|| # Copyright ©2000-2013 vBulletin Solutions Inc. All Rights Reserved. ||
 || # This file may not be redistributed in whole or significant part. # ||
 || # ---------------- VBULLETIN IS NOT FREE SOFTWARE ---------------- # ||
 || # http://www.vbulletin.com | http://www.vbulletin.com/license.html # ||
@@ -16,6 +16,7 @@ error_reporting(E_ALL & ~E_NOTICE);
 // #################### DEFINE IMPORTANT CONSTANTS #######################
 define('THIS_SCRIPT', 'register');
 define('CSRF_PROTECTION', true);
+define('CONTENT_PAGE', false);
 
 // ################### PRE-CACHE TEMPLATES AND DATA ######################
 // get special phrase groups
@@ -48,6 +49,9 @@ $globaltemplates = array(
 	'userfield_wrapper',
 	'modifyoptions_timezone',
 	'modifyprofile_birthday',
+	'facebook_associate',
+	'facebook_disassociate',
+	'facebook_importregister',
 );
 
 // pre-cache templates used by specific actions
@@ -75,13 +79,13 @@ $coppaage = $vbulletin->input->clean_gpc('c', COOKIE_PREFIX . 'coppaage', TYPE_S
 
 if (empty($_REQUEST['do']) AND $vbulletin->GPC['a'] == '')
 {
-	$_REQUEST['do'] = 'signup';
+	$_REQUEST['do'] = 'register';
 }
 
 ($hook = vBulletinHook::fetch_hook('register_start')) ? eval($hook) : false;
 
 // ############################### start checkdate ###############################
-if ($_REQUEST['do'] == 'checkdate')
+if ($_POST['do'] == 'checkdate')
 {
 	// check their birthdate
 	$vbulletin->input->clean_array_gpc('r', array(
@@ -111,7 +115,7 @@ if ($_REQUEST['do'] == 'checkdate')
 
 	if ($vbulletin->GPC['year'] < 1970 OR (mktime(0, 0, 0, $vbulletin->GPC['month'], $vbulletin->GPC['day'], $vbulletin->GPC['year']) <= mktime(0, 0, 0, $current['month'], $current['day'], $current['year'] - 13)))
 	{
-		$_REQUEST['do'] = 'signup';
+		$_REQUEST['do'] = 'register';
 	}
 	else
 	{
@@ -127,90 +131,22 @@ if ($_REQUEST['do'] == 'checkdate')
 		}
 		else
 		{
-			$_REQUEST['do'] = 'signup';
+			$_REQUEST['do'] = 'register';
 		}
 	}
 }
-
-// ############################### start signup ###############################
-if ($_REQUEST['do'] == 'signup')
+// if the page was refreshed after birthday has been checked and cookied,
+// then simply perform the register action, #37319
+else if ($_REQUEST['do'] == 'checkdate')
 {
-	$current['year'] = date('Y');
-	$current['month'] = date('m');
-	$current['day'] = date('d');
-
-	if (!$vbulletin->options['allowregistration'])
-	{
-		eval(standard_error(fetch_error('noregister')));
-	}
-
-	if ($vbulletin->userinfo['userid'] AND !$vbulletin->options['allowmultiregs'])
-	{
-		eval(standard_error(fetch_error('alreadyregistered', $vbulletin->userinfo['username'], $vbulletin->session->vars['sessionurl'])));
-	}
-
-	if ($vbulletin->options['usecoppa'])
-	{
-		if ($vbulletin->options['checkcoppa'] AND $coppaage)
-		{
-			$dob = explode('-', $coppaage);
-			$month = $dob[0];
-			$day = $dob[1];
-			$year = $dob[2];
-		}
-		else
-		{
-			$month = $vbulletin->input->clean_gpc('r', 'month', TYPE_UINT);
-			$year = $vbulletin->input->clean_gpc('r', 'year', TYPE_UINT);
-			$day = $vbulletin->input->clean_gpc('r', 'day', TYPE_UINT);
-		}
-
-		if (!$month OR !$day OR !$year)
-		{	// Show age controls
-			$templatename = 'register_verify_age';
-		}
-		else	// verify age
-		{
-			if ($year < 1970 OR (mktime(0, 0, 0, $month, $day, $year) <= mktime(0, 0, 0, $current['month'], $current['day'], $current['year'] - 13)))
-			{	// this user is >13
-				$show['coppa'] = false;
-				$templatename = 'register_rules';
-			}
-			else if ($vbulletin->options['usecoppa'] == 2)
-			{
-				if ($vbulletin->options['checkcoppa'])
-				{
-					vbsetcookie('coppaage', $month . '-' . $day . '-' . $year, 1);
-				}
-				eval(standard_error(fetch_error('under_thirteen_registration_denied')));
-			}
-			else
-			{
-				if ($vbulletin->options['checkcoppa'])
-				{
-					vbsetcookie('coppaage', $month . '-' . $day . '-' . $year, 1);
-				}
-				$show['coppa'] = true;
-				$templatename = 'register_rules';
-			}
-		}
-	}
-	else
-	{
-		$show['coppa'] = false;
-		$templatename = 'register_rules';
-	}
-
-	($hook = vBulletinHook::fetch_hook('register_signup')) ? eval($hook) : false;
-
-	$url =& $vbulletin->url;
-	eval('print_output("' . fetch_template($templatename) . '");');
+	$_REQUEST['do'] = 'register';
 }
 
 // ############################### start add member ###############################
 if ($_POST['do'] == 'addmember')
 {
 	$vbulletin->input->clean_array_gpc('p', array(
+		'agree'               => TYPE_BOOL,
 		'options'             => TYPE_ARRAY_BOOL,
 		'username'            => TYPE_STR,
 		'email'               => TYPE_STR,
@@ -230,7 +166,14 @@ if ($_POST['do'] == 'addmember')
 		'userfield'           => TYPE_ARRAY,
 		'showbirthday'        => TYPE_UINT,
 		'humanverify'         => TYPE_ARRAY,
+		'fbaccesstoken'       => TYPE_STR,
+		'fbuserid'            => TYPE_STR,
 	));
+
+	if (!$vbulletin->GPC['agree'])
+	{
+		eval(standard_error(fetch_error('register_not_agreed', fetch_seo_url('forumhome', array()))));
+	}
 
 	if (!$vbulletin->options['allowregistration'])
 	{
@@ -304,8 +247,6 @@ if ($_POST['do'] == 'addmember')
 	{
 		$userdata->error('passwordmismatch');
 	}
-	// set password
-	$userdata->set('password', ($vbulletin->GPC['password_md5'] ? $vbulletin->GPC['password_md5'] : $vbulletin->GPC['password']));
 
 	// check for matching email addresses
 	if ($vbulletin->GPC['email'] != $vbulletin->GPC['emailconfirm'])
@@ -316,14 +257,17 @@ if ($_POST['do'] == 'addmember')
 
 	$userdata->set('username', $vbulletin->GPC['username']);
 
+	// set password
+	$userdata->set('password', ($vbulletin->GPC['password_md5'] ? $vbulletin->GPC['password_md5'] : $vbulletin->GPC['password']));
+
 	// check referrer
 	if ($vbulletin->GPC['referrername'] AND !$vbulletin->userinfo['userid'])
 	{
 		$userdata->set('referrerid', $vbulletin->GPC['referrername']);
 	}
 
-	// Human Verification
-	if (1==2&&$vbulletin->options['hvcheck_registration'])
+	// Human Verification, not neccessary if user is logged into facebook
+	if (fetch_require_hvcheck('register') AND (!is_facebookenabled() OR (is_facebookenabled() AND !vB_Facebook::instance()->userIsLoggedIn())))
 	{
 		require_once(DIR . '/includes/class_humanverify.php');
 		$verify =& vB_HumanVerify::fetch_library($vbulletin);
@@ -339,6 +283,18 @@ if ($_POST['do'] == 'addmember')
 		foreach ($vbulletin->GPC['options'] AS $optionname => $onoff)
 		{
 			$userdata->set_bitfield('options', $optionname, $onoff);
+		}
+	}
+
+	$forcelist = array(
+		'adminemail',
+		'showemail',
+	);
+	foreach ($forcelist AS $option)
+	{
+		if (!$vbulletin->GPC['options'][$option])
+		{
+			$userdata->set_bitfield('options', $option, 0);
 		}
 	}
 
@@ -382,7 +338,13 @@ if ($_POST['do'] == 'addmember')
 	// register IP address
 	$userdata->set('ipaddress', IPADDRESS);
 
-	//($hook = vBulletinHook::fetch_hook('register_addmember_process')) ? eval($hook) : false;
+	// check if we are associating the new user with a facebook account
+	if (is_facebookenabled() AND (vB_Facebook::instance()->userIsLoggedIn() OR (defined('VB_API') AND VB_API === true AND $vbulletin->GPC['fbuserid'] AND $vbulletin->GPC['fbaccesstoken'])))
+	{
+		save_fbdata($userdata);
+	}
+
+	($hook = vBulletinHook::fetch_hook('register_addmember_process')) ? eval($hook) : false;
 
 	$userdata->pre_save();
 
@@ -392,9 +354,16 @@ if ($_POST['do'] == 'addmember')
 		$_REQUEST['do'] = 'register';
 
 		$errorlist = '';
-		foreach ($userdata->errors AS $index => $error)
+		if (!VB_API)
 		{
-			$errorlist .= "<li>$error</li>";
+			foreach ($userdata->errors AS $index => $error)
+			{
+				$errorlist .= "<li>$error</li>";
+			}
+		}
+		else
+		{
+			$errorlist = $userdata->errors;
 		}
 
 		$username = htmlspecialchars_uni($vbulletin->GPC['username']);
@@ -416,7 +385,7 @@ if ($_POST['do'] == 'addmember')
 
 		if ($userid)
 		{
-			$userinfo = fetch_userinfo($userid);
+			$userinfo = fetch_userinfo($userid,0,0,0,true); // Read Master
 			$userdata_rank =& datamanager_init('User', $vbulletin, ERRTYPE_SILENT);
 			$userdata_rank->set_existing($userinfo);
 			$userdata_rank->set('posts', 0);
@@ -484,6 +453,7 @@ if ($_POST['do'] == 'addmember')
 					$referrer = $vbphrase['n_a'];
 				}
 				$ipaddress = IPADDRESS;
+				$memberlink = fetch_seo_url('member|nosession|bburl', array('userid' => $userid, 'username' => htmlspecialchars_uni($vbulletin->GPC['username'])));
 
 				eval(fetch_email_phrases('newuser', 0));
 
@@ -519,7 +489,7 @@ if ($_POST['do'] == 'addmember')
 				}
 			}
 
-			//($hook = vBulletinHook::fetch_hook('register_addmember_complete')) ? eval($hook) : false;
+			($hook = vBulletinHook::fetch_hook('register_addmember_complete')) ? eval($hook) : false;
 
 			if ($vbulletin->GPC['coppauser'])
 			{
@@ -536,20 +506,22 @@ if ($_POST['do'] == 'addmember')
 					$vbulletin->url = str_replace('"', '', $vbulletin->url);
 					if (!$vbulletin->url)
 					{
-						$vbulletin->url = $vbulletin->options['forumhome'] . '.php' . $vbulletin->session->vars['sessionurl_q'];
+						$vbulletin->url = fetch_seo_url('forumhome', array());
 					}
 					else
 					{
-						$vbulletin->url = iif(strpos($vbulletin->url, 'register.php') !== false, $vbulletin->options['forumhome'] . '.php' . $vbulletin->session->vars['sessionurl_q'], $vbulletin->url);
+						$vbulletin->url = (strpos($vbulletin->url, 'register.php') !== false ?
+							fetch_seo_url('forumhome', array()) : $vbulletin->url);
 					}
 
 					if ($vbulletin->options['moderatenewmembers'])
 					{
-						eval(standard_error(fetch_error('moderateuser', $username, $vbulletin->options['forumhome'], $vbulletin->session->vars['sessionurl_q']), '', false));
+						eval(standard_error(fetch_error('moderateuser', $username, fetch_seo_url('forumhome', array())), '', false));
 					}
 					else
 					{
-						eval(standard_error(fetch_error('registration_complete', $username, $vbulletin->session->vars['sessionurl'], $vbulletin->options['bburl'] . '/' . $vbulletin->options['forumhome'] . '.php'), '', false));
+						eval(standard_error(fetch_error('registration_complete', $username,
+							$vbulletin->session->vars['sessionurl'], fetch_seo_url('forumhome', array())), '', false));
 					}
 				}
 			}
@@ -559,33 +531,331 @@ if ($_POST['do'] == 'addmember')
 else if ($_GET['do'] == 'addmember')
 {
 	// hmm, this probably happened because of a template edit that put the login box in the header.
-	exec_header_redirect($vbulletin->options['forumhome'] . '.php');
+	exec_header_redirect(fetch_seo_url('forumhome|nosession', array()));
+}
+
+// ############################### start facebook dis-associate ###############################
+// process facebook dis-association
+if ($_REQUEST['do'] == 'fbdisconnect')
+{
+	// only disconnect registered vb users, (not facebook only users, because they will not be able to login anymore)
+	if (is_facebookenabled() AND !empty($vbulletin->userinfo['userid']) AND $vbulletin->userinfo['logintype'] == 'vb')
+	{
+
+		$vbulletin->input->clean_array_gpc('p', array(
+			'confirm' => TYPE_NOHTML,
+			'deny'    => TYPE_NOHTML,
+		));
+
+		// user has confirmed dis-association, so modify the data and logout of fb
+		if ($vbulletin->GPC['confirm'])
+		{
+			// instantiate the data manager class
+			$userdata =& datamanager_init('user', $vbulletin, ERRTYPE_STANDARD);
+			$userdata->set_existing($vbulletin->userinfo);
+
+			// uset the fbuserid association and save
+			$userdata->set('fbuserid', null);
+			$userdata->save();
+
+			// logout of facebook connect
+			do_facebooklogout();
+
+			// redirect to the forum home
+			exec_header_redirect(fetch_seo_url('forumhome|nosession', array()));
+		}
+
+		// user clicked 'No' for dis-association, so direct them back to the forums page
+		else if ($vbulletin->GPC['deny'])
+		{
+			$vbulletin->url = fetch_seo_url('forumhome', array());
+			print_standard_redirect('action_cancelled');
+		}
+
+		// otherwise, make sure current FB account is associated with vb account
+		// and display the confirmation form if so
+		else if (vB_Facebook::instance()->userIsLoggedIn() AND $vbulletin->userinfo['userid'] == vB_Facebook::instance()->getVbUseridFromFbUserid())
+		{
+			$navbits = construct_navbits(array(
+				'register.php' . $vbulletin->session->vars['sessionurl_q'] => $vbphrase['register']
+			));
+			$navbar = render_navbar_template($navbits);
+
+			$fb_userinfo = vB_Facebook::instance()->getFbUserInfo();
+			$fbname = $fb_userinfo['name'];
+			$fbprofileurl = get_fbprofileurl();
+			$fbprofilepicurl = !empty($fb_userinfo['pic']) ? $fb_userinfo['pic'] : get_fbprofilepicurl();;
+
+			$templater = vB_Template::create('facebook_disassociate');
+			$templater->register_page_templates();
+			$templater->register('navbar', $navbar);
+			$templater->register('userinfo', $vbulletin->userinfo);
+			$templater->register('fbuserid', vB_Facebook::instance()->getLoggedInFbUserId());
+			$templater->register('fbname', $fbname);
+			$templater->register('fbprofileurl', $fbprofileurl);
+			$templater->register('fbprofilepicurl', $fbprofilepicurl);
+			print_output($templater->render());
+		}
+	}
+
+	// if we dont meet any of the above action criteria, display regular registration form
+	$_REQUEST['do'] = 'register';
+}
+
+// ############################### start facebook associate ###############################
+// process facebook association
+if ($_POST['do'] == 'fbconnect')
+{
+	$vbulletin->input->clean_array_gpc('p', array(
+		'link'   => TYPE_NOHTML,
+		'nolink' => TYPE_NOHTML,
+	));
+
+	// if facebook is not enabled, we we somehow lost either the fb or vb session,
+	// display regular registration form
+	if (!is_facebookenabled()
+		OR empty($vbulletin->userinfo['userid'])
+		OR !vB_Facebook::instance()->userIsLoggedIn())
+	{
+		if (defined('VB_API') AND VB_API === true)
+		{
+			if (!is_facebookenabled())
+			{
+				eval(standard_error(fetch_error('facebook_disabled')));
+			}
+			else if (empty($vbulletin->userinfo['userid']))
+			{
+				eval(standard_error(fetch_error('usernotloggedin')));
+			}
+			else
+			{
+				eval(standard_error(fetch_error('facebook_usernotloggedin')));
+			}
+		}
+		else
+		{
+			$_REQUEST['do'] = 'register';
+		}
+	}
+	else if ($vbulletin->GPC['link'])
+	{
+		// instantiate the data manager class
+		$userdata =& datamanager_init('user', $vbulletin, ERRTYPE_ARRAY);
+		$userdata->set_existing($vbulletin->userinfo);
+
+		// save the fb data
+		save_fbdata($userdata, false);
+
+		// if there were errors in the association code
+		// go back to the association form and display errors
+		$userdata->pre_save();
+		if (!empty($userdata->errors))
+		{
+			$_REQUEST['do'] = 'register';
+			$errorlist = '';
+			if (!VB_API)
+			{
+				foreach ($userdata->errors AS $index => $error)
+				{
+					$errorlist .= "<li>$error</li>";
+				}
+			}
+			else
+			{
+				$error = array_pop($userdata->errors);
+				$output = is_array($error) ? $error[0] : $error;
+				eval(standard_error(fetch_error($output)));
+			}
+
+			$show['errors'] = true;
+		}
+
+		// otherwise, we can save the association and redirect someplace nice
+		else
+		{
+			$userdata->save();
+			$vbulletin->url = $vbulletin->options['forumhome'] . '.php' . $vbulletin->session->vars['sessionurl_q'];
+			print_standard_redirect(array('redirect_updatethanks', $vbulletin->userinfo['username']));
+		}
+	}
+	// user does not want to link accounts, redirect to forum page
+	else if ($vbulletin->GPC['nolink'])
+	{
+		$vbulletin->url = $vbulletin->options['forumhome'] . '.php' . $vbulletin->session->vars['sessionurl_q'];
+		print_standard_redirect(array('redirect_updatethanks',$vbulletin->userinfo['username']));
+	}
 }
 
 // ############################### start register ###############################
 if ($_REQUEST['do'] == 'register')
 {
+	// check the conditions are right for auto-register, logged in fb user/
+	// not logged into vB, no associated account, and email permissions available
+	if (is_facebookenabled()
+		AND vB_Facebook::instance()->userIsLoggedIn()
+		AND empty($vbulletin->userinfo['userid'])
+		AND !vB_Facebook::instance()->getVbUseridFromFbUserid()
+		AND $vbulletin->options['facebookautoregister']
+		AND check_emailpermissions()
+	)
+	{
+		// instantiate the data manager class
+		$userdata =& datamanager_init('user', $vbulletin, ERRTYPE_ARRAY);
+
+		// populate the datamanager with auto reg data
+		save_fbautoregister($userdata);
+
+		($hook = vBulletinHook::fetch_hook('register_addmember_process')) ? eval($hook) : false;
+
+		// if there were errors in the association code
+		// go back to the association form and display errors
+		$userdata->pre_save();
+		if (!empty($userdata->errors))
+		{
+			$_REQUEST['do'] = 'register';
+			$errorlist = '';
+			foreach ($userdata->errors AS $index => $error)
+			{
+				$errorlist .= "<li>$error</li>";
+			}
+			$show['errors'] = true;
+		}
+
+		// if no errors, auto-register user
+		else
+		{
+			$show['errors'] = false;
+
+			// save the data
+			$vbulletin->userinfo['userid']
+				= $userid
+				= $userdata->save();
+
+			if ($userid)
+			{
+				$username = $userdata->fetch_field('username');
+				$email = $userdata->fetch_field('email');
+
+				$userinfo = fetch_userinfo($userid);
+				$userdata_rank =& datamanager_init('User', $vbulletin, ERRTYPE_SILENT);
+				$userdata_rank->set_existing($userinfo);
+				$userdata_rank->set('posts', 0);
+				$userdata_rank->save();
+
+				// force a new session to prevent potential issues with guests from the same IP, see bug #2459
+				require_once(DIR . '/includes/functions_login.php');
+				$vbulletin->session->created = false;
+				process_new_login('', false, '');
+
+				// send new user email
+				if ($vbulletin->options['newuseremail'] != '')
+				{
+					$referrer = 'Facebook Connect';
+					$ipaddress = IPADDRESS;
+					$memberlink = fetch_seo_url('member|nosession|bburl', array('userid' => $userid, 'username' => htmlspecialchars_uni($vbulletin->GPC['username'])));
+
+					eval(fetch_email_phrases('newuser', 0));
+
+					$newemails = explode(' ', $vbulletin->options['newuseremail']);
+					foreach ($newemails AS $toemail)
+					{
+						if (trim($toemail))
+						{
+							vbmail($toemail, $subject, $message);
+						}
+					}
+				}
+
+				if ($newusergroupid == 2 AND $vbulletin->options['welcomemail'])
+				{
+					eval(fetch_email_phrases('welcomemail'));
+					vbmail($email, $subject, $message);
+				}
+
+				($hook = vBulletinHook::fetch_hook('register_addmember_complete')) ? eval($hook) : false;
+
+				// now redirect the user to the home page
+				$vbulletin->url = str_replace('"', '', $vbulletin->url);
+				if (!$vbulletin->url)
+				{
+					$vbulletin->url = fetch_seo_url('forumhome', array());
+				}
+				else
+				{
+					$vbulletin->url = iif(strpos($vbulletin->url, 'register.php') !== false, fetch_seo_url('forumhome', array()), $vbulletin->url);
+				}
+
+				if ($vbulletin->options['moderatenewmembers'])
+				{
+					eval(standard_error(fetch_error('moderateuser', $username, fetch_seo_url('forumhome', array())), '', false));
+				}
+				else
+				{
+					eval(standard_error(fetch_error('registration_complete', $username,
+						$vbulletin->session->vars['sessionurl'], fetch_seo_url('forumhome', array())), '', false));
+				}
+			}
+		}
+	}
+	// if facebook connect is enabled and user is logged into both vb and facebook
+	// but accounts arent associated, display the association form instead of register form
+	else if (is_facebookenabled()
+		AND	!empty($vbulletin->userinfo['userid']) /* logged into vb */
+		AND	vB_Facebook::instance()->userIsLoggedIn() /* logged into facebook */
+		AND	$vbulletin->userinfo['fbuserid'] != vB_Facebook::instance()->getLoggedInFbUserId() /* not already associated */
+	)
+	{
+		// generate the form for importing facebook data
+		$fbimportform = construct_fbimportform();
+
+		$fb_userinfo = vB_Facebook::instance()->getFbUserInfo();
+		$fbname = $fb_userinfo['name'];
+		$fbprofileurl = get_fbprofileurl();
+		$fbprofilepicurl = !empty($fb_userinfo['pic']) ? $fb_userinfo['pic'] : get_fbprofilepicurl();;
+
+		// check if user already has a different fb account, and inform them if so
+		$show['fb_alreadyassociated'] = !empty($vbulletin->userinfo['fbuserid']);
+
+		$navbits = construct_navbits(array(
+			'register.php' . $vbulletin->session->vars['sessionurl_q'] => $vbphrase['link_accounts']
+		));
+		$navbar = render_navbar_template($navbits);
+
+		$templater = vB_Template::create('facebook_associate');
+		$templater->register_page_templates();
+		$templater->register('navbar', $navbar);
+		$templater->register('userinfo', $vbulletin->userinfo);
+		$templater->register('fbuserid', vB_Facebook::instance()->getLoggedInFbUserId());
+		$templater->register('fbname', $fbname);
+		$templater->register('fbprofileurl', $fbprofileurl);
+		$templater->register('fbprofilepicurl', $fbprofilepicurl);
+		$templater->register('fbimportform', $fbimportform);
+		$templater->register('currentfbuserid', $vbulletin->userinfo['fbuserid']);
+		$templater->register('currentfbname', $vbulletin->userinfo['fbname']);
+		$templater->register('errorlist', $errorlist);
+		print_output($templater->render());
+	}
+	else if (is_facebookenabled() AND vB_Facebook::instance()->userIsLoggedIn())
+	{
+		if (!vB_Facebook::instance()->verifyLoginFromServer())
+		{
+			vB_Facebook::instance()->doLogoutFbUser();
+			$show['facebookuser'] = false;
+		}
+	}
+
 	$vbulletin->input->clean_array_gpc('p', array(
-		'agree'   => TYPE_BOOL,
 		'year'    => TYPE_UINT,
 		'month'   => TYPE_UINT,
 		'day'     => TYPE_UINT,
 		'options' => TYPE_ARRAY_BOOL,
-		'who'     => TYPE_NOHTML,
 	));
-
-	// Variables that are used in templates
-	$agree =& $vbulletin->GPC['agree'];
-	$year =& $vbulletin->GPC['year'];
-	$month =& $vbulletin->GPC['month'];
-	$day =& $vbulletin->GPC['day'];
 
 	$url = $vbulletin->url;
 
-	if (!$vbulletin->GPC['agree'])
-	{
-		eval(standard_error(fetch_error('register_not_agreed', $vbulletin->options['forumhome'], $vbulletin->session->vars['sessionurl_q'])));
-	}
+	$navbits['register.php' . $vbulletin->session->vars['sessionurl_q']] = $vbphrase['register'];
+	$navbits = construct_navbits($navbits);
+
 	if (!$vbulletin->options['allowregistration'])
 	{
 		eval(standard_error(fetch_error('noregister')));
@@ -594,6 +864,67 @@ if ($_REQUEST['do'] == 'register')
 	if ($vbulletin->userinfo['userid'] AND !$vbulletin->options['allowmultiregs'])
 	{
 		eval(standard_error(fetch_error('alreadyregistered', $vbulletin->userinfo['username'], $vbulletin->session->vars['sessionurl'])));
+	}
+
+	// if neccessary validate COPPA info
+	if ($vbulletin->options['usecoppa'])
+	{
+		if ($vbulletin->options['checkcoppa'] AND $coppaage)
+		{
+			$dob = explode('-', $coppaage);
+			$month = $dob[0];
+			$day = $dob[1];
+			$year = $dob[2];
+		}
+		else
+		{
+			$month = $vbulletin->input->clean_gpc('r', 'month', TYPE_UINT);
+			$year = $vbulletin->input->clean_gpc('r', 'year', TYPE_UINT);
+			$day = $vbulletin->input->clean_gpc('r', 'day', TYPE_UINT);
+		}
+
+		if (!$month OR !$day OR !$year)
+		{
+			$navbar = render_navbar_template($navbits);
+			// Show age controls
+			$templater = vB_Template::create('register_verify_age');
+
+			$templater->register_page_templates();
+			$templater->register('url', $url);
+			$templater->register('navbar', $navbar);
+			print_output($templater->render());
+		}
+		else	// verify age
+		{
+			$current['year'] = date('Y');
+			$current['month'] = date('m');
+			$current['day'] = date('d');
+
+			if ($year < 1970 OR (mktime(0, 0, 0, $month, $day, $year) <= mktime(0, 0, 0, $current['month'], $current['day'], $current['year'] - 13)))
+			{	// this user is >13
+				$show['coppa'] = false;
+			}
+			else if ($vbulletin->options['usecoppa'] == 2)
+			{
+				if ($vbulletin->options['checkcoppa'])
+				{
+					vbsetcookie('coppaage', $month . '-' . $day . '-' . $year, 1);
+				}
+				eval(standard_error(fetch_error('under_thirteen_registration_denied')));
+			}
+			else
+			{
+				if ($vbulletin->options['checkcoppa'])
+				{
+					vbsetcookie('coppaage', $month . '-' . $day . '-' . $year, 1);
+				}
+				$show['coppa'] = true;
+			}
+		}
+	}
+	else
+	{
+		$show['coppa'] = false;
 	}
 
 	($hook = vBulletinHook::fetch_hook('register_form_start')) ? eval($hook) : false;
@@ -609,38 +940,14 @@ if ($_REQUEST['do'] == 'register')
 		$checkedoff['showemail'] = iif(bitwise($vbulletin->bf_misc_regoptions['receiveemail'], $vbulletin->options['defaultregoptions']), 'checked="checked"');
 	}
 
-	if ($vbulletin->options['reqbirthday'] AND !$vbulletin->options['usecoppa'])
-	{
-		$show['birthday'] = true;
-		$monthselected[str_pad($vbulletin->GPC['month'], 2, '0', STR_PAD_LEFT)] = 'selected="selected"';
-		$dayselected[str_pad($vbulletin->GPC['day'], 2, '0', STR_PAD_LEFT)] = 'selected="selected"';
-
-	    if ($year == 0)
-	    {
-	        $year = '';
-    	}
-
-		// Default Birthday Privacy option to show all
-		if (empty($errorlist))
-		{
-			$sbselected = array(2 => 'selected="selected"');
-		}
-		eval('$birthdayfields = "' . fetch_template('modifyprofile_birthday') . '";');
-	}
-	else
-	{
-		$show['birthday'] = false;
-
-		$birthdayfields = '';
-	}
-
 	$htmlonoff = ($vbulletin->options['allowhtml'] ? $vbphrase['on'] : $vbphrase['off']);
 	$bbcodeonoff = ($vbulletin->options['allowbbcode'] ? $vbphrase['on'] : $vbphrase['off']);
 	$imgcodeonoff = ($vbulletin->options['allowbbimagecode'] ? $vbphrase['on'] : $vbphrase['off']);
+	$videocodeonoff = ($vbulletin->options['allowbbvideocode'] ? $vbphrase['on'] : $vbphrase['off']);
 	$smiliesonoff = ($vbulletin->options['allowsmilies'] ? $vbphrase['on'] : $vbphrase['off']);
 
-	// human verification
-	if ($vbulletin->options['hvcheck_registration'])
+	// human verification, which we can bypass if user has been verified on facebook
+	if (fetch_require_hvcheck('register') AND (!is_facebookenabled() OR (is_facebookenabled() AND !vB_Facebook::instance()->userIsLoggedIn())))
 	{
 		require_once(DIR . '/includes/class_humanverify.php');
 		$verify =& vB_HumanVerify::fetch_library($vbulletin);
@@ -670,9 +977,54 @@ if ($_REQUEST['do'] == 'register')
 	}
 
 	// get extra profile fields
-	if ($vbulletin->GPC['who'] != 'adult')
+	if ($show['coppa'])
 	{
 		$bgclass1 = 'alt1';
+	}
+
+	// get facebook profile data to pre-populate custom profile fields
+	$fb_importform_skip_fields = array();
+	$fb_profilefield_info = array();
+	if (is_facebookenabled() AND vB_Facebook::instance()->userIsLoggedIn())
+	{
+		$fb_profilefield_info = get_vbprofileinfo();
+	}
+
+	if ($vbulletin->options['reqbirthday'] AND !$vbulletin->options['usecoppa'])
+	{
+		$fb_importform_skip_fields[] = 'birthday';
+
+		if ($vbulletin->options['fb_userfield_birthday'] AND !empty($fb_profilefield_info['birthday']) AND !$vbulletin->GPC['day'] AND !$vbulletin->GPC['month'] AND !$vbulletin->GPC['year'])
+		{
+			list($bd_month, $bd_day, $bd_year) = explode('/', $fb_profilefield_info['birthday']);
+			$vbulletin->GPC['day'] = intval($bd_day);
+			$vbulletin->GPC['month'] = intval($bd_month);
+			$vbulletin->GPC['year'] = intval($bd_year);
+		}
+
+		$show['birthday'] = true;
+		$monthselected[str_pad($vbulletin->GPC['month'], 2, '0', STR_PAD_LEFT)] = 'selected="selected"';
+		$dayselected[str_pad($vbulletin->GPC['day'], 2, '0', STR_PAD_LEFT)] = 'selected="selected"';
+		$year = !$vbulletin->GPC['year'] ? '' : $vbulletin->GPC['year'];
+
+		// Default Birthday Privacy option to show all
+		if (empty($errorlist))
+		{
+			$sbselected = array(2 => 'selected="selected"');
+		}
+		$templater = vB_Template::create('modifyprofile_birthday');
+			$templater->register('birthdate', $birthdate);
+			$templater->register('dayselected', $dayselected);
+			$templater->register('monthselected', $monthselected);
+			$templater->register('sbselected', $sbselected);
+			$templater->register('year', $year);
+		$birthdayfields = $templater->render();
+	}
+	else
+	{
+		$show['birthday'] = false;
+
+		$birthdayfields = '';
 	}
 
 	$customfields_other = '';
@@ -693,52 +1045,97 @@ if ($_REQUEST['do'] == 'register')
 		$optional = '';
 		$profilefield['title'] = $vbphrase[$profilefieldname . '_title'];
 		$profilefield['description'] = $vbphrase[$profilefieldname . '_desc'];
-		if (!$errorlist)
+		$profilefield['currentvalue'] = '';
+
+		if ($errorlist AND isset($vbulletin->GPC['userfield']["$profilefieldname"]))
 		{
-			unset($vbulletin->userinfo["$profilefieldname"]);
+			$profilefield['currentvalue'] = $vbulletin->GPC['userfield']["$profilefieldname"];
 		}
-		elseif (isset($vbulletin->GPC['userfield']["$profilefieldname"]))
+
+		// add profile data from facebook as a default if available
+		if ($profilefield['type'] == 'input' OR $profilefield['type'] == 'textarea')
 		{
-			$vbulletin->userinfo["$profilefieldname"] = $vbulletin->GPC['userfield']["$profilefieldname"];
+			switch($profilefieldname)
+			{
+				case $vbulletin->options['fb_userfield_biography']:
+					$profilefield['data'] = $fb_profilefield_info['biography'];
+					$fb_importform_skip_fields[] = 'biography';
+					break;
+
+				case $vbulletin->options['fb_userfield_location']:
+					$profilefield['data'] = $fb_profilefield_info['location'];
+					$fb_importform_skip_fields[] = 'location';
+					break;
+
+				case $vbulletin->options['fb_userfield_interests']:
+					$profilefield['data'] = $fb_profilefield_info['interests'];
+					$fb_importform_skip_fields[] = 'interests';
+					break;
+
+				case $vbulletin->options['fb_userfield_occupation']:
+					$profilefield['data'] = $fb_profilefield_info['occupation'];
+					$fb_importform_skip_fields[] = 'occupation';
+					break;
+			}
 		}
 
 		$custom_field_holder = '';
 
 		if ($profilefield['type'] == 'input')
 		{
-			if ($profilefield['data'] !== '')
+			if (empty($profilefield['currentvalue']) AND !empty($profilefield['data']))
 			{
-				$vbulletin->userinfo["$profilefieldname"] = $profilefield['data'];
+				$profilefield['currentvalue'] = $profilefield['data'];
 			}
 			else
 			{
-				$vbulletin->userinfo["$profilefieldname"] = htmlspecialchars_uni($vbulletin->userinfo["$profilefieldname"]);
+				$profilefield['currentvalue'] = htmlspecialchars_uni($profilefield['currentvalue']);
 			}
-			eval('$custom_field_holder = "' . fetch_template('userfield_textbox') . '";');
+			$templater = vB_Template::create('userfield_textbox');
+				$templater->register('profilefield', $profilefield);
+				$templater->register('profilefieldname', $profilefieldname);
+			$custom_field_holder = $templater->render();
 		}
 		else if ($profilefield['type'] == 'textarea')
 		{
-			if ($profilefield['data'] !== '')
+			if (empty($profilefield['currentvalue']) AND !empty($profilefield['data']))
 			{
-				$vbulletin->userinfo["$profilefieldname"] = $profilefield['data'];
+				$profilefield['currentvalue'] = $profilefield['data'];
 			}
 			else
 			{
-				$vbulletin->userinfo["$profilefieldname"] = htmlspecialchars_uni($vbulletin->userinfo["$profilefieldname"]);
+				$profilefield['currentvalue'] = htmlspecialchars_uni($profilefield['currentvalue']);
 			}
-			eval('$custom_field_holder = "' . fetch_template('userfield_textarea') . '";');
+			$templater = vB_Template::create('userfield_textarea');
+				$templater->register('profilefield', $profilefield);
+				$templater->register('profilefieldname', $profilefieldname);
+			$custom_field_holder = $templater->render();
 		}
 		else if ($profilefield['type'] == 'select')
 		{
 			$data = unserialize($profilefield['data']);
 			$selectbits = '';
+
+			if ($profilefield['optional'])
+			{
+				$optional = htmlspecialchars_uni($vbulletin->GPC['userfield']["$optionalname"]);
+
+				$templater = vB_Template::create('userfield_optional_input');
+					$templater->register('optional', $optional);
+					$templater->register('optionalname', $optionalname);
+					$templater->register('profilefield', $profilefield);
+					$templater->register('tabindex', $tabindex);
+				$optionalfield = $templater->render();
+			}
+
+			$foundselect = 0;
 			foreach ($data AS $key => $val)
 			{
 				$key++;
 				$selected = '';
-				if (isset($vbulletin->userinfo["$profilefieldname"]))
+				if (isset($profilefield['currentvalue']))
 				{
-					if (trim($val) == $vbulletin->userinfo["$profilefieldname"])
+					if ($key == $profilefield['currentvalue'])
 					{
 						$selected = 'selected="selected"';
 						$foundselect = 1;
@@ -750,18 +1147,16 @@ if ($_REQUEST['do'] == 'register')
 					$foundselect = 1;
 				}
 
-				eval('$selectbits .= "' . fetch_template('userfield_select_option') . '";');
+				$templater = vB_Template::create('userfield_select_option');
+					$templater->register('key', $key);
+					$templater->register('selected', $selected);
+					$templater->register('val', $val);
+				$selectbits .= $templater->render();
 			}
 
-			if ($profilefield['optional'])
-			{
-				if (!$foundselect AND $vbulletin->userinfo["$profilefieldname"])
-				{
-					$optional = htmlspecialchars_uni($vbulletin->userinfo["$profilefieldname"]);
-				}
-				eval('$optionalfield = "' . fetch_template('userfield_optional_input') . '";');
-			}
-			if (!$foundselect)
+			$show['noemptyoption'] = iif($profilefield['def'] != 2, true, false);
+
+			if (!$foundselect AND $show['noemptyoption'])
 			{
 				$selected = 'selected="selected"';
 			}
@@ -769,66 +1164,76 @@ if ($_REQUEST['do'] == 'register')
 			{
 				$selected = '';
 			}
-			$show['noemptyoption'] = iif($profilefield['def'] != 2, true, false);
-			eval('$custom_field_holder = "' . fetch_template('userfield_select') . '";');
+
+			$templater = vB_Template::create('userfield_select');
+				$templater->register('optionalfield', $optionalfield);
+				$templater->register('profilefield', $profilefield);
+				$templater->register('profilefieldname', $profilefieldname);
+				$templater->register('selectbits', $selectbits);
+				$templater->register('selected', $selected);
+			$custom_field_holder = $templater->render();
 		}
 		else if ($profilefield['type'] == 'radio')
 		{
 			$data = unserialize($profilefield['data']);
 			$radiobits = '';
 			$foundfield = 0;
-			$perline = 0;
-			$unclosedtr = true;
+
+			if ($profilefield['optional'])
+			{
+				$optional = htmlspecialchars_uni($vbulletin->GPC['userfield']["$optionalname"]);
+				if ($optional)
+				{
+					$foundfield = 1;
+				}
+
+				$templater = vB_Template::create('userfield_optional_input');
+					$templater->register('optional', $optional);
+					$templater->register('optionalname', $optionalname);
+					$templater->register('profilefield', $profilefield);
+					$templater->register('tabindex', $tabindex);
+				$optionalfield = $templater->render();
+			}
 
 			foreach ($data AS $key => $val)
 			{
 				$key++;
 				$checked = '';
-				if (!$vbulletin->userinfo["$profilefieldname"] AND $key == 1 AND $profilefield['def'] == 1)
+				if (!$foundfield)
 				{
-					$checked = 'checked="checked"';
+					if (!$profilefield['currentvalue'] AND $key == 1 AND $profilefield['def'] == 1)
+					{
+						$checked = 'checked="checked"';
+					}
+					else if ($key == $profilefield['currentvalue'])
+					{
+						$checked = 'checked="checked"';
+					}
 				}
-				else if (trim($val) == $vbulletin->userinfo["$profilefieldname"])
-				{
-					$checked = 'checked="checked"';
-					$foundfield = 1;
-				}
-				if ($perline == 0)
-				{
-					$radiobits .= '<tr>';
-				}
-				eval('$radiobits .= "' . fetch_template('userfield_radio_option') . '";');
-				$perline++;
-				if ($profilefield['perline'] > 0 AND $perline >= $profilefield['perline'])
-				{
-					$radiobits .= '</tr>';
-					$perline = 0;
-					$unclosedtr = false;
-				}
+
+				$templater = vB_Template::create('userfield_radio_option');
+					$templater->register('checked', $checked);
+					$templater->register('key', $key);
+					$templater->register('profilefieldname', $profilefieldname);
+					$templater->register('val', $val);
+				$radiobits .= $templater->render();
 			}
-			if ($unclosedtr)
-			{
-				$radiobits .= '</tr>';
-			}
-			if ($profilefield['optional'])
-			{
-				if (!$foundfield AND $vbulletin->userinfo["$profilefieldname"])
-				{
-					$optional = htmlspecialchars_uni($vbulletin->userinfo["$profilefieldname"]);
-				}
-				eval('$optionalfield = "' . fetch_template('userfield_optional_input') . '";');
-			}
-			eval('$custom_field_holder = "' . fetch_template('userfield_radio') . '";');
+
+			$templater = vB_Template::create('userfield_radio');
+				$templater->register('optionalfield', $optionalfield);
+				$templater->register('profilefield', $profilefield);
+				$templater->register('profilefieldname', $profilefieldname);
+				$templater->register('radiobits', $radiobits);
+			$custom_field_holder = $templater->render();
 		}
 		else if ($profilefield['type'] == 'checkbox')
 		{
 			$data = unserialize($profilefield['data']);
 			$radiobits = '';
-			$perline = 0;
-			$unclosedtr = true;
 			foreach ($data AS $key => $val)
 			{
-				if ($vbulletin->userinfo["$profilefieldname"] & pow(2,$key))
+				$key++;
+				if (is_array($profilefield['currentvalue']) AND in_array($key, $profilefield['currentvalue']))
 				{
 					$checked = 'checked="checked"';
 				}
@@ -836,25 +1241,19 @@ if ($_REQUEST['do'] == 'register')
 				{
 					$checked = '';
 				}
-				$key++;
-				if ($perline == 0)
-				{
-					$radiobits .= '<tr>';
-				}
-				eval('$radiobits .= "' . fetch_template('userfield_checkbox_option') . '";');
-				$perline++;
-				if ($profilefield['perline'] > 0 AND $perline >= $profilefield['perline'])
-				{
-					$radiobits .= '</tr>';
-					$perline = 0;
-					$unclosedtr = false;
-				}
+				$templater = vB_Template::create('userfield_checkbox_option');
+					$templater->register('checked', $checked);
+					$templater->register('key', $key);
+					$templater->register('profilefieldname', $profilefieldname);
+					$templater->register('val', $val);
+				$radiobits .= $templater->render();
 			}
-			if ($unclosedtr)
-			{
-				$radiobits .= '</tr>';
-			}
-			eval('$custom_field_holder = "' . fetch_template('userfield_radio') . '";');
+			$templater = vB_Template::create('userfield_radio');
+				$templater->register('optionalfield', $optionalfield);
+				$templater->register('profilefield', $profilefield);
+				$templater->register('profilefieldname', $profilefieldname);
+				$templater->register('radiobits', $radiobits);
+			$custom_field_holder = $templater->render();
 		}
 		else if ($profilefield['type'] == 'select_multiple')
 		{
@@ -869,7 +1268,8 @@ if ($_REQUEST['do'] == 'register')
 
 			foreach ($data AS $key => $val)
 			{
-				if ($vbulletin->userinfo["$profilefieldname"] & pow(2, $key))
+				$key++;
+				if (is_array($profilefield['currentvalue']) AND in_array($key, $profilefield['currentvalue']))
 				{
 					$selected = 'selected="selected"';
 				}
@@ -877,10 +1277,17 @@ if ($_REQUEST['do'] == 'register')
 				{
 					$selected = '';
 				}
-				$key++;
-				eval('$selectbits .= "' . fetch_template('userfield_select_option') . '";');
+				$templater = vB_Template::create('userfield_select_option');
+					$templater->register('key', $key);
+					$templater->register('selected', $selected);
+					$templater->register('val', $val);
+				$selectbits .= $templater->render();
 			}
-			eval('$custom_field_holder = "' . fetch_template('userfield_select_multiple') . '";');
+			$templater = vB_Template::create('userfield_select_multiple');
+				$templater->register('profilefield', $profilefield);
+				$templater->register('profilefieldname', $profilefieldname);
+				$templater->register('selectbits', $selectbits);
+			$custom_field_holder = $templater->render();
 		}
 
 		if ($profilefield['required'] == 2)
@@ -900,15 +1307,13 @@ if ($_REQUEST['do'] == 'register')
 			}
 		}
 
-		eval('$profile_variable .= "' . fetch_template('userfield_wrapper') . '";');
+		$templater = vB_Template::create('userfield_wrapper');
+			$templater->register('custom_field_holder', $custom_field_holder);
+			$templater->register('profilefield', $profilefield);
+		$profile_variable .= $templater->render();
 	}
 
-	if (!$vbulletin->GPC['who'])
-	{
-		$vbulletin->GPC['who'] = iif($vbulletin->GPC['coppauser'], 'coppa', 'adult');
-	}
-
-	$show['coppa'] = $usecoppa = ($vbulletin->GPC['who'] == 'adult' OR !$vbulletin->options['usecoppa']) ? false : true;
+	$usecoppa = $show['coppa'];
 	$show['customfields_profile'] = ($customfields_profile OR $show['birthday']) ? true : false;
 	$show['customfields_option'] = ($customfields_option) ? true : false;
 	$show['customfields_other'] = ($customfields_other) ? true : false;
@@ -928,19 +1333,76 @@ if ($_REQUEST['do'] == 'register')
 		$timezonesel = $vbulletin->options['timeoffset'];
 	}
 
+	// if applicable, set up some facebook data
+	if (is_facebookenabled())
+	{
+		// make sure current user is logged in
+		if (vB_Facebook::instance()->userIsLoggedIn())
+		{
+			// if users are allowed to import info from facebook, generate the form
+			$fbimportform = construct_fbimportform('register', $fb_importform_skip_fields);
+
+			// populate form fields with information from facebook if its available
+			$fb_userinfo = vB_Facebook::instance()->getFbUserInfo();
+			if (!empty($fb_userinfo))
+			{
+				$show['fb_email'] = (!empty($fb_userinfo['email']) ? true : false);
+				$username = (!empty($fb_userinfo['name']) ? htmlspecialchars_uni($fb_userinfo['name']) : $username);
+				$email = (!empty($fb_userinfo['email'])?$fb_userinfo['email']:$email);
+				$emailconfirm = (!empty($fb_userinfo['email'])?$fb_userinfo['email']:$emailconfirm);
+				$timezonesel = (!empty($fb_userinfo['timezone'])?$fb_userinfo['timezone']:$timezonesel);
+				$fbname = $fb_userinfo['name'];
+				$fbprofileurl = get_fbprofileurl();
+				$fbprofilepicurl = !empty($fb_userinfo['pic']) ? $fb_userinfo['pic'] : get_fbprofilepicurl();;
+			}
+		}
+	}
+
 	require_once(DIR . '/includes/functions_misc.php');
 	$timezoneoptions = '';
 	foreach (fetch_timezone() AS $optionvalue => $timezonephrase)
 	{
 		$optiontitle = $vbphrase["$timezonephrase"];
 		$optionselected = iif($optionvalue == $timezonesel, 'selected="selected"', '');
-		eval('$timezoneoptions .= "' . fetch_template('option') . '";');
+		$timezoneoptions .= render_option_template($optiontitle, $optionvalue, $optionselected, $optionclass);
 	}
-	eval('$timezoneoptions = "' . fetch_template('modifyoptions_timezone') . '";');
+	$templater = vB_Template::create('modifyoptions_timezone');
+		$templater->register('selectdst', $selectdst);
+		$templater->register('timezoneoptions', $timezoneoptions);
+	$timezoneoptions = $templater->render();
+
+	$navbits['register.php' . $vbulletin->session->vars['sessionurl_q']] = $vbphrase['register'];
+	$navbar = render_navbar_template($navbits);
 
 	($hook = vBulletinHook::fetch_hook('register_form_complete')) ? eval($hook) : false;
 
-	eval('print_output("' . fetch_template('register') . '");');
+	$templater = vB_Template::create('register');
+		$templater->register_page_templates();
+		$templater->register('navbar', $navbar);
+		$templater->register('birthdayfields', $birthdayfields);
+		$templater->register('checkedoff', $checkedoff);
+		$templater->register('customfields_option', $customfields_option);
+		$templater->register('customfields_other', $customfields_other);
+		$templater->register('customfields_profile', $customfields_profile);
+		$templater->register('day', $day);
+		$templater->register('email', $email);
+		$templater->register('emailconfirm', $emailconfirm);
+		$templater->register('errorlist', $errorlist);
+		$templater->register('human_verify', $human_verify);
+		$templater->register('month', $month);
+		$templater->register('parentemail', $parentemail);
+		$templater->register('password', $password);
+		$templater->register('passwordconfirm', $passwordconfirm);
+		$templater->register('referrername', $referrername);
+		$templater->register('timezoneoptions', $timezoneoptions);
+		$templater->register('url', $url);
+		$templater->register('username', $username);
+		$templater->register('year', $year);
+		$templater->register('fbname', $fbname);
+		$templater->register('fbprofileurl', $fbprofileurl);
+		$templater->register('fbprofilepicurl', $fbprofilepicurl);
+		$templater->register('fbimportform', $fbimportform);
+	print_output($templater->render());
 }
 
 // ############################### start activate form ###############################
@@ -952,19 +1414,15 @@ if ($vbulletin->GPC['a'] == 'ver')
 		$vbulletin->userinfo['username'] = '';
 	}
 
-	if ($permissions['forumpermissions'] & $vbulletin->bf_ugp_forumpermissions['canview'])
-	{
-		$navbits = construct_navbits(array('' => $vbphrase['activate_your_account']));
-		eval('$navbar = "' . fetch_template('navbar') . '";');
-	}
-	else
-	{
-		$navbar = '';
-	}
+	$navbits = construct_navbits(array('' => $vbphrase['activate_your_account']));
+	$navbar = render_navbar_template($navbits);
 
 	($hook = vBulletinHook::fetch_hook('register_activateform')) ? eval($hook) : false;
 
-	eval('print_output("' . fetch_template('activateform') . '");');
+	$templater = vB_Template::create('activateform');
+		$templater->register_page_templates();
+		$templater->register('navbar', $navbar);
+	print_output($templater->render());
 }
 
 // ############################### start activate ###############################
@@ -972,13 +1430,13 @@ if ($_REQUEST['do'] == 'activate')
 {
 	$vbulletin->input->clean_array_gpc('r', array(
 		'username'		=> TYPE_NOHTML,
-		'activateid'	=> TYPE_UINT,
+		'activateid'	=> TYPE_STR,
 
 		// These three are cleaned so that they will exist and not be overwritten in the next step
 
 		'u'				=> TYPE_UINT,
 		'a'				=> TYPE_NOHTML,
-		'i'				=> TYPE_UINT,
+		'i'				=> TYPE_STR,
 	));
 
 	if ($userinfo = $db->query_first("SELECT userid FROM " . TABLE_PREFIX . "user WHERE username='" . $db->escape_string($vbulletin->GPC['username']) . "'"))
@@ -997,7 +1455,7 @@ if ($vbulletin->GPC['a'] == 'act')
 {
 	$vbulletin->input->clean_array_gpc('r', array(
 		'u'		=> TYPE_UINT,
-		'i'		=> TYPE_UINT,
+		'i'		=> TYPE_STR,
 	));
 
 	$userinfo = verify_id('user', $vbulletin->GPC['u'], 1, 1);
@@ -1010,7 +1468,7 @@ if ($vbulletin->GPC['a'] == 'act')
 		$user = $db->query_first("
 			SELECT activationid, usergroupid, emailchange
 			FROM " . TABLE_PREFIX . "useractivation
-			WHERE activationid = " . $vbulletin->GPC['i'] . "
+			WHERE activationid = '" . $db->escape_string($vbulletin->GPC['i']) . "'
 				AND userid = $userinfo[userid]
 				AND type = 0
 		");
@@ -1071,12 +1529,16 @@ if ($vbulletin->GPC['a'] == 'act')
 		{
 			// put user in moderated group
 			$userdata->save();
-			eval(standard_error(fetch_error('moderateuser', $userinfo['username'], $vbulletin->options['forumhome'], $vbulletin->session->vars['sessionurl_q']), '', false));
+			eval(standard_error(fetch_error('moderateuser', $userinfo['username'], fetch_seo_url('forumhome', array())), '', false));
 		}
 		else
 		{
 			// activate account
 			$userdata->save();
+
+			// rebuild stats so new user displays on forum home
+			require_once(DIR . '/includes/functions_databuild.php');
+			build_user_statistics();
 
 			$username = unhtmlspecialchars($userinfo['username']);
 			if (!$user['emailchange'])
@@ -1096,7 +1558,9 @@ if ($vbulletin->GPC['a'] == 'act')
 			}
 			else
 			{
-				eval(standard_error(fetch_error('registration_complete', $userinfo['username'], $vbulletin->session->vars['sessionurl'], $vbulletin->options['bburl'] . '/' . $vbulletin->options['forumhome'] . '.php'), '', false));
+
+				eval(standard_error(fetch_error('registration_complete', $userinfo['username'],
+					$vbulletin->session->vars['sessionurl'], fetch_seo_url('forumhome', array())), '', false));
 			}
 		}
 	}
@@ -1130,23 +1594,22 @@ if ($_REQUEST['do'] == 'requestemail')
 		$email = $vbulletin->GPC['email'];
 	}
 
-	if ($permissions['forumpermissions'] & $vbulletin->bf_ugp_forumpermissions['canview'])
-	{
-		$navbits = construct_navbits(array(
-			'register.php?' . $vbulletin->session->vars['sessionurl'] . 'a=ver' => $vbphrase['activate_your_account'],
-			'' => $vbphrase['email_activation_codes']
-		));
-		eval('$navbar = "' . fetch_template('navbar') . '";');
-	}
-	else
-	{
-		$navbar = '';
-	}
+	$navbits = construct_navbits(array(
+		'register.php?' . $vbulletin->session->vars['sessionurl'] . 'a=ver' => $vbphrase['activate_your_account'],
+		'' => $vbphrase['email_activation_codes']
+	));
+
+	$navbar = render_navbar_template($navbits);
 
 	($hook = vBulletinHook::fetch_hook('register_requestemail')) ? eval($hook) : false;
 
 	$url =& $vbulletin->url;
-	eval('print_output("' . fetch_template('activate_requestemail') . '");');
+	$templater = vB_Template::create('activate_requestemail');
+		$templater->register_page_templates();
+		$templater->register('email', $email);
+		$templater->register('navbar', $navbar);
+		$templater->register('url', $url);
+	print_output($templater->render());
 }
 
 // ############################### process request activation email #############################
@@ -1174,11 +1637,11 @@ if ($_POST['do'] == 'emailcode')
 				}
 				else
 				{
-					$user['activationid'] = vbrand(0, 100000000);
+					$user['activationid'] = fetch_random_string(40);
 					$db->query_write("
 						UPDATE " . TABLE_PREFIX . "useractivation SET
 							dateline = " . TIMENOW . ",
-							activationid = $user[activationid]
+							activationid = '$user[activationid]'
 						WHERE userid = $user[userid]
 							AND type = 0
 					");
@@ -1196,7 +1659,7 @@ if ($_POST['do'] == 'emailcode')
 			}
 		}
 
-		eval(print_standard_redirect('redirect_lostactivatecode', true, true));
+		print_standard_redirect('redirect_lostactivatecode', true, true);
 	}
 	else
 	{
@@ -1229,7 +1692,8 @@ if ($_REQUEST['do'] == 'coppaform')
 
 	($hook = vBulletinHook::fetch_hook('register_coppaform')) ? eval($hook) : false;
 
-	eval('print_output("' . fetch_template('register_coppaform') . '");');
+	$templater = vB_Template::create('register_coppaform');
+	print_output($templater->render());
 }
 
 // ############################### start delete activation request ###############################
@@ -1237,7 +1701,7 @@ if ($_REQUEST['do'] == 'deleteactivation')
 {
 	$vbulletin->input->clean_array_gpc('r', array(
 		'u'		=> TYPE_UINT,
-		'i'		=> TYPE_UINT,
+		'i'		=> TYPE_STR,
 	));
 
 	$userinfo = verify_id('user', $vbulletin->GPC['u'], 1, 1);
@@ -1248,7 +1712,7 @@ if ($_REQUEST['do'] == 'deleteactivation')
 		$user = $db->query_first("
 			SELECT userid, activationid, usergroupid
 			FROM " . TABLE_PREFIX . "useractivation
-			WHERE activationid = " . $vbulletin->GPC['i'] . "
+			WHERE activationid = '" . $db->escape_string($vbulletin->GPC['i']) . "'
 				AND userid = $userinfo[userid]
 				AND type = 0
 		");
@@ -1271,7 +1735,7 @@ if ($_REQUEST['do'] == 'killactivation')
 {
 	$vbulletin->input->clean_array_gpc('r', array(
 		'u'		=> TYPE_UINT,
-		'i'		=> TYPE_UINT,
+		'i'		=> TYPE_STR,
 	));
 
 	$userinfo = verify_id('user', $vbulletin->GPC['u'], 1, 1);
@@ -1282,7 +1746,7 @@ if ($_REQUEST['do'] == 'killactivation')
 		$user = $db->query_first("
 			SELECT activationid, usergroupid
 			FROM " . TABLE_PREFIX . "useractivation
-			WHERE activationid = " . $vbulletin->GPC['i'] . "
+			WHERE activationid = '" . $db->escape_string($vbulletin->GPC['i']) . "'
 				AND userid = $userinfo[userid]
 				AND type = 0
 		");
@@ -1308,8 +1772,7 @@ if ($_REQUEST['do'] == 'killactivation')
 
 /*======================================================================*\
 || ####################################################################
-|| # Downloaded: 16:21, Sat Apr 6th 2013
-|| # CVS: $RCSfile$ - $Revision: 26548 $
+|| # Downloaded: 14:57, Sun Aug 11th 2013
+|| # CVS: $RCSfile$ - $Revision: 73770 $
 || ####################################################################
 \*======================================================================*/
-?>

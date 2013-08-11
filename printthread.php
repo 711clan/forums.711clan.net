@@ -1,9 +1,9 @@
 <?php
 /*======================================================================*\
 || #################################################################### ||
-|| # vBulletin 3.7.2 Patch Level 2 - Licence Number VBF2470E4F
+|| # vBulletin 4.2.1 - Licence Number VBC2DDE4FB
 || # ---------------------------------------------------------------- # ||
-|| # Copyright ©2000-2013 Jelsoft Enterprises Ltd. All Rights Reserved. ||
+|| # Copyright ©2000-2013 vBulletin Solutions Inc. All Rights Reserved. ||
 || # This file may not be redistributed in whole or significant part. # ||
 || # ---------------- VBULLETIN IS NOT FREE SOFTWARE ---------------- # ||
 || # http://www.vbulletin.com | http://www.vbulletin.com/license.html # ||
@@ -50,6 +50,8 @@ require_once(DIR . '/includes/functions_bigthree.php');
 // ######################## START MAIN SCRIPT ############################
 // #######################################################################
 
+verify_forum_url();
+
 $vbulletin->input->clean_array_gpc('r', array(
 	'perpage'	=> TYPE_UINT,
 	'pagenumber'=> TYPE_UINT
@@ -89,7 +91,8 @@ if (!($forumperms & $vbulletin->bf_ugp_forumpermissions['canviewothers']) AND ($
 
 if ($threadinfo['open'] == 10)
 {
-	exec_header_redirect('printthread.php?' . $vbulletin->session->vars['sessionurl_js'] . "t=$threadinfo[pollid]");
+	//pollid is the real threadid for a redirect 
+	exec_header_redirect(fetch_seo_url('threadprint', $threadinfo, array(), 'pollid'));
 }
 
 // check if there is a forum password and if so, ensure the user has it set
@@ -113,10 +116,20 @@ if ($vbulletin->GPC['pagenumber'] < 1)
 
 $startat = ($vbulletin->GPC['pagenumber'] - 1) * $vbulletin->GPC['perpage'];
 
-$pagenav = construct_page_nav($vbulletin->GPC['pagenumber'], $vbulletin->GPC['perpage'], $totalposts, 'printthread.php?' . $vbulletin->session->vars['sessionurl'] . "t=$threadinfo[threadid]", '&amp;pp=' . $vbulletin->GPC['perpage']);
+$pagenav = construct_page_nav(
+	$vbulletin->GPC['pagenumber'],
+	$vbulletin->GPC['perpage'],
+	$totalposts,
+	'',
+	'',
+	'',
+	'threadprint',
+	$threadinfo,
+	array('pp' => $vbulletin->GPC['perpage'])
+);
 // end page splitter
 
-$bbcode_parser =& new vB_BbCodeParser_PrintableThread($vbulletin, fetch_tag_list());
+$bbcode_parser = new vB_BbCodeParser_PrintableThread($vbulletin, fetch_tag_list());
 
 $ignore = array();
 if (trim($vbulletin->userinfo['ignorelist']))
@@ -149,16 +162,16 @@ while ($post = $db->fetch_array($posts))
 	if ($tachyuser)
 	{
 		$show['adminignore'] = true;
-		$maintemplatename = 'printthreadbit_ignore';
+		$bit_template = 'printthreadbit_ignore';
 	}
 	else if ($ignore["$post[userid]"])
 	{
 		$show['adminignore'] = false;
-		$maintemplatename = 'printthreadbit_ignore';
+		$bit_template = 'printthreadbit_ignore';
 	}
 	else
 	{
-		$maintemplatename = 'printthreadbit';
+		$bit_template = 'printthreadbit';
 	}
 
 	$post['postdate'] = vbdate($vbulletin->options['dateformat'], $post['dateline']);
@@ -178,18 +191,29 @@ while ($post = $db->fetch_array($posts))
 
 	($hook = vBulletinHook::fetch_hook('printthread_post')) ? eval($hook) : false;
 
-	eval('$postbits .= "' . fetch_template($maintemplatename) . '";');
-
+	$templater = vB_Template::create($bit_template);
+	$templater->register('post', $post);
+	$templater->register('xhtml_id', ++$xhtml);
+	$postbits .= $templater->render();
 }
 
 ($hook = vBulletinHook::fetch_hook('printthread_complete')) ? eval($hook) : false;
 
-eval('print_output("' . fetch_template('printthread') . '");');
+$templater = vB_Template::create('printthread');
+	$templater->register_page_templates();
+	$templater->register('foruminfo', $foruminfo);
+	$templater->register('maxperpage', $maxperpage);
+	$templater->register('pagenav', $pagenav);
+	$templater->register('postbits', $postbits);
+	$templater->register('threadid', $threadid);
+	$templater->register('threadinfo', $threadinfo);
+	$templater->register('perpage', $vbulletin->GPC['perpage']);
+print_output($templater->render());
 
 /*======================================================================*\
 || ####################################################################
-|| # Downloaded: 16:21, Sat Apr 6th 2013
-|| # CVS: $RCSfile$ - $Revision: 26399 $
+|| # Downloaded: 14:57, Sun Aug 11th 2013
+|| # CVS: $RCSfile$ - $Revision: 40911 $
 || ####################################################################
 \*======================================================================*/
 ?>

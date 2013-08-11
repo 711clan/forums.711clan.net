@@ -1,9 +1,9 @@
 <?php
 /*======================================================================*\
 || #################################################################### ||
-|| # vBulletin 3.7.2 Patch Level 2 - Licence Number VBF2470E4F
+|| # vBulletin 4.2.1 - Licence Number VBC2DDE4FB
 || # ---------------------------------------------------------------- # ||
-|| # Copyright ©2000-2013 Jelsoft Enterprises Ltd. All Rights Reserved. ||
+|| # Copyright ©2000-2013 vBulletin Solutions Inc. All Rights Reserved. ||
 || # This file may not be redistributed in whole or significant part. # ||
 || # ---------------- VBULLETIN IS NOT FREE SOFTWARE ---------------- # ||
 || # http://www.vbulletin.com | http://www.vbulletin.com/license.html # ||
@@ -14,7 +14,7 @@
 error_reporting(E_ALL & ~E_NOTICE);
 
 // ##################### DEFINE IMPORTANT CONSTANTS #######################
-define('CVS_REVISION', '$RCSfile$ - $Revision: 13361 $');
+define('CVS_REVISION', '$RCSfile$ - $Revision: 32878 $');
 
 // #################### PRE-CACHE TEMPLATES AND DATA ######################
 $phrasegroups = array('forum');
@@ -138,7 +138,7 @@ if ($_REQUEST['do'] == 'modify')
 		{
 			print_description_row($vbphrase['no_global_announcements_defined'], '', 4, '', 'center');
 		}
-		print_description_row(construct_link_code($vbphrase['add_announcement'], 'announcement.php?' . $vbulletin->session->vars['sessionurl'] . "do=add"), '', 4, 'thead', $stylevar['right']);
+		print_description_row(construct_link_code($vbphrase['add_announcement'], 'announcement.php?' . $vbulletin->session->vars['sessionurl'] . "do=add"), '', 4, 'thead', vB_Template_Runtime::fetchStyleVar('right'));
 		print_table_footer();
 	}
 
@@ -170,7 +170,7 @@ if ($_REQUEST['do'] == 'modify')
 		}
 
 		$cell = array();
-		$cell[] = '&nbsp; <b>' . construct_depth_mark($forum['depth'], '- - ') . '<a href="../forumdisplay.php?' . $vbulletin->session->vars['sessionurl'] . "f=$forum[forumid]\">$forum[title]</a></b>";
+		$cell[] = '&nbsp; <b>' . construct_depth_mark($forum['depth'], '- - ') . '<a href="../' . fetch_seo_url('forum', $forum) . "\">$forum[title]</a></b>";
 		$cell[] =
 			'&nbsp;' .
 			iif(can_moderate($forum['forumid'], 'canannounce'), construct_link_code($vbphrase['add_announcement'], 'announcement.php?' . $vbulletin->session->vars['sessionurl'] . "do=add&amp;f=$forum[forumid]"), '') .
@@ -207,8 +207,8 @@ print_cp_footer();
 
 /*======================================================================*\
 || ####################################################################
-|| # Downloaded: 16:21, Sat Apr 6th 2013
-|| # CVS: $RCSfile$ - $Revision: 13361 $
+|| # Downloaded: 14:57, Sun Aug 11th 2013
+|| # CVS: $RCSfile$ - $Revision: 32878 $
 || ####################################################################
 \*======================================================================*/
 ?>

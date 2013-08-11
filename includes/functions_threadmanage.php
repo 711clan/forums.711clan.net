@@ -1,9 +1,9 @@
 <?php
 /*======================================================================*\
 || #################################################################### ||
-|| # vBulletin 3.7.2 Patch Level 2 - Licence Number VBF2470E4F
+|| # vBulletin 4.2.1 - Licence Number VBC2DDE4FB
 || # ---------------------------------------------------------------- # ||
-|| # Copyright ©2000-2013 Jelsoft Enterprises Ltd. All Rights Reserved. ||
+|| # Copyright ©2000-2013 vBulletin Solutions Inc. All Rights Reserved. ||
 || # This file may not be redistributed in whole or significant part. # ||
 || # ---------------- VBULLETIN IS NOT FREE SOFTWARE ---------------- # ||
 || # http://www.vbulletin.com | http://www.vbulletin.com/license.html # ||
@@ -12,114 +12,6 @@
 
 
 $parentassoc = array();
-
-/**
- * Contructs a Post Tree
- *
- * @param	string	The template Name to use
- * @param	integer	The Thread ID
- * @param	integer	The "Root" post for which to work from
- * @param	integer	The current "Depth" within the tree
- *
- * @return	string	The Generated Tree
- *
- */
-function &construct_post_tree($templatename, $threadid, $parentid = 0, $depth = 1)
-{
-	global $vbulletin, $stylevar, $parentassoc, $show, $vbphrase, $threadedmode;
-	static $postcache;
-
-	if (!$threadedmode AND $vbulletin->userinfo['postorder'])
-	{
-		$postorder = 'DESC';
-	}
-
-	$depthnext = $depth + 2;
-	if (!$postcache)
-	{
-		$posts = $vbulletin->db->query_read_slave("
-			SELECT post.parentid, post.postid, post.userid, post.pagetext, post.dateline, IF(visible = 2, 1, 0) AS isdeleted,
-				IF(user.username <> '', user.username, post.username) AS username
-			FROM " . TABLE_PREFIX . "post AS post
-			LEFT JOIN " . TABLE_PREFIX . "user AS user ON user.userid = post.userid
-			WHERE post.threadid = $threadid
-			ORDER BY dateline $postorder
-		");
-		while ($post = $vbulletin->db->fetch_array($posts))
-		{
-			if (!$threadedmode)
-			{
-				$post['parentid'] = 0;
-			}
-			$postcache[$post['parentid']][$post['postid']] = $post;
-		}
-		ksort($postcache);
-	}
-	$counter = 0;
-	$postbits = '';
-	if (is_array($postcache["$parentid"]))
-	{
-		foreach ($postcache["$parentid"] AS $post)
-		{
-			$parentassoc[$post['postid']] = $post['parentid'];
-
-			if (($depth + 1) % 4 == 0)
-			{ // alternate colors when switching depths; depth gets incremented by 2 each time
-				$post['backcolor'] = '{firstaltcolor}';
-				$post['bgclass'] = 'alt1';
-			}
-			else
-			{
-				$post['backcolor'] = '{secondaltcolor}';
-				$post['bgclass'] = 'alt2';
-			}
-			$post['postdate'] = vbdate($vbulletin->options['dateformat'], $post['dateline'], true);
-			$post['posttime'] = vbdate($vbulletin->options['timeformat'], $post['dateline']);
-
-			// cut page text short if too long
-			if (vbstrlen($post['pagetext']) > 100)
-			{
-				$spacepos = strpos($post['pagetext'], ' ', 100);
-				if ($spacepos != 0)
-				{
-					$post['pagetext'] = substr($post['pagetext'], 0, $spacepos) . '...';
-				}
-			}
-			$post['pagetext'] = nl2br(htmlspecialchars_uni($post['pagetext']));
-
-			($hook = vBulletinHook::fetch_hook('threadmanage_construct_post_tree')) ? eval($hook) : false;
-
-			eval('$postbits .=  "' . fetch_template($templatename) . '";');
-
-			$ret =& construct_post_tree($templatename, $threadid, $post['postid'], $depthnext);
-			$postbits .= $ret;
-		}
-	}
-
-	return $postbits;
-}
-
-/**
- * Generated the Javascript for Parent Assosciations
- *
- * @param	array	Associative Array of Postids and ParentIDs
- *
- * @return	string	The Javascript
- *
- */
-function &construct_js_post_parent_assoc(&$array)
-{
-	$parentassocjs = array();
-
-	ksort($array);
-	foreach ($array AS $postid => $parentid)
-	{
-		$parentassocjs[] = "$postid : $parentid";
-	}
-
-	return "var parentassoc = {\r\n\t" . implode(",\r\n\t", $parentassocjs) . "\r\n };";
-}
-
 
 /**
  * Constructs a Forum Jump Menu for use when moving an item to a new forum
@@ -132,16 +24,9 @@ function &construct_js_post_parent_assoc(&$array)
  * @return	string	The generated forum jump menu
  *
  */
-function construct_move_forums_options($parentid = -1, $excludeforumid = NULL, $addbox = 1, $prependchars = '')
+function construct_move_forums_options($parentid = -1, $excludeforumid = NULL, $addbox = 1,  $prependchars = '')
 {
 	global $vbulletin, $optionselected, $jumpforumid, $jumpforumtitle, $jumpforumbits, $vbphrase, $curforumid;
-	static $prependlength;
-
-	if (empty($prependlength))
-	{
-		$prependlength = strlen(FORUM_PREPEND);
-	}
-
 	if (empty($vbulletin->iforumcache))
 	{
 		// get the vbulletin->iforumcache, as we use it all over the place, not just for forumjump
@@ -154,7 +39,7 @@ function construct_move_forums_options($parentid = -1, $excludeforumid = NULL, $
 
 	if ($addbox == 1)
 	{
-		$jumpforumbits = '';
+		$jumpforumbits = array();
 	}
 
 	foreach($vbulletin->iforumcache["$parentid"] AS $forumid)
@@ -170,7 +55,7 @@ function construct_move_forums_options($parentid = -1, $excludeforumid = NULL, $
 			$forum = $vbulletin->forumcache["$forumid"];
 
 			$optionvalue = $forumid;
-			$optiontitle = $prependchars . " $forum[title]";
+			$optiontitle = $prependchars . $forum[title];
 
 			if ($forum['link'])
 			{
@@ -185,12 +70,13 @@ function construct_move_forums_options($parentid = -1, $excludeforumid = NULL, $
 				$optiontitle .= " ($vbphrase[no_posting])";
 			}
 
-			$optionclass = 'fjdpth' . iif($forum['depth'] > 3, 3, $forum['depth']);
+			
+			$optionclass = 'd' . iif($forum['depth'] > 3, 3, $forum['depth']);
 
 			if ($curforumid == $optionvalue)
 			{
 				$optionselected = ' ' . 'selected="selected"';
-				$optionclass = 'fjsel';
+				$optionclass .= ' fjsel';
 				$selectedone = 1;
 			}
 			else
@@ -199,10 +85,15 @@ function construct_move_forums_options($parentid = -1, $excludeforumid = NULL, $
 			}
 			if ($excludeforumid == NULL OR $excludeforumid != $forumid)
 			{
-				eval('$jumpforumbits .= "' . fetch_template('option') . '";');
+				$jumpforumbits[$forumid] = array(
+					'optiontitle'	 => $optiontitle,
+					'optionvalue'	 => $optionvalue,
+					'optionselected' => $optionselected,
+					'optionclass' 	 => $optionclass,
+				);
 			}
 
-			construct_move_forums_options($optionvalue, $excludeforumid, 0, $prependchars . FORUM_PREPEND);
+			construct_move_forums_options($optionvalue, $excludeforumid, 0, ($prependchars ? $prependchars . '&nbsp; &nbsp; ' : '&nbsp; &nbsp; '));
 
 		} // if can view
 	} // end foreach ($vbulletin->iforumcache[$parentid] AS $forumid)
@@ -236,10 +127,61 @@ function is_first_poster($threadid, $userid = -1)
 	return ($firstpostinfo['userid'] == $userid);
 }
 
+/**
+* Extracts the threadid from the URL, correctly handles the different friendly URLs
+*
+* @param	string	The URL to try to pull the threadid from.
+*
+* @return	integer	Returns the threadid or 0 if no threadid is found.
+*
+*/
+function extract_threadid_from_url($url)
+{
+	global $vbulletin;
+	$threadid = 0;
+
+	// Disallow relative URLs, since the t=threadid in the URL refers to another thread
+	// Not needed since these URLs now redirect to the canonical URL?
+	if (stripos($url, 'goto=next') !== false)
+	{
+		return $threadid;
+	}
+
+	$search = array(
+		'#[\?&](?:threadid|t)=([0-9]+)#',
+		'#showthread.php[\?/]([0-9]+)#',
+		'#/threads/([0-9]+)#'
+	);
+
+	foreach ($search AS $regex)
+	{
+		if (preg_match($regex, $url, $matches))
+		{
+			$threadid = intval($matches[1]);
+			break;
+		}
+	}
+
+	if (!$threadid)
+	{
+		if (preg_match('#[\?&](postid|p)=([0-9]+)#', $url, $matches))
+		{
+			$postid = verify_id('post', $matches[2], false);
+			if ($postid)
+			{
+				$postinfo = fetch_postinfo($postid);
+				$threadid = intval($postinfo['threadid']);
+			}
+		}
+	}
+
+	return $threadid;
+}
+
 /*======================================================================*\
 || ####################################################################
-|| # Downloaded: 16:21, Sat Apr 6th 2013
-|| # CVS: $RCSfile$ - $Revision: 26061 $
+|| # Downloaded: 14:57, Sun Aug 11th 2013
+|| # CVS: $RCSfile$ - $Revision: 63272 $
 || ####################################################################
 \*======================================================================*/
 ?>

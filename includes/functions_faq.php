@@ -1,9 +1,9 @@
 <?php
 /*======================================================================*\
 || #################################################################### ||
-|| # vBulletin 3.7.2 Patch Level 2 - Licence Number VBF2470E4F
+|| # vBulletin 4.2.1 - Licence Number VBC2DDE4FB
 || # ---------------------------------------------------------------- # ||
-|| # Copyright ©2000-2013 Jelsoft Enterprises Ltd. All Rights Reserved. ||
+|| # Copyright ©2000-2013 vBulletin Solutions Inc. All Rights Reserved. ||
 || # This file may not be redistributed in whole or significant part. # ||
 || # ---------------- VBULLETIN IS NOT FREE SOFTWARE ---------------- # ||
 || # http://www.vbulletin.com | http://www.vbulletin.com/license.html # ||
@@ -27,7 +27,7 @@ function construct_faq_jump($parent = 0, $depth = 0)
 		$optionvalue = 'faq.php?' . $vbulletin->session->vars['sessionurl'] . "faq=$parent#faq_$faq[faqname]";
 		$optionselected = iif($faq['faqname'] == $faqparent, ' ' . 'selected="selected"');
 
-		eval('$faqjumpbits .= "' . fetch_template('option') . '";');
+		$faqjumpbits .= render_option_template($optiontitle, $optionvalue, $optionselected, $optionclass);
 
 		if (is_array($ifaqcache["$faq[faqname]"]))
 		{
@@ -56,7 +56,7 @@ function fetch_faq_parents($faqname)
 // show an faq entry
 function construct_faq_item($faq, $find = '')
 {
-	global $vbulletin, $stylevar, $ifaqcache, $faqbits, $faqlinks, $show, $vbphrase;
+	global $vbulletin, $ifaqcache, $faqbits, $faqlinks, $show, $vbphrase;
 
 	$faq['text'] = trim($faq['text']);
 	if (is_array($find) AND !empty($find))
@@ -72,7 +72,10 @@ function construct_faq_item($faq, $find = '')
 		{
 			if ($subfaq['displayorder'] > 0)
 			{
-				eval('$faqsublinks .= "' . fetch_template('faqbit_link') . '";');
+				$templater = vB_Template::create('faqbit_link');
+					$templater->register('faq', $faq);
+					$templater->register('subfaq', $subfaq);
+				$faqsublinks .= $templater->render();
 			}
 		}
 	}
@@ -82,7 +85,10 @@ function construct_faq_item($faq, $find = '')
 
 	($hook = vBulletinHook::fetch_hook('faq_item_display')) ? eval($hook) : false;
 
-	eval('$faqbits .= "' . fetch_template('faqbit') . '";');
+	$templater = vB_Template::create('faqbit');
+		$templater->register('faq', $faq);
+		$templater->register('faqsublinks', $faqsublinks);
+	$faqbits .= $templater->render();
 }
 
 // ###################### Start getFaqText #######################
@@ -145,9 +151,14 @@ function print_faq_admin_row($faq, $prefix = '')
 }
 
 // ###################### Start getifaqcache #######################
-function cache_ordered_faq($gettext = false)
+function cache_ordered_faq($gettext = false, $disableproducts = false, $languageid = null)
 {
 	global $vbulletin, $db, $faqcache, $ifaqcache;
+
+	if ($languageid === null)
+	{
+		$languageid = LANGUAGEID;
+	}
 
 	// ordering arrays
 	$displayorder = array();
@@ -164,7 +175,7 @@ function cache_ordered_faq($gettext = false)
 		SELECT varname, text, languageid, fieldname
 		FROM " . TABLE_PREFIX . "phrase AS phrase
 		WHERE fieldname $phrasetypecondition AND
-			languageid IN(-1, 0, " . LANGUAGEID . ")
+			languageid IN(-1, 0, $languageid)
 	");
 	while ($phrase = $vbulletin->db->fetch_array($phrases))
 	{
@@ -189,6 +200,20 @@ function cache_ordered_faq($gettext = false)
 	}
 	unset($languageorder);
 
+	$activeproducts = array(
+		'', 'vbulletin'
+	);
+	if ($disableproducts)
+	{
+		foreach ($vbulletin->products AS $product => $active)
+		{
+			if ($active)
+			{
+				$activeproducts[] = $product;
+			}
+		}
+	}
+
 	$hook_query_fields = $hook_query_joins = $hook_query_where = '';
 	($hook = vBulletinHook::fetch_hook('faq_cache_query')) ? eval($hook) : false;
 
@@ -198,6 +223,7 @@ function cache_ordered_faq($gettext = false)
 		FROM " . TABLE_PREFIX . "faq AS faq
 		$hook_query_joins
 		WHERE 1=1
+			" . ($disableproducts ? "AND product IN ('" . implode('\', \'', $activeproducts) . "')" : "") . "
 			$hook_query_where
 	");
 	while ($faq = $vbulletin->db->fetch_array($faqs))
@@ -293,8 +319,8 @@ function process_highlight_faq($text, $words, $prepend, $replace)
 
 /*======================================================================*\
 || ####################################################################
-|| # Downloaded: 16:21, Sat Apr 6th 2013
-|| # CVS: $RCSfile$ - $Revision: 26180 $
+|| # Downloaded: 14:57, Sun Aug 11th 2013
+|| # CVS: $RCSfile$ - $Revision: 40651 $
 || ####################################################################
 \*======================================================================*/
 ?>

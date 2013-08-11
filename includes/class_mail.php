@@ -1,9 +1,9 @@
 <?php
 /*======================================================================*\
 || #################################################################### ||
-|| # vBulletin 3.7.2 Patch Level 2 - Licence Number VBF2470E4F
+|| # vBulletin 4.2.1 - Licence Number VBC2DDE4FB
 || # ---------------------------------------------------------------- # ||
-|| # All PHP code in this file is ©2000-2013 Jelsoft Enterprises Ltd. # ||
+|| # All PHP code in this file is ©2000-2013 vBulletin Solutions Inc. # ||
 || # This file may not be redistributed in whole or significant part. # ||
 || # ---------------- VBULLETIN IS NOT FREE SOFTWARE ---------------- # ||
 || # http://www.vbulletin.com | http://www.vbulletin.com/liceNse.html # ||
@@ -17,7 +17,7 @@ define('MAIL_INCLUDED', true);
 if (!function_exists('xml_set_element_handler'))
 {
 	$extension_dir = ini_get('extension_dir');
-	if (strtoupper(substr(PHP_OS, 0, 3) == 'WIN'))
+	if (strtoupper(substr(PHP_OS, 0, 3)) == 'WIN')
 	{
 		$extension_file = 'php_xml.dll';
 	}
@@ -38,8 +38,8 @@ if (!function_exists('xml_set_element_handler'))
 * This class sends email from vBulletin using the PHP mail() function
 *
 * @package 		vBulletin
-* @version		$Revision: 26227 $
-* @date 		$Date: 2008-03-31 05:38:27 -0500 (Mon, 31 Mar 2008) $
+* @version		$Revision: 63157 $
+* @date 		$Date: 2012-05-31 13:10:22 -0700 (Thu, 31 May 2012) $
 * @copyright 	http://www.vbulletin.com/license.html
 *
 */
@@ -137,6 +137,29 @@ class vB_Mail
 	}
 
 	/**
+	 * Factory method for mail.
+	 *
+	 * @param 	vB_Registry	vBulletin registry object
+	 * @param	bool		Whether mail sending can be deferred
+	 *
+	 * @return	vB_Mail
+	 */
+	function fetchLibrary($registry, $deferred = false)
+	{
+		if ($deferred)
+		{
+			return vB_QueueMail::fetch_instance();
+		}
+
+		if ($registry->options['use_smtp'])
+		{
+			return new vB_SmtpMail($registry);
+		}
+
+		return new vB_Mail($registry);
+	}
+
+	/**
 	* Starts the process of sending an email - preps it so it's fully ready to send.
 	* Call send() to actually send it.
 	*
@@ -165,8 +188,7 @@ class vB_Mail
 		$subject = $this->fetch_first_line($subject);
 		$message = preg_replace("#(\r\n|\r|\n)#s", $delimiter, trim($message));
 
-		global $stylevar;
-		if ((strtolower($stylevar['charset']) == 'iso-8859-1' OR $stylevar['charset'] == '') AND preg_match('/&[a-z0-9#]+;/i', $message))
+		if ((strtolower(vB_Template_Runtime::fetchStyleVar('charset')) == 'iso-8859-1' OR vB_Template_Runtime::fetchStyleVar('charset') == '') AND preg_match('/&[a-z0-9#]+;/i', $message))
 		{
 			$message = utf8_encode($message);
 			$subject = utf8_encode($subject);
@@ -175,11 +197,20 @@ class vB_Mail
 			$encoding = 'UTF-8';
 			$unicode_decode = true;
 		}
+		else if ($this->registry->options['utf8encode'])
+		{
+			$message = to_utf8($message, vB_Template_Runtime::fetchStyleVar('charset'));
+			$subject = to_utf8($subject, vB_Template_Runtime::fetchStyleVar('charset'));
+			$username = to_utf8($username, vB_Template_Runtime::fetchStyleVar('charset'));
+
+			$encoding = 'UTF-8';
+			$unicode_decode = true;
+		}
 		else
 		{
 			// we know nothing about the message's encoding in relation to UTF-8,
 			// so we can't modify the message at all; just set the encoding
-			$encoding = $stylevar['charset'];
+			$encoding = vB_Template_Runtime::fetchStyleVar('charset');
 			$unicode_decode = false;
 		}
 
@@ -207,14 +238,19 @@ class vB_Mail
 			$mailfromname = $this->encode_email_header(unhtmlspecialchars($mailfromname, $unicode_decode), $encoding);
 
 			$headers .= "From: $mailfromname <" . $vbulletin->options['webmasteremail'] . '>' . $delimiter;
-			//$headers .= 'Return-Path: ' . $vbulletin->options['webmasteremail'] . $delimiter;
 			$headers .= 'Auto-Submitted: auto-generated' . $delimiter;
+
+			// Exchange (Oh Microsoft) doesn't respect auto-generated: http://www.vbulletin.com/forum/project.php?issueid=27687
+			if ($vbulletin->options['usebulkheader'])
+			{
+				$headers .= 'Precedence: bulk' . $delimiter;
+			}
 		}
 		else
 		{
 			if ($username)
 			{
-				$mailfromname = "$username @ " . $vbulletin->options['bbtitle'];
+				$mailfromname = $username . " - " . $vbulletin->options['bbtitle'];
 			}
 			else
 			{
@@ -228,25 +264,19 @@ class vB_Mail
 			$mailfromname = $this->encode_email_header(unhtmlspecialchars($mailfromname, $unicode_decode), $encoding);
 
 			$headers .= "From: $mailfromname <$from>" . $delimiter;
-			//$headers .= 'Return-Path: ' . $from . $delimiter;
+			$headers .= "Sender: " . $vbulletin->options['webmasteremail'] . $delimiter;
 		}
 
 		$fromemail = empty($vbulletin->options['bounceemail']) ? $vbulletin->options['webmasteremail'] : $vbulletin->options['bounceemail'];
+		$headers .= 'Return-Path: ' . $fromemail . $delimiter;
 
-		if ($_SERVER['HTTP_HOST'] OR $_ENV['HTTP_HOST'])
-		{
-			$http_host = iif($_SERVER['HTTP_HOST'], $_SERVER['HTTP_HOST'], $_ENV['HTTP_HOST']);
-		}
-		else if ($_SERVER['SERVER_NAME'] OR $_ENV['SERVER_NAME'])
-		{
-			$http_host = iif($_SERVER['SERVER_NAME'], $_SERVER['SERVER_NAME'], $_ENV['SERVER_NAME']);
-		}
-		$http_host = trim($http_host);
+		$http_host = VB_HTTP_HOST;
 		if (!$http_host)
 		{
-			$http_host = substr(md5($message), 6, 12) . '.vb_unknown.unknown';
+			$http_host = substr(md5($message), 12, 18) . '.vb_unknown.unknown';
 		}
-		$msgid = '<' . gmdate('YmdHis') . '.' . substr(md5($message . microtime()), 0, 6) . vbrand(100000, 999999) . '@' . $http_host . '>';
+
+		$msgid = '<' . gmdate('YmdHis') . '.' . substr(md5($message . microtime()), 0, 12) . '@' . $http_host . '>';
 		$headers .= 'Message-ID: ' . $msgid . $delimiter;
 
 		$headers .= preg_replace("#(\r\n|\r|\n)#s", $delimiter, $uheaders);
@@ -257,11 +287,6 @@ class vB_Mail
 		$headers .= 'Content-Transfer-Encoding: 8bit' . $delimiter;
 		$headers .= 'X-Priority: 3' . $delimiter;
 		$headers .= 'X-Mailer: vBulletin Mail via PHP' . $delimiter;
-		// fairly specific fix for PHP 4 and Windows, see issue #21913
-		if (phpversion() < '5' AND strtoupper(substr(PHP_OS, 0, 3)) == 'WIN')
-		{
-			$headers .= 'Date: ' . date('r') . $delimiter;
-		}
 
 		($hook = vBulletinHook::fetch_hook('mail_send')) ? eval($hook) : false;
 
@@ -293,11 +318,68 @@ class vB_Mail
 	}
 
 	/**
+	 * Send the mail.
+	 * Note: If you define DISABLE_MAIL in config.php as:
+	 * 	delimited email addresses	- Only mail for the recipients will be sent
+	 *	<filename>.log				- Mail will be logged to the given file if writable
+	 *  any other value				- Mail will be disabled
+	 *
+	 * If $force_mail is true, DISABLE_MAIL will be ignored.
+	 *
+	 * @return boolean True on success, false on failure
+	 */
+	function send($force_send = false)
+	{
+		// No recipient, abort
+		if (!$this->toemail)
+		{
+			return false;
+		}
+
+		// Check debug settings
+		if (!$force_send AND defined('DISABLE_MAIL'))
+		{
+			if (is_string(DISABLE_MAIL))
+			{
+				// check for a recipient whitelist
+				if (strpos(DISABLE_MAIL, '@') !== false)
+				{
+					// check if the address is allowed
+					if (strpos(DISABLE_MAIL, $this->toemail) === false)
+					{
+						return false;
+					}
+				}
+				else if (strpos(DISABLE_MAIL, '.log') !== false)
+				{
+					// mail is only logged
+					$this->log_email('DEBUG', DISABLE_MAIL);
+
+					return true;
+				}
+				else
+				{
+					// recipient not in the whitelist and not logging
+					return false;
+				}
+			}
+			else
+			{
+				// DISABLE_MAIL defined but isn't a string so just disable
+				return false;
+			}
+		}
+
+		// Send the mail
+		return $this->exec_send();
+	}
+
+	/**
 	* Actually send the message.
 	*
 	* @return	boolean	True on success, false on failure
 	*/
-	function send()
+	protected function exec_send()
 	{
 		if (!$this->toemail)
 		{
@@ -305,6 +387,13 @@ class vB_Mail
 		}
 
 		@ini_set('sendmail_from', $this->fromemail);
+
+		($hook = vBulletinHook::fetch_hook('mail_internal_send_before')) ? eval($hook) : false;
+
+		if ($this->registry->options['mail_delay'])
+		{
+			@sleep($this->registry->options['mail_delay']);
+		}
 
 		if (!SAFEMODE AND $this->registry->options['needfromemail'])
 		{
@@ -314,6 +403,8 @@ class vB_Mail
 		{
 			$result = @mail($this->toemail, $this->subject, $this->message, trim($this->headers));
 		}
+
+		($hook = vBulletinHook::fetch_hook('mail_internal_send_after')) ? eval($hook) : false;
 
 		$this->log_email($result);
 		return $result;
@@ -413,51 +504,62 @@ class vB_Mail
 	* Logs email to file
 	*
 	*/
-	function log_email($status = true)
+	function log_email($status = true, $errfile = false)
 	{
-		if (!empty($this->registry->options['errorlogemail']) AND !is_demo_mode())
+		if (is_demo_mode())
 		{
-			$errfile =& $this->registry->options['errorlogemail'];
-			if ($this->registry->options['errorlogmaxsize'] != 0 AND $filesize = @filesize("$errfile.log") AND $filesize >= $this->registry->options['errorlogmaxsize'])
+			return;
+		}
+
+		// log file is passed or taken from options
+		$errfile = $errfile ? $errfile : $this->registry->options['errorlogemail'];
+
+		// no log file specified
+		if (!$errfile)
+		{
+			return;
+		}
+
+		// trim .log from logfile
+		$errfile = (substr($errfile, -4) == '.log') ? substr($errfile, 0, -4) : $errfile;
+
+		if ($this->registry->options['errorlogmaxsize'] != 0 AND $filesize = @filesize("$errfile.log") AND $filesize >= $this->registry->options['errorlogmaxsize'])
+		{
+			@copy("$errfile.log", $errfile . TIMENOW . '.log');
+			@unlink("$errfile.log");
+		}
+
+		$timenow = date('r', TIMENOW);
+
+		$fp = @fopen("$errfile.log", 'a+b');
+
+		if ($fp)
+		{
+			if ($status === true)
 			{
-				@copy("$errfile.log", $errfile . TIMENOW . '.log');
-				@unlink("$errfile.log");
+				$output = "SUCCESS\r\n";
 			}
-
-			$timenow = date('r', TIMENOW);
-
-			$is_admin = ($this->registry->userinfo['permissions']['adminpermissions'] & $this->registry->bf_ugp_adminpermissions['cancontrolpanel']);
-
-			$fp = @fopen("$errfile.log", 'a+b');
-
-			if ($fp)
+			else
 			{
-				if ($status === true)
+				$output = "FAILED";
+				if ($status !== false)
 				{
-					$output = "SUCCESS\r\n";
+					$output .= ": $status";
 				}
-				else
-				{
-					$output = "FAILED";
-					if ($status !== false)
-					{
-						$output .= ": $status";
-					}
-					$output .= "\r\n";
-				}
-				if ($this->delimiter == "\n")
-				{
-					$append = "$timenow\r\nTo: " . $this->toemail . "\r\nSubject: " . $this->subject . "\r\n" . $this->headers . "\r\n\r\n" . $this->message . "\r\n=====================================================\r\n\r\n";
-					@fwrite($fp, $output . $append);
-				}
-				else
-				{
-					$append = preg_replace("#(\r\n|\r|\n)#s", "\r\n", "$timenow\r\nTo: " . $this->toemail . "\r\nSubject: " . $this->subject . "\r\n" . $this->headers . "\r\n\r\n" . $this->message . "\r\n=====================================================\r\n\r\n");
-
-					@fwrite($fp, $output . $append);
-				}
-				fclose($fp);
+				$output .= "\r\n";
 			}
+			if ($this->delimiter == "\n")
+			{
+				$append = "$timenow\r\nTo: " . $this->toemail . "\r\nSubject: " . $this->subject . "\r\n" . $this->headers . "\r\n\r\n" . $this->message . "\r\n=====================================================\r\n\r\n";
+				@fwrite($fp, $output . $append);
+			}
+			else
+			{
+				$append = preg_replace("#(\r\n|\r|\n)#s", "\r\n", "$timenow\r\nTo: " . $this->toemail . "\r\nSubject: " . $this->subject . "\r\n" . $this->headers . "\r\n\r\n" . $this->message . "\r\n=====================================================\r\n\r\n");
+
+				@fwrite($fp, $output . $append);
+			}
+			fclose($fp);
 		}
 	}
 }
@@ -468,8 +570,8 @@ class vB_Mail
 * This class sends email from vBulletin using an SMTP wrapper
 *
 * @package 		vBulletin
-* @version		$Revision: 26227 $
-* @date 		$Date: 2008-03-31 05:38:27 -0500 (Mon, 31 Mar 2008) $
+* @version		$Revision: 63157 $
+* @date 		$Date: 2012-05-31 13:10:22 -0700 (Thu, 31 May 2012) $
 * @copyright 	http://www.vbulletin.com/license.html
 *
 */
@@ -518,6 +620,13 @@ class vB_SmtpMail extends vB_Mail
 	var $smtpReturn = 0;
 
 	/**
+	* What security method to use
+	*
+	* @var	string
+	*/
+	var $secure = '';
+
+	/**
 	* Constructor
 	*
 	* @param	vB_Registry	vBulletin registry object
@@ -533,7 +642,23 @@ class vB_SmtpMail extends vB_Mail
 			trigger_error('Registry object is not an object', E_USER_ERROR);
 		}
 
-		$this->smtpHost = (!empty($this->registry->options['smtp_tls']) ? 'tls://' : '') . $this->registry->options['smtp_host'];
+		$this->secure = $this->registry->options['smtp_tls'];
+
+		// Prior to 3.8 this was a radio button so SSL is 1
+		if ($this->registry->options['smtp_tls'] == 1)
+		{
+			$this->secure = 'ssl';
+		}
+
+		//since ('ssl' == 0) is true in php, we need to check for legacy 0 values as well
+		//note that in the off change that somebody gets '0' into the system, this will
+		//work just fine without conversion.
+		else if ($this->registry->options['smtp_tls'] === 0)
+		{
+			$this->secure = 'none';
+		}
+
+		$this->smtpHost = $this->registry->options['smtp_host'];
 		$this->smtpPort = (!empty($this->registry->options['smtp_port']) ? intval($this->registry->options['smtp_port']) : 25);
 		$this->smtpUser =& $this->registry->options['smtp_user'];
 		$this->smtpPass =& $this->registry->options['smtp_pass'];
@@ -589,19 +714,35 @@ class vB_SmtpMail extends vB_Mail
 		return false;
 	}
 
+	function sendHello()
+	{
+		if (!$this->smtpSocket)
+		{
+			return false;
+		}
+		if (!$this->sendMessage('EHLO ' . $this->smtpHost, 250))
+		{
+			if (!$this->sendMessage('HELO ' . $this->smtpHost, 250))
+			{
+				return false;
+			}
+		}
+		return true;
+	}
+
 	/**
 	* Attempts to send email based on parameters passed into start()/quick_set()
 	*
 	* @return	boolean	Returns false on error
 	*/
-	function send()
+	protected function exec_send()
 	{
 		if (!$this->toemail)
 		{
 			return false;
 		}
 
-		$this->smtpSocket = fsockopen($this->smtpHost, $this->smtpPort, $errno, $errstr, 30);
+		$this->smtpSocket = fsockopen(($this->secure == 'ssl' ? 'ssl://' : 'tcp://') . $this->smtpHost, $this->smtpPort, $errno, $errstr, 30);
 
 		if ($this->smtpSocket)
 		{
@@ -610,23 +751,35 @@ class vB_SmtpMail extends vB_Mail
 				return $this->errorMessage($this->smtpReturn . ' Unexpected response when connecting to SMTP server');
 			}
 
+			// do initial handshake
+			if (!$this->sendHello())
+			{
+				return $this->errorMessage($this->smtpReturn . ' Unexpected response from SMTP server during handshake');
+			}
+
+			if ($this->secure == 'tls' AND function_exists('stream_socket_enable_crypto'))
+			{
+				if ($this->sendMessage('STARTTLS', 220))
+				{
+					if (!stream_socket_enable_crypto($this->smtpSocket, true, STREAM_CRYPTO_METHOD_TLS_CLIENT))
+					{
+						return $this->errorMessage('Unable to negotitate TLS handshake.');
+					}
+				}
+
+				// After TLS say Hi again
+				$this->sendHello();
+			}
+
 			if ($this->smtpUser AND $this->smtpPass)
 			{
-				if (!$this->sendMessage('EHLO ' . $this->smtpHost, 250))
-				{
-					return $this->errorMessage($this->smtpReturn . ' Unexpected response from SMTP server during handshake');
-				}
 				if ($this->sendMessage('AUTH LOGIN', 334))
 				{
-					if (!$this->sendMessage(base64_encode($this->smtpUser), 334) OR !$this->sendMessage(base64_encode($this->smtpPass), 235))
+					if (!$this->sendMessage(vb_base64_encode($this->smtpUser), 334) OR !$this->sendMessage(vb_base64_encode($this->smtpPass), 235))
 					{
 						return $this->errorMessage($this->smtpReturn . ' Authorization to the SMTP server failed');
 					}
 				}
-			}
-			else if (!$this->sendMessage('HELO ' . $this->smtpHost, 250))
-			{
-				return $this->errorMessage($this->smtpReturn . ' Unexpected response from SMTP server during handshake');
 			}
 
 			if (!$this->sendMessage('MAIL FROM:<' . $this->fromemail . '>', 250))
@@ -684,8 +837,8 @@ class vB_SmtpMail extends vB_Mail
 * This class does not actually send emails, but rather queues them to be sent later in a batch.
 *
 * @package 		vBulletin
-* @version		$Revision: 26227 $
-* @date 		$Date: 2008-03-31 05:38:27 -0500 (Mon, 31 Mar 2008) $
+* @version		$Revision: 63157 $
+* @date 		$Date: 2012-05-31 13:10:22 -0700 (Thu, 31 May 2012) $
 * @copyright 	http://www.vbulletin.com/license.html
 *
 */
@@ -718,7 +871,7 @@ class vB_QueueMail extends vB_Mail
 	*
 	* @return	string	True on success, false on failure
 	*/
-	function send()
+	protected function exec_send()
 	{
 		if (!$this->toemail)
 		{
@@ -848,7 +1001,7 @@ class vB_QueueMail extends vB_Mail
 		if ($instance === null)
 		{
 			global $vbulletin;
-			$instance =& new vB_QueueMail($vbulletin);
+			$instance = new vB_QueueMail($vbulletin);
 		}
 
 		return $instance;
@@ -899,19 +1052,12 @@ class vB_QueueMail extends vB_Mail
 				$vbulletin->db->unlock_tables();
 			}
 
-			if ($vbulletin->options['use_smtp'])
-			{
-				$prototype =& new vB_SmtpMail($vbulletin);
-			}
-			else
-			{
-				$prototype =& new vB_Mail($vbulletin);
-			}
+			$prototype = vB_Mail::fetchLibrary($vbulletin);
 
 			foreach ($emailarray AS $index => $email)
 			{
 				// send those mails
-				$mail = (phpversion() < '5' ? $prototype : clone($prototype)); // avoid ctor overhead
+				$mail = clone($prototype);
 				$mail->quick_set($email['toemail'], $email['subject'], $email['message'], $email['header'], $email['fromemail']);
 				$mail->send();
 			}
@@ -952,8 +1098,7 @@ class vB_QueueMail extends vB_Mail
 
 /*======================================================================*\
 || ####################################################################
-|| # Downloaded: 16:21, Sat Apr 6th 2013
-|| # CVS: $RCSfile$ - $Revision: 26227 $
+|| # Downloaded: 14:57, Sun Aug 11th 2013
+|| # CVS: $RCSfile$ - $Revision: 63157 $
 || ####################################################################
 \*======================================================================*/
-?>

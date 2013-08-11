@@ -1,9 +1,9 @@
 <?php
 /*======================================================================*\
 || #################################################################### ||
-|| # vBulletin 3.7.2 Patch Level 2 - Licence Number VBF2470E4F
+|| # vBulletin 4.2.1 - Licence Number VBC2DDE4FB
 || # ---------------------------------------------------------------- # ||
-|| # Copyright ©2000-2013 Jelsoft Enterprises Ltd. All Rights Reserved. ||
+|| # Copyright ©2000-2013 vBulletin Solutions Inc. All Rights Reserved. ||
 || # This file may not be redistributed in whole or significant part. # ||
 || # ---------------- VBULLETIN IS NOT FREE SOFTWARE ---------------- # ||
 || # http://www.vbulletin.com | http://www.vbulletin.com/license.html # ||
@@ -28,14 +28,11 @@ $vbulletin->db->query_write("
 
 $vbulletin->db->query_write("
 	DELETE FROM " . TABLE_PREFIX . "cpsession
-	WHERE dateline < " . intval(TIMENOW - 3600) . "
+	WHERE dateline < " . ($vbulletin->options['timeoutcontrolpanel'] ? intval(TIMENOW - $vbulletin->options['cookietimeout']) : TIMENOW - 3600) . "
 ");
 
-//searches expire after one hour
-$vbulletin->db->query_write("
-	DELETE FROM " . TABLE_PREFIX . "search
-	WHERE dateline < " . (TIMENOW - 3600) . "
-");
+require_once(DIR . '/vb/search/results.php');
+vB_Search_Results::clean();
 
 // expired lost passwords and email confirmations after 4 days
 $vbulletin->db->query_write("
@@ -51,6 +48,14 @@ $vbulletin->db->query_write("
 );
 $vbulletin->db->query_write("
 	DELETE FROM " . TABLE_PREFIX . "forumread
+	WHERE readtime < " . (TIMENOW - ($vbulletin->options['markinglimit'] * 86400))
+);
+$vbulletin->db->query_write("
+	DELETE FROM " . TABLE_PREFIX . "groupread
+	WHERE readtime < " . (TIMENOW - ($vbulletin->options['markinglimit'] * 86400))
+);
+$vbulletin->db->query_write("
+	DELETE FROM " . TABLE_PREFIX . "discussionread
 	WHERE readtime < " . (TIMENOW - ($vbulletin->options['markinglimit'] * 86400))
 );
 
@@ -70,14 +75,15 @@ while ($thread = $vbulletin->db->fetch_array($threads))
 	unset($threadman);
 }
 
+vB_Cache::instance()->clean();
+
 ($hook = vBulletinHook::fetch_hook('cron_script_cleanup_hourly')) ? eval($hook) : false;
 
 log_cron_action('', $nextitem, 1);
 
 /*======================================================================*\
 || ####################################################################
-|| # Downloaded: 16:21, Sat Apr 6th 2013
-|| # CVS: $RCSfile$ - $Revision: 26900 $
+|| # Downloaded: 14:57, Sun Aug 11th 2013
+|| # CVS: $RCSfile$ - $Revision: 62098 $
 || ####################################################################
 \*======================================================================*/
-?>

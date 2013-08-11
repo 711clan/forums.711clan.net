@@ -1,9 +1,9 @@
 <?php
 /*======================================================================*\
 || #################################################################### ||
-|| # vBulletin 3.7.2 Patch Level 2 - Licence Number VBF2470E4F
+|| # vBulletin 4.2.1 - Licence Number VBC2DDE4FB
 || # ---------------------------------------------------------------- # ||
-|| # Copyright ©2000-2013 Jelsoft Enterprises Ltd. All Rights Reserved. ||
+|| # Copyright ©2000-2013 vBulletin Solutions Inc. All Rights Reserved. ||
 || # This file may not be redistributed in whole or significant part. # ||
 || # ---------------- VBULLETIN IS NOT FREE SOFTWARE ---------------- # ||
 || # http://www.vbulletin.com | http://www.vbulletin.com/license.html # ||
@@ -26,8 +26,8 @@ define('ERRDB_MYSQL', 100);
 * This class allows an abstracted method for altering database structure without throwing database errors willy nilly
 *
 * @package 		vBulletin
-* @version		$Revision: 25978 $
-* @date 		$Date: 2008-03-05 23:49:13 -0600 (Wed, 05 Mar 2008) $
+* @version		$Revision: 44827 $
+* @date 		$Date: 2011-06-21 10:07:05 -0700 (Tue, 21 Jun 2011) $
 * @copyright 	http://www.vbulletin.com/license.html
 *
 */
@@ -96,6 +96,12 @@ class vB_Database_Alter
 	* @var  object
 	*/
 	var $db = null;
+
+	/**
+	*
+	*
+	*/
+	var $tag = "### vBulletin Database Alter ###";
 
 	/**
 	* Constructor - checks that the database object has been passed correctly.
@@ -296,9 +302,28 @@ class vB_Database_Alter
 	*/
 	function init_table_info()
 	{
+		global $vbulletin; // need registry!
+
 		if (!$this->init)
 		{
-			die('<strong>vB_Database_Alter</strong>: fetch_table_info() has not been called successfully.');
+			$this->fetch_table_info();
+		}
+
+		if (!$this->init)
+		{
+			$message = '<strong>vB_Database_Alter</strong>: fetch_table_info() has not been called successfully.<br />' . $this->fetch_error_message();
+			if ($vbulletin->GPC['ajax'])
+			{
+				require_once(DIR . '/includes/class_xml.php');
+				$xml = new vB_AJAX_XML_Builder($vbulletin, 'text/xml');
+				$xml->add_tag('error', $message);
+				$xml->print_xml();
+			}
+			else
+			{
+				echo $message;
+				exit;
+			}
 		}
 		$this->set_error();
 	}
@@ -435,8 +460,9 @@ class vB_Database_Alter_MySQL extends vB_Database_Alter
 		else
 		{
 			$this->sql = "
+				{$this->tag}
 				ALTER TABLE " . TABLE_PREFIX . $this->db->escape_string($this->table_name) . "
-				TYPE = " . $this->db->escape_string(strtoupper($type));
+				ENGINE = " . $this->db->escape_string(strtoupper($type));
 
 			$this->db->show_errors();
 			$this->db->query_write($this->sql);
@@ -463,6 +489,7 @@ class vB_Database_Alter_MySQL extends vB_Database_Alter
 		if (!empty($this->table_index_data["$fieldname"]))
 		{
 			$this->sql = "
+				{$this->tag}
 				ALTER TABLE " . TABLE_PREFIX . $this->db->escape_string($this->table_name) . "
 				DROP INDEX " . $this->db->escape_string($fieldname);
 
@@ -572,7 +599,10 @@ class vB_Database_Alter_MySQL extends vB_Database_Alter
 			$this->db->hide_errors();
 			// CREATE INDEX needs INDEX permission and ALTER TABLE ADD INDEX doesn't?
 			#$this->sql = "CREATE $type INDEX " . $this->db->escape_string($fieldname) . " ON " . TABLE_PREFIX . $this->db->escape_string($this->table_name) . " (" . implode(',', $fields) . ")";
-			$this->sql = "ALTER TABLE " . TABLE_PREFIX . $this->db->escape_string($this->table_name) . " ADD $type INDEX " . $this->db->escape_string($fieldname) . " (" . implode(',', $fields) . ")";
+			$this->sql = "
+				{$this->tag}
+				ALTER TABLE " . TABLE_PREFIX . $this->db->escape_string($this->table_name) . "
+				ADD $type INDEX " . $this->db->escape_string($fieldname) . " (" . implode(',', $fields) . ")";
 			$this->db->query_write($this->sql);
 			$this->db->show_errors();
 			if ($this->db->errno())
@@ -648,6 +678,7 @@ class vB_Database_Alter_MySQL extends vB_Database_Alter
 
 		// Now add fields.
 		$this->sql = "
+			{$this->tag}
 			ALTER TABLE " . TABLE_PREFIX . $this->db->escape_string($this->table_name) . "
 			ADD " . implode(",\n\t\t\t\tADD ", $schema);
 
@@ -671,6 +702,9 @@ class vB_Database_Alter_MySQL extends vB_Database_Alter
 	{
 		$this->db->hide_errors();
 		$query = $escape ? $this->db->escape_string($query) : $query;
+		$query = "
+			{$this->tag}
+			$query";
 		$this->db->query_write($query);
 		$this->db->show_errors();
 		if ($this->db->errno())
@@ -711,6 +745,7 @@ class vB_Database_Alter_MySQL extends vB_Database_Alter
 		}
 
 		$this->sql = "
+			{$this->tag}
 			ALTER TABLE " . TABLE_PREFIX . $this->db->escape_string($this->table_name) . "
 				DROP " . implode(",\n\t\t\t\tDROP ", $fields);
 
@@ -839,6 +874,7 @@ class vB_Database_Alter_MySQL extends vB_Database_Alter
 		$default = " DEFAULT $default_field";
 
 		$this->sql = "
+			{$this->tag}
 			ALTER TABLE " . TABLE_PREFIX . $this->db->escape_string($this->table_name) . "
 				CHANGE $field $field ENUM(" . implode(',', $enums) . ")" . $notnull . $default;
 
@@ -847,8 +883,8 @@ class vB_Database_Alter_MySQL extends vB_Database_Alter
 
 /*======================================================================*\
 || ####################################################################
-|| # Downloaded: 16:21, Sat Apr 6th 2013
-|| # CVS: $Revision: 25978 $
+|| # Downloaded: 14:57, Sun Aug 11th 2013
+|| # CVS: $Revision: 44827 $
 || ####################################################################
 \*======================================================================*/
 

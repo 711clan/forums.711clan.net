@@ -1,9 +1,9 @@
 <?php
 /*======================================================================*\
 || #################################################################### ||
-|| # vBulletin 3.7.2 Patch Level 2 - Licence Number VBF2470E4F
+|| # vBulletin 4.2.1 - Licence Number VBC2DDE4FB
 || # ---------------------------------------------------------------- # ||
-|| # Copyright ©2000-2013 Jelsoft Enterprises Ltd. All Rights Reserved. ||
+|| # Copyright ©2000-2013 vBulletin Solutions Inc. All Rights Reserved. ||
 || # This file may not be redistributed in whole or significant part. # ||
 || # ---------------- VBULLETIN IS NOT FREE SOFTWARE ---------------- # ||
 || # http://www.vbulletin.com | http://www.vbulletin.com/license.html # ||
@@ -15,43 +15,26 @@ error_reporting(E_ALL & ~E_NOTICE);
 // ###################### Start print_statistic_result #######################
 function print_statistic_result($date, $bar, $value, $width)
 {
-	global $stylevars, $vbulletin;
+	global $vbulletin;
 	$bgclass = fetch_row_bgclass();
 
-	if (preg_match('#^(https?://|/)#i', $stylevars['imgdir_poll']))
-	{
-		$imgpath = $stylevars['imgdir_poll'];
-	}
-	else
-	{
-		$imgpath = '../' . $stylevars['imgdir_poll'];
-	}
-
-	if ($vbulletin->userinfo['lang_options'] & $vbulletin->bf_misc_languageoptions['direction'])
-	{
-		// ltr
-		$l_img = 'l';
-		$r_img = 'r';
-	}
-	else
-	{
-		// rtl
-		$l_img = 'r';
-		$r_img = 'l';
-	}
+	$style = 'width:' . $width . '%; ' .
+		'height:' . vB_Template_Runtime::fetchStyleVar('pollbar_height') . '; ' . 
+		'border:' . vB_Template_Runtime::fetchStyleVar('pollbar_border') . '; ' . 
+		'background:' . vB_Template_Runtime::fetchStyleVar('pollbar' . $bar . '_background') . '; ';
 
 	echo '<tr><td width="0" class="' . $bgclass . '">' . $date . "</td>\n";
-	echo '<td width="100%" class="' . $bgclass . '" nowrap="nowrap"><img src="' . $imgpath . '/bar' . "$bar-$l_img" . '.gif" height="10" /><img src="' . $imgpath . '/bar' . $bar . '.gif" width="' . $width . '%" height="10" /><img src="' . $imgpath . "/bar$bar-$r_img.gif\" height=\"10\" /></td>\n";
+	echo '<td width="100%" class="' . $bgclass . '" nowrap="nowrap"><div style="' . $style . '">&nbsp;</div></td>' . "\n";
 	echo '<td width="0%" class="' . $bgclass . '" nowrap="nowrap">' . $value . "</td></tr>\n";
 }
 
 // ###################### Start print_statistic_code #######################
-function print_statistic_code($title, $name, $start, $end, $nullvalue = true, $scope = 'daily', $sort = 'date_desc')
+function print_statistic_code($title, $name, $start, $end, $nullvalue = true, $scope = 'daily', $sort = 'date_desc', $script = 'stats')
 {
 
 	global $vbphrase;
 
-	print_form_header('stats', $name);
+	print_form_header($script, $name);
 	print_table_header($title);
 
 	print_time_row($vbphrase['start_date'], 'start', $start, false);
@@ -77,8 +60,8 @@ function print_statistic_code($title, $name, $start, $end, $nullvalue = true, $s
 
 /*======================================================================*\
 || ####################################################################
-|| # Downloaded: 16:21, Sat Apr 6th 2013
-|| # CVS: $RCSfile$ - $Revision: 14679 $
+|| # Downloaded: 14:57, Sun Aug 11th 2013
+|| # CVS: $RCSfile$ - $Revision: 41331 $
 || ####################################################################
 \*======================================================================*/
 ?>

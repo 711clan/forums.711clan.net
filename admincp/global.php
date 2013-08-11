@@ -1,9 +1,9 @@
 <?php
 /*======================================================================*\
 || #################################################################### ||
-|| # vBulletin 3.7.2 Patch Level 2 - Licence Number VBF2470E4F
+|| # vBulletin 4.2.1 - Licence Number VBC2DDE4FB
 || # ---------------------------------------------------------------- # ||
-|| # Copyright ©2000-2013 Jelsoft Enterprises Ltd. All Rights Reserved. ||
+|| # Copyright ©2000-2013 vBulletin Solutions Inc. All Rights Reserved. ||
 || # This file may not be redistributed in whole or significant part. # ||
 || # ---------------- VBULLETIN IS NOT FREE SOFTWARE ---------------- # ||
 || # http://www.vbulletin.com | http://www.vbulletin.com/license.html # ||
@@ -12,6 +12,7 @@
 
 // identify where we are
 define('VB_AREA', 'AdminCP');
+define('VB_ENTRY', 1);
 define('IN_CONTROL_PANEL', true);
 
 if (!isset($phrasegroups) OR !is_array($phrasegroups))
@@ -37,12 +38,6 @@ require_once(DIR . '/includes/adminfunctions.php');
 // ###################### Start headers (send no-cache) #######################
 exec_nocache_headers();
 
-// Emulate IE7 rendering in IE8
-if ($vbulletin->options['ie8render7'])
-{
-	@header('X-UA-Compatible: IE=7');
-}
-
 if ($vbulletin->userinfo['cssprefs'] != '')
 {
 	$vbulletin->options['cpstylefolder'] = $vbulletin->userinfo['cssprefs'];
@@ -65,8 +60,21 @@ fetch_time_data();
 // ############################################ LANGUAGE STUFF ####################################
 // initialize $vbphrase and set language constants
 $vbphrase = init_language();
-$_tmp = NULL;
-$stylevar = fetch_stylevars($_tmp, $vbulletin->userinfo);
+if ($stylestuff = $vbulletin->db->query_first_slave("
+	SELECT styleid, dateline, title
+	FROM " . TABLE_PREFIX . "style
+	WHERE styleid = " . $vbulletin->options['styleid'] . "
+	ORDER BY styleid " . ($styleid > $vbulletin->options['styleid'] ? 'DESC' : 'ASC') . "
+	LIMIT 1
+"))
+{
+	fetch_stylevars($stylestuff, $vbulletin->userinfo);
+}
+else
+{
+	$_tmp = NULL;
+	fetch_stylevars($_tmp, $vbulletin->userinfo);
+}
 
 // ############################################ Check for files existance ####################################
 if (empty($vbulletin->debug) and !defined('BYPASS_FILE_CHECK'))
@@ -74,58 +82,48 @@ if (empty($vbulletin->debug) and !defined('BYPASS_FILE_CHECK'))
 	// check for files existance. Potential security risks!
 	if (file_exists(DIR . '/install/install.php') == true)
 	{
+		if ($_SERVER['REQUEST_METHOD'] == 'GET')
+		{
+			define('CP_CONTINUE', $vbulletin->scriptpath);
+		}
 		print_stop_message('security_alert_x_still_exists', 'install.php');
 	}
 	else if (file_exists(DIR . '/install/tools.php'))
 	{
+		if ($_SERVER['REQUEST_METHOD'] == 'GET')
+		{
+			define('CP_CONTINUE', $vbulletin->scriptpath);
+		}
 		print_stop_message('security_alert_tools_still_exists_in_x', 'install');
 	}
 	else if (file_exists(DIR . '/' . $vbulletin->config['Misc']['admincpdir'] . '/tools.php'))
 	{
+		if ($_SERVER['REQUEST_METHOD'] == 'GET')
+		{
+			define('CP_CONTINUE', $vbulletin->scriptpath);
+		}
 		print_stop_message('security_alert_tools_still_exists_in_x', $vbulletin->config['Misc']['admincpdir']);
 	}
 	else if (file_exists(DIR . '/' . $vbulletin->config['Misc']['modcpdir'] . '/tools.php'))
 	{
+		if ($_SERVER['REQUEST_METHOD'] == 'GET')
+		{
+			define('CP_CONTINUE', $vbulletin->scriptpath);
+		}
 		print_stop_message('security_alert_tools_still_exists_in_x', $vbulletin->config['Misc']['modcpdir']);
 	}
 }
 
 // ############################################ Start Login Check ####################################
-$cpsession = array();
-
 $vbulletin->input->clean_array_gpc('p', array(
-	'adminhash' => TYPE_STR
+	'adminhash' => TYPE_STR,
+	'ajax'      => TYPE_BOOL,
 ));
 
-$vbulletin->input->clean_array_gpc('c', array(
-	COOKIE_PREFIX . 'cpsession' => TYPE_STR,
-));
+assert_cp_sessionhash();
 
-if (!empty($vbulletin->GPC[COOKIE_PREFIX . 'cpsession']))
+if (!CP_SESSIONHASH OR $checkpwd OR ($vbulletin->options['timeoutcontrolpanel'] AND !$vbulletin->session->vars['loggedin']))
 {
-	$cpsession = $db->query_first("
-		SELECT * FROM " . TABLE_PREFIX . "cpsession
-		WHERE userid = " . $vbulletin->userinfo['userid'] . "
-			AND hash = '" . $db->escape_string($vbulletin->GPC[COOKIE_PREFIX . 'cpsession']) . "'
-			AND dateline > " . iif($vbulletin->options['timeoutcontrolpanel'], intval(TIMENOW - $vbulletin->options['cookietimeout']), intval(TIMENOW - 3600))
-	);
-
-	if (!empty($cpsession))
-	{
-		$db->query_write("
-			UPDATE LOW_PRIORITY " . TABLE_PREFIX . "cpsession
-			SET dateline = " . TIMENOW . "
-			WHERE userid = " . $vbulletin->userinfo['userid'] . "
-				AND hash = '" . $db->escape_string($vbulletin->GPC[COOKIE_PREFIX . 'cpsession']) . "'
-		");
-	}
-}
-
-define('CP_SESSIONHASH', $cpsession['hash']);
-
-if ($checkpwd OR ($vbulletin->options['timeoutcontrolpanel'] AND !$vbulletin->session->vars['loggedin']) OR empty($vbulletin->GPC[COOKIE_PREFIX . 'cpsession']) OR $vbulletin->GPC[COOKIE_PREFIX . 'cpsession'] != $cpsession['hash'] OR empty($cpsession))
-{
-
 	// #############################################################################
 	// Put in some auto-repair ;)
 	$check = array();
@@ -214,17 +212,29 @@ if ($checkpwd OR ($vbulletin->options['timeoutcontrolpanel'] AND !$vbulletin->se
 		require_once(DIR . '/includes/adminfunctions_prefix.php');
 		build_prefix_datastore();
 	}
-
+	//making sure the product datastore is rebuilt (maybe after products datastore is deleted)
+	if (!$check['products'])
+	{
+		build_product_datastore();
+	}
 	($hook = vBulletinHook::fetch_hook('admin_global_datastore_check')) ? eval($hook) : false;
 
 	// end auto-repair
 	// #############################################################################
-
 	print_cp_login();
 }
 else if ($_POST['do'] AND ADMINHASH != $vbulletin->GPC['adminhash'])
 {
-	print_cp_login(true);
+	if ($_POST['login_redirect'])
+	{
+		unset($_REQUEST['do']);
+		unset($_POST['do']);
+		unset($_GET['do']);
+	}
+	else
+	{
+		print_cp_login(true);	
+	}
 }
 
 if (file_exists(DIR . '/includes/version_vbulletin.php'))
@@ -244,8 +254,8 @@ else
 
 /*======================================================================*\
 || ####################################################################
-|| # Downloaded: 16:21, Sat Apr 6th 2013
-|| # CVS: $RCSfile$ - $Revision: 26608 $
+|| # Downloaded: 14:57, Sun Aug 11th 2013
+|| # CVS: $RCSfile$ - $Revision: 62099 $
 || ####################################################################
 \*======================================================================*/
 ?>

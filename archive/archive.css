@@ -1,8 +1,8 @@
 /*======================================================================*\
 || #################################################################### ||
-|| # vBulletin 3.7.2 Patch Level 2
+|| # vBulletin 4.2.1
 || # ---------------------------------------------------------------- # ||
-|| # All code in this file is ©2000-2013 Jelsoft Enterprises Ltd.     # ||
+|| # All code in this file is ©2000-2013 vBulletin Solutions Inc.     # ||
 || # This file may not be redistributed in whole or significant part. # ||
 || # ---------------- VBULLETIN IS NOT FREE SOFTWARE ---------------- # ||
 || # http://www.vbulletin.com | http://www.vbulletin.com/license.html # ||
@@ -46,6 +46,7 @@ div.post {
 	border: 1px solid silver;
 	padding: 1px;
 	margin-bottom: 16px;
+	clear:both;
 }
 div.posttop {
 	padding: 4px;
@@ -76,6 +77,7 @@ span.small {
 	border: 1px solid silver;
 	padding: 4px;
 	padding-left: 24px;
+        clear:both;
 }
 #navbar {
 	background: #F9F9F9;
@@ -93,10 +95,31 @@ hr {
 	visibility: hidden;
 	display: none;
 }
-
+div.floatcontainer {
+	display: block;
+	float: left;
+	margin-bottom: 5px;
+	width: 100%;
+}
+/*************************************************/
+/* ADS ARCHIVE */
+#ad_archive_above_content1 {
+        float: left;
+        width: 48%;
+        padding:5px 0px;
+}
+#ad_archive_above_content2 {
+        float: left;
+        width: 48%;
+        padding:5px 0px;
+}
+#ad_archive_below_content {
+        width:100%;
+        padding:5px 0px;
+}
 /*======================================================================*\
 || ####################################################################
-|| # Downloaded: 16:21, Sat Apr 6th 2013
-|| # CVS: $RCSfile$ - $Revision: 25797 $
+|| # Downloaded: 14:57, Sun Aug 11th 2013
+|| # CVS: $RCSfile$ - $Revision: 35470 $
 || ####################################################################
 \*======================================================================*/

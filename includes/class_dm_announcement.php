@@ -1,16 +1,16 @@
 <?php
 /*======================================================================*\
 || #################################################################### ||
-|| # vBulletin 3.7.2 Patch Level 2 - Licence Number VBF2470E4F
+|| # vBulletin 4.2.1 - Licence Number VBC2DDE4FB
 || # ---------------------------------------------------------------- # ||
-|| # Copyright ©2000-2013 Jelsoft Enterprises Ltd. All Rights Reserved. ||
+|| # Copyright ©2000-2013 vBulletin Solutions Inc. All Rights Reserved. ||
 || # This file may not be redistributed in whole or significant part. # ||
 || # ---------------- VBULLETIN IS NOT FREE SOFTWARE ---------------- # ||
 || # http://www.vbulletin.com | http://www.vbulletin.com/license.html # ||
 || #################################################################### ||
 \*======================================================================*/
 
-if (!class_exists('vB_DataManager'))
+if (!class_exists('vB_DataManager', false))
 {
 	exit;
 }
@@ -19,8 +19,8 @@ if (!class_exists('vB_DataManager'))
 * Class to do data save/delete operations for ANNOUNCEMENTS
 *
 * @package	vBulletin
-* @version	$Revision: 15275 $
-* @date		$Date: 2006-07-13 05:11:20 -0500 (Thu, 13 Jul 2006) $
+* @version	$Revision: 34547 $
+* @date		$Date: 2009-12-16 13:17:19 -0800 (Wed, 16 Dec 2009) $
 */
 class vB_DataManager_Announcement extends vB_DataManager
 {
@@ -30,17 +30,17 @@ class vB_DataManager_Announcement extends vB_DataManager
 	* @var	array
 	*/
 	var $validfields = array(
-		'announcementid'     => array(TYPE_UINT,     REQ_INCR, 'return ($data > 0);'),
-		'forumid'            => array(TYPE_INT,      REQ_YES, VF_METHOD),
-		'userid'             => array(TYPE_UINT,     REQ_YES, VF_METHOD),
-		'title'              => array(TYPE_STR,      REQ_YES, 'return ($data != \'\');'),
-		'pagetext'           => array(TYPE_STR,      REQ_YES, 'return ($data != \'\');'),
-		'startdate'          => array(TYPE_UNIXTIME, REQ_YES),
-		'enddate'            => array(TYPE_UNIXTIME, REQ_YES),
-		'views'              => array(TYPE_UINT,     REQ_NO),
-		'allowhtml'          => array(TYPE_BOOL,     REQ_NO),
-		'allowbbcode'        => array(TYPE_BOOL,     REQ_NO),
-		'allowsmilies'       => array(TYPE_BOOL,     REQ_NO),
+		'announcementid'      => array(TYPE_UINT,     REQ_INCR, 'return ($data > 0);'),
+		'forumid'             => array(TYPE_INT,      REQ_YES, VF_METHOD),
+		'userid'              => array(TYPE_UINT,     REQ_YES, VF_METHOD),
+		'title'               => array(TYPE_STR,      REQ_YES, 'return ($data != \'\');'),
+		'pagetext'            => array(TYPE_STR,      REQ_YES, 'return ($data != \'\');'),
+		'startdate'           => array(TYPE_UNIXTIME, REQ_YES),
+		'enddate'             => array(TYPE_UNIXTIME, REQ_YES),
+		'views'               => array(TYPE_UINT,     REQ_NO),
+		'allowhtml'           => array(TYPE_BOOL,     REQ_NO),
+		'allowbbcode'         => array(TYPE_BOOL,     REQ_NO),
+		'allowsmilies'        => array(TYPE_BOOL,     REQ_NO),
 		'announcementoptions' => array(TYPE_UINT,     REQ_NO)
 	);
 
@@ -156,8 +156,8 @@ class vB_DataManager_Announcement extends vB_DataManager
 
 /*======================================================================*\
 || ####################################################################
-|| # Downloaded: 16:21, Sat Apr 6th 2013
-|| # CVS: $RCSfile$ - $Revision: 15275 $
+|| # Downloaded: 14:57, Sun Aug 11th 2013
+|| # CVS: $RCSfile$ - $Revision: 34547 $
 || ####################################################################
 \*======================================================================*/
 ?>

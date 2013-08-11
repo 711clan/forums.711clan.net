@@ -1,9 +1,9 @@
 <?php
 /*======================================================================*\
 || #################################################################### ||
-|| # vBulletin 3.7.2 Patch Level 2 - Licence Number VBF2470E4F
+|| # vBulletin 4.2.1 - Licence Number VBC2DDE4FB
 || # ---------------------------------------------------------------- # ||
-|| # Copyright ©2000-2013 Jelsoft Enterprises Ltd. All Rights Reserved. ||
+|| # Copyright ©2000-2013 vBulletin Solutions Inc. All Rights Reserved. ||
 || # This file may not be redistributed in whole or significant part. # ||
 || # ---------------- VBULLETIN IS NOT FREE SOFTWARE ---------------- # ||
 || # http://www.vbulletin.com | http://www.vbulletin.com/license.html # ||
@@ -19,7 +19,7 @@ define('CSRF_PROTECTION', true);
 
 // ################### PRE-CACHE TEMPLATES AND DATA ######################
 // get special phrase groups
-$phrasegroups = array('user', 'forumdisplay');
+$phrasegroups = array('user', 'forumdisplay','thread');
 
 // get special data templates from the datastore
 $specialtemplates = array(
@@ -38,7 +38,8 @@ $actiontemplates = array(
 	'viewsubscription' => array(
 		'forumdisplay_sortarrow',
 		'threadbit',
-		'SUBSCRIBE'
+		'SUBSCRIBE',
+		'subscribe_folder_jump'
 	),
 	'addsubscription' => array(
 		'subscribe_choosetype'
@@ -62,19 +63,27 @@ require_once(DIR . '/includes/functions_user.php');
 // ######################## START MAIN SCRIPT ############################
 // #######################################################################
 
+verify_forum_url();
+
 if (empty($_REQUEST['do']))
 {
 	$_REQUEST['do'] = 'viewsubscription';
 }
 
-if ((!$vbulletin->userinfo['userid'] AND $_REQUEST['do'] != 'removesubscription') OR ($vbulletin->userinfo['userid'] AND !($permissions['forumpermissions'] & $vbulletin->bf_ugp_forumpermissions['canview'])) OR $userinfo['usergroupid'] == 3 OR $vbulletin->userinfo['usergroupid'] == 4 OR !($permissions['genericoptions'] & $vbulletin->bf_ugp_genericoptions['isnotbannedgroup']))
+if ((!$vbulletin->userinfo['userid'] AND $_REQUEST['do'] != 'removesubscription')
+	OR ($vbulletin->userinfo['userid'] AND !($permissions['forumpermissions'] & $vbulletin->bf_ugp_forumpermissions['canview']))
+	OR $vbulletin->userinfo['usergroupid'] == 4
+	OR !($permissions['genericoptions'] & $vbulletin->bf_ugp_genericoptions['isnotbannedgroup']))
 {
 	print_no_permission();
 }
 
-// select correct part of forumjump
-$frmjmpsel['subs'] = 'class="fjsel" selected="selected"';
-construct_forum_jump();
+$navpopup = array(
+	'id'    => 'subscription_navpopup',
+	'title' => $vbphrase['subscriptions'],
+	'link'  => fetch_seo_url('subscription', array()), 
+);
+construct_quick_nav($navpopup);
 
 // start the navbits breadcrumb
 $navbits = array('usercp.php' . $vbulletin->session->vars['sessionurl_q'] => $vbphrase['user_control_panel']);
@@ -121,24 +130,13 @@ if ($_POST['do'] == 'doaddsubscription')
 			print_no_permission();
 		}
 
-/*
-		if (!$threadinfo['open'])
-		{
-			if (!can_moderate($threadinfo['forumid'], 'canopenclose'))
-			{
-				$vbulletin->url = 'showthread.php?' . $vbulletin->session->vars['sessionurl'] . "t=$threadid";
-				eval(standard_error(fetch_error('threadclosed')));
-			}
-		}
-*/
-
 		/*insert query*/
 		$db->query_write("
 			REPLACE INTO " . TABLE_PREFIX . "subscribethread (userid, threadid, emailupdate, folderid, canview)
 			VALUES (" . $vbulletin->userinfo['userid'] . ", $threadinfo[threadid], " . $vbulletin->GPC['emailupdate'] . ", " . $vbulletin->GPC['folderid'] . ", 1)
 		");
-		$vbulletin->url = 'showthread.php?' . $vbulletin->session->vars['sessionurl'] . "t=$threadinfo[threadid]";
-		eval(print_standard_redirect('redirect_subsadd_thread', true, true));
+		$vbulletin->url = fetch_seo_url('thread', $threadinfo);
+		print_standard_redirect('redirect_subsadd_thread', true, true);  
 	}
 	else if ($foruminfo['forumid'])
 	{
@@ -148,8 +146,8 @@ if ($_POST['do'] == 'doaddsubscription')
 			VALUES (" . $vbulletin->userinfo['userid'] . ", " . $vbulletin->GPC['emailupdate'] . ", " . $vbulletin->GPC['forumid'] . ")
 		");
 
-		$vbulletin->url = 'forumdisplay.php?' . $vbulletin->session->vars['sessionurl'] . "f=$foruminfo[forumid]";
-		eval(print_standard_redirect('redirect_subsadd_forum', true, true));
+		$vbulletin->url = fetch_seo_url('forum', $foruminfo);
+		print_standard_redirect('redirect_subsadd_forum', true, true);  
 	}
 }
 
@@ -189,17 +187,6 @@ if ($_REQUEST['do'] == 'addsubscription')
 			print_no_permission();
 		}
 
-/*
-		if (!$threadinfo['open'])
-		{
-			if (!can_moderate($threadinfo['forumid'], 'canopenclose'))
-			{
-				$vbulletin->url = 'showthread.php?' . $vbulletin->session->vars['sessionurl'] . "t=$threadid";
-				eval(standard_error(fetch_error('threadclosed')));
-			}
-		}
-*/
-
 		require_once(DIR . '/includes/functions_misc.php');
 
 		$type = 'thread';
@@ -218,7 +205,7 @@ if ($_REQUEST['do'] == 'addsubscription')
 		$folderbits = construct_folder_jump(1);
 
 		// find out what type of updates they want
-		$navbits['subscription.php?' . $vbulletin->session->vars['sessionurl'] . 'do=viewsubscription'] = $vbphrase['subscriptions'];
+		$navbits[fetch_seo_url('subscription', array(), array('do' => 'viewsubscription'))] = $vbphrase['subscriptions'];
 
 		$show['folders'] = iif ($folderbits != '', true, false);
 	}
@@ -243,14 +230,31 @@ if ($_REQUEST['do'] == 'addsubscription')
 
 	$show['subscribetothread'] = iif ($type == 'thread', true, false);
 
-	construct_usercp_nav();
-	eval('$navbar = "' . fetch_template('navbar') . '";');
+	construct_usercp_nav('addsubscription');
+	$navbar = render_navbar_template($navbits);
 
 	($hook = vBulletinHook::fetch_hook('usersub_add_complete')) ? eval($hook) : false;
 
 	$url =& $vbulletin->url;
-	eval('$HTML = "' . fetch_template('subscribe_choosetype') . '";');
-	eval('print_output("' . fetch_template('USERCP_SHELL') . '");');
+	$templater = vB_Template::create('subscribe_choosetype');
+		$templater->register('emailselected', $emailselected);
+		$templater->register('folderbits', $folderbits);
+		$templater->register('foruminfo', $foruminfo);
+		$templater->register('id', $id);
+		$templater->register('threadinfo', $threadinfo);
+		$templater->register('type', $type);
+		$templater->register('url', $url);
+	$HTML = $templater->render();
+	$templater = vB_Template::create('USERCP_SHELL');
+		$templater->register_page_templates();
+		$templater->register('cpnav', $cpnav);
+		$templater->register('HTML', $HTML);
+		$templater->register('navbar', $navbar);
+		$templater->register('navclass', $navclass);
+		$templater->register('onload', $onload);
+		$templater->register('pagetitle', $pagetitle);
+		$templater->register('template_hook', $template_hook);
+	print_output($templater->render());
 
 }
 
@@ -286,7 +290,7 @@ if ($_REQUEST['do'] == 'removesubscription' OR $_REQUEST['do'] == 'usub')
 					WHERE $idfield = " . $vbulletin->GPC['subscriptionid'] . "
 				");
 
-				eval(print_standard_redirect('redirect_subsremove_' . $vbulletin->GPC['type'], true, true));
+				print_standard_redirect('redirect_subsremove_' . $vbulletin->GPC['type'], true, true);  
 			}
 			else
 			{
@@ -313,10 +317,10 @@ if ($_REQUEST['do'] == 'removesubscription' OR $_REQUEST['do'] == 'usub')
 		}
 		else
 		{
-			$vbulletin->url = 'showthread.php?' . $vbulletin->session->vars['sessionurl'] . "t=$threadinfo[threadid]";
+			$vbulletin->url = fetch_seo_url('thread', $threadinfo);
 		}
 
-		eval(print_standard_redirect('redirect_subsremove_thread', true, true));
+		print_standard_redirect('redirect_subsremove_thread', true, true);  
 	}
 	else if ($foruminfo['forumid'])
 	{
@@ -326,18 +330,82 @@ if ($_REQUEST['do'] == 'removesubscription' OR $_REQUEST['do'] == 'usub')
 				AND forumid = $foruminfo[forumid]
 		");
 
-		if ($vbulletin->url == $vbulletin->options['forumhome'] . '.php')
+		if ($vbulletin->url == fetch_seo_url('forumhome|nosession', array()))
 		{
 			// No referring url ( was set to home page in init) so redirect to usercp
 			$vbulletin->url = 'usercp.php' . $vbulletin->session->vars['sessionurl_q'];
 		}
 
-		eval(print_standard_redirect('redirect_subsremove_forum', true, true));
+		print_standard_redirect('redirect_subsremove_forum', true, true);  
 	}
 	else
 	{
 		eval(standard_error(fetch_error('nosubtype')));
 	}
+}
+
+// ############################### start empty folder ###############################
+if ($_REQUEST['do'] == 'emptyfolder')
+{
+	$vbulletin->input->clean_array_gpc('r', array(
+		'folderid'   => TYPE_NOHTML,
+	));
+
+	$folderid = $vbulletin->GPC['folderid'];
+
+	$navbits[''] = $vbphrase['subscriptions'];
+	$navbits = construct_navbits($navbits);
+
+	// build the cp nav
+	construct_usercp_nav('substhreads_editfolders');
+
+	$navbar = render_navbar_template($navbits);
+	$templater = vB_Template::create('subscribe_confirm_delete');
+		$templater->register('folderid', $folderid);
+	$HTML = $templater->render();
+	$templater = vB_Template::create('USERCP_SHELL');
+		$templater->register_page_templates();
+		$templater->register('cpnav', $cpnav);
+		$templater->register('HTML', $HTML);
+		$templater->register('navbar', $navbar);
+		$templater->register('navclass', $navclass);
+		$templater->register('onload', $onload);
+		$templater->register('pagetitle', $pagetitle);
+		$templater->register('template_hook', $template_hook);
+	print_output($templater->render());
+}
+
+// ############################### start do empty folder ###############################
+if ($_POST['do'] == 'doemptyfolder')
+{
+	$vbulletin->input->clean_array_gpc('p', array(
+		'folderid'   => TYPE_NOHTML,
+		'deny'       => TYPE_NOHTML,
+	));
+
+	if ($vbulletin->GPC['deny'])
+	{
+		print_standard_redirect('action_cancelled');  
+	}
+
+	if ($vbulletin->GPC['folderid'] == '' OR $vbulletin->GPC['folderid'] == 'all')
+	{
+		eval(standard_error(fetch_error('invalidid', $vbphrase['folder'], $vbulletin->options['contactuslink'])));
+	}
+
+	$db->query_write("
+		DELETE FROM " . TABLE_PREFIX . "subscribethread
+		WHERE userid = " . $vbulletin->userinfo['userid'] . "
+			AND folderid = " . intval($vbulletin->GPC['folderid'])
+	);
+
+	if ($vbulletin->url == fetch_seo_url('forumhome|nosession', array()))
+	{
+		// No referring url (was set to home page in init) so redirect to usercp
+		$vbulletin->url = 'usercp.php' . $vbulletin->session->vars['sessionurl_q'];
+	}
+
+	print_standard_redirect('redirect_subsremove_forum', true, true);  
 }
 
 // ############################### start view threads ###############################
@@ -371,8 +439,13 @@ if ($_REQUEST['do'] == 'viewsubscription')
 
 	$folderselect["$folderid"] = 'selected="selected"';
 
+	// Build folder jump
 	require_once(DIR . '/includes/functions_misc.php');
-	$folderjump = construct_folder_jump(1, $folderid); // This is the "Jump to Folder"
+	$folders = construct_folder_jump(1, $folderid, false, '', true);
+
+	$templater = vB_Template::create('subscribe_folder_jump');
+		$templater->register('folders', $folders);
+	$folderjump = $templater->render();
 
 	// look at sorting options:
 	if ($vbulletin->GPC['sortorder'] != 'asc')
@@ -538,6 +611,7 @@ if ($_REQUEST['do'] == 'viewsubscription')
 		{
 			$lastpost_info = "IF(tachythreadpost.userid IS NULL, thread.lastpost, tachythreadpost.lastpost) AS lastpost, " .
 				"IF(tachythreadpost.userid IS NULL, thread.lastposter, tachythreadpost.lastposter) AS lastposter, " .
+				"IF(tachythreadpost.userid IS NULL, thread.lastposterid, tachythreadpost.lastposterid) AS lastposterid, " .
 				"IF(tachythreadpost.userid IS NULL, thread.lastpostid, tachythreadpost.lastpostid) AS lastpostid";
 
 			$tachyjoin = "LEFT JOIN " . TABLE_PREFIX . "tachythreadpost AS tachythreadpost ON " .
@@ -545,7 +619,7 @@ if ($_REQUEST['do'] == 'viewsubscription')
 		}
 		else
 		{
-			$lastpost_info = 'thread.lastpost, thread.lastposter, thread.lastpostid';
+			$lastpost_info = 'thread.lastpost, thread.lastposter, thread.lastposterid, thread.lastpostid';
 			$tachyjoin = '';
 		}
 
@@ -554,12 +628,13 @@ if ($_REQUEST['do'] == 'viewsubscription')
 
 		$threads = $db->query_read_slave("
 			SELECT
-				IF(votenum >= " . $vbulletin->options['showvotes'] . ", votenum, 0) AS votenum,
-				IF(votenum >= " . $vbulletin->options['showvotes'] . " AND votenum > 0, votetotal / votenum, 0) AS voteavg,
-				votetotal,
-				$previewfield thread.threadid, thread.title AS threadtitle, forumid, pollid, open, replycount, postusername, thread.prefixid,
-				$lastpost_info, postuserid, thread.dateline, views, thread.iconid AS threadiconid, notes, thread.visible, thread.attach,
-				thread.taglist
+				IF(thread.votenum >= " . $vbulletin->options['showvotes'] . ", thread.votenum, 0) AS votenum,
+				IF(thread.votenum >= " . $vbulletin->options['showvotes'] . " AND thread.votenum > 0, thread.votetotal / thread.votenum, 0) AS voteavg,
+				thread.votetotal,
+				$previewfield thread.threadid, thread.title AS threadtitle, thread.forumid, thread.pollid,
+				thread.open, thread.replycount, thread.postusername, thread.prefixid,
+				$lastpost_info, thread.postuserid, thread.dateline, thread.views, thread.iconid AS threadiconid,
+				thread.notes, thread.visible, thread.attach, thread.taglist
 				" . ($vbulletin->options['threadmarking'] ? ", threadread.readtime AS threadread" : '') . "
 				$hook_query_fields
 			FROM " . TABLE_PREFIX . "thread AS thread
@@ -652,17 +727,82 @@ if ($_REQUEST['do'] == 'viewsubscription')
 
 			($hook = vBulletinHook::fetch_hook('threadbit_display')) ? eval($hook) : false;
 
-			eval('$threadbits .= "' . fetch_template('threadbit') . '";');
+			$pageinfo_lastpage = array();
+			if ($show['pagenavmore'])
+			{
+				$pageinfo_lastpage['page'] = $thread['totalpages'];
+			}
+			$pageinfo_newpost = array('goto' => 'newpost');
+			$pageinfo_lastpost = array('p' => $thread['lastpostid']);
+
+			// prepare the member action drop-down menu
+			$memberaction_dropdown = construct_memberaction_dropdown(fetch_lastposter_userinfo($thread));
+
+			// The code block needs to be here to register $show['avatar']
+			if (defined('VB_API') AND VB_API === true)
+			{
+				// We need to fetch avatar url
+				if (intval($thread['postuserid']) AND $vbulletin->options['avatarenabled'])
+				{
+					$avatar = fetch_avatar_url($thread['postuserid']);
+				}
+
+				if (!isset($avatar) )
+				{
+					$avatar = false;
+				}
+			}
+
+			$templater = vB_Template::create('threadbit');
+				$templater->register('pageinfo', $pageinfo);
+				$templater->register('pageinfo_lastpage', $pageinfo_lastpage);
+				$templater->register('pageinfo_lastpost', $pageinfo_lastpost);
+				$templater->register('pageinfo_newpost', $pageinfo_newpost);
+				$templater->register('subscribethread', $subscribethread);
+				$templater->register('memberaction_dropdown', $memberaction_dropdown);
+				$templater->register('thread', $thread);
+				$templater->register('threadid', $threadid);
+				if (defined('VB_API') AND VB_API === true)
+				{
+					$templater->register('avatar', $avatar);
+				}
+			$threadbits .= $templater->render();
 
 		}
 
 		$db->free_result($threads);
 		unset($threadids);
-		$sorturl = 'subscription.php?' . $vbulletin->session->vars['sessionurl'] . "do=viewsubscription&amp;pp=$perpage&amp;folderid=$folderid";
-		$pagenav = construct_page_nav($pagenumber, $perpage, $totalallthreads, $sorturl . "&amp;sort=$sortfield" . iif(!empty($vbulletin->GPC['sortorder']), "&amp;order=" . $vbulletin->GPC['sortorder']));
-		$oppositesort = iif($vbulletin->GPC['sortorder'] == 'asc', 'desc', 'asc');
+		
+		$pagevars = array('do' => 'viewsubscription', 'pp' => $perpage, 'folderid' => $folderid, 'sort' => $sortfield);
+		if (!empty($vbulletin->GPC['sortorder']))
+		{
+			$pagevars['order'] =  $vbulletin->GPC['sortorder'];
+		}
 
-		eval('$sortarrow[' . $sortfield . '] = "' . fetch_template('forumdisplay_sortarrow') . '";');
+		$pagenav = construct_page_nav($pagenumber, $perpage, $totalallthreads, '', '', '', 'subscription', array(), $pagevars);
+		$oppositesort = ($vbulletin->GPC['sortorder'] == 'asc' ? 'desc' : 'asc');
+
+		$sorturls = array();
+		$sorts = array('title' => 'asc', 'postusername' => 'asc', 'lastpost' => 'desc', 
+			'views' => 'desc', 'replycount' => 'desc');
+		foreach($sorts as $sort => $order)
+		{
+			$pagevars['sort'] = $sort;
+			if($sort == $sortfield)
+			{
+				$pagevars['order'] = $oppositesort;
+			}
+			else 
+			{
+				$pagevars['order'] = $order;
+			}
+
+			$sorturls[$sort] = fetch_seo_url('subscription', array(), $pagevars);
+		}
+
+		$templater = vB_Template::create('forumdisplay_sortarrow');
+			$templater->register('oppositesort', $oppositesort);
+		$sortarrow[$sortfield] = $templater->render();
 
 		$show['havethreads'] = true;
 	}
@@ -676,13 +816,39 @@ if ($_REQUEST['do'] == 'viewsubscription')
 	$navbits = construct_navbits($navbits);
 
 	// build the cp nav
-	construct_usercp_nav('substhreads_listthreads');
+	construct_usercp_nav('subscr_folder'.$vbulletin->GPC['folderid']);
 
 	($hook = vBulletinHook::fetch_hook('usersub_view_complete')) ? eval($hook) : false;
 
-	eval('$navbar = "' . fetch_template('navbar') . '";');
-	eval('$HTML = "' . fetch_template('SUBSCRIBE') . '";');
-	eval('print_output("' . fetch_template('USERCP_SHELL') . '");');
+	$navbar = render_navbar_template($navbits);
+	$templater = vB_Template::create('SUBSCRIBE');
+		$templater->register('colspan', $colspan);
+		$templater->register('folder', $folder);
+		$templater->register('folderid', $folderid);
+		$templater->register('folderjump', $folderjump);
+		$templater->register('forumjump', $forumjump);
+		$templater->register('gobutton', $gobutton);
+		$templater->register('pagenav', $pagenav);
+		$templater->register('sortarrow', $sortarrow);
+		$templater->register('sorturl', $sorturl);
+		$templater->register('sorturl_title', $sorturls['title']);
+		$templater->register('sorturl_postusername', $sorturls['postusername']);
+		$templater->register('sorturl_lastpost', $sorturls['lastpost']);
+		$templater->register('sorturl_views', $sorturls['views']);
+		$templater->register('sorturl_replycount', $sorturls['replycount']);
+		$templater->register('threadbits', $threadbits);
+		$templater->register('totalallthreads', $totalallthreads);
+	$HTML = $templater->render();
+	$templater = vB_Template::create('USERCP_SHELL');
+		$templater->register_page_templates();
+		$templater->register('cpnav', $cpnav);
+		$templater->register('HTML', $HTML);
+		$templater->register('navbar', $navbar);
+		$templater->register('navclass', $navclass);
+		$templater->register('onload', $onload);
+		$templater->register('pagetitle', $pagetitle);
+		$templater->register('template_hook', $template_hook);
+	print_output($templater->render());
 }
 
 // ########################## Do move of threads ##############################################
@@ -693,7 +859,10 @@ if ($_POST['do'] == 'movethread')
 		'folderid' => TYPE_UINT
 	));
 
-	$ids = @unserialize(verify_client_string($vbulletin->GPC['ids']));
+	if ($ids = verify_client_string($vbulletin->GPC['ids']))
+	{
+		$ids = explode(',', $ids);
+	}
 
 	if (!is_array($ids) OR empty($ids))
 	{
@@ -715,8 +884,8 @@ if ($_POST['do'] == 'movethread')
 		WHERE userid = " . $vbulletin->userinfo['userid'] . " AND subscribethreadid IN(" . implode(', ', $subids) . ")
 	");
 
-	$vbulletin->url = 'subscription.php?' . $vbulletin->session->vars['sessionurl'] . 'folderid=' . $vbulletin->GPC['folderid'];
-	eval(print_standard_redirect('sub_threadsmoved'));
+	$vbulletin->url = fetch_seo_url('subscription', array(), array('folderid' => $vbulletin->GPC['folderid']));
+	print_standard_redirect('sub_threadsmoved');  
 
 }
 
@@ -770,14 +939,14 @@ if ($_POST['do'] == 'dostuff')
 			{
 				$db->query_write("DELETE FROM " . TABLE_PREFIX . "subscribethread WHERE subscribethreadid IN (0$ids) AND userid = " . $vbulletin->userinfo['userid']);
 			}
-			$vbulletin->url = 'subscription.php?' . $vbulletin->session->vars['sessionurl'] . 'do=viewsubscription&amp;folderid=' . $vbulletin->GPC['folderid'];
-			eval(print_standard_redirect('redirect_subupdate'));
+			
+			$vbulletin->url = fetch_seo_url('subscription', array(), array('do' => 'viewsubscription', 'folderid' => $vbulletin->GPC['folderid']));
+			print_standard_redirect('redirect_subupdate');  
 			break;
 
 		// *************************
 		// Move to new Folder
 		case 'move':
-
 			$ids = array();
 			foreach ($deletebox AS $id)
 			{
@@ -787,7 +956,7 @@ if ($_POST['do'] == 'dostuff')
 
 			$numthreads = sizeof($ids);
 
-			$ids = sign_client_string(serialize($ids));
+			$ids = sign_client_string(implode(',', $ids));
 			unset($id, $deletebox);
 
 			require_once(DIR . '/includes/functions_misc.php');
@@ -818,23 +987,38 @@ if ($_POST['do'] == 'dostuff')
 				}
 
 				// build the cp nav
-				construct_usercp_nav('substhreads_listthreads');
+				construct_usercp_nav('subscr_folder'.$vbulletin->GPC['folderid']);
 
 				$navbits[''] = $vbphrase['subscriptions'];
 				$navbits = construct_navbits($navbits);
-				eval('$navbar = "' . fetch_template('navbar') . '";');
+				$navbar = render_navbar_template($navbits);
 
 				$folderid =& $vbulletin->GPC['folderid'];
-				eval('$HTML = "' . fetch_template('subscribe_move') . '";');
-				eval('print_output("' . fetch_template('USERCP_SHELL') . '");');
+				$templater = vB_Template::create('subscribe_move');
+					$templater->register('folderoptions', $folderoptions);
+					$templater->register('fromfolder', $fromfolder);
+					$templater->register('ids', $ids);
+					$templater->register('numthreads', $numthreads);
+				$HTML = $templater->render();
+				$templater = vB_Template::create('USERCP_SHELL');
+					$templater->register_page_templates();
+					$templater->register('cpnav', $cpnav);
+					$templater->register('HTML', $HTML);
+					$templater->register('navbar', $navbar);
+					$templater->register('navclass', $navclass);
+					$templater->register('onload', $onload);
+					$templater->register('pagetitle', $pagetitle);
+					$templater->register('template_hook', $template_hook);
+				print_output($templater->render());
 			}
 			else
 			{
-				eval(standard_error(fetch_error('pm_nofolders', $vbulletin->options['bburl'], $vbulletin->session->vars['sessionurl'])));
+				eval(standard_error(fetch_error('subscription_nofolders',  fetch_seo_url('subscription', array(), array('do' => 'editfolders')))));
 			}
 
-			$vbulletin->url = 'subscription.php?' . $vbulletin->session->vars['sessionurl'] . "do=viewsubscription&amp;folderid=" . $vbulletin->GPC['folderid'];
-			eval(print_standard_redirect('redirect_submove'));
+			//its not actually possible to get here -- both print_output and eval'ing standard_error will end the script'
+			$vbulletin->url = fetch_seo_url('subscription', array(), array('do' => 'viewsubscription', 'folderid=' => $vbulletin->GPC['folderid']));
+			print_standard_redirect('redirect_submove');  
 			break;
 
 		// *************************
@@ -857,8 +1041,8 @@ if ($_POST['do'] == 'dostuff')
 				);
 			}
 
-			$vbulletin->url = 'subscription.php?' . $vbulletin->session->vars['sessionurl'] . 'do=viewsubscription&amp;folderid=' . $vbulletin->GPC['folderid'];
-			eval(print_standard_redirect('redirect_subupdate'));
+			$vbulletin->url = fetch_seo_url('subscription', array(), array('do' => 'viewsubscription', 'folderid=' => $vbulletin->GPC['folderid']));
+			print_standard_redirect('redirect_subupdate');  
 			break;
 
 		// *****************************
@@ -890,7 +1074,11 @@ if ($_REQUEST['do'] == 'editfolders')
 		$foldercount = 1;
 		foreach ($folders AS $folderid => $title)
 		{
-			eval('$folderboxes .= "' . fetch_template('subscribe_folderbit') . '";');
+			$templater = vB_Template::create('subscribe_folderbit');
+				$templater->register('foldercount', $foldercount);
+				$templater->register('folderid', $folderid);
+				$templater->register('title', $title);
+			$folderboxes .= $templater->render();
 			$foldercount++;
 		}
 	}
@@ -908,12 +1096,17 @@ if ($_REQUEST['do'] == 'editfolders')
 				break;
 			}
 		}
-		eval('$newfolderboxes .= "' . fetch_template('subscribe_folderbit') . '";');
+		$templater = vB_Template::create('subscribe_folderbit');
+			$templater->register('foldercount', $foldercount);
+			$templater->register('folderid', $folderid);
+			$templater->register('title', $title);
+		$newfolderboxes .= $templater->render();
 		$foldercount++;
 	}
 
 	// generate navbar
-	$navbits['subscription.php?' . $vbulletin->session->vars['sessionurl'] . "do=viewsubscription"] = $vbphrase['subscriptions'];
+	$navbits[fetch_seo_url('subscription', array(), array('do' => 'viewsubscription'))] = $vbphrase['subscriptions'];
+	
 	$navbits[''] = $vbphrase['edit_folders'];
 	$navbits = construct_navbits($navbits);
 
@@ -924,9 +1117,22 @@ if ($_REQUEST['do'] == 'editfolders')
 
 	($hook = vBulletinHook::fetch_hook('usersub_editfolders')) ? eval($hook) : false;
 
-	eval('$navbar = "' . fetch_template('navbar') . '";');
-	eval('$HTML = "' . fetch_template('subscribe_showfolders') . '";');
-	eval('print_output("' . fetch_template('USERCP_SHELL') . '");');
+	$navbar = render_navbar_template($navbits);
+	$templater = vB_Template::create('subscribe_showfolders');
+		$templater->register('defaultfolder', $defaultfolder);
+		$templater->register('folderboxes', $folderboxes);
+		$templater->register('newfolderboxes', $newfolderboxes);
+	$HTML = $templater->render();
+	$templater = vB_Template::create('USERCP_SHELL');
+		$templater->register_page_templates();
+		$templater->register('cpnav', $cpnav);
+		$templater->register('HTML', $HTML);
+		$templater->register('navbar', $navbar);
+		$templater->register('navclass', $navclass);
+		$templater->register('onload', $onload);
+		$templater->register('pagetitle', $pagetitle);
+		$templater->register('template_hook', $template_hook);
+	print_output($templater->render());
 
 } #end editfolders
 
@@ -939,10 +1145,15 @@ if ($_POST['do'] == 'doeditfolders')
 
 	$folders = unserialize($vbulletin->userinfo['subfolders']);
 
-	($hook = vBulletinHook::fetch_hook('usersub_doeditfolders')) ? eval($hook) : false;
+	//attempt to limit DOS exploit by loading up on folders -- could 
+	//allow repeated loads of 16Mb database object
+	$folder_limit = 1000;
+	$char_limit = 200;
 
+	($hook = vBulletinHook::fetch_hook('usersub_doeditfolders')) ? eval($hook) : false;
 	if (!empty($vbulletin->GPC['folderlist']))
 	{
+		$old_count = count($folders);
 		foreach ($vbulletin->GPC['folderlist'] AS $folderid => $title)
 		{
 			$folderid = intval($folderid);
@@ -957,10 +1168,21 @@ if ($_POST['do'] == 'doeditfolders')
 			}
 			else
 			{
-				$folders["$folderid"] = $title;
+				//limit the title to something sane.
+				$folders["$folderid"] = vbchop($title, $char_limit);
 			}
-
 		}
+		$new_count = count($folders);
+		//its possible, though unlikely, that there is a legitimate user out there 
+		//with too many folders.  Rather than preventing them from saving anything,
+		//we'll just prevent them from adding any folders if they are over the limit
+		//if they just change some titles or delete some but not enough folders (or
+		//even delete some and add no more than they deleted) we'll let it slide.
+		if ($new_count > $folder_limit and $new_count > $old_count)
+		{
+			eval(standard_error(fetch_error('folder_limit_exceeded', $folder_limit)));
+		}	
+
 		if ($deletefolders)
 		{
 			$db->query_write("
@@ -981,16 +1203,16 @@ if ($_POST['do'] == 'doeditfolders')
 
 	$itemtype = $vbphrase['subscription'];
 	$itemtypes = $vbphrase['subscriptions'];
-	$vbulletin->url = 'subscription.php?' . $vbulletin->session->vars['sessionurl'] . 'do=viewsubscription';
-	eval(print_standard_redirect('foldersedited'));
+	$vbulletin->url = fetch_seo_url('subscription', array(), array('do' => 'viewsubscription'));
+	print_standard_redirect(array('foldersedited',$itemtype,$itemtypes));  
 
 } #end doeditfolders
 
 
 /*======================================================================*\
 || ####################################################################
-|| # Downloaded: 16:21, Sat Apr 6th 2013
-|| # CVS: $RCSfile$ - $Revision: 26962 $
+|| # Downloaded: 14:57, Sun Aug 11th 2013
+|| # CVS: $RCSfile$ - $Revision: 53346 $
 || ####################################################################
 \*======================================================================*/
 ?>

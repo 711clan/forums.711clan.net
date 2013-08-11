@@ -1,9 +1,9 @@
 <?php
 /*======================================================================*\
 || #################################################################### ||
-|| # vBulletin 3.7.2 Patch Level 2 - Licence Number VBF2470E4F
+|| # vBulletin 4.2.1 - Licence Number VBC2DDE4FB
 || # ---------------------------------------------------------------- # ||
-|| # Copyright ©2000-2013 Jelsoft Enterprises Ltd. All Rights Reserved. ||
+|| # Copyright ©2000-2013 vBulletin Solutions Inc. All Rights Reserved. ||
 || # This file may not be redistributed in whole or significant part. # ||
 || # ---------------- VBULLETIN IS NOT FREE SOFTWARE ---------------- # ||
 || # http://www.vbulletin.com | http://www.vbulletin.com/license.html # ||
@@ -14,7 +14,7 @@
 error_reporting(E_ALL & ~E_NOTICE);
 
 // ##################### DEFINE IMPORTANT CONSTANTS #######################
-define('CVS_REVISION', '$RCSfile$ - $Revision: 26562 $');
+define('CVS_REVISION', '$RCSfile$ - $Revision: 63865 $');
 
 // #################### PRE-CACHE TEMPLATES AND DATA ######################
 $phrasegroups = array('cron', 'cpuser', 'prefix');
@@ -124,7 +124,7 @@ $input_vars = array(
 	'threadactiondelay' => TYPE_UINT,
 	'endannouncement'   => TYPE_UINT,
 	'resetlastrun'      => TYPE_BOOL,
-	'options'           => TYPE_ARRAY_BOOL,
+	'options'           => TYPE_ARRAY_BOOL
 );
 
 // #############################################################################
@@ -139,10 +139,6 @@ if ($_POST['do'] == 'update')
 
 	if (empty($_POST['preview']))
 	{
-
-
-		//echo show_array($vbulletin->GPC, 'x', 'print_r', true);
-
 		if ($vbulletin->GPC['rssfeedid'])
 		{
 			// update to follow
@@ -226,7 +222,8 @@ if ($_POST['do'] == 'update')
 if ($_POST['do'] == 'preview')
 {
 	require_once(DIR . '/includes/class_rss_poster.php');
-	require_once(DIR . '/includes/functions_wysiwyg.php');
+	require_once(DIR . '/includes/class_wysiwygparser.php');
+	$html_parser = new vB_WysiwygHtmlParser($vbulletin);
 
 	$xml = new vB_RSS_Poster($vbulletin);
 	$xml->fetch_xml($vbulletin->GPC['url']);
@@ -241,7 +238,7 @@ if ($_POST['do'] == 'preview')
 	}
 
 	require_once(DIR . '/includes/class_bbcode.php');
-	$bbcode_parser =& new vB_BbCodeParser($vbulletin, fetch_tag_list());
+	$bbcode_parser = new vB_BbCodeParser($vbulletin, fetch_tag_list());
 
 	$output = '';
 	$count = 0;
@@ -256,7 +253,7 @@ if ($_POST['do'] == 'preview')
 			$content_encoded = true;
 		}
 
-		$title = $bbcode_parser->parse(strip_bbcode(convert_wysiwyg_html_to_bbcode($xml->parse_template($vbulletin->GPC['titletemplate'], $item))), 0, false);
+		$title = $bbcode_parser->parse(strip_bbcode($html_parser->parse_wysiwyg_html_to_bbcode($xml->parse_template($vbulletin->GPC['titletemplate'], $item))), 0, false);
 
 		if ($vbulletin->GPC['options']['html2bbcode'])
 		{
@@ -270,7 +267,7 @@ if ($_POST['do'] == 'preview')
 		$body = $xml->parse_template($body_template, $item);
 		if ($vbulletin->GPC['options']['html2bbcode'])
 		{
-			$body = convert_wysiwyg_html_to_bbcode($body, false, true);
+			$body = $html_parser->parse_wysiwyg_html_to_bbcode($body, false, true);
 		}
 		$body = $bbcode_parser->parse($body, 0, false);
 
@@ -341,7 +338,7 @@ if ($_REQUEST['do'] == 'edit')
 
 	foreach ($feed['options'] AS $bitname => $bitvalue)
 	{
-		$checked["$bitname"]["$bitvalue"] = ' checked="checked"';
+		$checked["$bitname"] = ($bitvalue ? ' checked="checked"' : '');
 	}
 
 	$checked['itemtype']["$feed[itemtype]"] = ' checked="checked"';
@@ -370,8 +367,12 @@ if ($_REQUEST['do'] == 'edit')
 	print_input_row($vbphrase['maximum_items_to_fetch'], 'maxresults', $feed['maxresults'], true, 50);
 	print_label_row($vbphrase['search_items_for_words'],'
 		<div><textarea name="searchwords" rows="5" cols="50" tabindex="1">' . $feed['searchwords'] . '</textarea></div>
-		<input type="hidden" name="options[searchboth]" value="1" />
-		<div class="smallfont"><label for="cb_searchboth"><input type="checkbox" name="options[searchboth]" id="cb_searchboth" value="0" tabindex="1"' . $checked['searchboth'][0] . ' />' . $vbphrase['search_titles_only'] . '</label></div>
+		<input type="hidden" name="options[searchboth]" value="0" />
+		<input type="hidden" name="options[matchall]" value="0" />
+		<div class="smallfont">
+			<label for="cb_searchboth"><input type="checkbox" name="options[searchboth]" id="cb_searchboth" value="1" tabindex="1"' . $checked['searchboth'] . ' />' . $vbphrase['search_item_body'] . '</label>
+			<label for="cb_matchall"><input type="checkbox" name="options[matchall]" id="cb_matchall" value="1" tabindex="1"' . $checked['matchall'] . ' />' . $vbphrase['match_all_words'] . '</label>
+		</div>
 	', '', 'top', 'searchwords');
 	print_input_row($vbphrase['username'], 'username', $feed['username'], false, 50);
 	print_forum_chooser($vbphrase['forum'], 'forumid', $feed['forumid'], null, true, false, '[%s]');
@@ -490,7 +491,7 @@ if ($_REQUEST['do'] == 'modify')
 
 		foreach ($feeds AS $rssfeedid => $feed)
 		{
-			$x = @parse_url($feed['url']);
+			$x = $vbulletin->input->parse_url($feed['url']);
 
 			if ($feed['lastrun'] > 0)
 			{
@@ -528,8 +529,8 @@ print_cp_footer();
 
 /*======================================================================*\
 || ####################################################################
-|| # Downloaded: 16:21, Sat Apr 6th 2013
-|| # CVS: $RCSfile$ - $Revision: 26562 $
+|| # Downloaded: 14:57, Sun Aug 11th 2013
+|| # CVS: $RCSfile$ - $Revision: 63865 $
 || ####################################################################
 \*======================================================================*/
 ?>

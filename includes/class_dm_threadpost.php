@@ -1,16 +1,16 @@
 <?php
 /*======================================================================*\
 || #################################################################### ||
-|| # vBulletin 3.7.2 Patch Level 2 - Licence Number VBF2470E4F
+|| # vBulletin 4.2.1 - Licence Number VBC2DDE4FB
 || # ---------------------------------------------------------------- # ||
-|| # Copyright ©2000-2013 Jelsoft Enterprises Ltd. All Rights Reserved. ||
+|| # Copyright ©2000-2013 vBulletin Solutions Inc. All Rights Reserved. ||
 || # This file may not be redistributed in whole or significant part. # ||
 || # ---------------- VBULLETIN IS NOT FREE SOFTWARE ---------------- # ||
 || # http://www.vbulletin.com | http://www.vbulletin.com/license.html # ||
 || #################################################################### ||
 \*======================================================================*/
 
-if (!class_exists('vB_DataManager'))
+if (!class_exists('vB_DataManager', false))
 {
 	exit;
 }
@@ -21,8 +21,8 @@ require_once(DIR . '/includes/functions_newpost.php');
 * Base data manager for threads and posts. Uninstantiable.
 *
 * @package	vBulletin
-* @version	$Revision: 26836 $
-* @date		$Date: 2008-06-04 11:15:30 -0500 (Wed, 04 Jun 2008) $
+* @version	$Revision: 63119 $
+* @date		$Date: 2012-05-30 17:05:33 -0700 (Wed, 30 May 2012) $
 */
 class vB_DataManager_ThreadPost extends vB_DataManager
 {
@@ -241,8 +241,10 @@ class vB_DataManager_ThreadPost extends vB_DataManager
 		$attachcount = $this->dbobject->query_first("
 			SELECT COUNT(*) AS count
 			FROM " . TABLE_PREFIX . "attachment
-			WHERE posthash = '" . $this->dbobject->escape_string($posthash) . "'
-				AND userid = $userid
+			WHERE
+				posthash = '" . $this->dbobject->escape_string($posthash) . "'
+					AND
+				userid = $userid
 		");
 
 		return intval($attachcount['count']);
@@ -339,7 +341,7 @@ class vB_DataManager_ThreadPost extends vB_DataManager
 			$threadinfo = fetch_threadinfo($this->fetch_field('threadid'));
 
 			require_once(DIR . '/includes/class_bbcode_alt.php');
-			$plaintext_parser =& new vB_BbCodeParser_PlainText($this->registry, fetch_tag_list());
+			$plaintext_parser = new vB_BbCodeParser_PlainText($this->registry, fetch_tag_list());
 
 			$email = ($this->info['user']['email'] ? $this->info['user']['email'] : $this->registry->userinfo['email']);
 			$browsing_user = $this->registry->userinfo['username'];
@@ -380,6 +382,7 @@ class vB_DataManager_ThreadPost extends vB_DataManager
 						$threadinfo['prefix_plain'] = '';
 					}
 
+					$threadlink = fetch_seo_url('thread|nosession|bburl', $threadinfo);
 					eval(fetch_email_phrases('moderator', iif(isset($newpost_lang["$toemail"]), $newpost_lang["$toemail"], 0)));
 					vbmail($toemail, $subject, $message);
 				}
@@ -388,6 +391,16 @@ class vB_DataManager_ThreadPost extends vB_DataManager
 			// back to normal
 			$this->registry->userinfo['username'] = htmlspecialchars_uni($browsing_user);
 		}
+	}
+
+	function rebuild_keywords()
+	{
+		require_once(DIR . '/includes/functions_newpost.php');
+
+		$threadinfo = array('taglist' => $this->fetch_field('taglist'), 'prefixid' => $this->fetch_field('prefixid'), 'title' => $this->fetch_field('title'));
+		$keywords = fetch_keywords_list($threadinfo, (empty($this->info['pagetext']) ? $this->fetch_field('pagetext', 'post') : $this->info['pagetext']));
+
+		$this->set('keywords', $keywords);
 	}
 
 	/**
@@ -437,14 +450,13 @@ class vB_DataManager_ThreadPost extends vB_DataManager
 				}
 				$user =& $this->info['user'];
 
-				if ($user['lastpost'] <= TIMENOW AND
-					!can_moderate($this->info['forum']['forumid'], '', $user['userid'], $user['usergroupid'] . (trim($user['membergroupids']) ? ",$user[membergroupids]" : '')))
+				if (!can_moderate($this->info['forum']['forumid'], '', $user['userid'], $user['usergroupid'] . (trim($user['membergroupids']) ? ",$user[membergroupids]" : '')))
 				{
-					if (!class_exists('vB_FloodCheck'))
+					if (!class_exists('vB_FloodCheck', false))
 					{
 						require_once(DIR . '/includes/class_floodcheck.php');
 					}
-					$this->floodcheck =& new vB_FloodCheck($this->registry, 'user', 'lastpost');
+					$this->floodcheck = new vB_FloodCheck($this->registry, 'user', 'lastpost');
 					$this->floodcheck->commit_key($this->registry->userinfo['userid'], TIMENOW, TIMENOW - $this->registry->options['floodchecktime']);
 					if ($this->floodcheck->is_flooding())
 					{
@@ -488,7 +500,7 @@ class vB_DataManager_ThreadPost extends vB_DataManager
 			$akismet = new vB_Akismet($this->registry);
 			$akismet->akismet_board = $this->registry->options['bburl'];
 			$akismet->akismet_key = $this->registry->options['vb_antispam_key'];
-			if ($akismet->verify_text(array('user_ip' => IPADDRESS, 'user_agent' => USER_AGENT, 'comment_type' => 'post', 'comment_author' => ($this->registry->userinfo['userid'] ? $this->registry->userinfo['username'] : $this->fetch_field('username', 'post')), 'comment_content' => $this->fetch_field('pagetext', 'post'))) === 'spam')
+			if ($akismet->verify_text(array('user_ip' => IPADDRESS, 'user_agent' => USER_AGENT, 'comment_type' => 'post', 'comment_author' => ($this->registry->userinfo['userid'] ? $this->registry->userinfo['username'] : $this->fetch_field('username', 'post')), 'comment_author_email' => $this->registry->userinfo['email'], 'comment_author_url' => $this->registry->userinfo['homepage'], 'comment_content' => $this->fetch_field('pagetext', 'post'))) === 'spam')
 			{
 				$this->set('visible', 0);
 				$this->spamlog_insert = true;
@@ -513,11 +525,14 @@ class vB_DataManager_ThreadPost extends vB_DataManager
 		if ($this->info['posthash'] AND $this->fetch_field('attach') AND $postid)
 		{
 			$this->dbobject->query_write("
-				UPDATE " . TABLE_PREFIX . "attachment SET
-					postid = $postid,
+				UPDATE " . TABLE_PREFIX . "attachment
+				SET
+					contentid = $postid,
 					posthash = ''
-				WHERE posthash = '" . $this->dbobject->escape_string($this->info['posthash']) . "'
-					AND userid = " . intval($this->fetch_field('userid', 'post')) . "
+				WHERE
+					posthash = '" . $this->dbobject->escape_string($this->info['posthash']) . "'
+						AND
+					userid = " . intval($this->fetch_field('userid', 'post')) . "
 			");
 		}
 
@@ -531,12 +546,6 @@ class vB_DataManager_ThreadPost extends vB_DataManager
 				}
 
 				$this->dbobject->query_write("DELETE FROM " . TABLE_PREFIX . "postparsed WHERE postid = " . intval($postid));
-
-				if ($this->info['forum'])
-				{
-					require_once(DIR . '/includes/functions_databuild.php');
-					delete_post_index($postid, $this->existing['title'], $this->existing['pagetext']);
-				}
 			}
 
 			// Check to see if this was a spam post being approved
@@ -544,13 +553,6 @@ class vB_DataManager_ThreadPost extends vB_DataManager
 			{
 				$this->akismet_mark_as_ham($postid);
 			}
-		}
-
-		if ($this->post['pagetext'] AND $this->info['forum'] AND $postid)
-		{
-			// ### UPDATE SEARCH INDEX ###
-			require_once(DIR . '/includes/functions_databuild.php');
-			build_post_index($postid, $this->info['forum']);
 		}
 
 		if ($this->spamlog_insert AND $postid)
@@ -587,6 +589,7 @@ class vB_DataManager_ThreadPost extends vB_DataManager
 				$forumdata->set('lastpost', $this->fetch_field('dateline'));
 				$forumdata->set('lastpostid', $postid);
 				$forumdata->set('lastposter', $this->fetch_field('username', 'post'));
+				$forumdata->set('lastposterid', $this->fetch_field('userid', 'post'));
 
 				if ($this->table == 'thread')
 				{
@@ -606,7 +609,7 @@ class vB_DataManager_ThreadPost extends vB_DataManager
 				$forumdata->save();
 			}
 
-			if ($this->info['user'] AND empty($this->info['is_automated']))
+			if ($this->info['user'] AND (empty($this->info['is_automated']) OR $this->info['is_automated'] == 'rss'))
 			{
 				$user =& datamanager_init('User', $this->registry, ERRTYPE_SILENT);
 				$user->set_existing($this->info['user']);
@@ -624,8 +627,6 @@ class vB_DataManager_ThreadPost extends vB_DataManager
 					$user->set('lastpost', $dateline);
 				}
 
-				$postid = intval($this->fetch_field('postid'));
-
 				if ($dateline == TIMENOW OR (isset($this->info['user']['lastpostid']) AND $postid > $this->info['user']['postid']))
 				{
 					$user->set('lastpostid', $postid);
@@ -634,6 +635,13 @@ class vB_DataManager_ThreadPost extends vB_DataManager
 				$user->save();
 			}
 		}
+		else if ($this->info['dpflag'])
+		{
+			$forumdata =& datamanager_init('Forum', $this->registry, ERRTYPE_SILENT);
+			$forumdata->set_existing($this->info['forum']);
+			$forumdata->set('lastpost', $this->fetch_field('dateline'));
+			$forumdata->save();
+		}
 	}
 }
 
@@ -641,8 +649,8 @@ class vB_DataManager_ThreadPost extends vB_DataManager
 * Class to do data save/delete operations for POSTS
 *
 * @package	vBulletin
-* @version	$Revision: 26836 $
-* @date		$Date: 2008-06-04 11:15:30 -0500 (Wed, 04 Jun 2008) $
+* @version	$Revision: 63119 $
+* @date		$Date: 2012-05-30 17:05:33 -0700 (Wed, 30 May 2012) $
 */
 class vB_DataManager_Post extends vB_DataManager_ThreadPost
 {
@@ -668,6 +676,7 @@ class vB_DataManager_Post extends vB_DataManager_ThreadPost
 		'attach'         => array(TYPE_UINT, REQ_NO),
 		'infraction'     => array(TYPE_UINT, REQ_NO),
 		'reportthreadid' => array(TYPE_UINT, REQ_NO),
+		'htmlstate'      => array(TYPE_STR, REQ_NO),
 	);
 
 	/**
@@ -734,8 +743,17 @@ class vB_DataManager_Post extends vB_DataManager_ThreadPost
 			}
 			else
 			{
-				$getfirstpost = $this->dbobject->query_first("SELECT postid FROM " . TABLE_PREFIX . "post WHERE threadid = " . $this->post['threadid'] . " ORDER BY dateline, postid LIMIT 1");
-				$this->set('parentid', $getfirstpost['postid']);
+				//trying to get the first post id from the thread instead of the posts, smaller table, no order, faster response
+				$getfirstpost = $this->dbobject->query_first("SELECT firstpostid FROM " . TABLE_PREFIX . "thread WHERE threadid = " . $this->post['threadid']);
+				if(!empty($getfirstpost['firstpostid']))
+				{
+					$this->set('parentid', $getfirstpost['firstpostid']);
+				}
+				else
+				{
+					$getfirstpost = $this->dbobject->query_first("SELECT postid FROM " . TABLE_PREFIX . "post WHERE threadid = " . $this->post['threadid'] . " ORDER BY dateline LIMIT 1");
+					$this->set('parentid', $getfirstpost['postid']);
+				}
 			}
 		}
 
@@ -751,6 +769,33 @@ class vB_DataManager_Post extends vB_DataManager_ThreadPost
 
 		$this->presave_called = $return_value;
 		return $return_value;
+	}
+
+	/**
+	 * Overridding parent function to add search index updates
+	 *
+	* @param	boolean	Do the query?
+	* @param	mixed	Whether to run the query now; see db_update() for more info
+	* @param bool 	Whether to return the number of affected rows.
+	* @param bool		Perform REPLACE INTO instead of INSERT
+	8 @param bool		Perfrom INSERT IGNORE instead of INSERT
+	*
+	* @return	mixed	If this was an INSERT query, the INSERT ID is returned
+	*/
+	function save($doquery = true, $delayed = false, $affected_rows = false, $replace = false, $ignore = false)
+	{
+		// Call and get the new id
+		$result = parent::save($doquery, $delayed, $affected_rows, $replace, $ignore);
+
+		if ($result AND ($this->post['postid'] OR $this->existing['postid']))
+		{
+			// Search index maintenance. Use the new cron'd processing;
+			require_once DIR  . '/vb/search/indexcontroller/queue.php' ;
+			$msgid = intval($this->existing['postid']) > 0 ? $this->existing['postid'] : $this->post['postid'];
+			vb_Search_Indexcontroller_Queue::indexQueue('vBForum', 'Post', 'index', $msgid);
+		}
+
+		return $result;
 	}
 
 	function post_save_each($doquery = true)
@@ -775,6 +820,18 @@ class vB_DataManager_Post extends vB_DataManager_ThreadPost
 			}
 		}
 
+		if ($this->info['thread'] AND $this->info['thread']['firstpostid'] == $this->fetch_field('postid'))
+		{
+			if (!is_object($thread))
+			{
+				$thread =& datamanager_init('Thread', $this->registry, ERRTYPE_SILENT, 'threadpost');
+				$thread->set_existing($this->info['thread']);
+			}
+			$thread->set_info('pagetext', $this->fetch_field('pagetext'));
+
+			$thread->rebuild_keywords();
+		}
+
 		if (!$this->condition)
 		{
 			if ($this->fetch_field('dateline') == TIMENOW)
@@ -795,18 +852,26 @@ class vB_DataManager_Post extends vB_DataManager_ThreadPost
 					);
 				}
 
-				$thread->set('lastpost', TIMENOW);
-				$thread->set('lastposter', $this->fetch_field('username'));
-				$thread->set('lastpostid', $postid);
+
+				if ($this->fetch_field('dateline') == TIMENOW)
+				{
+					$thread->set('lastpost', TIMENOW);
+					$thread->set('lastposter', $this->fetch_field('username'));
+					$thread->set('lastposterid', $this->fetch_field('userid'));
+					$thread->set('lastpostid', $postid);
+				}
 
 				// update last post info for this thread
 				if ($this->info['thread']['replycount'] % 10 == 0)
 				{
+					require_once(DIR . '/includes/functions_bigthree.php');
+					$coventry = fetch_coventry('string');
 					$replies = $this->registry->db->query_first("
-						SELECT COUNT(*)-1 AS replies
+						SELECT COUNT(*) - 1 AS replies
 						FROM " . TABLE_PREFIX . "post AS post
-						WHERE threadid = " . intval($this->info['thread']['threadid']) . " AND
-							post.visible = 1
+						WHERE threadid = " . intval($this->info['thread']['threadid']) . "
+						AND	post.visible = 1
+						" . ($coventry ? "AND userid NOT IN ($coventry)" : "") . "
 					");
 
 					$thread->set('replycount', $replies['replies']);
@@ -816,18 +881,65 @@ class vB_DataManager_Post extends vB_DataManager_ThreadPost
 					$thread->set('replycount', 'replycount + 1', false);
 				}
 
+				/*
+				 * Yes this will miss one unqiue user if this very post is their
+				 * first. I choose to take this over running this query after the save
+				 * which means I have to run a second update query on thread. This value
+				 * is only used for the activity stream popularity where exactness
+				 * is not required.
+				 */
 
+				if (!in_coventry($this->fetch_field('userid'), true))
+				{
+					require_once(DIR . '/includes/functions_bigthree.php');
+					$coventry = fetch_coventry('string');
+
+					$uniques = $this->registry->db->query_first("
+						SELECT COUNT(DISTINCT(userid)) AS total
+						FROM " . TABLE_PREFIX . "post
+						WHERE
+							threadid = " . intval($this->info['thread']['threadid']) . "
+								AND
+							visible = 1
+							" . ($coventry ? "AND userid NOT IN ($coventry)" : "") . "
+					");
+					if (!$uniques['total'])
+					{
+						$uniques['total'] = 1;
+					}
+					$thread->set('postercount', $uniques['total']);
+				}
 			}
 			else if ($this->fetch_field('visible') == 0 AND $this->info['thread'])
 			{
 				$thread->set('hiddencount', 'hiddencount + 1', false);
 			}
 
-			/*if ($this->fetch_field('visible') == 1 AND !in_coventry($this->registry->userinfo['userid'], true))
+			if (!$this->info['skip_activitystream'])
 			{
-				// Send out subscription emails
-				exec_send_notification($this->fetch_field('threadid'), $this->registry->userinfo['userid'], $this->fetch_field('postid'));
-			}*/
+				if ($this->info['nodeid'])	// CMS comment
+				{
+					$activity = new vB_ActivityStream_Manage('cms', 'comment');
+				}
+				else
+				{
+					$activity = new vB_ActivityStream_Manage('forum', 'post');
+				}
+				$activity->set('contentid', $this->fetch_field('postid'));
+				$activity->set('userid', $this->fetch_field('userid'));
+				$activity->set('dateline', $this->fetch_field('dateline'));
+				$activity->set('action', 'create');
+				$activity->save();
+			}
+		}
+		else if ($this->info['dpflag'])
+		{
+			if (!is_object($thread))
+			{
+				$thread =& datamanager_init('Thread', $this->registry, ERRTYPE_SILENT, 'threadpost');
+			}
+			$thread->set_existing($this->info['thread']);
+			$thread->set('lastpost', $this->fetch_field('dateline'));
 		}
 
 		if (is_object($thread))
@@ -837,7 +949,6 @@ class vB_DataManager_Post extends vB_DataManager_ThreadPost
 
 		if ($this->post['visible'] === 0)
 		{
-			$threadid = intval($this->fetch_field('threadid'));
 			$postid = intval($this->fetch_field('postid'));
 
 			/*insert query*/
@@ -894,6 +1005,10 @@ class vB_DataManager_Post extends vB_DataManager_ThreadPost
 			require_once(DIR . '/includes/functions_databuild.php');
 			// note: the skip_moderator_log is the inverse of the $dolog argument
 
+			// Search index maintenance
+			require_once(DIR . '/vb/search/indexcontroller/queue.php');
+			vb_Search_Indexcontroller_Queue::indexQueue('vBForum', 'Post', 'delete', $postid);
+
 			($hook = vBulletinHook::fetch_hook('postdata_delete')) ? eval($hook) : false;
 
 			return delete_post($postid, $countposts, $threadid, $physicaldel, $delinfo, ($this->info['skip_moderator_log'] !== null ? !$this->info['skip_moderator_log'] : $dolog));
@@ -909,8 +1024,8 @@ class vB_DataManager_Post extends vB_DataManager_ThreadPost
 * the picture.
 *
 * @package	vBulletin
-* @version	$Revision: 26836 $
-* @date		$Date: 2008-06-04 11:15:30 -0500 (Wed, 04 Jun 2008) $
+* @version	$Revision: 63119 $
+* @date		$Date: 2012-05-30 17:05:33 -0700 (Wed, 30 May 2012) $
 */
 class vB_DataManager_Thread extends vB_DataManager_ThreadPost
 {
@@ -928,11 +1043,13 @@ class vB_DataManager_Thread extends vB_DataManager_ThreadPost
 		'pollid'        => array(TYPE_UINT, REQ_NO),
 		'open'          => array(TYPE_UINT, REQ_AUTO,  VF_METHOD),
 		'replycount'    => array(TYPE_UINT, REQ_NO),
+		'postercount'   => array(TYPE_UINT, REQ_NO),
 		'hiddencount'   => array(TYPE_UINT, REQ_NO),
 		'deletedcount'  => array(TYPE_UINT, REQ_NO),
 		'postusername'  => array(TYPE_STR,  REQ_NO,    VF_METHOD, 'verify_username'),
 		'postuserid'    => array(TYPE_UINT, REQ_NO,    VF_METHOD, 'verify_userid'),
 		'lastposter'    => array(TYPE_STR,  REQ_NO),
+		'lastposterid'  => array(TYPE_UINT, REQ_NO),
 		'lastpostid'    => array(TYPE_UINT, REQ_NO),
 		'dateline'      => array(TYPE_UINT, REQ_AUTO),
 		'views'         => array(TYPE_UINT, REQ_NO),
@@ -945,7 +1062,8 @@ class vB_DataManager_Thread extends vB_DataManager_ThreadPost
 		'attach'        => array(TYPE_UINT, REQ_NO),
 		'similar'       => array(TYPE_STR,  REQ_AUTO),
 		'prefixid'      => array(TYPE_STR,  REQ_NO,    VF_METHOD),
-		'taglist'       => array(TYPE_STR,  REQ_NO)
+		'taglist'       => array(TYPE_STR,  REQ_NO),
+		'keywords'      => array(TYPE_STR,  REQ_NO)
 	);
 
 	/**
@@ -1010,6 +1128,7 @@ class vB_DataManager_Thread extends vB_DataManager_ThreadPost
 			case 'lastpost':
 			case 'lastposter':
 			case 'lastpostid':
+			case 'lastposterid':
 			{
 				if (!empty($this->info['coventry']) AND $this->info['coventry']['in_coventry'] == 1)
 				{
@@ -1146,8 +1265,26 @@ class vB_DataManager_Thread extends vB_DataManager_ThreadPost
 		return true;
 	}
 
+	//We need to index the changes
+	//
+	function post_save_once($doquery = true)
+	{
+		static $saved = array();
+		$threadid = $this->fetch_field('threadid');
+
+		if (in_array($threadid, $saved))
+		{
+			return;
+		}
+		$saved[] = $threadid;
+
+		require_once(DIR . '/vb/search/indexcontroller/queue.php');
+		vb_Search_Indexcontroller_Queue::indexQueue('vBForum', 'Post', 'thread_data_change', $threadid);
+	}
+
 	function pre_save($doquery = true)
 	{
+
 		if ($this->presave_called !== null)
 		{
 			return $this->presave_called;
@@ -1162,10 +1299,21 @@ class vB_DataManager_Thread extends vB_DataManager_ThreadPost
 			$this->do_set('postuserid', $this->thread['userid']);
 		}
 
+		//the condition constraint means that we don't trigger this if the record
+		//hasn't been loaded (probably means that its new). We actually explicitly
+		//add this code in most cases when we save the thread, so it might be worth
+		//figuring out a better way to trigger this so that we don't have code
+		//copied hither and yon.  However we also don't want to do it twice so I'm
+		//not going to take the risk of changing it now.
 		if (!$this->condition AND $this->registry->options['similarthreadsearch'])
 		{
-			require_once(DIR . '/includes/functions_search.php');
-			$this->set('similar', fetch_similar_threads($this->fetch_field('title'), 0));
+			if (empty($this->info['preview']))
+			{ // Dont run on a preview
+				require_once(DIR . '/vb/search/core.php');
+				$searchcontroller = vB_Search_Core::get_instance()->get_search_controller();
+				$similarthreads = $searchcontroller->get_similar_threads($this->fetch_field('title'));
+				$this->set('similar', implode(',', $similarthreads));
+			}
 		}
 
 		if (!$this->condition)
@@ -1200,10 +1348,17 @@ class vB_DataManager_Thread extends vB_DataManager_ThreadPost
 			}
 		}
 
+		// no keywords set, and we have the pagetext
+		if (empty($this->thread['keywords']) AND !empty($this->info['pagetext']))
+		{
+			$this->rebuild_keywords();
+		}
+
 		$return_value = true;
 		($hook = vBulletinHook::fetch_hook('threaddata_presave')) ? eval($hook) : false;
 
 		$this->presave_called = $return_value;
+
 		return $return_value;
 	}
 
@@ -1250,6 +1405,16 @@ class vB_DataManager_Thread extends vB_DataManager_ThreadPost
 			$forumdata->save();
 		}
 
+		if (!$this->condition AND !$this->info['skip_activitystream'])
+		{
+			$activity = new vB_ActivityStream_Manage('forum', 'thread');
+			$activity->set('contentid', $this->fetch_field('threadid'));
+			$activity->set('userid', $this->fetch_field('postuserid'));
+			$activity->set('dateline', $this->fetch_field('dateline'));
+			$activity->set('action', 'create');
+			$activity->save();
+		}
+
 		if ($this->condition AND $fpid = $this->fetch_field('firstpostid'))
 		{
 			if ($this->existing['visible'] == 0 AND $this->fetch_field('visible') == 1)
@@ -1278,9 +1443,6 @@ class vB_DataManager_Thread extends vB_DataManager_ThreadPost
 					$postdata->save();
 				}
 			}
-
-
-
 		}
 
 		if ($this->condition AND $this->thread['title'] AND $this->existing['title'])
@@ -1333,12 +1495,13 @@ class vB_DataManager_Thread extends vB_DataManager_ThreadPost
 
 				$this->dbobject->query_write("
 					REPLACE INTO " . TABLE_PREFIX . "tachythreadpost
-						(userid, threadid, lastpost, lastposter, lastpostid)
+						(userid, threadid, lastpost, lastposter, lastposterid, lastpostid)
 					VALUES
 						(" . intval($this->tachythreadpost['userid']) . ",
 						" . intval($this->tachythreadpost['threadid']) . ",
 						" . intval($this->tachythreadpost['lastpost']) . ",
 						'" . $this->dbobject->escape_string($this->tachythreadpost['lastposter']) . "',
+						" . intval($this->tachythreadpost['lastposterid']) . ",
 						" . intval($this->tachythreadpost['lastpostid']) . ")
 				");
 			}
@@ -1351,6 +1514,12 @@ class vB_DataManager_Thread extends vB_DataManager_ThreadPost
 			}
 		}
 
+		if ($this->condition AND $this->fetch_field('open') == 10)
+		{
+			$activity = new vB_ActivityStream_Manage('forum', 'thread');
+			$activity->set('contentid', $this->fetch_field('threadid'));
+			$activity->delete();
+		}
 		($hook = vBulletinHook::fetch_hook('threaddata_postsave')) ? eval($hook) : false;
 	}
 
@@ -1369,13 +1538,25 @@ class vB_DataManager_Thread extends vB_DataManager_ThreadPost
 		if ($threadid = $this->existing['threadid'])
 		{
 			require_once(DIR . '/includes/functions_databuild.php');
+			require_once(DIR."/vb/search/core.php");
 
 			($hook = vBulletinHook::fetch_hook('threaddata_delete')) ? eval($hook) : false;
+
+			// Search index maintenance
+			if ($physicaldel)
+			{
+				require_once(DIR . '/includes/class_taggablecontent.php');
+				$content = vB_Taggable_Content_Item::create($this->registry, "vBForum_Thread", $threadid);
+				$content->delete_tag_attachments();
+
+				//don't queue this, it needs to run before the thread records are deleted.
+				$indexcontroller = vB_Search_Core::get_instance()->get_index_controller('vBForum', 'Post');
+				$indexcontroller->delete_thread($threadid);
+			}
 
 			// note: the skip_moderator_log is the inverse of the $dolog argument
 			return delete_thread($threadid, $countposts, $physicaldel, $delinfo, ($this->info['skip_moderator_log'] !== null ? !$this->info['skip_moderator_log'] : $dolog), $this->existing);
 		}
-
 		return false;
 	}
 }
@@ -1385,8 +1566,8 @@ class vB_DataManager_Thread extends vB_DataManager_ThreadPost
 * This is an important distinction!
 *
 * @package	vBulletin
-* @version	$Revision: 26836 $
-* @date		$Date: 2008-06-04 11:15:30 -0500 (Wed, 04 Jun 2008) $
+* @version	$Revision: 63119 $
+* @date		$Date: 2012-05-30 17:05:33 -0700 (Wed, 30 May 2012) $
 */
 class vB_DataManager_Thread_FirstPost extends vB_DataManager_Thread
 {
@@ -1402,9 +1583,11 @@ class vB_DataManager_Thread_FirstPost extends vB_DataManager_Thread
 		'pollid'        => array(TYPE_UINT, REQ_NO),
 		'open'          => array(TYPE_UINT, REQ_AUTO,   VF_METHOD),
 		'replycount'    => array(TYPE_UINT, REQ_AUTO),
+		'postercount'   => array(TYPE_UINT, REQ_AUTO),
 		'hiddencount'   => array(TYPE_UINT, REQ_AUTO),
 		'deletedcount'  => array(TYPE_UINT, REQ_AUTO),
 		'lastposter'    => array(TYPE_STR,  REQ_AUTO),
+		'lastposterid'  => array(TYPE_UINT, REQ_AUTO),
 		'lastpostid'    => array(TYPE_UINT, REQ_AUTO),
 		'views'         => array(TYPE_UINT, REQ_NO),
 		'notes'         => array(TYPE_STR,  REQ_NO),
@@ -1414,6 +1597,7 @@ class vB_DataManager_Thread_FirstPost extends vB_DataManager_Thread
 		'similar'       => array(TYPE_STR,  REQ_AUTO),
 		'prefixid'      => array(TYPE_STR,  REQ_NO,     VF_METHOD),
 		'taglist'       => array(TYPE_STR,  REQ_NO),
+		'keywords'      => array(TYPE_STR,  REQ_NO),
 
 		// shared fields
 		'threadid'      => array(TYPE_UINT, REQ_INCR),
@@ -1430,6 +1614,7 @@ class vB_DataManager_Thread_FirstPost extends vB_DataManager_Thread
 		'allowsmilie'   => array(TYPE_UINT, REQ_YES), // this is required as we must know whether smilies count as images
 		'showsignature' => array(TYPE_BOOL, REQ_NO),
 		'ipaddress'     => array(TYPE_STR,  REQ_AUTO),
+		'htmlstate'     => array(TYPE_STR,  REQ_NO),
 	);
 
 	/**
@@ -1527,6 +1712,7 @@ class vB_DataManager_Thread_FirstPost extends vB_DataManager_Thread
 			case 'allowsmilie':
 			case 'showsignature':
 			case 'ipaddress':
+			case 'htmlstate':
 			{
 				$tables = array('post');
 			}
@@ -1621,7 +1807,9 @@ class vB_DataManager_Thread_FirstPost extends vB_DataManager_Thread
 		{
 			$this->set('lastpost', $this->fetch_field('dateline'));
 			$this->set('lastposter', $this->fetch_field('username', 'post'));
+			$this->set('lastposterid', $this->fetch_field('userid', 'post'));
 			$this->set('replycount', 0);
+			$this->set('postercount', 1);
 			$this->set('hiddencount', 0);
 			$this->set('deletedcount', 0);
 		}
@@ -1629,8 +1817,17 @@ class vB_DataManager_Thread_FirstPost extends vB_DataManager_Thread
 		{
 			if (!$this->fetch_field('firstpostid'))
 			{
-				$getfirstpost = $this->dbobject->query_first("SELECT postid FROM " . TABLE_PREFIX . "post WHERE threadid = " . $this->fetch_field('threadid') . " ORDER BY dateline, postid LIMIT 1");
-				$this->set('firstpostid', $getfirstpost['postid']);
+				//trying to get the first post id from the thread instead of the posts, smaller table, no order, faster response
+				$getfirstpost = $this->dbobject->query_first("SELECT firstpostid FROM " . TABLE_PREFIX . "thread WHERE threadid = " . $this->fetch_field('threadid'));
+				if(!empty($getfirstpost['firstpostid']))
+				{
+					$this->set('firstpostid', $getfirstpost['firstpostid']);
+				}
+				else
+				{
+					$getfirstpost = $this->dbobject->query_first("SELECT postid FROM " . TABLE_PREFIX . "post WHERE threadid = " . $this->fetch_field('threadid') . " ORDER BY dateline LIMIT 1");
+					$this->set('firstpostid', $getfirstpost['postid']);
+				}
 			}
 		}
 
@@ -1651,8 +1848,28 @@ class vB_DataManager_Thread_FirstPost extends vB_DataManager_Thread
 			//$this->floodcheck->rollback();
 		}
 
+		$this->rebuild_keywords();
+
 		$this->presave_called = $return_value;
 		return $return_value;
+	}
+	//We need to index the changes
+	//
+	function post_save_once($doquery = true)
+	{
+		static $saved = array();
+		$threadid = $this->fetch_field('threadid');
+		$postid = intval($this->fetch_field('firstpostid'));
+
+		if (in_array($threadid, $saved))
+		{
+			return;
+		}
+		$saved[] = $threadid;
+
+		require_once(DIR . '/vb/search/indexcontroller/queue.php');
+		vb_Search_Indexcontroller_Queue::indexQueue('vBForum', 'Post', 'thread_data_change', $threadid);
+		vb_Search_Indexcontroller_Queue::indexQueue('vBForum', 'Post', 'index', $postid);
 	}
 
 	function post_save_each($doquery = true)
@@ -1669,14 +1886,17 @@ class vB_DataManager_Thread_FirstPost extends vB_DataManager_Thread
 			$this->insert_postlog_data();
 		}
 
-		if ($this->info['forum'] AND $this->fetch_field('firstpostid'))
-		{
-			// ### UPDATE SEARCH INDEX ###
-			require_once(DIR . '/includes/functions_databuild.php');
-			build_post_index($this->fetch_field('firstpostid'), $this->info['forum'], 1);
-		}
-
 		$threadid = intval($this->fetch_field('threadid'));
+
+		if (!$this->condition AND !$this->info['skip_activitystream'])
+		{
+			$activity = new vB_ActivityStream_Manage('forum', 'thread');
+			$activity->set('contentid', $threadid);
+			$activity->set('userid', $this->fetch_field('postuserid'));
+			$activity->set('dateline', $this->fetch_field('dateline'));
+			$activity->set('action', 'create');
+			$activity->save();
+		}
 
 		if ($this->thread['visible'] === 0)
 		{
@@ -1742,6 +1962,23 @@ class vB_DataManager_Thread_FirstPost extends vB_DataManager_Thread
 	*/
 	function delete($countposts = true, $physicaldel = true, $delinfo = NULL, $dolog = true)
 	{
+ 		require_once(DIR . '/vb/search/core.php');
+      	// TODO: follow up on and check $this->existing['threadid']
+
+		if ($threadid = $this->existing['threadid'])
+		{
+			// Search index maintenance
+			if ($physicaldel)
+			{
+				require_once(DIR . '/vb/search/indexcontroller/queue.php');
+				vb_Search_Indexcontroller_Queue::indexQueue('vBForum', 'Post', 'delete', $threadid);
+
+				require_once(DIR . '/includes/class_taggablecontent.php');
+				$content = vB_Taggable_Content_Item::create($this->registry, "vBForum_Thread", $threadid);
+				$content->delete_tag_attachments();
+			}
+		}
+
 		($hook = vBulletinHook::fetch_hook('threadfpdata_delete')) ? eval($hook) : false;
 
 		return parent::delete($countposts, $physicaldel, $delinfo, ($this->info['skip_moderator_log'] !== null ? !$this->info['skip_moderator_log'] : $dolog));
@@ -1752,8 +1989,8 @@ class vB_DataManager_Thread_FirstPost extends vB_DataManager_Thread
 * Class to do data update operations for multiple POSTS simultaneously
 *
 * @package	vBulletin
-* @version	$Revision: 26836 $
-* @date		$Date: 2008-06-04 11:15:30 -0500 (Wed, 04 Jun 2008) $
+* @version	$Revision: 63119 $
+* @date		$Date: 2012-05-30 17:05:33 -0700 (Wed, 30 May 2012) $
 */
 class vB_DataManager_Post_Multiple extends vB_DataManager_Multiple
 {
@@ -1806,8 +2043,8 @@ class vB_DataManager_Post_Multiple extends vB_DataManager_Multiple
 * Class to do data update operations for multiple THREADS simultaneously
 *
 * @package	vBulletin
-* @version	$Revision: 26836 $
-* @date		$Date: 2008-06-04 11:15:30 -0500 (Wed, 04 Jun 2008) $
+* @version	$Revision: 63119 $
+* @date		$Date: 2012-05-30 17:05:33 -0700 (Wed, 30 May 2012) $
 */
 class vB_DataManager_Thread_Multiple extends vB_DataManager_Multiple
 {
@@ -1857,8 +2094,7 @@ class vB_DataManager_Thread_Multiple extends vB_DataManager_Multiple
 
 /*======================================================================*\
 || ####################################################################
-|| # Downloaded: 16:21, Sat Apr 6th 2013
-|| # CVS: $RCSfile$ - $Revision: 26836 $
+|| # Downloaded: 14:57, Sun Aug 11th 2013
+|| # CVS: $RCSfile$ - $Revision: 63119 $
 || ####################################################################
 \*======================================================================*/
-?>

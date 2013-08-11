@@ -1,9 +1,9 @@
 <?php
 /*======================================================================*\
 || #################################################################### ||
-|| # vBulletin 3.7.2 Patch Level 2 - Licence Number VBF2470E4F
+|| # vBulletin 4.2.1 - Licence Number VBC2DDE4FB
 || # ---------------------------------------------------------------- # ||
-|| # Copyright ©2000-2013 Jelsoft Enterprises Ltd. All Rights Reserved. ||
+|| # Copyright ©2000-2013 vBulletin Solutions Inc. All Rights Reserved. ||
 || # This file may not be redistributed in whole or significant part. # ||
 || # ---------------- VBULLETIN IS NOT FREE SOFTWARE ---------------- # ||
 || # http://www.vbulletin.com | http://www.vbulletin.com/license.html # ||
@@ -366,7 +366,7 @@ function verify_reminder_title_length($title)
 function fetch_reminders_array2()
 {
 // prints out all reminders for the appropriate control panel
-	global $vbulletin, $permissions, $vbphrase, $stylevar;
+	global $vbulletin, $permissions, $vbphrase;
 
 	if ($permissions['adminpermissions'] & $vbulletin->bf_ugp_adminpermissions['cancontrolpanel'])
 	{
@@ -422,7 +422,7 @@ function fetch_reminders_array2()
 			$cell[] = '<p class="smallfont">'.$reminder['title'].'</p>';
 			//$cell[] = '<span class="smallfont">'.construct_link_code($status, $link, 0, $hint) . '</span>';
 			$cell[] = '<p class="smallfont">' . construct_link_code($vbphrase['edit'], "reminder.php?" . $vbulletin->session->vars['sessionurl'] . "do=edit&amp;id[$reminder[adminreminderid]]=1") . '</p>';
-			$cell[] = '<p class="smallfont" style="text-align:' . $stylevar['right'] . '">'.$status.'<input type="checkbox" name="id['.$reminder['adminreminderid'].']" value="1" tabindex="1"'.$checkbox.' /></p>';
+			$cell[] = '<p class="smallfont" style="text-align:' . vB_Template_Runtime::fetchStyleVar('right') . '">'.$status.'<input type="checkbox" name="id['.$reminder['adminreminderid'].']" value="1" tabindex="1"'.$checkbox.' /></p>';
 			print_cells_row($cell, 0, '', -2);
 
 		}
@@ -480,8 +480,8 @@ function fetch_reminders_array()
 
 /*======================================================================*\
 || ####################################################################
-|| # Downloaded: 16:21, Sat Apr 6th 2013
-|| # CVS: $RCSfile$ - $Revision: 26968 $
+|| # Downloaded: 14:57, Sun Aug 11th 2013
+|| # CVS: $RCSfile$ - $Revision: 32878 $
 || ####################################################################
 \*======================================================================*/
 ?>

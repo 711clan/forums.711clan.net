@@ -1,9 +1,9 @@
 <?php
 /*======================================================================*\
 || #################################################################### ||
-|| # vBulletin 3.7.2 Patch Level 2 - Licence Number VBF2470E4F
+|| # vBulletin 4.2.1 - Licence Number VBC2DDE4FB
 || # ---------------------------------------------------------------- # ||
-|| # Copyright ©2000-2013 Jelsoft Enterprises Ltd. All Rights Reserved. ||
+|| # Copyright ©2000-2013 vBulletin Solutions Inc. All Rights Reserved. ||
 || # This file may not be redistributed in whole or significant part. # ||
 || # ---------------- VBULLETIN IS NOT FREE SOFTWARE ---------------- # ||
 || # http://www.vbulletin.com | http://www.vbulletin.com/license.html # ||
@@ -82,7 +82,7 @@ function fetch_coventry($returntype = 'array', $withself = false)
 */
 function fetch_online_status(&$user, $setstatusimage = false)
 {
-	global $vbulletin, $stylevar, $vbphrase;
+	global $vbulletin, $vbphrase;
 	static $buddylist, $datecut;
 
 	// get variables used by this function
@@ -90,7 +90,7 @@ function fetch_online_status(&$user, $setstatusimage = false)
 	{
 		$datecut = TIMENOW - $vbulletin->options['cookietimeout'];
 
-		if ($vbulletin->userinfo['buddylist'] = trim($vbulletin->userinfo['buddylist']))
+		if (isset($vbulletin->userinfo['buddylist']) AND $vbulletin->userinfo['buddylist'] = trim($vbulletin->userinfo['buddylist']))
 		{
 			$buddylist = preg_split('/\s+/', $vbulletin->userinfo['buddylist'], -1, PREG_SPLIT_NO_EMPTY);
 		}
@@ -114,6 +114,8 @@ function fetch_online_status(&$user, $setstatusimage = false)
 	$user['invisiblemark'] = '';
 
 	$onlinestatus = 0;
+	$user['online'] = 'offline';
+	$user['onlinestatusphrase']='x_is_offline';
 	// now decide if we can see the user or not
 	if ($user['lastactivity'] > $datecut AND $user['lastvisit'] != $user['lastactivity'])
 	{
@@ -123,6 +125,8 @@ function fetch_online_status(&$user, $setstatusimage = false)
 			{
 				// user is online and invisible BUT bbuser can see them
 				$user['invisiblemark'] = '*';
+				$user['online'] = 'invisible';
+				$user['onlinestatusphrase'] = 'x_is_invisible';
 				$onlinestatus = 2;
 			}
 		}
@@ -130,12 +134,17 @@ function fetch_online_status(&$user, $setstatusimage = false)
 		{
 			// user is online and visible
 			$onlinestatus = 1;
+			$user['online'] = 'online';
+			$user['onlinestatusphrase'] = 'x_is_online_now';
 		}
 	}
 
 	if ($setstatusimage)
 	{
-		eval('$user[\'onlinestatus\'] = "' . fetch_template('postbit_onlinestatus') . '";');
+		$templater = vB_Template::create('postbit_onlinestatus');
+			$templater->register('onlinestatus', $onlinestatus);
+			$templater->register('user', $user);
+		$user['onlinestatus'] = $templater->render();
 	}
 
 	return $onlinestatus;
@@ -388,12 +397,13 @@ function mark_forum_read(&$foruminfo, $userid, $time, $check_parents = true)
 function construct_forum_rules($foruminfo, $permissions)
 {
 	// array of foruminfo and permissions for this forum
-	global $forumrules, $stylevar, $vbphrase, $vbcollapse, $show, $vbulletin;
+	global $forumrules, $vbphrase, $vbcollapse, $show, $vbulletin;
 
-	$bbcodeon = iif($foruminfo['allowbbcode'], $vbphrase['on'], $vbphrase['off']);
-	$imgcodeon = iif($foruminfo['allowimages'], $vbphrase['on'], $vbphrase['off']);
-	$htmlcodeon = iif($foruminfo['allowhtml'], $vbphrase['on'], $vbphrase['off']);
-	$smilieson = iif($foruminfo['allowsmilies'], $vbphrase['on'], $vbphrase['off']);
+	$bbcodeon = ($foruminfo['allowbbcode'] ? $vbphrase['on'] : $vbphrase['off']);
+	$imgcodeon = ($foruminfo['allowimages'] ? $vbphrase['on'] : $vbphrase['off']);
+	$videocodeon = ($foruminfo['allowvideos'] ? $vbphrase['on'] : $vbphrase['off']);
+	$htmlcodeon = ($foruminfo['allowhtml'] ? $vbphrase['on'] : $vbphrase['off']);
+	$smilieson = ($foruminfo['allowsmilies'] ? $vbphrase['on'] : $vbphrase['off']);
 
 	$can['postnew'] = (($permissions & $vbulletin->bf_ugp_forumpermissions['canpostnew']) AND $foruminfo['allowposting']);
 	$can['replyown'] = (($permissions & $vbulletin->bf_ugp_forumpermissions['canreplyown']) AND $foruminfo['allowposting']);
@@ -405,57 +415,72 @@ function construct_forum_rules($foruminfo, $permissions)
 
 	($hook = vBulletinHook::fetch_hook('forumrules')) ? eval($hook) : false;
 
-	eval('$forumrules = "' . fetch_template('forumrules') . '";');
+	$templater = vB_Template::create('forumrules');
+		$templater->register('bbcodeon', $bbcodeon);
+		$templater->register('can', $can);
+		$templater->register('htmlcodeon', $htmlcodeon);
+		$templater->register('imgcodeon', $imgcodeon);
+		$templater->register('videocodeon', $videocodeon);
+		$templater->register('smilieson', $smilieson);
+	$forumrules = $templater->render();
 }
 
 /**
 * Fetches the tagbits for display in a thread.
 *
-* @param	array	Thread info
+* @param	array	Tags
 *
 * @return	string	Tag bits, including a none word and progress image
 */
-function fetch_tagbits($threadinfo)
+function fetch_tagbits($tags)
 {
-	global $vbulletin, $stylevar, $vbphrase, $show, $template_hook;
+	global $vbulletin, $vbphrase, $show, $template_hook;
 
+	$tagcount = 0;
+	$tag_list = array();
 
-	if ($threadinfo['taglist'])
+	if ($tags)
 	{
-		$tag_array = explode(',', $threadinfo['taglist']);
+		$tag_array = explode(',', $tags);
 
-		$tag_list = '';
 		foreach ($tag_array AS $tag)
 		{
+			$row = array();
 			$tag = trim($tag);
 			if ($tag === '')
 			{
 				continue;
 			}
-			$tag_url = urlencode(unhtmlspecialchars($tag));
-			$tag = fetch_word_wrapped_string($tag);
+
+			$tagcount++;
+			$row['tag'] = fetch_word_wrapped_string($tag);
+			$row['url'] = urlencode(unhtmlspecialchars($tag));
+			$row['comma'] = $vbphrase['comma_space'];
 
 			($hook = vBulletinHook::fetch_hook('tag_fetchbit')) ? eval($hook) : false;
 
-			$tag_list .= ($tag_list != '' ? ', ' : '');
-			eval('$tag_list .= trim("' . fetch_template('tagbit') . '");');
+			$tag_list[$tagcount] = $row;
 		}
-	}
-	else
-	{
-		$tag_list = '';
+
+		// Last element
+		if ($tagcount) 
+		{
+			$tag_list[$tagcount]['comma'] = '';
+		}
 	}
 
 	($hook = vBulletinHook::fetch_hook('tag_fetchbit_complete')) ? eval($hook) : false;
 
-	eval('$wrapped = "' . fetch_template('tagbit_wrapper') . '";');
+	$templater = vB_Template::create('tagbit_wrapper');
+		$templater->register('tag_list', $tag_list);
+	$wrapped = $templater->render();
 	return $wrapped;
 }
 
 /*======================================================================*\
 || ####################################################################
-|| # Downloaded: 16:21, Sat Apr 6th 2013
-|| # CVS: $RCSfile$ - $Revision: 26052 $
+|| # Downloaded: 14:57, Sun Aug 11th 2013
+|| # CVS: $RCSfile$ - $Revision: 59389 $
 || ####################################################################
 \*======================================================================*/
 ?>

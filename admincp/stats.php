@@ -1,9 +1,9 @@
 <?php
 /*======================================================================*\
 || #################################################################### ||
-|| # vBulletin 3.7.2 Patch Level 2 - Licence Number VBF2470E4F
+|| # vBulletin 4.2.1 - Licence Number VBC2DDE4FB
 || # ---------------------------------------------------------------- # ||
-|| # Copyright ©2000-2013 Jelsoft Enterprises Ltd. All Rights Reserved. ||
+|| # Copyright ©2000-2013 vBulletin Solutions Inc. All Rights Reserved. ||
 || # This file may not be redistributed in whole or significant part. # ||
 || # ---------------- VBULLETIN IS NOT FREE SOFTWARE ---------------- # ||
 || # http://www.vbulletin.com | http://www.vbulletin.com/license.html # ||
@@ -14,7 +14,7 @@
 error_reporting(E_ALL & ~E_NOTICE);
 
 // ##################### DEFINE IMPORTANT CONSTANTS #######################
-define('CVS_REVISION', '$RCSfile$ - $Revision: 16150 $');
+define('CVS_REVISION', '$RCSfile$ - $Revision: 40911 $');
 
 // #################### PRE-CACHE TEMPLATES AND DATA ######################
 $phrasegroups = array('stats');
@@ -70,10 +70,15 @@ if ($_REQUEST['do'] == 'top')
 	print_label_row($vbphrase['newest_member'], construct_link_code($vbulletin->userstats['newusername'], "user.php?do=edit&u=" . $vbulletin->userstats['newuserid']));
 	print_label_row($vbphrase['record_online_users'], "{$vbulletin->maxloggedin[maxonline]} ($recorddate $recordtime)");
 
-	print_label_row($vbphrase['top_poster'], construct_link_code("$maxposts[username] - $maxposts[posts]", "user.php?do=edit&u=$maxposts[userid]"));
-	print_label_row($vbphrase['most_replied_thread'], construct_link_code($maxthread['title'], "../showthread.php?t=$maxthread[threadid]", true));
-	print_label_row($vbphrase['most_viewed_thread'], construct_link_code($mostpopular['title'], "../showthread.php?t=$mostpopular[threadid]", true));
-	print_label_row($vbphrase['most_popular_forum'], construct_link_code($popularforum['title'], "../forumdisplay.php?f=$popularforum[forumid]", true));
+
+	print_label_row($vbphrase['top_poster'], construct_link_code("$maxposts[username] - $maxposts[posts]", 
+		"user.php?do=edit&u=$maxposts[userid]"));
+	print_label_row($vbphrase['most_replied_thread'], construct_link_code($maxthread['title'], 
+		fetch_seo_url('thread|bburl', $maxthread), true));
+	print_label_row($vbphrase['most_viewed_thread'], construct_link_code($mostpopular['title'], 
+		fetch_seo_url('thread|bburl', $mostpopular), true));
+	print_label_row($vbphrase['most_popular_forum'], construct_link_code($popularforum['title'], 
+		fetch_seo_url('forum|bburl', $popularforum), true));
 	print_table_footer();
 
 }
@@ -169,7 +174,7 @@ if (!empty($vbulletin->GPC['scope']))
 	$statistics = $db->query_read("
 		SELECT SUM($type) AS total,
 		DATE_FORMAT(from_unixtime(dateline), '$sqlformat') AS formatted_date,
-		MAX(dateline) AS dateline
+		AVG(dateline) AS dateline
 		FROM " . TABLE_PREFIX . "stats
 		WHERE dateline >= $start_time
 			AND dateline <= $end_time
@@ -193,12 +198,12 @@ if (!empty($vbulletin->GPC['scope']))
 
 	// we'll need a poll image
 	$style = $db->query_first("
-		SELECT stylevars FROM " . TABLE_PREFIX . "style
+		SELECT styleid, newstylevars FROM " . TABLE_PREFIX . "style
 		WHERE styleid = " . $vbulletin->options['styleid'] . "
 		LIMIT 1
 	");
-	$stylevars = unserialize($style['stylevars']);
-	unset($style);
+	$vbulletin->stylevars = unserialize($style['newstylevars']);
+	fetch_stylevars($style, $vbulletin->userinfo);
 
 	print_form_header('');
 	print_table_header($vbphrase['results'], 3);
@@ -225,8 +230,8 @@ print_cp_footer();
 
 /*======================================================================*\
 || ####################################################################
-|| # Downloaded: 16:21, Sat Apr 6th 2013
-|| # CVS: $RCSfile$ - $Revision: 16150 $
+|| # Downloaded: 14:57, Sun Aug 11th 2013
+|| # CVS: $RCSfile$ - $Revision: 40911 $
 || ####################################################################
 \*======================================================================*/
 ?>

@@ -1,9 +1,9 @@
 <?php
 /*======================================================================*\
 || #################################################################### ||
-|| # vBulletin 3.7.2 Patch Level 2 - Licence Number VBF2470E4F
+|| # vBulletin 4.2.1 - Licence Number VBC2DDE4FB
 || # ---------------------------------------------------------------- # ||
-|| # Copyright Â©2000-2013 Jelsoft Enterprises Ltd. All Rights Reserved. ||
+|| # Copyright ©2000-2013 vBulletin Solutions Inc. All Rights Reserved. ||
 || # This file may not be redistributed in whole or significant part. # ||
 || # ---------------- VBULLETIN IS NOT FREE SOFTWARE ---------------- # ||
 || # http://www.vbulletin.com | http://www.vbulletin.com/license.html # ||
@@ -120,7 +120,7 @@ class vB_Picture_CommentFactory
 
 		($hook = vBulletinHook::fetch_hook('picture_commentbit_factory')) ? eval($hook) : false;
 
-		if (class_exists($class_name))
+		if (class_exists($class_name, false))
 		{
 			return new $class_name($this->registry, $this, $this->bbcode, $this->pictureinfo, $message);
 		}
@@ -242,6 +242,7 @@ class vB_Picture_Comment
 
 		// preparation for display...
 		$this->prepare_start();
+		fetch_avatar_from_userinfo($this->message, true);
 
 		if ($this->message['userid'])
 		{
@@ -252,8 +253,6 @@ class vB_Picture_Comment
 			$this->process_unregistered_user();
 		}
 
-		fetch_avatar_from_userinfo($this->message, true);
-
 		$this->process_date_status();
 		$this->process_display();
 		$this->process_text();
@@ -263,17 +262,23 @@ class vB_Picture_Comment
 		$pictureinfo =& $this->pictureinfo;
 		$message =& $this->message;
 
-		global $show, $vbphrase, $stylevar;
+		global $show, $vbphrase;
 		global $spacer_open, $spacer_close;
 
 		global $bgclass, $altbgclass;
 		exec_switch_bg();
 
+		$messageinfo = array(
+			'userid'   => $message['pictureowner_userid'],
+			'username' => $message['pictureowner_name'],
+		);
+
 		($hook = vBulletinHook::fetch_hook('picture_commentbit_display_complete')) ? eval($hook) : false;
 
-		eval('$output = "' . fetch_template($this->template) . '";');
-
-		return $output;
+		$templater = vB_Template::create($this->template);
+			$templater->register('message', $message);
+			$templater->register('pictureinfo', $pictureinfo);
+		return $templater->render();
 	}
 
 	/**
@@ -343,6 +348,7 @@ class vB_Picture_Comment
 					$this->registry->options['secureemail'] AND $this->registry->options['enableemail']
 				)
 			) AND $this->registry->userinfo['permissions']['genericpermissions'] & $this->registry->bf_ugp_genericpermissions['canemailmember']
+			AND $this->registry->userinfo['userid']
 		);
 		$show['homepage'] = ($this->message['homepage'] != '' AND $this->message['homepage'] != 'http://');
 		$show['pmlink'] = ($this->registry->options['enablepms'] AND $this->registry->userinfo['permissions']['pmquota'] AND ($this->registry->userinfo['permissions']['adminpermissions'] & $this->registry->bf_ugp_adminpermissions['cancontrolpanel']
@@ -386,7 +392,7 @@ class vB_Picture_Comment
 	{
 		$this->message['message'] = $this->bbcode->parse(
 			$this->message['pagetext'],
-			'socialmessage',
+			'picturecomment',
 			$this->message['allowsmilie']
 		);
 		$this->parsed_cache =& $this->bbcode->cached;
@@ -440,7 +446,7 @@ class vB_Picture_Comment
 	 */
 	function process_display()
 	{
-		global $show;
+		global $show, $session;
 
 		$show['moderation'] = ($this->message['state'] == 'moderation');
 		$show['edit'] = fetch_user_picture_message_perm('caneditmessages', $this->pictureinfo, $this->message);
@@ -463,6 +469,16 @@ class vB_Picture_Comment
 				 	can_moderate(0, 'canremovepicturecomments')
 			)
 		);
+
+		if ($this->pictureinfo['groupid'])
+		{
+			$this->message['pictureurl'] = fetch_seo_url('group', $this->pictureinfo, 
+				array('do' => 'picture', 'attachmentid' => $this->pictureinfo['attachmentid']));
+		}
+		else 
+		{
+			$this->message['pictureurl'] = "album.php?$session[sessionurl]albumid={$this->pictureinfo['albumid']}&amp;attachmentid={$this->pictureinfo['attachmentid']}";
+		}
 	}
 }
 
@@ -526,47 +542,12 @@ class vB_Picture_Comment_Global_Ignored extends vB_Picture_Comment
 	*/
 	function construct()
 	{
-		($hook = vBulletinHook::fetch_hook('picture_commentbit_display_start')) ? eval($hook) : false;
-
 		if (!can_moderate(0, 'candeletepicturecomments') AND !can_moderate(0, 'canremovepicturecomments'))
 		{
 			return;
 		}
 
-		// preparation for display...
-		$this->prepare_start();
-
-		if ($this->message['userid'])
-		{
-			$this->process_registered_user();
-		}
-		else
-		{
-			$this->process_unregistered_user();
-		}
-
-		fetch_avatar_from_userinfo($this->message, true);
-
-		$this->process_date_status();
-		$this->process_display();
-		$this->process_text();
-		$this->prepare_end();
-
-		// actual display...
-		$pictureinfo =& $this->pictureinfo;
-		$message =& $this->message;
-
-		global $show, $vbphrase, $stylevar;
-		global $spacer_open, $spacer_close;
-
-		global $bgclass, $altbgclass;
-		exec_switch_bg();
-
-		($hook = vBulletinHook::fetch_hook('picture_commentbit_display_complete')) ? eval($hook) : false;
-
-		eval('$output = "' . fetch_template($this->template) . '";');
-
-		return $output;
+		return parent::construct();
 	}
 }
 
@@ -610,8 +591,8 @@ class vB_Picture_Comment_ModeratedView extends vB_Picture_Comment
 
 /*======================================================================*\
 || ####################################################################
-|| # Downloaded: 16:21, Sat Apr 6th 2013
-|| # SVN: $Revision: 26601 $
+|| # Downloaded: 14:57, Sun Aug 11th 2013
+|| # SVN: $Revision: 63231 $
 || ####################################################################
 \*======================================================================*/
 ?>

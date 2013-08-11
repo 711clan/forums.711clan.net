@@ -1,9 +1,9 @@
 <?php
 /*======================================================================*\
 || #################################################################### ||
-|| # vBulletin 3.7.2 Patch Level 2 - Licence Number VBF2470E4F
+|| # vBulletin 4.2.1 - Licence Number VBC2DDE4FB
 || # ---------------------------------------------------------------- # ||
-|| # Copyright ©2000-2013 Jelsoft Enterprises Ltd. All Rights Reserved. ||
+|| # Copyright ©2000-2013 vBulletin Solutions Inc. All Rights Reserved. ||
 || # This file may not be redistributed in whole or significant part. # ||
 || # ---------------- VBULLETIN IS NOT FREE SOFTWARE ---------------- # ||
 || # http://www.vbulletin.com | http://www.vbulletin.com/license.html # ||
@@ -321,6 +321,8 @@ class vB_UserProfile
 		$this->prepared['msn'] = $this->userinfo['msn'];
 		$this->prepared['yahoo'] = $this->userinfo['yahoo'];
 		$this->prepared['skype'] = $this->userinfo['skype'];
+
+		require_once(DIR . '/includes/class_postbit.php');
 		construct_im_icons($this->prepared);
 		$this->prepared['hasimicons'] = $show['hasimicons'];
 		$this->prepared['hasimdetails'] = ($this->prepared['icq'] OR $this->prepared['aim'] OR $this->prepared['msn'] OR $this->prepared['yahoo'] OR $this->prepared['skype']) ? true : false;
@@ -367,7 +369,16 @@ class vB_UserProfile
 	*/
 	function prepare_lastactivity()
 	{
-		if (!$this->userinfo['invisible'] OR ($this->registry->userinfo['permissions']['genericpermissions'] & $this->registry->bf_ugp_genericpermissions['canseehidden']) OR $this->userinfo['userid'] == $this->registry->userinfo['userid'])
+		if (
+			$this->userinfo['lastactivity']
+			AND (
+				!$this->userinfo['invisible']
+				OR
+				($this->registry->userinfo['permissions']['genericpermissions'] & $this->registry->bf_ugp_genericpermissions['canseehidden'])
+				OR
+				$this->userinfo['userid'] == $this->registry->userinfo['userid']
+			)
+		)
 		{
 			$this->prepared['lastactivitydate'] = vbdate($this->registry->options['dateformat'], $this->userinfo['lastactivity'], true);
 			$this->prepared['lastactivitytime'] = vbdate($this->registry->options['timeformat'], $this->userinfo['lastactivity'], true);
@@ -392,7 +403,7 @@ class vB_UserProfile
 		if ($this->registry->options['profilelastpost'] AND $this->userinfo['lastpost'] AND !in_coventry($this->userinfo['userid']))
 		{
 			if ($this->userinfo['lastpostid'] AND $getlastpost = $this->registry->db->query_first_slave("
-				SELECT thread.title, thread.threadid, thread.forumid, post.postid, post.dateline
+				SELECT thread.title, thread.threadid, thread.forumid, thread.postuserid, post.postid, post.dateline
 				FROM " . TABLE_PREFIX . "post AS post
 				INNER JOIN " . TABLE_PREFIX . "thread AS thread USING (threadid)
 				WHERE post.postid = " . $this->userinfo['lastpostid'] . "
@@ -400,20 +411,13 @@ class vB_UserProfile
 					AND thread.visible = 1
 			"))
 			{
-				$getperms = fetch_permissions($getlastpost['forumid']);
-				if ($getperms & $this->registry->bf_ugp_forumpermissions['canview'])
-				{
-					$this->prepared['lastposttitle'] = $getlastpost['title'];
-					$this->prepared['lastposturl'] = 'showthread.php?' . $this->registry->session->vars['sessionurl'] . "p=$getlastpost[postid]#post$getlastpost[postid]";
-					$this->prepared['lastpostdate'] = vbdate($this->registry->options['dateformat'], $getlastpost['dateline'], true);
-					$this->prepared['lastposttime'] = vbdate($this->registry->options['timeformat'], $getlastpost['dateline']);
-				}
+				$this->setup_lastpost_internal($getlastpost);
 			}
 
 			if ($this->prepared['lastposttitle'] === '')
 			{
 				$getlastposts = $this->registry->db->query_read_slave("
-					SELECT thread.title, thread.threadid, thread.forumid, post.postid, post.dateline
+					SELECT thread.title, thread.threadid, thread.forumid, thread.postuserid, post.postid, post.dateline
 					FROM " . TABLE_PREFIX . "post AS post
 					INNER JOIN " . TABLE_PREFIX . "thread AS thread USING (threadid)
 					WHERE thread.visible = 1
@@ -424,14 +428,8 @@ class vB_UserProfile
 				");
 				while ($getlastpost = $this->registry->db->fetch_array($getlastposts))
 				{
-					$getperms = fetch_permissions($getlastpost['forumid']);
-					if ($getperms & $this->registry->bf_ugp_forumpermissions['canview'])
+					if ($this->setup_lastpost_internal($getlastpost))
 					{
-						$this->prepared['lastposttitle'] = $getlastpost['title'];
-						$this->prepared['lastposturl'] = 'showthread.php?' . $this->registry->session->vars['sessionurl'] . "p=$getlastpost[postid]#post$getlastpost[postid]";
-						$this->prepared['lastpostdate'] = vbdate($this->registry->options['dateformat'], $getlastpost['dateline'], true);
-						$this->prepared['lastposttime'] = vbdate($this->registry->options['timeformat'], $getlastpost['dateline']);
-
 						break;
 					}
 				}
@@ -439,6 +437,39 @@ class vB_UserProfile
 		}
 
 		$this->prepared['lastpost'] = true;
+	}
+
+	/**
+	* Internal function to check the permissions on the last post data
+	* and set the fields as necessary.
+	*
+	* @param	array	Array of last post information
+	*
+	* @return	boolean	True if last post data prepared
+	*/
+	function setup_lastpost_internal($getlastpost)
+	{
+		$forumperms = fetch_permissions($getlastpost['forumid']);
+
+		if (!($forumperms & $this->registry->bf_ugp_forumpermissions['canview']) OR !($forumperms & $this->registry->bf_ugp_forumpermissions['canviewthreads']))
+		{
+			return false;
+		}
+		else if (!($forumperms & $this->registry->bf_ugp_forumpermissions['canviewothers']) AND ($getlastpost['postuserid'] != $this->registry->userinfo['userid'] OR !$this->registry->userinfo['userid']))
+		{
+			return false;
+		}
+		else if (!verify_forum_password($getlastpost['forumid'], $this->registry->forumcache["$getlastpost[forumid]"]['password'], false))
+		{
+			return false;
+		}
+
+		$this->prepared['lastposttitle'] = $getlastpost['title'];
+		$this->prepared['lastposturl'] = fetch_seo_url('thread', $getlastpost, array('p' => $getlastpost['postid'] . "#post$getlastpost[postid]"));
+		$this->prepared['lastpostdate'] = vbdate($this->registry->options['dateformat'], $getlastpost['dateline'], true);
+		$this->prepared['lastposttime'] = vbdate($this->registry->options['timeformat'], $getlastpost['dateline']);
+
+		return true;
 	}
 
 	/**
@@ -538,10 +569,10 @@ class vB_UserProfile
 	{
 		if(!isset($this->prepared['profileurl']))
 		{
-			$profileurl = create_full_url('member.php?u=' . $this->prepared['userid']);
+			$profileurl = create_full_url(fetch_seo_url('member', $this->userinfo));
 			if (!preg_match('#^[a-z]+://#i', $profileurl))
 			{
-				$profileurl = $this->registry->options['bburl'] . '/member.php?u=' . $this->prepared['userid'];
+				$profileurl = $this->registry->options['bburl'] . '/' . fetch_seo_url('member', $this->userinfo);
 
 			}
 			$this->prepared['profileurl'] = $profileurl;
@@ -580,7 +611,7 @@ class vB_UserProfile
 			(
 				!$this->userinfo['vm_contactonly']
 					OR
-				can_moderate()
+				can_moderate(0,'canmoderatevisitormessages')
 					OR
 				$this->userinfo['userid'] == $this->registry->userinfo['userid']
 					OR
@@ -591,7 +622,7 @@ class vB_UserProfile
 				$this->userinfo['vm_enable']
 					OR
 				(
-					can_moderate()
+					can_moderate(0,'canmoderatevisitormessages')
 						AND
 					$this->registry->userinfo['userid'] != $this->userinfo['userid']
 				)
@@ -605,7 +636,7 @@ class vB_UserProfile
 			{
 				$state[] = 'moderation';
 			}
-			if (can_moderate() OR ($this->registry->userinfo['userid'] == $this->userinfo['userid'] AND $this->registry->userinfo['permissions']['visitormessagepermissions'] & $this->registry->bf_ugp_visitormessagepermissions['canmanageownprofile']))
+			if (can_moderate(0,'canmoderatevisitormessages') OR ($this->registry->userinfo['userid'] == $this->userinfo['userid'] AND $this->registry->userinfo['permissions']['visitormessagepermissions'] & $this->registry->bf_ugp_visitormessagepermissions['canmanageownprofile']))
 			{
 				$state[] = 'deleted';
 				$deljoinsql = "LEFT JOIN " . TABLE_PREFIX . "deletionlog AS deletionlog ON (visitormessage.vmid = deletionlog.primaryid AND deletionlog.type = 'visitormessage')";
@@ -676,8 +707,12 @@ class vB_UserProfile
 				$this->prepare('userperms');
 			}
 
-			fetch_reputation_image($this->userinfo, $this->prepared['userperms']);
+			if ($this->registry->options['reputationenable'])
+			{
+				fetch_reputation_image($this->userinfo, $this->prepared['userperms']);
+			}
 
+			$this->prepared['level'] = $this->userinfo['level'];
 			$this->prepared['reputationdisplay'] = $this->userinfo['reputationdisplay'];
 		}
 	}
@@ -719,6 +754,7 @@ class vB_UserProfile
 				AND $this->registry->options['enableemail']
 				AND $this->registry->options['displayemails']
 				AND $this->registry->userinfo['permissions']['genericpermissions'] & $this->registry->bf_ugp_genericpermissions['canemailmember']
+				AND $this->registry->userinfo['userid']
 			);
 
 			$show['pm'] = (
@@ -749,7 +785,7 @@ class vB_UserProfile
 					!$this->userinfo['vm_contactonly']
 					OR $this->userinfo['userid'] == $this->registry->userinfo['userid']
 					OR $this->userinfo['bbuser_iscontact_of_user']
-					OR can_moderate()
+					OR can_moderate(0,'canmoderatevisitormessages')
 				)
 				AND ((
 						$this->userinfo['userid'] == $this->registry->userinfo['userid']
@@ -811,6 +847,17 @@ class vB_UserProfile
 				)
 			);
 
+			if ($this->registry->options['reputationenable'])
+			{
+				$show['reputation'] = true;
+			}
+			else
+			{
+				$show['reputation'] = false;
+			}
+
+			$show['cssuid'] = ($this->registry->userinfo['options'] & $this->registry->bf_misc_useroptions['showusercss'] ? 0 : $this->registry->userinfo['userid']);
+
 			$this->prepared['show'] = true;
 		}
 	}
@@ -826,7 +873,7 @@ class vB_UserProfile
 		if ($this->userinfo['signature'] AND $this->userinfo['permissions']['genericpermissions'] & $this->registry->bf_ugp_genericpermissions['canusesignature'])
 		{
 			require_once(DIR . '/includes/class_bbcode.php');
-			$bbcode_parser =& new vB_BbCodeParser($this->registry, fetch_tag_list());
+			$bbcode_parser = new vB_BbCodeParser($this->registry, fetch_tag_list());
 			$bbcode_parser->set_parse_userinfo($this->userinfo, $this->userinfo['permissions']);
 			$this->prepared['signature'] = $bbcode_parser->parse($this->userinfo['signature'], 'signature');
 		}
@@ -903,12 +950,20 @@ class vB_UserProfile
 			$this->prepared['where'] = $this->userinfo['where'];
 		}
 	}
+
+	function prepare_blogurl()
+	{
+		if (!isset($this->prepared['blogurl']))
+		{
+			$this->prepared['blogurl'] = fetch_seo_url('blog', $this->userinfo);
+		}
+	}
 }
 
 /*======================================================================*\
 || ####################################################################
-|| # Downloaded: 16:21, Sat Apr 6th 2013
-|| # CVS: $RCSfile$ - $Revision: 26586 $
+|| # Downloaded: 14:57, Sun Aug 11th 2013
+|| # CVS: $RCSfile$ - $Revision: 64510 $
 || ####################################################################
 \*======================================================================*/
 ?>

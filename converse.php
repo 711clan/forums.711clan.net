@@ -1,9 +1,9 @@
 <?php
 /*======================================================================*\
 || #################################################################### ||
-|| # vBulletin 3.7.2 Patch Level 2 - Licence Number VBF2470E4F
+|| # vBulletin 4.2.1 - Licence Number VBC2DDE4FB
 || # ---------------------------------------------------------------- # ||
-|| # Copyright ©2000-2013 Jelsoft Enterprises Ltd. All Rights Reserved. ||
+|| # Copyright ©2000-2013 vBulletin Solutions Inc. All Rights Reserved. ||
 || # This file may not be redistributed in whole or significant part. # ||
 || # ---------------- VBULLETIN IS NOT FREE SOFTWARE ---------------- # ||
 || # http://www.vbulletin.com | http://www.vbulletin.com/license.html # ||
@@ -33,17 +33,18 @@ $specialtemplates = array(
 
 // pre-cache templates used by all actions
 $globaltemplates = array(
-	'editor_css',
+	'editor_ckeditor',
 	'editor_clientscript',
 	'editor_jsoptions_font',
 	'editor_jsoptions_size',
+	'editor_smilie_category',
+	'editor_smilie_row',
+	'newpost_disablesmiliesoption',
 	'memberinfo_block_visitormessaging',
-	'memberinfo_css',
 	'memberinfo_usercss',
 	'memberinfo_visitormessage',
 	'memberinfo_visitormessage_deleted',
 	'memberinfo_visitormessage_ignored',
-	'showthread_quickreply',
 	'converse',
 );
 
@@ -115,7 +116,7 @@ if (
 	(
 		!$userinfo['vm_enable']
 			AND
-		!can_moderate()
+		!can_moderate(0,'canmoderatevisitormessages')
 	)
 		OR
 	(
@@ -123,7 +124,7 @@ if (
 			AND
 		!$userinfo['bbuser_iscontact_of_user']
 			AND
-		!can_moderate()
+		!can_moderate(0,'canmoderatevisitormessages')
 	)
 )
 {
@@ -135,7 +136,7 @@ if (
 		!$userinfo2['vm_enable']
 			AND
 		(
-			!can_moderate()
+			!can_moderate(0,'canmoderatevisitormessages')
 				OR
 			$viewself
 		)
@@ -146,11 +147,17 @@ if (
 			AND
 		!$userinfo2['bbuser_iscontact_of_user']
 			AND
-		!can_moderate()
+		!can_moderate(0,'canmoderatevisitormessages')
 		 AND
 		!$viewself
 	)
 )
+{
+	print_no_permission();
+}
+
+require_once(DIR . '/includes/functions_user.php');
+if (!can_view_profile_section($userinfo['userid'], 'visitor_messaging') OR !can_view_profile_section($userinfo2['userid'], 'visitor_messaging'))
 {
 	print_no_permission();
 }
@@ -165,7 +172,7 @@ if (fetch_visitor_message_perm('canmoderatevisitormessages', $userinfo2))
 {
 	$state2[] = 'moderation';
 }
-if (can_moderate() OR ($viewself AND $vbulletin->userinfo['permissions']['visitormessagepermissions'] & $vbulletin->bf_ugp_visitormessagepermissions['canmanageownprofile']))
+if (can_moderate(0,'canmoderatevisitormessages') OR ($viewself AND $vbulletin->userinfo['permissions']['visitormessagepermissions'] & $vbulletin->bf_ugp_visitormessagepermissions['canmanageownprofile']))
 {
 	$state2[] = 'deleted';
 	$deljoinsql2 = "LEFT JOIN " . TABLE_PREFIX . "deletionlog AS deletionlog ON (visitormessage.vmid = deletionlog.primaryid AND deletionlog.type = 'visitormessage')";
@@ -184,7 +191,7 @@ if ($viewself OR fetch_visitor_message_perm('canmoderatevisitormessages', $useri
 {
 	$state1[] = 'moderation';
 }
-if (can_moderate())
+if (can_moderate(0,'canmoderatevisitormessages'))
 {
 	$state1[] = 'deleted';
 	$delsql1 = ",deletionlog.userid AS del_userid, deletionlog.username AS del_username, deletionlog.reason AS del_reason";
@@ -246,7 +253,7 @@ do
 		SELECT
 			visitormessage.*, visitormessage.dateline AS pmdateline, user.*, visitormessage.ipaddress AS messageipaddress, visitormessage.userid AS profileuserid
 			$delsql1
-			" . ($vbulletin->options['avatarenabled'] ? ",avatar.avatarpath, NOT ISNULL(customavatar.userid) AS hascustomavatar, customavatar.dateline AS avatardateline,customavatar.width AS avwidth,customavatar.height AS avheight" : "") . "
+			" . ($vbulletin->options['avatarenabled'] ? ",avatar.avatarpath, NOT ISNULL(customavatar.userid) AS hascustomavatar, customavatar.dateline AS avatardateline,customavatar.width AS avwidth,customavatar.height AS avheight, customavatar.width_thumb AS avwidth_thumb, customavatar.height_thumb AS avheight_thumb, filedata_thumb, NOT ISNULL(customavatar.userid) AS hascustom" : "") . "
 			$hook_query_fields1
 		FROM " . TABLE_PREFIX . "visitormessage AS visitormessage
 		LEFT JOIN " . TABLE_PREFIX . "user AS user ON (visitormessage.postuserid = user.userid)
@@ -261,7 +268,7 @@ do
 		SELECT
 			visitormessage.*, visitormessage.dateline AS pmdateline, user.*, visitormessage.ipaddress AS messageipaddress, visitormessage.userid AS profileuserid
 			" . ($deljoinsql2 ? ",deletionlog.userid AS del_userid, deletionlog.username AS del_username, deletionlog.reason AS del_reason" : "") . "
-			" . ($vbulletin->options['avatarenabled'] ? ",avatar.avatarpath, NOT ISNULL(customavatar.userid) AS hascustomavatar, customavatar.dateline AS avatardateline,customavatar.width AS avwidth,customavatar.height AS avheight" : "") . "
+			" . ($vbulletin->options['avatarenabled'] ? ",avatar.avatarpath, NOT ISNULL(customavatar.userid) AS hascustomavatar, customavatar.dateline AS avatardateline,customavatar.width AS avwidth,customavatar.height AS avheight, customavatar.width_thumb AS avwidth_thumb, customavatar.height_thumb AS avheight_thumb, filedata_thumb, NOT ISNULL(customavatar.userid) AS hascustom" : "") . "
 			$hook_query_fields2
 		FROM " . TABLE_PREFIX . "visitormessage AS visitormessage
 		LEFT JOIN " . TABLE_PREFIX . "user AS user ON (visitormessage.postuserid = user.userid)
@@ -290,8 +297,8 @@ $block_data = array(
 );
 $prepared = array('vm_total' => $messagetotal);
 
-$bbcode =& new vB_BbCodeParser($vbulletin, fetch_tag_list());
-$factory =& new vB_Visitor_MessageFactory($vbulletin, $bbcode, $userinfo2);
+$bbcode = new vB_BbCodeParser($vbulletin, fetch_tag_list());
+$factory = new vB_Visitor_MessageFactory($vbulletin, $bbcode, $userinfo2);
 
 $show['conversepage'] = true;
 
@@ -325,7 +332,7 @@ if (!empty($read_ids))
 {
 	$db->query_write("UPDATE " . TABLE_PREFIX . "visitormessage SET messageread = 1 WHERE vmid IN (" . implode(',', $read_ids) . ")");
 
-	build_visitor_message_counters($vbulletin->userifo['userid']);
+	build_visitor_message_counters($vbulletin->userinfo['userid']);
 }
 
 $dummydata = array();
@@ -336,14 +343,29 @@ $show['inlinemod'] = ($show['delete'] OR $show['undelete'] OR $show['approve']);
 
 // Only allow AJAX QC on the first page
 $show['quickcomment'] = (
-	$userinfo['permissions']['genericpermissions'] & $vbulletin->bf_ugp_genericpermissions['canviewmembers']
-	AND $vbulletin->options['socnet'] & $vbulletin->bf_misc_socnet['enable_visitor_messaging']
+	$vbulletin->userinfo['userid']
 	AND $viewself
-	AND $vbulletin->userinfo['permissions']['visitormessagepermissions'] & $vbulletin->bf_ugp_visitormessagepermissions['canmessageothersprofile']
+	AND $vbulletin->options['socnet'] & $vbulletin->bf_misc_socnet['enable_visitor_messaging']
+	AND $userinfo['vm_enable']
+	AND $userinfo['permissions']['genericpermissions'] & $vbulletin->bf_ugp_genericpermissions['canviewmembers']
+	AND (
+		!$userinfo['vm_contactonly']
+		OR $userinfo['userid'] == $vbulletin->userinfo['userid']
+		OR $userinfo['bbuser_iscontact_of_user']
+		OR can_moderate(0,'canmoderatevisitormessages')
+	)
+	AND ((
+			$userinfo['userid'] == $vbulletin->userinfo['userid']
+			AND $vbulletin->userinfo['permissions']['visitormessagepermissions'] & $vbulletin->bf_ugp_visitormessagepermissions['canmessageownprofile']
+		)
+		OR (
+			$userinfo['userid'] != $vbulletin->userinfo['userid']
+			AND $vbulletin->userinfo['permissions']['visitormessagepermissions'] & $vbulletin->bf_ugp_visitormessagepermissions['canmessageothersprofile']
+		)
+	)
 );
 $show['post_visitor_message'] = $show['quickcomment'];
 
-//var_dump($viewself);
 $show['allow_ajax_qc'] = ($pagenumber == 1 AND $messagetotal) ? 1 : 0;
 $pagenavbits = array(
 	"u=$userinfo[userid]",
@@ -366,7 +388,6 @@ if ($show['quickcomment'])
 {
 	require_once(DIR . '/includes/functions_editor.php');
 
-	$stylevar['messagewidth'] = $stylevar['messagewidth_usercp'];
 	$block_data['editorid'] = construct_edit_toolbar(
 		'',
 		false,
@@ -374,17 +395,23 @@ if ($show['quickcomment'])
 		$vbulletin->options['allowsmilies'],
 		true,
 		false,
-		'qr_small'
+		'qr_small',
+		'',
+		array(),
+		'content',
+		'vBForum_VisitorMessage',
+		0,
+		$userinfo['userid']
 	);
 	$block_data['messagearea'] =& $messagearea;
 	$block_data['clientscript'] = $vBeditTemplate['clientscript'];
 }
 
 $navbits = construct_navbits(array(
-	'member.php?' . $vbulletin->session->vars['sessionurl'] . "u=$userinfo[userid]" => $userinfo['username'],
+	fetch_seo_url('member', $userinfo) => $userinfo['username'],
 	'' => construct_phrase($vbphrase['conversation_between_x_and_y'], $userinfo['username'], $userinfo2['username']),
 ));
-eval('$navbar = "' . fetch_template('navbar') . '";');
+$navbar = render_navbar_template($navbits);
 
 $usercss = construct_usercss($userinfo, $show['usercss_switch']);
 $show['usercss_switch'] = ($show['usercss_switch'] AND $vbulletin->userinfo['userid'] != $userinfo['userid']);
@@ -392,13 +419,25 @@ construct_usercss_switch($show['usercss_switch'], $usercss_switch_phrase);
 
 ($hook = vBulletinHook::fetch_hook('converse_complete')) ? eval($hook) : false;
 
-eval('$memberinfo_css = "' . fetch_template('memberinfo_css') . '";');
-eval('$html = "' . fetch_template('memberinfo_block_visitormessaging') . '";');
-eval('print_output("' . fetch_template('converse') . '");');
+$templater = vB_Template::create('memberinfo_block_visitormessaging');
+	$templater->register('block_data', $block_data);
+	$templater->register('prepared', $prepared);
+	$templater->register('userinfo', $userinfo);
+	$templater->register('userinfo2', $userinfo2);
+$html = $templater->render();
+$templater = vB_Template::create('converse');
+	$templater->register_page_templates();
+	$templater->register('html', $html);
+	$templater->register('navbar', $navbar);
+	$templater->register('pagetitle', $pagetitle);
+	$templater->register('usercss', $usercss);
+	$templater->register('usercss_switch_phrase', $usercss_switch_phrase);
+	$templater->register('userinfo', $userinfo);
+print_output($templater->render());
 
 /*======================================================================*\
 || ####################################################################
-|| # Downloaded: 16:21, Sat Apr 6th 2013
+|| # Downloaded: 14:57, Sun Aug 11th 2013
 || # CVS: $RCSfile$ - $Revision: 16016 $
 || ####################################################################
 \*======================================================================*/

@@ -1,9 +1,9 @@
 <?php
 /*======================================================================*\
 || #################################################################### ||
-|| # vBulletin 3.7.2 Patch Level 2 - Licence Number VBF2470E4F
+|| # vBulletin 4.2.1 - Licence Number VBC2DDE4FB
 || # ---------------------------------------------------------------- # ||
-|| # Copyright ©2000-2013 Jelsoft Enterprises Ltd. All Rights Reserved. ||
+|| # Copyright ©2000-2013 vBulletin Solutions Inc. All Rights Reserved. ||
 || # This file may not be redistributed in whole or significant part. # ||
 || # ---------------- VBULLETIN IS NOT FREE SOFTWARE ---------------- # ||
 || # http://www.vbulletin.com | http://www.vbulletin.com/license.html # ||
@@ -29,7 +29,6 @@ $globaltemplates = array(
 	'newpost_errormessage',
 	'tag_edit',
 	'tag_managebit',
-	'tagbit',
 	'tagbit_wrapper'
 );
 
@@ -38,82 +37,81 @@ $actiontemplates = array();
 
 // ######################### REQUIRE BACK-END ############################
 require_once('./global.php');
-require_once(DIR . '/includes/functions_newpost.php');
 require_once(DIR . '/includes/functions_bigthree.php');
+require_once(DIR . '/includes/class_taggablecontent.php');
+
+//do we still need this?  if so, why
+require_once(DIR . '/includes/functions_newpost.php');
 
 if (empty($_REQUEST['do']))
 {
 	$_REQUEST['do'] = 'manage';
 }
 
-$threadinfo = verify_id('thread', $vbulletin->GPC['threadid'], 1, 1);
+$vbulletin->input->clean_array_gpc('r', array(
+	'contenttype' => TYPE_NOHTML,
+	'contentid'   => TYPE_UINT,
+	'threadid'    => TYPE_UINT,
+	'ajax'      => TYPE_BOOL,
+	'returnurl'   => TYPE_STR
+));
+
+//*******************************************************************
+//Figure out the content type
+if (!empty($vbulletin->GPC['contenttype']))
+{
+	$contenttypeid = $vbulletin->GPC['contenttype'];
+}
+else
+{
+	$contenttypeid = "vBForum_Thread";
+}
+
+//todo fix the old urls that use this method then elimate this code
+if ($contenttypeid == 'thread')
+{
+	$contenttypeid = "vBForum_Thread";
+}
+else if ($contenttypeid == 'picture')
+{
+	$contenttypeid = "vBForum_Picture";
+}
+
+$contenttypeid = vB_Types::instance()->getContentTypeID($contenttypeid);
+
+//*******************************************************************
+//Figure out the content id
+if ($vbulletin->GPC_exists['contentid'])
+{
+	$contentid = $vbulletin->GPC['contentid'];
+}
+else
+{
+	$contentid = $vbulletin->GPC['threadid'];
+}
 
 if (!$vbulletin->options['threadtagging'])
 {
 	print_no_permission();
 }
 
-// *********************************************************************************
-// check for visible / deleted thread
-if (((!$threadinfo['visible'] AND !can_moderate($threadinfo['forumid'], 'canmoderateposts'))) OR ($threadinfo['isdeleted'] AND !can_moderate($threadinfo['forumid'])))
+if (!$contenttypeid)
 {
-	eval(standard_error(fetch_error('invalidid', $vbphrase['thread'], $vbulletin->options['contactuslink'])));
+	eval(standard_error(fetch_error('content_not_taggable')));
 }
 
-// *********************************************************************************
-// jump page if thread is actually a redirect
-if ($threadinfo['open'] == 10)
+//this will terminate if there are permission errors
+$content = vB_Taggable_Content_Item::create($vbulletin, $contenttypeid, $contentid);
+if (!$content)
 {
-	exec_header_redirect('showthread.php?' . $vbulletin->session->vars['sessionurl_js'] . "t=$threadinfo[pollid]");
+	//do we need a phrase?  This really shouldn't happen under normal operation.
+	eval(standard_error(fetch_error('content_not_taggable')));
 }
+$content->verify_ui_permissions();
 
-// *********************************************************************************
-// Tachy goes to coventry
-if (in_coventry($threadinfo['postuserid']) AND !can_moderate($threadinfo['forumid']))
-{
-	eval(standard_error(fetch_error('invalidid', $vbphrase['thread'], $vbulletin->options['contactuslink'])));
-}
-
-// *********************************************************************************
-// get forum info
-$foruminfo = fetch_foruminfo($threadinfo['forumid']);
-
-// *********************************************************************************
-// check forum permissions
-$forumperms = fetch_permissions($threadinfo['forumid']);
-if (!($forumperms & $vbulletin->bf_ugp_forumpermissions['canview']) OR !($forumperms & $vbulletin->bf_ugp_forumpermissions['canviewthreads']))
-{
-	print_no_permission();
-}
-if (!($forumperms & $vbulletin->bf_ugp_forumpermissions['canviewothers']) AND ($threadinfo['postuserid'] != $vbulletin->userinfo['userid'] OR $vbulletin->userinfo['userid'] == 0))
-{
-	print_no_permission();
-}
-
-// *********************************************************************************
-// check if there is a forum password and if so, ensure the user has it set
-verify_forum_password($foruminfo['forumid'], $foruminfo['password']);
-
-if (!$foruminfo['allowposting'] OR (!$threadinfo['open'] AND !can_moderate($threadinfo['forumid'], 'canopenclose')))
-{
-	// thread is closed and can't be opened by this person
-	$show['add_option'] = false;
-	$show['manage_existing_option'] = can_moderate($threadinfo['forumid'], 'caneditthreads');
-}
-else
-{
-	$show['add_option'] = (
-		(($forumperms & $vbulletin->bf_ugp_forumpermissions['cantagown']) AND $threadinfo['postuserid'] == $vbulletin->userinfo['userid'])
-		OR ($forumperms & $vbulletin->bf_ugp_forumpermissions['cantagothers'])
-	);
-
-	$show['manage_existing_option'] = (
-		$show['add_option']
-		OR (($forumperms & $vbulletin->bf_ugp_forumpermissions['candeletetagown']) AND $threadinfo['postuserid'] == $vbulletin->userinfo['userid'])
-		OR can_moderate($threadinfo['forumid'], 'caneditthreads')
-	);
-}
-
+//$contentinfo = $content->fetch_content_info();
+$show['add_option'] = $content->can_add_tag();
+$show['manage_existing_option'] = $content->can_manage_tag();
 ($hook = vBulletinHook::fetch_hook('threadtag_start')) ? eval($hook) : false;
 
 if (!$show['add_option'] AND !$show['manage_existing_option'])
@@ -125,10 +123,9 @@ if (!$show['add_option'] AND !$show['manage_existing_option'])
 if ($_POST['do'] == 'managetags')
 {
 	$vbulletin->input->clean_array_gpc('p', array(
-		'tagskept' => TYPE_ARRAY_UINT,
+		'tagskept'  => TYPE_ARRAY_UINT,
 		'tagsshown' => TYPE_ARRAY_UINT,
-		'taglist' => TYPE_NOHTML,
-		'ajax' => TYPE_BOOL
+		'taglist'   => TYPE_NOHTML,
 	));
 
 	if ($vbulletin->GPC['ajax'])
@@ -136,23 +133,22 @@ if ($_POST['do'] == 'managetags')
 		$vbulletin->GPC['taglist'] = convert_urlencoded_unicode($vbulletin->GPC['taglist']);
 	}
 
+	//remove any tags shown and not kept.
 	if ($vbulletin->GPC['tagsshown'] AND $show['manage_existing_option'])
 	{
 		$tags_sql = $db->query_read("
-			SELECT tag.*, tagthread.userid
-			FROM " . TABLE_PREFIX . "tagthread AS tagthread
-			INNER JOIN " . TABLE_PREFIX . "tag AS tag ON (tag.tagid = tagthread.tagid)
-			WHERE tagthread.threadid = $threadinfo[threadid]
-				AND tagthread.tagid IN (" . implode(',', $vbulletin->GPC['tagsshown']) . ")
+			SELECT tag.*, tagcontent.userid
+			FROM " . TABLE_PREFIX . "tagcontent AS tagcontent
+			INNER JOIN " . TABLE_PREFIX . "tag AS tag ON
+				(tag.tagid = tagcontent.tagid AND tagcontent.contenttypeid = " . intval($contenttypeid) . ")
+			WHERE tagcontent.contentid = $contentid
+				AND tagcontent.tagid IN (" . implode(',', $vbulletin->GPC['tagsshown']) . ")
 		");
 
 		$delete = array();
 		while ($tag = $db->fetch_array($tags_sql))
 		{
-			if ($tag['userid'] == $vbulletin->userinfo['userid']
-				OR (($forumperms & $vbulletin->bf_ugp_forumpermissions['candeletetagown']) AND $threadinfo['postuserid'] == $vbulletin->userinfo['userid'])
-				OR can_moderate($threadinfo['forumid'], 'caneditthreads')
-			)
+			if ($content->can_delete_tag($tag['userid']))
 			{
 				if (!in_array($tag['tagid'], $vbulletin->GPC['tagskept']))
 				{
@@ -166,12 +162,13 @@ if ($_POST['do'] == 'managetags')
 		if ($delete)
 		{
 			$db->query_write("
-				DELETE FROM " . TABLE_PREFIX . "tagthread
-				WHERE threadid = $threadinfo[threadid]
-					AND tagid IN (" . implode(',', $delete) . ")
+				DELETE FROM " . TABLE_PREFIX . "tagcontent
+				WHERE contentid = $contentid AND
+					contenttypeid = ". intval($contenttypeid) . " AND
+					tagid IN (" . implode(',', $delete) . ")
 			");
 
-			$threadinfo['taglist'] = rebuild_thread_taglist($threadinfo['threadid']);
+			$content->rebuild_content_tags();
 		}
 	}
 
@@ -179,7 +176,8 @@ if ($_POST['do'] == 'managetags')
 
 	if ($vbulletin->GPC['taglist'] AND $show['add_option'])
 	{
-		$errors = add_tags_to_thread($threadinfo, $vbulletin->GPC['taglist']);
+		$limits = $content->fetch_tag_limits();
+		$errors = $content->add_tags_to_content($vbulletin->GPC['taglist'], $limits);
 	}
 	else
 	{
@@ -188,14 +186,11 @@ if ($_POST['do'] == 'managetags')
 
 	if ($vbulletin->GPC['ajax'])
 	{
-		$threadinfo = fetch_threadinfo($threadinfo['threadid'], false); // get updated tag list
-		$tagcount = ($threadinfo['taglist'] ? count(explode(',', $threadinfo['taglist'])) : 0);
-
 		require_once(DIR . '/includes/class_xml.php');
 
 		$xml = new vB_AJAX_XML_Builder($vbulletin, 'text/xml');
 		$xml->add_group('tag');
-			$xml->add_tag('taghtml', process_replacement_vars(fetch_tagbits($threadinfo)));
+			$xml->add_tag('taghtml', process_replacement_vars($content->fetch_rendered_tag_list()));
 			if ($errors)
 			{
 				$errorlist = '';
@@ -210,23 +205,24 @@ if ($_POST['do'] == 'managetags')
 	}
 	else
 	{
-		if ($errors)
+		$returnurl = $content->fetch_return_url();
+		$errorlist = '';
+		if (!empty($errors))
 		{
-			$errorlist = '';
-			foreach ($errors AS $key => $errormessage)
-			{
-				eval('$errorlist .= "' . fetch_template('newpost_errormessage') . '";');
-			}
+			$show['errors'] = true;
+			$templater = vB_Template::create('newpost_errormessage');
+			$templater->register('errors', $errors);
+			$errorlist .= $templater->render();
 
-			$errorlist = fetch_error('tag_add_failed_html', $errorlist, 'showthread.php?' . $vbulletin->session->vars['sessionurl'] . "t=$threadinfo[threadid]#taglist");
+			$errorlist = fetch_error('tag_add_failed_html', $errorlist, $returnurl);
 
 			$_REQUEST['do'] = 'manage';
 			define('ADD_ERROR', true);
 		}
 		else
 		{
-			$vbulletin->url = 'showthread.php?' . $vbulletin->session->vars['sessionurl'] . "t=$threadinfo[threadid]#taglist";
-			eval(print_standard_redirect(fetch_error('tags_edited_successfully'), false));
+			$vbulletin->url = $returnurl;
+			print_standard_redirect(fetch_error('tags_edited_successfully'), false);  
 		}
 	}
 }
@@ -234,6 +230,7 @@ if ($_POST['do'] == 'managetags')
 // ##############################################################################
 if ($_REQUEST['do'] == 'manage')
 {
+
 	$show['errors'] = defined('ADD_ERROR');
 	if (!$show['errors'])
 	{
@@ -245,11 +242,12 @@ if ($_REQUEST['do'] == 'manage')
 	$mytags = 0;
 
 	$tags_sql = $db->query_read("
-		SELECT tag.*, tagthread.userid, user.username
-		FROM " . TABLE_PREFIX . "tagthread AS tagthread
-		INNER JOIN " . TABLE_PREFIX . "tag AS tag ON (tag.tagid = tagthread.tagid)
-		LEFT JOIN " . TABLE_PREFIX . "user AS user ON (user.userid = tagthread.userid)
-		WHERE tagthread.threadid = $threadinfo[threadid]
+		SELECT tag.*, tagcontent.userid, user.username
+		FROM " . TABLE_PREFIX . "tagcontent AS tagcontent
+		INNER JOIN " . TABLE_PREFIX . "tag AS tag ON
+			(tag.tagid = tagcontent.tagid AND tagcontent.contenttypeid = " . intval($contenttypeid) . ")
+		LEFT JOIN " . TABLE_PREFIX . "user AS user ON (user.userid = tagcontent.userid)
+		WHERE tagcontent.contentid = $contentid
 		ORDER BY tag.tagtext
 	");
 	$total_tags = $db->num_rows($tags_sql);
@@ -262,10 +260,7 @@ if ($_REQUEST['do'] == 'manage')
 	while ($tag = $db->fetch_array($tags_sql))
 	{
 		$tag['ismine'] = ($tag['userid'] == $vbulletin->userinfo['userid']);
-		$show['tag_checkbox'] = ($tag['ismine']
-			OR (($forumperms & $vbulletin->bf_ugp_forumpermissions['candeletetagown']) AND $threadinfo['postuserid'] == $vbulletin->userinfo['userid'])
-			OR can_moderate($threadinfo['forumid'], 'caneditthreads')
-		);
+		$show['tag_checkbox'] = $content->can_delete_tag($tag['userid']);
 
 		if ($show['tag_checkbox'])
 		{
@@ -278,99 +273,106 @@ if ($_REQUEST['do'] == 'manage')
 		}
 
 		// only moderators can see who added a tag
-		if (!can_moderate($threadinfo['forumid'], 'caneditthreads'))
+		if (!$content->can_moderate_tag())
 		{
 			$tag['username'] = '';
 		}
 
 		($hook = vBulletinHook::fetch_hook('threadtag_managebit')) ? eval($hook) : false;
-
-		eval('$tag_manage_options .= "' . fetch_template('tag_managebit') . '";');
+		$templater = vB_Template::create('tag_managebit');
+			$templater->register('tag', $tag);
+		$tag_manage_options .= $templater->render();
 	}
 
-	// determine the number of tags this person can add
-	$user_tags_remain = null;
-
-	if ($vbulletin->options['tagmaxthread'])
+	$limits = $content->fetch_tag_limits();
+	if ($limits['content_limit'])
 	{
-		// check global limit
-		$tags_remain = max(0, $vbulletin->options['tagmaxthread'] - $total_tags);
-		if ($tags_remain == 0 AND !$have_removal_tags)
-		{
-			// thread full and no tags can be removed - error
-			standard_error(fetch_error('thread_has_max_allowed_tags'));
-		}
-
-		$user_tags_remain = $tags_remain;
+		$content_tags_remain = max(0, $limits['content_limit'] - $total_tags);
 	}
-
-	if (!can_moderate($threadinfo['forumid'], 'caneditthreads'))
+	else
 	{
-		$tags_remain = null;
-		if ($vbulletin->options['tagmaxstarter'] AND $threadinfo['postuserid'] == $vbulletin->userinfo['userid'])
-		{
-			$tags_remain = max(0, $vbulletin->options['tagmaxstarter'] - $mytags);
-		}
-		else if ($vbulletin->options['tagmaxuser'])
-		{
-			$tags_remain = max(0, $vbulletin->options['tagmaxuser'] - $mytags);
-		}
-
-		if ($tags_remain !== null)
-		{
-			if ($user_tags_remain == null)
-			{
-				$user_tags_remain = $tags_remain;
-			}
-			else
-			{
-				$user_tags_remain = min($tags_remain, $user_tags_remain);
-			}
-		}
+		$content_tags_remain = PHP_INT_MAX;
 	}
 
+	if ($limits['user_limit'])
+	{
+		$user_tags_remain = max(0, $limits['user_limit'] - $mytags);
+	}
+	else
+	{
+		$user_tags_remain = PHP_INT_MAX;
+	}
+
+	$tags_remain = min($content_tags_remain, $user_tags_remain);
 	($hook = vBulletinHook::fetch_hook('threadtag_manage_tagsremain')) ? eval($hook) : false;
 
-	$show['tag_limit_phrase'] = ($user_tags_remain !== null);
-	$tags_remain = vb_number_format($user_tags_remain);
+	$show['tag_limit_phrase'] = ($tags_remain !== PHP_INT_MAX);
+	$tags_remain = vb_number_format($tags_remain);
 	$tag_delimiters = addslashes_js($vbulletin->options['tagdelimiter']);
 
 	if ($vbulletin->GPC['ajax'])
 	{
-		eval('$html = "' . fetch_template('tag_edit_ajax') . '";');
+		$popup = $vbulletin->input->clean_gpc('r', 'popup', TYPE_BOOL);
 
+		if($popup)
+		{
+			$templater = vB_Template::create('tag_edit_ajax_popup');
+		}
+		else
+		{
+			$templater = vB_Template::create('tag_edit_ajax');
+		}
+
+		$templater->register('contentid', $contentid);
+		$templater->register('contenttype', $contenttypeid);
+		$templater->register('tags_remain', $tags_remain);
+		$templater->register('tag_manage_options', $tag_manage_options);
+		$templater->register('url', $url);
+		$html = $templater->render();
 		require_once(DIR . '/includes/class_xml.php');
 
 		$xml = new vB_AJAX_XML_Builder($vbulletin, 'text/xml');
 		$xml->add_group('tag');
-			$xml->add_tag('html', process_replacement_vars($html));
+			$xml->add_tag($popup ? 'tagpopup' : 'html', process_replacement_vars($html));
 			$xml->add_tag('delimiters', $vbulletin->options['tagdelimiter']);
 		$xml->close_group();
 		$xml->print_xml();
 	}
-
-	// navbar and output
-	$navbits = array();
-
-	$parentlist = array_reverse(explode(',', substr($foruminfo['parentlist'], 0, -3)));
-	foreach ($parentlist AS $forumid)
+	else
 	{
-		$forum_title = $vbulletin->forumcache["$forumid"]['title'];
-		$navbits['forumdisplay.php?' . $vbulletin->session->vars['sessionurl'] . "f=$forumid"] = $forum_title;
+		$returnurl = $content->fetch_return_url();
+
+		$title = $content->get_title();
+		if(!$title)
+		{
+			$title = $content->fetch_content_type_diplay();
+		}
+
+		$content_type_label = $content->fetch_content_type_diplay();
+		// navbar and output
+		$navbits = $content->fetch_page_nav();
+		$navbits = construct_navbits($navbits);
+
+		$navbar = render_navbar_template($navbits);
+		$templater = vB_Template::create('tag_edit');
+			$templater->register_page_templates();
+			$templater->register('contentid', $contentid);
+			$templater->register('title', $title);
+			$templater->register('contenttype', $contenttypeid);
+			$templater->register('content_type_label', $content_type_label);
+			$templater->register('errorlist', $errorlist);
+			$templater->register('navbar', $navbar);
+			$templater->register('returnurl', $returnurl);
+			$templater->register('tags_remain', $tags_remain);
+			$templater->register('tag_delimiters', $tag_delimiters);
+			$templater->register('tag_manage_options', $tag_manage_options);
+		print_output($templater->render());
 	}
-	$navbits['showthread.php?' . $vbulletin->session->vars['sessionurl'] . "t=$threadinfo[threadid]"] = $threadinfo['prefix_plain_html'] . ' ' . $threadinfo['title'];
-	$navbits[''] = $vbphrase['tag_management'];
-
-	$navbits = construct_navbits($navbits);
-
-	eval('$navbar = "' . fetch_template('navbar') . '";');
-	eval('print_output("' . fetch_template('tag_edit') . '");');
 }
 
 /*======================================================================*\
 || ####################################################################
-|| # Downloaded: 16:21, Sat Apr 6th 2013
-|| # CVS: $RCSfile$ - $Revision: 26689 $
+|| # Downloaded: 14:57, Sun Aug 11th 2013
+|| # CVS: $RCSfile$ - $Revision: 62098 $
 || ####################################################################
 \*======================================================================*/
-?>

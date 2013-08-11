@@ -1,9 +1,9 @@
 <?php
 /*======================================================================*\
 || #################################################################### ||
-|| # vBulletin 3.7.2 Patch Level 2 - Licence Number VBF2470E4F
+|| # vBulletin 4.2.1 - Licence Number VBC2DDE4FB
 || # ---------------------------------------------------------------- # ||
-|| # Copyright ©2000-2013 Jelsoft Enterprises Ltd. All Rights Reserved. ||
+|| # Copyright ©2000-2013 vBulletin Solutions Inc. All Rights Reserved. ||
 || # This file may not be redistributed in whole or significant part. # ||
 || # ---------------- VBULLETIN IS NOT FREE SOFTWARE ---------------- # ||
 || # http://www.vbulletin.com | http://www.vbulletin.com/license.html # ||
@@ -14,7 +14,7 @@
 error_reporting(E_ALL & ~E_NOTICE);
 
 // ##################### DEFINE IMPORTANT CONSTANTS #######################
-define('CVS_REVISION', '$RCSfile$ - $Revision: 25957 $');
+define('CVS_REVISION', '$RCSfile$ - $Revision: 37230 $');
 
 // #################### PRE-CACHE TEMPLATES AND DATA ######################
 $phrasegroups = array('sql', 'user', 'cpuser');
@@ -84,6 +84,9 @@ $queryoptions = array(
 
 		'175' => $vbphrase['on'] . ' - ' . $vbphrase['display_reputation'],
 		'205' => $vbphrase['off'] . ' - ' . $vbphrase['display_reputation'],
+
+		'176' => $vbphrase['on'] . ' - ' . $vbphrase['enahnced_attachment_uploading'],
+		'206' => $vbphrase['off'] . ' - ' . $vbphrase['enahnced_attachment_uploading'],
 
 		'blank1' => '',
 
@@ -211,6 +214,9 @@ if ($_POST['do'] == 'doquery')
 				case 175:
 					$query = "UPDATE " . TABLE_PREFIX . "user SET options = options + " . $vbulletin->bf_misc_useroptions['showreputation'] . " WHERE NOT (options & " . $vbulletin->bf_misc_useroptions['showreputation'] . ")";
 					break;
+				case 176:
+					$query = "UPDATE " . TABLE_PREFIX . "user SET options = options + " . $vbulletin->bf_misc_useroptions['vbasset_enable'] . " WHERE NOT (options & " . $vbulletin->bf_misc_useroptions['vbasset_enable'] . ")";
+					break;
 				case 180:
 					$query = "UPDATE " . TABLE_PREFIX . "user SET options = options - " . $vbulletin->bf_misc_useroptions['showsignatures'] . " WHERE options & " . $vbulletin->bf_misc_useroptions['showsignatures'];
 					break;
@@ -222,6 +228,9 @@ if ($_POST['do'] == 'doquery')
 					break;
 				case 205:
 					$query = "UPDATE " . TABLE_PREFIX . "user SET options = options - " . $vbulletin->bf_misc_useroptions['showreputation'] . " WHERE options & " . $vbulletin->bf_misc_useroptions['showreputation'];
+					break;
+				case 206:
+					$query = "UPDATE " . TABLE_PREFIX . "user SET options = options - " . $vbulletin->bf_misc_useroptions['vbasset_enable'] . " WHERE options & " . $vbulletin->bf_misc_useroptions['vbasset_enable'];
 					break;
 				case 210:
 					$query = "UPDATE " . TABLE_PREFIX . "user SET autosubscribe = -1";
@@ -319,7 +328,7 @@ if ($_POST['do'] == 'doquery')
 	$query_stripped = preg_replace('@/\*.*?\*/@s', '', $query);
 	$query_stripped = preg_replace('@(#|--).*?$@m', '', $query_stripped);
 
-	preg_match("#^([A-Z]+) #si", trim($query_stripped), $regs);
+	preg_match("#^([A-Z]+)\s#si", trim($query_stripped), $regs);
 	$querytype = strtoupper($regs[1]);
 
 	switch ($querytype)
@@ -329,9 +338,9 @@ if ($_POST['do'] == 'doquery')
 		case 'SELECT':
 		case 'DESCRIBE':
 		case 'SHOW':
-			$query_mod = preg_replace('# LIMIT ([0-9,]+)#i', '', $query);
+			$query_mod = preg_replace('#\sLIMIT\s+(\d+(\s*,\s*\d+)?)#i', '', $query);
 
-			$counter = $db->query_write($query);
+			$counter = $db->query_write($query_mod);
 			print_form_header('queries', 'doquery', 0, 1, 'queryform');
 			construct_hidden_code('do', 'doquery');
 			construct_hidden_code('query', $query);
@@ -468,8 +477,8 @@ print_cp_footer();
 
 /*======================================================================*\
 || ####################################################################
-|| # Downloaded: 16:21, Sat Apr 6th 2013
-|| # CVS: $RCSfile$ - $Revision: 25957 $
+|| # Downloaded: 14:57, Sun Aug 11th 2013
+|| # CVS: $RCSfile$ - $Revision: 37230 $
 || ####################################################################
 \*======================================================================*/
 ?>

@@ -1,9 +1,9 @@
 <?php
 /*======================================================================*\
 || #################################################################### ||
-|| # vBulletin 3.7.2 Patch Level 2 - Licence Number VBF2470E4F
+|| # vBulletin 4.2.1 - Licence Number VBC2DDE4FB
 || # ---------------------------------------------------------------- # ||
-|| # Copyright ©2000-2013 Jelsoft Enterprises Ltd. All Rights Reserved. ||
+|| # Copyright ©2000-2013 vBulletin Solutions Inc. All Rights Reserved. ||
 || # This file may not be redistributed in whole or significant part. # ||
 || # ---------------- VBULLETIN IS NOT FREE SOFTWARE ---------------- # ||
 || # http://www.vbulletin.com | http://www.vbulletin.com/license.html # ||
@@ -14,7 +14,7 @@
 error_reporting(E_ALL & ~E_NOTICE);
 
 // ##################### DEFINE IMPORTANT CONSTANTS #######################
-define('CVS_REVISION', '$RCSfile$ - $Revision: 26275 $');
+define('CVS_REVISION', '$RCSfile$ - $Revision: 34547 $');
 
 // #################### PRE-CACHE TEMPLATES AND DATA ######################
 $phrasegroups = array('posting');
@@ -51,9 +51,9 @@ if (empty($_REQUEST['do']))
 if ($_REQUEST['do'] == 'add' OR $_REQUEST['do'] == 'edit')
 {
 	$vbulletin->input->clean_array_gpc('r', array(
-		'forumid' 			=> TYPE_INT,
-		'newforumid'		=> TYPE_ARRAY,
-		'announcementid'	=> TYPE_INT
+		'forumid'        => TYPE_INT,
+		'newforumid'     => TYPE_ARRAY,
+		'announcementid' => TYPE_INT
 	));
 
 	print_form_header('announcement', 'update');
@@ -69,9 +69,9 @@ if ($_REQUEST['do'] == 'add' OR $_REQUEST['do'] == 'edit')
 			}
 		}
 		$announcement = array(
-			'startdate' => TIMENOW,
-			'enddate' => (TIMENOW + 86400 * 31),
-			'forumid' => $vbulletin->GPC['forumid'],
+			'startdate'           => TIMENOW,
+			'enddate'             => (TIMENOW + 86400 * 31),
+			'forumid'             => $vbulletin->GPC['forumid'],
 			'announcementoptions' => 29
 		);
 		print_table_header($vbphrase['post_new_announcement']);
@@ -97,7 +97,6 @@ if ($_REQUEST['do'] == 'add' OR $_REQUEST['do'] == 'edit')
 
 		construct_hidden_code('announcementid', $vbulletin->GPC['announcementid']);
 		print_table_header(construct_phrase($vbphrase['x_y_id_z'], $vbphrase['announcement'], htmlspecialchars_uni($announcement['title']), $announcement['announcementid']));
-
 	}
 
 	print_forum_chooser($vbphrase['forum_and_children'], 'forumid', $announcement['forumid'], $vbphrase['all_forums']);
@@ -126,19 +125,19 @@ if ($_REQUEST['do'] == 'add' OR $_REQUEST['do'] == 'edit')
 if ($_POST['do'] == 'update')
 {
 	$vbulletin->input->clean_array_gpc('p', array(
-		'announcementid' => TYPE_UINT,
-		'title' => TYPE_STR,
-		'startdate' => TYPE_UNIXTIME,
-		'enddate' => TYPE_UNIXIME,
-		'pagetext' => TYPE_STR,
-		'forumid' => TYPE_INT,
+		'announcementid'      => TYPE_UINT,
+		'title'               => TYPE_STR,
+		'startdate'           => TYPE_UNIXTIME,
+		'enddate'             => TYPE_UNIXTIME,
+		'pagetext'            => TYPE_STR,
+		'forumid'             => TYPE_INT,
 		'announcementoptions' => TYPE_ARRAY_BOOL,
-		'reset_views' => TYPE_BOOL
+		'reset_views'         => TYPE_BOOL
 	));
 
 	if (!($permissions['adminpermissions'] & $vbulletin->bf_ugp_adminpermissions['cancontrolpanel']))
 	{
-		if ($vbulletin->GPC['forumid']== -1 AND !($permissions['adminpermissions'] & $vbulletin->bf_ugp_adminpermissions['ismoderator']))
+		if ($vbulletin->GPC['forumid'] == -1 AND !($permissions['adminpermissions'] & $vbulletin->bf_ugp_adminpermissions['ismoderator']))
 		{
 			print_stop_message('no_permission_global_announcement');
 		}
@@ -184,7 +183,7 @@ if ($_POST['do'] == 'update')
 	$anncdata->set('pagetext', $vbulletin->GPC['pagetext']);
 	$anncdata->set('forumid', $vbulletin->GPC['forumid']);
 	$anncdata->set('startdate', $vbulletin->GPC['startdate']);
-	$anncdata->set('enddate', $vbulletin->GPC['enddate']);
+	$anncdata->set('enddate', $vbulletin->GPC['enddate'] + 86399);
 
 	foreach ($vbulletin->GPC['announcementoptions'] AS $key => $val)
 	{
@@ -327,8 +326,8 @@ print_cp_footer();
 
 /*======================================================================*\
 || ####################################################################
-|| # Downloaded: 16:21, Sat Apr 6th 2013
-|| # CVS: $RCSfile$ - $Revision: 26275 $
+|| # Downloaded: 14:57, Sun Aug 11th 2013
+|| # CVS: $RCSfile$ - $Revision: 34547 $
 || ####################################################################
 \*======================================================================*/
 ?>

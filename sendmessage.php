@@ -1,9 +1,9 @@
 <?php
 /*======================================================================*\
 || #################################################################### ||
-|| # vBulletin 3.7.2 Patch Level 2 - Licence Number VBF2470E4F
+|| # vBulletin 4.2.1 - Licence Number VBC2DDE4FB
 || # ---------------------------------------------------------------- # ||
-|| # Copyright ©2000-2013 Jelsoft Enterprises Ltd. All Rights Reserved. ||
+|| # Copyright ©2000-2013 vBulletin Solutions Inc. All Rights Reserved. ||
 || # This file may not be redistributed in whole or significant part. # ||
 || # ---------------- VBULLETIN IS NOT FREE SOFTWARE ---------------- # ||
 || # http://www.vbulletin.com | http://www.vbulletin.com/license.html # ||
@@ -37,7 +37,6 @@ $globaltemplates = array(
 $actiontemplates = array(
 	'im' => array(
 		'im_send_aim',
-		'im_send_icq',
 		'im_send_yahoo',
 		'im_send_msn',
 		'im_send_skype',
@@ -85,6 +84,13 @@ if ($_REQUEST['do'] == 'im')
 	// verify userid
 	$userinfo = verify_id('user', $vbulletin->GPC['userid'], 1, 1, 15);
 
+	require_once(DIR . '/includes/functions_user.php');
+	if (!can_view_profile_section($userinfo['userid'], 'contactinfo'))
+	{
+		define('VB_ERROR_LITE', true);
+		standard_error(fetch_error('user_chosen_privacy_prevents_viewing'));
+	}
+
 	$type = $vbulletin->GPC['type'];
 
 	switch ($type)
@@ -112,10 +118,7 @@ if ($_REQUEST['do'] == 'im')
 
 	if ($type == 'icq')
 	{
-		// ICQ's API for paging doesn't seem to work right now, but they have a URL that does
-		$vbulletin->url = 'http://www.icq.com/people/webmsg.ph' . 'p?to=' . urlencode($userinfo['icq'])
-			. '&from=' . urlencode(unhtmlspecialchars($vbulletin->userinfo['username']))
-			. '&fromemail=' . urlencode($vbulletin->userinfo['email']);
+		$vbulletin->url = 'http://www.icq.com/people/' . urlencode($userinfo['icq']);
 		exec_header_redirect($vbulletin->url);
 		exit;
 	}
@@ -123,7 +126,6 @@ if ($_REQUEST['do'] == 'im')
 	// shouldn't be a problem hard-coding this text, as they are all commercial names
 	$typetext = array(
 		'msn'   => 'MSN',
-		'icq'   => 'ICQ',
 		'aim'   => 'AIM',
 		'yahoo' => 'Yahoo!',
 		'skype' => 'Skype'
@@ -165,9 +167,16 @@ if ($_REQUEST['do'] == 'im')
 
 	$typetext = $typetext["$type"];
 
-	eval('$imtext = "' . fetch_template("im_send_$type") . '";');
+	$templater = vB_Template::create("im_send_$type");
+		$templater->register('userinfo', $userinfo);
+	$imtext = $templater->render();
 
-	eval('print_output("' . fetch_template('im_message') . '");');
+	$templater = vB_Template::create('im_message');
+		$templater->register('headinclude', $headinclude);
+		$templater->register('imtext', $imtext);
+		$templater->register('typetext', $typetext);
+		$templater->register('userinfo', $userinfo);
+	print_output($templater->render());
 
 }
 
@@ -219,7 +228,13 @@ if ($_POST['do'] == 'docontactus')
 	$email =& $vbulletin->GPC['email'];
 
 	// check we have a message and a subject
-	if ($message == '' OR $subject == '' OR ($vbulletin->options['contactusoptions'] AND $subject == 'other' AND $vbulletin->GPC['other_subject'] == ''))
+	if ($message == '' OR $subject == ''
+			OR (
+				$vbulletin->options['contactusoptions']
+				AND $subject == 'other'
+				AND ($vbulletin->GPC['other_subject'] == '' OR !$vbulletin->options['contactusother'])
+			)
+		)
 	{
 		$errors[] = fetch_error('nosubject');
 	}
@@ -230,7 +245,7 @@ if ($_POST['do'] == 'docontactus')
 		$errors[] = fetch_error('bademail');
 	}
 
-	if (!$vbulletin->userinfo['userid'] AND $vbulletin->options['hvcheck_contactus'])
+	if (fetch_require_hvcheck('contactus'))
 	{
 		require_once(DIR . '/includes/class_humanverify.php');
 		$verify =& vB_HumanVerify::fetch_library($vbulletin);
@@ -282,7 +297,7 @@ if ($_POST['do'] == 'docontactus')
 
 		if (!empty($alt_email))
 		{
-			if ($destemail == $vbulletin->options['webmasteremail'])
+			if ($alt_email == $vbulletin->options['webmasteremail'] OR $alt_email == $vbulletin->options['contactusemail'])
 			{
 				$ip = IPADDRESS;
 			}
@@ -295,24 +310,34 @@ if ($_POST['do'] == 'docontactus')
 		else
 		{
 			$ip = IPADDRESS;
-			$destemail =& $vbulletin->options['webmasteremail'];
+			if ($vbulletin->options['contactusemail'])
+			{
+				$destemail =& $vbulletin->options['contactusemail'];
+			}
+			else
+			{
+				$destemail =& $vbulletin->options['webmasteremail'];
+			}
 		}
 
 		($hook = vBulletinHook::fetch_hook('sendmessage_docontactus_complete')) ? eval($hook) : false;
 
-		$url =& $vbulletin->url;
+		$url =& $vBulletin->url;
 		eval(fetch_email_phrases('contactus', $languageid));
 		vbmail($destemail, $subject, $message, false, $vbulletin->GPC['email'], '', $name);
 
-		eval(print_standard_redirect('redirect_sentfeedback', true, true));
+		print_standard_redirect('redirect_sentfeedback', true, true);  
 	}
 	// there are errors!
 	else
 	{
-		$show['errors'] = true;
-		foreach ($errors AS $errormessage)
+		$errormessages = '';
+		if (!empty($errors))
 		{
-			eval('$errormessages .= "' . fetch_template('newpost_errormessage') . '";');
+			$show['errors'] = true;
+			$templater = vB_Template::create('newpost_errormessage');
+			$templater->register('errors', $errors);
+			$errormessages .= $templater->render();
 		}
 
 		$_REQUEST['do'] = 'contactus';
@@ -333,6 +358,7 @@ if ($_REQUEST['do'] == 'contactus')
 		'name'		=> TYPE_STR,
 		'email'		=> TYPE_STR,
 		'subject'	=> TYPE_STR,
+		'other_subject' => TYPE_STR,
 		'message'	=> TYPE_STR,
 	));
 
@@ -341,6 +367,7 @@ if ($_REQUEST['do'] == 'contactus')
 	$name = htmlspecialchars_uni($vbulletin->GPC['name']);
 	$email = htmlspecialchars_uni($vbulletin->GPC['email']);
 	$subject = htmlspecialchars_uni($vbulletin->GPC['subject']);
+	$other_subject = htmlspecialchars_uni($vbulletin->GPC['other_subject']);
 	$message = htmlspecialchars_uni($vbulletin->GPC['message']);
 
 	// enter $vbulletin->userinfo's name and email if necessary
@@ -364,19 +391,25 @@ if ($_REQUEST['do'] == 'contactus')
 				$title =& $matches[2];
 			}
 
-			if ($subject == $index)
+			if ($subject == strval($index))
 			{
 				$checked = 'checked="checked"';
 			}
 
 			($hook = vBulletinHook::fetch_hook('sendmessage_contactus_option')) ? eval($hook) : false;
 
-			eval('$contactusoptions .= "' . fetch_template('contactus_option') . '";');
+			$templater = vB_Template::create('contactus_option');
+				$templater->register('checked', $checked);
+				$templater->register('index', $index);
+				$templater->register('title', $title);
+			$contactusoptions .= $templater->render();
 			unset($checked);
 		}
 	}
 
-	if (!$vbulletin->userinfo['userid'] AND $vbulletin->options['hvcheck_contactus'])
+	$other_subject_checked = ($subject == 'other' ? 'checked="checked"' : '');
+
+	if (fetch_require_hvcheck('contactus'))
 	{
 		require_once(DIR . '/includes/class_humanverify.php');
 		$verification =& vB_HumanVerify::fetch_library($vbulletin);
@@ -388,20 +421,26 @@ if ($_REQUEST['do'] == 'contactus')
 	}
 
 	// generate navbar
-	if ($permissions['forumpermissions'] & $vbulletin->bf_ugp_forumpermissions['canview'])
-	{
-		$navbits = construct_navbits(array('' => $vbphrase['contact_us']));
-		eval('$navbar = "' . fetch_template('navbar') . '";');
-	}
-	else
-	{
-		$navbar = '';
-	}
+	$navbits = construct_navbits(array('' => $vbphrase['contact_us']));
+	$navbar = render_navbar_template($navbits);
 
 	($hook = vBulletinHook::fetch_hook('sendmessage_contactus_complete')) ? eval($hook) : false;
 
 	$url =& $vbulletin->url;
-	eval('print_output("' . fetch_template('contactus') . '");');
+	$templater = vB_Template::create('contactus');
+		$templater->register_page_templates();
+		$templater->register('contactusoptions', $contactusoptions);
+		$templater->register('email', $email);
+		$templater->register('errormessages', $errormessages);
+		$templater->register('human_verify', $human_verify);
+		$templater->register('message', $message);
+		$templater->register('name', $name);
+		$templater->register('navbar', $navbar);
+		$templater->register('subject', $subject);
+		$templater->register('url', $url);
+		$templater->register('other_subject', $other_subject);
+		$templater->register('other_subject_checked', $other_subject_checked);
+	print_output($templater->render());
 }
 
 // ############################### start send to friend permissions ###############################
@@ -429,10 +468,10 @@ if ($_REQUEST['do'] == 'sendtofriend')
 		$threadinfo['title'] = fetch_word_wrapped_string($threadinfo['title']);
 	}
 
-	eval('$usernamecode = "' . fetch_template('newpost_usernamecode') . '";');
+	$usernamecode = vB_Template::create('newpost_usernamecode')->render();
 
 	// human verification
-	if (!$vbulletin->userinfo['userid'] AND $vbulletin->options['hvcheck_contactus'])
+	if (fetch_require_hvcheck('contactus'))
 	{
 		require_once(DIR . '/includes/class_humanverify.php');
 		$verification =& vB_HumanVerify::fetch_library($vbulletin);
@@ -449,18 +488,29 @@ if ($_REQUEST['do'] == 'sendtofriend')
 	foreach ($parentlist AS $forumID)
 	{
 		$forumTitle =& $vbulletin->forumcache["$forumID"]['title'];
-		$navbits['forumdisplay.php?' . $vbulletin->session->vars['sessionurl'] . "f=$forumID"] = $forumTitle;
+		$navbits[fetch_seo_url('forum', array('forumid' => $forumID, 'title' => $forumTitle))] = $forumTitle;
 	}
-	$navbits['showthread.php?' . $vbulletin->session->vars['sessionurl'] . "t=$threadid"] = $threadinfo['prefix_plain_html'] . ' ' . $threadinfo['title'];
+	$navbits[fetch_seo_url('thread', $threadinfo)] = $threadinfo['prefix_plain_html'] . ' ' . $threadinfo['title'];
 	$navbits[''] = $vbphrase['email_to_friend'];
 
 	$navbits = construct_navbits($navbits);
-	eval('$navbar = "' . fetch_template('navbar') . '";');
+	$navbar = render_navbar_template($navbits);
+
+	$pageinfo = array('referrerid' => $vbulletin->userinfo['userid']);
 
 	($hook = vBulletinHook::fetch_hook('sendmessage_sendtofriend_complete')) ? eval($hook) : false;
 
 	$url =& $vbulletin->url;
-	eval('print_output("' . fetch_template('sendtofriend') . '");');
+	$templater = vB_Template::create('sendtofriend');
+		$templater->register_page_templates();
+		$templater->register('human_verify', $human_verify);
+		$templater->register('navbar', $navbar);
+		$templater->register('pageinfo', $pageinfo);
+		$templater->register('threadid', $threadid);
+		$templater->register('threadinfo', $threadinfo);
+		$templater->register('url', $url);
+		$templater->register('usernamecode', $usernamecode);
+	print_output($templater->render());
 
 }
 
@@ -488,7 +538,7 @@ if ($_POST['do'] == 'dosendtofriend')
 	if ($perform_floodcheck)
 	{
 		require_once(DIR . '/includes/class_floodcheck.php');
-		$floodcheck =& new vB_FloodCheck($vbulletin, 'user', 'emailstamp');
+		$floodcheck = new vB_FloodCheck($vbulletin, 'user', 'emailstamp');
 		$floodcheck->commit_key($vbulletin->userinfo['userid'], TIMENOW, TIMENOW - $vbulletin->options['emailfloodtime']);
 		if ($floodcheck->is_flooding())
 		{
@@ -496,7 +546,7 @@ if ($_POST['do'] == 'dosendtofriend')
 		}
 	}
 
-	if (!$vbulletin->userinfo['userid'] AND $vbulletin->options['hvcheck_contactus'])
+	if (fetch_require_hvcheck('contactus'))
 	{
 		require_once(DIR . '/includes/class_humanverify.php');
 		$verify =& vB_HumanVerify::fetch_library($vbulletin);
@@ -536,7 +586,7 @@ if ($_POST['do'] == 'dosendtofriend')
 	($hook = vBulletinHook::fetch_hook('sendmessage_dosendtofriend_complete')) ? eval($hook) : false;
 
 	$sendtoname = htmlspecialchars_uni($sendtoname);
-	eval(print_standard_redirect('redirect_sentemail'));
+	print_standard_redirect(array('redirect_sentemail',$sendtoname));  
 
 }
 
@@ -577,20 +627,32 @@ if ($_REQUEST['do'] == 'mailmember')
 	{
 		($hook = vBulletinHook::fetch_hook('sendmessage_mailmember')) ? eval($hook) : false;
 
-		$destusername = $userinfo['username'];
 		if ($vbulletin->options['secureemail']) // use secure email form or not?
 		{
 			// generate navbar
 			$navbits = construct_navbits(array('' => $vbphrase['email']));
-			eval('$navbar = "' . fetch_template('navbar') . '";');
+			$navbar = render_navbar_template($navbits);
 
 			$url =& $vbulletin->url;
-			$userid =& $userinfo['userid'];
-			eval('print_output("' . fetch_template('mailform') . '");');
+			$templater = vB_Template::create('mailform');
+				$templater->register_page_templates();
+				$templater->register('message', $message);
+				$templater->register('navbar', $navbar);
+				$templater->register('subject', $subject);
+				$templater->register('url', $url);
+				$templater->register('userinfo', $userinfo);
+			print_output($templater->render());
 		}
 		else
 		{
+			require_once(DIR . '/includes/functions_user.php');
+			if (!can_view_profile_section($userinfo['userid'], 'contactinfo'))
+			{
+				standard_error(fetch_error('user_chosen_privacy_prevents_viewing'));
+			}
+
 			// show the user's email address
+			$destusername = $userinfo['username']; 
 			eval(standard_error(fetch_error('showemail', $destusername, htmlspecialchars_uni($userinfo['email']))));
 		}
 	}
@@ -624,7 +686,7 @@ if ($_POST['do'] == 'domailmember')
 		if ($perform_floodcheck)
 		{
 			require_once(DIR . '/includes/class_floodcheck.php');
-			$floodcheck =& new vB_FloodCheck($vbulletin, 'user', 'emailstamp');
+			$floodcheck = new vB_FloodCheck($vbulletin, 'user', 'emailstamp');
 			$floodcheck->commit_key($vbulletin->userinfo['userid'], TIMENOW, TIMENOW - $vbulletin->options['emailfloodtime']);
 			if ($floodcheck->is_flooding())
 			{
@@ -634,23 +696,27 @@ if ($_POST['do'] == 'domailmember')
 
 		($hook = vBulletinHook::fetch_hook('sendmessage_domailmember')) ? eval($hook) : false;
 
+		//magic variables for for phrase eval
 		$message = fetch_censored_text($vbulletin->GPC['message']);
+		$forumhomelink = create_full_url(fetch_seo_url('forumhome|nosession', array()), true);
 
 		eval(fetch_email_phrases('usermessage', $userinfo['languageid']));
 
-		vbmail($userinfo['email'], fetch_censored_text($vbulletin->GPC['emailsubject']), $message , false, $vbulletin->userinfo['email'], '', $vbulletin->userinfo['username']);
+		//note that $message is set via the run via eval from fetch_email_phrases.
+		vbmail($userinfo['email'], fetch_censored_text($vbulletin->GPC['emailsubject']), $message , 
+			false, $vbulletin->userinfo['email'], '', $vbulletin->userinfo['username']);
 
 		// parse this next line with eval:
 		$sendtoname = $userinfo['username'];
 
-		eval(print_standard_redirect('redirect_sentemail'));
+		print_standard_redirect(array('redirect_sentemail',$sendtoname));
 	}
 }
 
 /*======================================================================*\
 || ####################################################################
-|| # Downloaded: 16:21, Sat Apr 6th 2013
-|| # CVS: $RCSfile$ - $Revision: 26399 $
+|| # Downloaded: 14:57, Sun Aug 11th 2013
+|| # CVS: $RCSfile$ - $Revision: 58373 $
 || ####################################################################
 \*======================================================================*/
 ?>

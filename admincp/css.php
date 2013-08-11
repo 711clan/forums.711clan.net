@@ -1,9 +1,9 @@
 <?php
 /*======================================================================*\
 || #################################################################### ||
-|| # vBulletin 3.7.2 Patch Level 2 - Licence Number VBF2470E4F
+|| # vBulletin 4.2.1 - Licence Number VBC2DDE4FB
 || # ---------------------------------------------------------------- # ||
-|| # Copyright ©2000-2013 Jelsoft Enterprises Ltd. All Rights Reserved. ||
+|| # Copyright ©2000-2013 vBulletin Solutions Inc. All Rights Reserved. ||
 || # This file may not be redistributed in whole or significant part. # ||
 || # ---------------- VBULLETIN IS NOT FREE SOFTWARE ---------------- # ||
 || # http://www.vbulletin.com | http://www.vbulletin.com/license.html # ||
@@ -14,7 +14,7 @@
 error_reporting(E_ALL & ~E_NOTICE);
 
 // ##################### DEFINE IMPORTANT CONSTANTS #######################
-define('CVS_REVISION', '$RCSfile$ - $Revision: 26182 $');
+define('CVS_REVISION', '$RCSfile$ - $Revision: 58799 $');
 
 // #################### PRE-CACHE TEMPLATES AND DATA ######################
 $phrasegroups = array('style');
@@ -36,6 +36,11 @@ if ($_REQUEST['do'] == 'edit' AND $vbulletin->GPC['dowhat'] == 'templateeditor')
 	exec_header_redirect("template.php?" . $vbulletin->session->vars['sessionurl_js'] . "&do=modify" . "&group=" . $vbulletin->GPC['group'] . "&expandset=" . $vbulletin->GPC['dostyleid']);
 }
 
+if ($_REQUEST['do'] == 'edit' AND $vbulletin->GPC['dowhat'] == 'stylevar')
+{
+	exec_header_redirect("stylevar.php?" . $vbulletin->session->vars['sessionurl_js'] . "&dostyleid=" . $vbulletin->GPC['dostyleid']);
+}
+
 // ######################## CHECK ADMIN PERMISSIONS #######################
 if (!can_administer('canadminstyles'))
 {
@@ -55,7 +60,7 @@ log_admin_action(iif($vbulletin->GPC['dostyleid'] != 0, "style id = " . $vbullet
 print_cp_header($vbphrase['style_manager'], iif($_REQUEST['do'] == 'edit' OR $_REQUEST['do'] == 'doedit', 'init_color_preview()'));
 
 ?>
-<script type="text/javascript" src="../clientscript/vbulletin_cpcolorpicker.js"></script>
+<script type="text/javascript" src="../clientscript/vbulletin_cpcolorpicker.js?v=<?php echo SIMPLE_VERSION; ?>"></script>
 <?php
 
 if (empty($_REQUEST['do']))
@@ -65,6 +70,15 @@ if (empty($_REQUEST['do']))
 else if ($_REQUEST['do'] == 'update')
 {
 	$vbulletin->nozip = true;
+}
+
+if (
+	$vbulletin->GPC['dostyleid'] == -2
+		OR
+	$db->query_first("SELECT styleid FROM " . TABLE_PREFIX . "style WHERE type='mobile' AND styleid = " . $vbulletin->GPC['dostyleid'])
+)
+{
+	print_stop_message('css_obsolete_mobile_styles');
 }
 
 if ($dostyleid < 1)
@@ -246,7 +260,6 @@ if ($_REQUEST['do'] == 'edit')
 		print_table_header(construct_phrase($vbphrase['x_y_id_z'], $vbphrase['fonts_colors_etc'], $style['title'], $style['styleid']));
 		print_yes_row($vbphrase['all_style_options'], 'dowhat', $vbphrase['yes'], true, 'all');
 		print_yes_row($vbphrase['common_templates'], 'dowhat', $vbphrase['yes'], false, 'templates');
-		print_yes_row($vbphrase['stylevars'], 'dowhat', $vbphrase['yes'], false, 'stylevars');
 		print_yes_row($vbphrase['main_css'], 'dowhat', $vbphrase['yes'], false, 'maincss');
 		print_yes_row($vbphrase['replacement_variables'], 'dowhat', $vbphrase['yes'], false, 'replacements');
 		print_yes_row($vbphrase['toolbar_menu_options'], 'dowhat', $vbphrase['yes'], false, 'posteditor');
@@ -264,7 +277,6 @@ if ($_REQUEST['do'] == 'doedit')
 		'dowhat'          => TYPE_STR,
 		'colorPickerType' => TYPE_INT
 	));
-
 
 	if ($vbulletin->GPC['dostyleid'] == 0 OR $vbulletin->GPC['dostyleid'] < -1)
 	{
@@ -304,6 +316,10 @@ if ($_REQUEST['do'] == 'doedit')
 			}
 			foreach ($stylecache AS $style)
 			{
+				if ($style['type'] == 'mobile')
+				{
+					continue;
+				}
 				echo "<option value=\"$style[styleid]\"" . iif($style['styleid'] == $vbulletin->GPC['dostyleid'], ' selected="selected"', '') . ">" . construct_depth_mark($style['depth'], '--', '--') . " $style[title]</option>\n";
 				$jsarray[] = "style[$style[styleid]] = \"" . addslashes_js($style['title'], '"') . "\";\n";
 			}
@@ -317,7 +333,7 @@ if ($_REQUEST['do'] == 'doedit')
 				<optgroup label="<?php echo $vbphrase['edit_fonts_colors_etc']; ?>">
 					<option value="all"<?php echo $optionselected['all']; ?>><?php echo $vbphrase['all_style_options']; ?></option>
 					<option value="templates"<?php echo $optionselected['templates']; ?>><?php echo $vbphrase['common_templates']; ?></option>
-					<option value="stylevars"<?php echo $optionselected['stylevars']; ?>><?php echo $vbphrase['stylevars']; ?></option>
+					<option value="stylevar"><?php echo $vbphrase['stylevars']; ?></option>
 					<option value="maincss"<?php echo $optionselected['maincss']; ?>><?php echo $vbphrase['main_css']; ?></option>
 					<option value="replacements"<?php echo $optionselected['replacements']; ?>><?php echo $vbphrase['replacement_variables']; ?></option>
 					<option value="posteditor"<?php echo $optionselected['posteditor']; ?>><?php echo $vbphrase['toolbar_menu_options']; ?></option>
@@ -336,7 +352,7 @@ if ($_REQUEST['do'] == 'doedit')
 		</table>
 
 		</td>
-		<td align="<?php echo $stylevar['right']; ?>">
+		<td align="<?php echo vB_Template_Runtime::fetchStyleVar('right'); ?>">
 
 		<table cellpadding="4" cellspacing="1" border="0" class="tborder" width="300">
 		<tr align="center">
@@ -344,7 +360,7 @@ if ($_REQUEST['do'] == 'doedit')
 		</tr>
 		<tr>
 			<td class="alt2">
-			<div class="darkbg" style="margin: 4px; padding: 4px; border: 2px inset; text-align: ' . $stylevar['left'] . '">
+			<div class="darkbg" style="margin: 4px; padding: 4px; border: 2px inset; text-align: ' . vB_Template_Runtime::fetchStyleVar('left') . '">
 			<span class="col-g"><?php echo $vbphrase['template_is_unchanged_from_the_default_style']; ?></span><br />
 			<span class="col-i"><?php echo $vbphrase['template_is_inherited_from_a_parent_style']; ?></span><br />
 			<span class="col-c"><?php echo $vbphrase['template_is_customized_in_this_style']; ?></span>
@@ -495,6 +511,7 @@ if ($_REQUEST['do'] == 'doedit')
 		construct_hidden_code('dowhat[stylevars]', 1);
 
 		print_table_header($vbphrase['sizes_and_dimensions'], 3);
+			print_description_row($vbphrase['style_options_obsolete'], false, 3, fetch_row_bgclass() . ' modlasttendays', 'center');
 			print_stylevar_row($vbphrase['main_table_width'],            'outertablewidth');
 			print_stylevar_row($vbphrase['spacer_size'],                 'spacersize',       30, '#^\d+$#siU', 0);
 			print_stylevar_row($vbphrase['outer_border_width'],          'outerborderwidth', 30, '#^\d+$#siU', 0);
@@ -511,6 +528,7 @@ if ($_REQUEST['do'] == 'doedit')
 			($hook = vBulletinHook::fetch_hook('stylevar_edit_sizes')) ? eval($hook) : false;
 
 		print_table_header($vbphrase['image_paths'], 3);
+			print_description_row($vbphrase['style_options_obsolete'], false, 3, fetch_row_bgclass() . ' modlasttendays', 'center');
 			print_stylevar_row($vbphrase['title_image'],                 'titleimage');
 			print_stylevar_row($vbphrase['buttons_folder'],              'imgdir_button');
 			print_stylevar_row($vbphrase['statusicon_folder'],           'imgdir_statusicon');
@@ -523,26 +541,9 @@ if ($_REQUEST['do'] == 'doedit')
 
 			($hook = vBulletinHook::fetch_hook('stylevar_edit_imagepaths')) ? eval($hook) : false;
 
-		/* // these are no longer pertinant
-			print_stylevar_row($vbphrase['images_folder'],               'imagesfolder');
-			print_stylevar_row($vbphrase['new_thread_image'],            'newthreadimage');
-			print_stylevar_row($vbphrase['new_reply_image'],             'newreplyimage');
-			print_stylevar_row($vbphrase['closed_thread_image'],         'closedthreadimage');
-		*/
-
-		/*
-		print_table_header($vbphrase['textarea_columns'], 3);
-			print_stylevar_row($vbphrase['internet_explorer_4'],         'textareacols_ie4');
-			print_stylevar_row($vbphrase['netscape_4'],                  'textareacols_ns4');
-			print_stylevar_row($vbphrase['netscape_6'],                  'textareacols_ns6');
-		*/
-
 		print_table_header($vbphrase['miscellaneous'], 3);
+			print_description_row($vbphrase['style_options_obsolete'], false, 3, fetch_row_bgclass() . ' modlasttendays', 'center');
 			print_stylevar_row($vbphrase['html_doctype'],                'htmldoctype');
-
-		/*	// this is now held with the language settings
-			print_stylevar_row($vbphrase['html_content_type'],           'contenttype');
-		*/
 
 			($hook = vBulletinHook::fetch_hook('stylevar_edit_misc')) ? eval($hook) : false;
 
@@ -551,7 +552,7 @@ if ($_REQUEST['do'] == 'doedit')
 
 	// #############################################################################
 	// MAIN CSS
-	if ($vbulletin->GPC['dowhat'] == 'maincss' OR $vbulletin->GPC['dowhat'] == 'css' OR $vbulletin->GPC['dowhat'] == 'all')
+	if ($vbulletin->GPC['dowhat'] == 'maincss' OR $vbulletin->GPC['dowhat'] == 'css')
 	{
 		construct_hidden_code('dowhat[css]', 1);
 
@@ -583,6 +584,9 @@ if ($_REQUEST['do'] == 'doedit')
 			</script>
 			<?php
 		}
+		print_table_header($vbphrase['obsolete'], 1);
+		print_description_row($vbphrase['css_file_obsolete']);
+		print_table_break(' ');
 
 		print_css_row($vbphrase['body'], $vbphrase['body_desc'], 'body', 1);
 		print_css_row($vbphrase['page_background'], $vbphrase['page_background_desc'], '.page', 1);
@@ -638,13 +642,13 @@ if ($_REQUEST['do'] == 'doedit')
 		$revertcode = construct_revert_code($css_info['EXTRA'], 'css', 'EXTRA');
 		if ($revertcode['info'])
 		{
-			print_description_row("<span style=\"float:$stylevar[right]\">$revertcode[revertcode]</span>$revertcode[info]", 0, 2, 'tfoot" align="center');
+			print_description_row("<span style=\"float:" . vB_Template_Runtime::fetchStyleVar('right') . "\">$revertcode[revertcode]</span>$revertcode[info]", 0, 2, 'tfoot" align="center');
 		}
 		print_textarea_row('', 'css[EXTRA2][all]', $css['EXTRA2']['all'], 10, 80, true, false, 'ltr', fetch_inherited_color($css_info['EXTRA2'], $vbulletin->GPC['dostyleid']) . '" style="font:9pt \'courier new\', monospace');
 		$revertcode = construct_revert_code($css_info['EXTRA2'], 'css', 'EXTRA2');
 		if ($revertcode['info'])
 		{
-			print_description_row("<span style=\"float:$stylevar[right]\">$revertcode[revertcode]</span>$revertcode[info]", 0, 2, 'tfoot" align="center');
+			print_description_row("<span style=\"float:" . vB_Template_Runtime::fetchStyleVar('right') . "\">$revertcode[revertcode]</span>$revertcode[info]", 0, 2, 'tfoot" align="center');
 		}
 
 		print_table_break(' ');
@@ -655,6 +659,7 @@ if ($_REQUEST['do'] == 'doedit')
 	if ($vbulletin->GPC['dowhat'] == 'posteditor' OR $vbulletin->GPC['dowhat'] == 'all')
 	{
 		construct_hidden_code('dowhat[posteditor]', 1);
+		/* disabled for now with the new editor until we decide we want to make the new editor customizable
 		print_table_header($vbphrase['text_editor_control_styles']);
 		print_description_row($vbphrase['text_editor_control_desc']);
 
@@ -674,7 +679,7 @@ if ($_REQUEST['do'] == 'doedit')
 		}
 
 		print_table_break(' ');
-
+		*/
 		print_table_header($vbphrase['toolbar_menu_options']);
 		print_description_row($vbphrase['bbcode_pulldown_menu_desc']);
 		print_label_row(
@@ -709,11 +714,19 @@ if ($_REQUEST['do'] == 'doedit')
 		"</center>");
 	}
 
-	print_table_footer(2, '
+	if ($vbulletin->GPC['dowhat'] == 'maincss' OR $vbulletin->GPC['dowhat'] == 'css')
+	{
+		$footerhtml = '';
+	}
+	else
+	{
+		$footerhtml = '
 		<input type="submit" class="button" value="' . $vbphrase['save'] . '" accesskey="s" tabindex="1" />
 		<input type="reset" class="button" value="' . $vbphrase['reset'] . '" accesskey="r" tabindex="1" onclick="this.form.reset(); init_color_preview(); return false;" />
-	');
+		';
+	}
 
+	print_table_footer(2, $footerhtml);
 	echo $colorPicker;
 
 	?>
@@ -755,6 +768,35 @@ if ($_REQUEST['do'] == 'showdefault')
 	print_table_footer(2, '<input type="button" class="button" value="' . $vbphrase['close'] . '" onclick="self.close();" tabindex="1" />');
 }
 
+// ###################### Start List StyleVar Colors #######################
+if ($_REQUEST['do'] == 'stylevar-colors')
+{
+	// use 'dostyleid'from GPC
+
+	if ($vbulletin->GPC['dostyleid'] != 0 AND $style = $db->query_first("
+		SELECT * FROM " . TABLE_PREFIX . "style
+		WHERE styleid = " . $vbulletin->GPC['dostyleid']
+	))
+	{
+		print_form_header('', '');
+
+		foreach (unserialize($style['csscolors']) AS $colorname => $colorvalue)
+		{
+			if (preg_match('#^[a-z0-9_]+_hex$#siU', $colorname))
+			{
+				echo "<tr><td class=\"" . fetch_row_bgclass() . "\">$colorname</td><td style=\"background-color:#$colorvalue\" title=\"#$colorvalue\">#$colorvalue</td></tr>";
+			}
+		}
+
+		print_table_footer();
+	}
+	else
+	{
+		// fail.
+		$_REQUEST['do'] = 'modify';
+	}
+}
+
 // ###################### Start List styles #######################
 if ($_REQUEST['do'] == 'modify')
 {
@@ -776,6 +818,10 @@ if ($_REQUEST['do'] == 'modify')
 	cache_styles();
 	foreach ($stylecache AS $style)
 	{
+		if ($style['type'] == 'mobile')
+		{
+			continue;
+		}
 		print_label_row(
 			construct_depth_mark($style['depth'], '--', $depthmark) . " <b>$style[title]</b>",
 			construct_link_code($vbphrase['edit'], "css.php?" . $vbulletin->session->vars['sessionurl'] . "do=edit&amp;dostyleid=$style[styleid]") .
@@ -829,8 +875,8 @@ print_cp_footer();
 
 /*======================================================================*\
 || ####################################################################
-|| # Downloaded: 16:21, Sat Apr 6th 2013
-|| # CVS: $RCSfile$ - $Revision: 26182 $
+|| # Downloaded: 14:57, Sun Aug 11th 2013
+|| # CVS: $RCSfile$ - $Revision: 58799 $
 || ####################################################################
 \*======================================================================*/
 ?>

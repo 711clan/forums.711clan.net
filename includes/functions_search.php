@@ -1,9 +1,9 @@
 <?php
 /*======================================================================*\
 || #################################################################### ||
-|| # vBulletin 3.7.2 Patch Level 2 - Licence Number VBF2470E4F
+|| # vBulletin 4.2.1 - Licence Number VBC2DDE4FB
 || # ---------------------------------------------------------------- # ||
-|| # Copyright ©2000-2013 Jelsoft Enterprises Ltd. All Rights Reserved. ||
+|| # Copyright ©2000-2013 vBulletin Solutions Inc. All Rights Reserved. ||
 || # This file may not be redistributed in whole or significant part. # ||
 || # ---------------- VBULLETIN IS NOT FREE SOFTWARE ---------------- # ||
 || # http://www.vbulletin.com | http://www.vbulletin.com/license.html # ||
@@ -16,456 +16,6 @@ if (!isset($GLOBALS['vbulletin']->db))
 }
 
 require_once(DIR . '/includes/functions_databuild.php');
-
-// ###################### Start getsearchposts #######################
-function getsearchposts(&$query, $showerrors = 1)
-{
-	global $stylevar, $vbulletin, $searchthread, $searchthreadid, $titleonly;
-
-	if (empty($query))
-	{
-		return '';
-	}
-
-	// replace common search syntax errors
-	$query = trim(preg_replace('/ ([\w\*]+) (\+|and) ([\w\*]+) /siU', ' +\1 +\3 ', " $query "));
-	$qu_find = array(
-		'  ',	// double spaces to single spaces
-		'+ ',	// replace '+ ' with '+'
-		'- ',	// replace '- ' with '-'
-		'or ',	// remove 'OR '
-		'and '	// replace 'AND ' with '+'
-	);
-	$qu_replace = array(
-		' ',	// double spaces to single spaces
-		'+',	// replace '+ ' with '+'
-		'-',	// replace '- ' with '-'
-		'',		// remove 'OR '
-		'+' 	// replace 'AND ' with '+'
-	);
-	$query = str_replace($qu_find, $qu_replace, $query);
-
-	// escape MySQL wildcards
-	$qu_find = array(
-		'%',	// escape % symbols
-		'_' 	// escape _ symbols
-	);
-	$qu_replace = array(
-		'\%',	// escape % symbols
-		'\_' 	// escape _ symbols
-	);
-	if ($vbulletin->options['allowwildcards'])
-	{
-		// strip duplicate * signs
-		$query = preg_replace('/\*{2,}/s', '*', $query);
-
-		$qu_find[] = '*';
-		$qu_replace[] = '%';
-	}
-	$querywc = str_replace($qu_find, $qu_replace, $query);
-
-	// get individual words
-	$words = explode(' ', strtolower(addslashes($querywc)));
-
-	$havewords = 0;
-	$searchables = 0;
-
-	$wordids = 'wordid IN (0';
-	$wild = 0;
-	foreach ($words AS $word)
-	{
-		if (!is_index_word($word))
-		{
-			// this is a BAD stop word, so strip don't process it as it will most likely
-			// end up just screwing up the search
-			continue;
-		}
-		$firstchar = substr($word,0,1);
-
-		if (strpos($word, '%') !== false)
-		{
-			$wild++;
-		}
-		switch ($firstchar)
-		{
-
-			case '+':
-				// this is a required term
-				$state = 1;
-				$word = substr($word, 1);
-				break;
-			case '-':
-				// this is a blocked term
-				$state = -1;
-				$word = substr($word, 1);
-				break;
-			default:
-				// this is an optional term
-				$state = 0;
-				break;
-		}
-
-		// the following is already checked in is_index_word() and this prevents
-		// short words in $goodwords from being found
-
-		$searchables++;
-
-		$sqlwords = $vbulletin->db->query_read_slave("
-			SELECT wordid, title
-			FROM " . TABLE_PREFIX . "word
-			WHERE title LIKE '" . $vbulletin->db->escape_string($word) . "'
-		");
-		if ($vbulletin->db->num_rows($sqlwords) == 0)
-		{ // no words found
-			if ($state == 1)
-			{ // word is a required term
-				if ($showerrors)
-				{
-					eval(standard_error(fetch_error('searchnoresults', $displayCommon)));
-				}
-				else
-				{
-					return '';
-				}
-			}
-		}
-		else
-		{ // some words found
-			while($thisword = $vbulletin->db->fetch_array($sqlwords))
-			{
-				if ($wild)
-				{
-					$wordparts['2']["$state"]["$wild"]["$thisword[title]"] = $thisword['wordid'];
-				}
-				else
-				{
-					$wordparts["$state"]["$thisword[title]"] = $thisword['wordid'];
-				}
-				$havewords = 1;
-				$wordids .= ',' . intval($thisword['wordid']);
-			}
-			$vbulletin->db->free_result($sqlwords);
-		}
-	}
-
-	if (!$havewords)
-	{
-		if ($showerrors)
-		{
-			eval(standard_error(fetch_error('searchnoresults', $displayCommon)));
-		}
-		else
-		{
-			return '';
-		}
-	}
-
-	$wordids .= ')';
-
-	$wordlists = array();
-	$postscores = array();
-
-	// ### GET POSTS THAT MATCH QUERY ##############################################
-	if ($titleonly)
-	{
-		$intitle = ' AND intitle <> 0';
-	}
-	else
-	{
-		$intitle = '';
-	}
-
-	$threadids = array();
-
-	$posts = $vbulletin->db->query_read_slave("
-		SELECT postid, wordid,
-			CASE intitle
-				WHEN 0 THEN score
-				WHEN 1 THEN score + " . $vbulletin->options['posttitlescore'] . "
-				WHEN 2 THEN score + " . $vbulletin->options['threadtitlescore'] . " + " . $vbulletin->options['posttitlescore'] . "
-			ELSE score
-			END AS score
-		FROM " . TABLE_PREFIX . "postindex" . iif($searchthread, "
-		INNER JOIN " . TABLE_PREFIX . "post USING (postid)
-		INNER JOIN " . TABLE_PREFIX . "thread AS thread USING (threadid)") . "
-		WHERE $wordids $intitle
-		" . iif($searchthread, " AND thread.threadid = $searchthreadid")
-	);
-	while($post = $vbulletin->db->fetch_array($posts))
-	{
-		$wordlists[$post['postid']] .= " ,$post[wordid],";
-		$postscores[$post['postid']] += $post['score'];
-	}
-
-	if (!$wordlists)
-	{
-		if ($showerrors)
-		{
-			eval(standard_error(fetch_error('searchnoresults', $displayCommon)));
-		}
-		else
-		{
-			return '';
-		}
-	}
-
-	$postids = ' AND postid IN (0';
-
-	foreach ($wordlists AS $postid => $wordlist)
-	{
-		// go through the words found for each post
-
-		// look at words we don't want:
-		if (is_array($wordparts[-1]))
-		{
-			$wordfound = 0;
-			foreach ($wordparts[-1] AS $wordid)
-			{
-				if (strpos($wordlist, ",$wordid,"))
-				{
-					// uh oh, bad word found, let's get out of here!
-					unset($wordlists[$postid]);
-					unset($postscores[$postid]);
-					$wordfound = 1;
-					break;
-				}
-			}
-
-			if ($wordfound)
-			{
-				// bad word was found, don't go on with this post
-				continue;
-			}
-		}
-
-		// look at words we do want:
-		if (is_array($wordparts[1]))
-		{
-			$wordnotfound = 0;
-			foreach ($wordparts[1] AS $wordid)
-			{
-				if (!strpos($wordlist, ",$wordid,"))
-				{
-					// uh oh, word not found, let's get out of here!
-					unset($wordlists[$postid]);
-					unset($postscores[$postid]);
-					$wordnotfound = 1;
-					break;
-				}
-			}
-			if ($wordnotfound)
-			{
-				// word was not found, don't go on with this post
-				continue;
-			}
-		}
-
-		// look at wild words
-		if (is_array($wordparts['2']))
-		{
-			//required wild words
-			if (is_array($wordparts['2']['1']))
-			{
-				$wordsfound = 1;
-				foreach ($wordparts['2']['1'] AS $wildsearch)
-				{
-					$wordfound = 0;
-					foreach ($wildsearch AS $wordid)
-					{
-						if (strpos($wordlist, ",$wordid,"))
-						{
-							$wordfound = 1;
-							break;
-						}
-					}
-					if (!$wordfound)
-					{
-						$wordsfound = 0;
-						break;
-					}
-				}
-				if (!$wordsfound)
-				{
-					// word was not found, don't go on with this post
-					unset($wordlists[$postid]);
-					unset($postscores[$postid]);
-					continue;
-				}
-			}
-
-			//excluded wild words
-			if (is_array($wordparts['2']['-1']))
-			{
-				$wordsfound = 0;
-				foreach ($wordparts['2']['-1'] AS $wildsearch)
-				{
-					$wordfound = 0;
-					foreach ($wildsearch AS $wordid)
-					{
-						if (strpos($wordlist, ",$wordid,"))
-						{
-							$wordfound = 1;
-							break;
-						}
-					}
-					if ($wordfound)
-					{
-						$wordsfound = 1;
-						break;
-					}
-				}
-				if ($wordsfound)
-				{
-					// word was not found, don't go on with this post
-					unset($wordlists[$postid]);
-					unset($postscores[$postid]);
-					continue;
-				}
-			}
-		}
-
-		// look at words we do want that are wildcards
-
-		$postids .= ',' . intval($postid);
-
-	}
-
-	$postids .= ')';
-
-	// returns a lot of useless stuff right now -- similar threads matching only uses the scores now. I was originally
-	// planning on having the searching routine be a bit more complex than it is now
-	return array('wordlists' => $wordlists, 'scores' => $postscores, 'wordparts' => $wordparts, 'searchables' => $searchables, 'postids' => $postids, 'threadids' => $threadids);
-
-}
-
-// ###################### Start getsimilarthreads #######################
-function fetch_similar_threads($threadtitle, $threadid = 0)
-{
-	global $vbulletin;
-
-	if ($vbulletin->options['fulltextsearch'])
-	{
-		$hook_query_joins = $hook_query_where = '';
-		($hook = vBulletinHook::fetch_hook('search_similarthreads_fulltext')) ? eval($hook) : false;
-
-		$safetitle = $vbulletin->db->escape_string($threadtitle);
-		$threads = $vbulletin->db->query_read_slave("
-			SELECT thread.threadid, MATCH(thread.title) AGAINST ('$safetitle') AS score
-			FROM " . TABLE_PREFIX . "thread AS thread
-			$hook_query_joins
-			WHERE MATCH(thread.title) AGAINST ('$safetitle')
-				AND thread.open <> 10
-				" . iif($threadid, " AND thread.threadid <> $threadid") . "
-				$hook_query_where
-			LIMIT 5
-		");
-		while ($thread = $vbulletin->db->fetch_array($threads))
-		{
-			// this is an arbitrary number but items less then 4 - 5 seem to be rather unrelated
-			if ($thread['score'] > 4)
-			{
-				$similarthreads .= ", $thread[threadid]";
-			}
-		}
-
-		$vbulletin->db->free_result($threads);
-
-		return substr($similarthreads, 2);
-	}
-
-	// take out + and - because they have special meanings in a search
-	$threadtitle = str_replace('+', ' ', $threadtitle);
-	$threadtitle = str_replace('-', ' ', $threadtitle);
-	$threadtitle = fetch_postindex_text(trim($threadtitle));
-
-	$retval = getsearchposts($threadtitle, 0);
-	if (!$retval OR sizeof($retval['scores']) == 0)
-	{
-		return '';
-	}
-
-	if (sizeof($retval['scores']) < 20000)
-	{
-		// this version seems to die on the sort when a lot of posts are return
-		arsort($retval['scores']);	// biggest scores first
-
-		foreach ($retval['scores'] AS $postid => $score)
-		{
-			if (($score / $retval['searchables']) < $vbulletin->options['similarthreadthreshold'] OR $numposts >= $vbulletin->options['maxresults'])
-			{
-				break;
-			}
-			else
-			{
-				$similarposts .= ', ' . intval($postid);
-				$numposts++;
-			}
-		}
-	}
-	else
-	{
-		$scorelist = array();
-		$postlist  = array();
-		$maxarrsize = min(40, sizeof($retval['scores']));
-		for ($i = 0; $i < $maxarrsize; $i++)
-		{
-			$scorelist[$i] = -1;
-			$postlist[$i] = 0;
-		}
-		foreach ($retval['scores'] AS $postid => $score)
-		{
-			if (($score / $retval['searchables']) < $vbulletin->options['similarthreadthreshold'])
-			{
-				continue;
-			}
-			$arraymin = min($scorelist);
-			if ($score > $arraymin)
-			{
-				$i = 0;
-				foreach ($scorelist AS $thisscore)
-				{
-					if ($thisscore == $arraymin)
-					{
-						$scorelist["$i"] = $score;
-						$postlist["$i"] = $postid;
-						break;
-					}
-					$i++;
-				}
-			}
-		}
-		foreach ($postlist AS $postid)
-		{
-			if ($postid)
-			{
-				$numposts++;
-				$similarposts .= ', ' . intval($postid);
-			}
-		}
-	}
-
-	if ($numposts == 0)
-	{
-		return '';
-	}
-
-	$sim = $vbulletin->db->query_read_slave("
-		SELECT DISTINCT thread.threadid
-		FROM " . TABLE_PREFIX . "post AS post
-		INNER JOIN " . TABLE_PREFIX . "thread AS thread ON (thread.threadid = post.threadid)
-		WHERE postid IN (0$similarposts) " . iif($threadid, " AND post.threadid <> $threadid") . "
-		ORDER BY ($numposts - FIELD(post.postid $similarposts )) DESC
-		LIMIT 5
-	");
-	$similarthreads = '';
-	while ($simthrd = $vbulletin->db->fetch_array($sim))
-	{
-		$similarthreads .= ", $simthrd[threadid]";
-	}
-	$vbulletin->db->free_result($sim);
-
-	return substr($similarthreads, 2);
-}
 
 // #############################################################################
 // checks if word is goodword / badword / too long / too short
@@ -547,7 +97,7 @@ function sanitize_word_for_sql($word)
 // gets a list of forums from the user's selection
 function fetch_search_forumids(&$forumchoice, $childforums = 0)
 {
-	global $vbulletin, $stylevar, $display;
+	global $vbulletin, $display;
 
 	// make sure that $forumchoice is an array
 	if (!is_array($forumchoice))
@@ -728,61 +278,6 @@ function sanitize_search_query($query, &$errors)
 }
 
 // #############################################################################
-// fetch the score for a search result
-function fetch_search_item_score(&$item, $currentscore)
-{
-	global $vbulletin;
-	global $replyscore, $viewscore, $ratescore, $searchtype;
-
-	// for fulltext NL search, just use the score set by MySQL
-	if ($vbulletin->options['fulltextsearch'] AND !$searchtype)
-	{
-		return $currentscore;
-	}
-
-	// don't prejudice un-rated threads!
-	if ($item['votenum'] == 0)
-	{
-		$item['rating'] = 3;
-	}
-	else
-	{
-		$item['rating'] = $item['votetotal'] / $item['votenum'];
-	}
-
-	$replyscore = $vbulletin->options['replyfunc']($item['replycount']) * $vbulletin->options['replyscore'];
-	$viewscore = $vbulletin->options['viewfunc']($item['views']) * $vbulletin->options['viewscore'];
-	$ratescore = $vbulletin->options['ratefunc']($item['rating']) * $vbulletin->options['ratescore'];
-
-	return $currentscore + $replyscore + $viewscore + $ratescore;
-}
-
-// #############################################################################
-// fetch the date scores for search results
-function fetch_search_date_scores(&$datescores, &$itemscores, $mindate, $maxdate)
-{
-	global $vbulletin, $searchtype;
-
-	// for fulltext NL search, just use the score set by MySQL
-	if ($vbulletin->options['fulltextsearch'] AND !$searchtype)
-	{
-		unset($datescores);
-		return;
-	}
-
-	$datespread = $maxdate - $mindate;
-	if ($datespread > 0 AND $vbulletin->options['datescore'] != 0)
-	{
-		foreach ($datescores AS $itemid => $dateline)
-		{
-			$datescore = ($dateline - $mindate) / $datespread * $vbulletin->options['datescore'];
-			$itemscores["$itemid"] += $datescore;
-		}
-	}
-	unset($datescores);
-}
-
-// #############################################################################
 // fetch array of IDs of forums to display in the search form
 function fetch_search_forumids_array($parentid = -1, $depthmark = '')
 {
@@ -799,7 +294,7 @@ function fetch_search_forumids_array($parentid = -1, $depthmark = '')
 		}
 	}
 
-	if (is_array($indexed_forum_cache["$parentid"]))
+	if (isset($indexed_forum_cache["$parentid"]) AND is_array($indexed_forum_cache["$parentid"]))
 	{
 		foreach ($indexed_forum_cache["$parentid"] AS $forumid => $forum)
 		{
@@ -813,7 +308,7 @@ function fetch_search_forumids_array($parentid = -1, $depthmark = '')
 			{
 				$vbulletin->forumcache["$forumid"]['depthmark'] = $depthmark;
 				$searchforumids[] = $forumid;
-				fetch_search_forumids_array($forumid, $depthmark . FORUM_PREPEND);
+				fetch_search_forumids_array($forumid, $depthmark);
 			}
 		}
 	}
@@ -848,12 +343,32 @@ function safelog($v)
 }
 
 // #############################################################################
+
+/**
+*	Return a url to repeat a text search as title only if needed
+*
+* What this function does is to check to see if search the user requested has
+* any forums excluded because they queried post text, but only have permission
+* to view thread headers in one or more forums.  It appears to produce a
+* url to return a titleonly search for specifically those forums excluded
+* from the initial search.
+*
+* If no forums were excluded (a text query filter wasn't specified, titleonly was already
+* selected, or the user has does not have search permissions on a forum he can't views
+* posts in) then the function returns false.
+*
+* This is used both to generate the url and to check if the situation that causes the
+* url to be generated exists.
+*
+*	@param array $searchterms The requested terms for search.
+* @return string|false url for title only search
+*/
 function fetch_titleonly_url($searchterms)
 {
 	global $vbulletin;
 
 	$url = array();
-	if ($vbulletin->options['fulltextsearch'] AND !$searchterms['titleonly'] AND !empty($searchterms['query']))
+	if (!$searchterms['titleonly'] AND !empty($searchterms['query']))
 	{
 		if ($forumchoice = implode(',', fetch_search_forumids($searchterms['forumchoice'], $searchterms['childforums'])))
 		{
@@ -866,13 +381,14 @@ function fetch_titleonly_url($searchterms)
 
 		foreach ($searchforums AS $forumid => $foo)
 		{
-			if ($vbulletin->userinfo['forumpermissions']["$forumid"] & $vbulletin->bf_ugp_forumpermissions['canview'] AND $vbulletin->userinfo['forumpermissions']["$forumid"] & $vbulletin->bf_ugp_forumpermissions['cansearch'] AND !($vbulletin->userinfo['forumpermissions']["$forumid"] & $vbulletin->bf_ugp_forumpermissions['canviewthreads']))
+			if ($vbulletin->userinfo['forumpermissions']["$forumid"] & $vbulletin->bf_ugp_forumpermissions['canview'] AND
+				$vbulletin->userinfo['forumpermissions']["$forumid"] & $vbulletin->bf_ugp_forumpermissions['cansearch'] AND
+				!($vbulletin->userinfo['forumpermissions']["$forumid"] & $vbulletin->bf_ugp_forumpermissions['canviewthreads']))
 			{
 				$url[] = 'forumchoice[]=' . intval($forumid);
 			}
 		}
 	}
-
 	if (!empty($url))
 	{
 		$url[] = 'do=process';
@@ -927,16 +443,16 @@ function fetch_titleonly_url($searchterms)
 	}
 }
 
-/**
-* Fetches the HTML for the tag cloud.
-*
-* @param	string	Type of cloud. Supports search, usage
-*
-* @return	string	Tag cloud HTML (nothing if no cloud)
-*/
-function fetch_tagcloud($type = 'usage')
+/** Prepares the tag cloud data for rendering
+ *
+ * @param	string	Type of cloud. Supports search, usage
+ *
+ * @return	string	Tag cloud HTML (nothing if no cloud)
+ ***/
+function prepare_tagcloud($type = 'usage')
 {
-	global $vbulletin, $stylevar, $vbphrase, $show, $template_hook;
+	global $vbulletin;
+	$tags = array();
 
 	if ($vbulletin->options['tagcloud_usergroup'] > 0 AND !isset($vbulletin->usergroupcache[$vbulletin->options['tagcloud_usergroup']]))
 	{
@@ -944,7 +460,27 @@ function fetch_tagcloud($type = 'usage')
 		$vbulletin->options['tagcloud_usergroup'] = -1;
 	}
 
-	$cacheable = ($vbulletin->options['tagcloud_usergroup'] != -1);
+	require_once(DIR . '/includes/class_taggablecontent.php');
+	$collection = new vB_Collection_ContentType();
+	$collection->filterTaggable(true);
+
+	//create dummy content item objects.  We use these to call a couple of (what? - Darren)
+	$type_objects = array();
+	foreach ($collection AS $contenttype)
+	{
+		$type_objects[$contenttype->getID()] = vB_Taggable_Content_Item::create($vbulletin, $contenttype->getID(), null);
+	}
+	unset($collection, $contenttype);
+
+	$cacheable = true;
+	foreach ($type_objects AS $content)
+	{
+		if (!$content->is_cloud_cachable())
+		{
+			$cacheable = false;
+			break;
+		}
+	}
 
 	if (!$cacheable)
 	{
@@ -955,7 +491,9 @@ function fetch_tagcloud($type = 'usage')
 		switch ($type)
 		{
 			case 'search':
-				$cloud = $vbulletin->searchcloud;
+				if (isset($vbulletin->searchcloud)) {
+					$cloud = $vbulletin->searchcloud;
+				}
 				break;
 
 			case 'usage':
@@ -965,162 +503,129 @@ function fetch_tagcloud($type = 'usage')
 		}
 	}
 
+	$cloud = null;
 	if (!is_array($cloud) OR $cloud['dateline'] < (TIMENOW - (60 * $vbulletin->options['tagcloud_cachetime'])))
 	{
 		if ($type == 'search')
 		{
 			$tags_result = $vbulletin->db->query_read_slave("
-				SELECT tagsearch.tagid, tag.tagtext, COUNT(*) AS searchcount
+				SELECT tagsearch.tagid, COUNT(*) AS searchcount
 				FROM " . TABLE_PREFIX . "tagsearch AS tagsearch
-				INNER JOIN " . TABLE_PREFIX . "tag AS tag ON (tagsearch.tagid = tag.tagid)
 				" . ($vbulletin->options['tagcloud_searchhistory'] ?
-					"WHERE tagsearch.dateline > " . (TIMENOW - (60 * 60 * 24 * $vbulletin->options['tagcloud_searchhistory'])) :
-					'') . "
-				GROUP BY tagsearch.tagid, tag.tagtext
+			"WHERE tagsearch.dateline > " . (TIMENOW - (60 * 60 * 24 * $vbulletin->options['tagcloud_searchhistory'])) :
+			'') . "
+				GROUP BY tagsearch.tagid
 				ORDER BY searchcount DESC
 				LIMIT " . $vbulletin->options['tagcloud_tags']
 			);
 		}
 		else
 		{
-			if (!$vbulletin->options['tagcloud_usergroup'])
+			//get the query bits from the type objects.  If two objects return the same exact join/where information
+			//we can collapse the subqueries.  This is particularly useful for the cms content types which are
+			//largely the same under the hood.
+			$bit_ids = array();
+			$bit_values = array();
+			foreach ($type_objects AS $type => $content)
 			{
-				$perm_limit = false;
-			}
-			else
-			{
-				$forums = array();
-				$perm_limit = true;
-
-				foreach ($vbulletin->forumcache AS $forumid => $forum)
+				$contenttypeid = vB_Types::instance()->getContentTypeID($type);
+				$bits = $content->fetch_tag_cloud_query_bits();
+				if ($bits)
 				{
-					// -1 for live permission checking
-					$perm_array = ($vbulletin->options['tagcloud_usergroup'] == -1
-						? $vbulletin->userinfo['forumpermissions']["$forumid"]
-						: $forum['permissions'][$vbulletin->options['tagcloud_usergroup']]
-					);
-
-					if ($perm_array & $vbulletin->bf_ugp_forumpermissions['canview']
-						AND $perm_array & $vbulletin->bf_ugp_forumpermissions['canviewthreads']
-						AND $perm_array & $vbulletin->bf_ugp_forumpermissions['canviewothers']
-					)
+					$pos = array_search($bits, $bit_values);
+					if ($pos === false)
 					{
-						$forums[] = intval($forumid);
+						$bit_ids[] = array($contenttypeid);
+						$bit_values[] = $bits;
 					}
-
+					else
+					{
+						$bit_ids[$pos][] = $contenttypeid;
+					}
 				}
 			}
 
-			if (!$perm_limit OR $forums)
+			//build the subqueries from the bits.
+			$subqueries = array();
+			foreach ($bit_values AS $key => $bits)
 			{
-				$tags_result = $vbulletin->db->query_read_slave("
-					SELECT tagthread.tagid, tag.tagtext, COUNT(*) AS searchcount
-					FROM " . TABLE_PREFIX . "tagthread AS tagthread
-					INNER JOIN " . TABLE_PREFIX . "tag AS tag ON (tagthread.tagid = tag.tagid)
-					INNER JOIN " . TABLE_PREFIX . "thread AS thread ON (tagthread.threadid = thread.threadid)
-					WHERE thread.open <> 10
-						AND thread.visible = 1
-					" . ($perm_limit ? "AND thread.forumid IN (" . implode(',', $forums) . ")" : '') . "
-					" . ($vbulletin->options['tagcloud_usagehistory'] ?
-						"AND tagthread.dateline > " . (TIMENOW - (60 * 60 * 24 * $vbulletin->options['tagcloud_usagehistory'])) :
-						'') . "
-					GROUP BY tagthread.tagid, tag.tagtext
+				$timelimit = (TIMENOW - (60 * 60 * 24 * $vbulletin->options['tagcloud_usagehistory']));
+				$query = 	"
+					SELECT tagcontent.tagid, COUNT(*) AS searchcount
+					FROM " . TABLE_PREFIX . "tagcontent AS tagcontent " .
+					implode("\n", $bits['join']) . "
+					WHERE tagcontent.contenttypeid IN (" . implode(",", $bit_ids[$key]) . ") AND
+						tagcontent.dateline > $timelimit AND " .
+						implode(" AND ", $bits['where']) . "
+					GROUP BY tagcontent.tagid
+				";
+				$subqueries[] = $query;
+			}
+
+			if (count($subqueries))
+			{
+				$query = "
+					SELECT data.tagid, SUM(data.searchcount) AS searchcount
+					FROM
+						(" . implode(" UNION ALL ", $subqueries) . ") AS data
+					GROUP BY data.tagid
 					ORDER BY searchcount DESC
-					LIMIT " . $vbulletin->options['tagcloud_tags']
-				);
+					LIMIT " . $vbulletin->options['tagcloud_tags'];
+
+				$tags_result = $vbulletin->db->query_read_slave($query);
 			}
 		}
 
-		$total = 0;
-		$count = 0;
-
-		if (!empty($tags_result))
+		$tagids = array();
+		while ($currenttag = $vbulletin->db->fetch_array($tags_result))
 		{
-			$count = $vbulletin->db->num_rows($tags_result);
-
-			while ($currenttag = $vbulletin->db->fetch_array($tags_result))
-			{
-				$tags["$currenttag[tagtext]"] = $currenttag;
-				$total += $currenttag['searchcount'];
-			}
-			$vbulletin->db->free_result($tags_result);
+			$tagids[] = $currenttag['tagid'];
 		}
+		$vbulletin->db->data_seek($tags_result, 0);
 
-		$final_tags = array();
-
-		if ($count > 0)
+		if (count($tagids))
 		{
-			// calculate the standard deviation
-			$mean = $total / $count;
+			$query = "SELECT tag.tagid, tag.tagtext
+						FROM " . TABLE_PREFIX . "tag AS tag
+					   WHERE tag.tagid IN (" .  implode(",", $tagids) . ")";
+			$text_result = $vbulletin->db->query_read_slave($query);
 
-			$summation = 0;
-			foreach ($tags AS $tagtext => $tagvalue)
+			while ($tagtext = $vbulletin->db->fetch_array($text_result))
 			{
-				$summation += pow(($tagvalue['searchcount'] - $mean), 2);
-			}
-
-			$sd = sqrt($summation / $count);
-
-			uksort($tags, 'strnatcasecmp');
-
-			if ($sd)
-			{
-				$sdtags = array();
-				$lowestsds = 0;
-				$highestsds = 0;
-
-				// find the max and min standard deviations
-				foreach ($tags AS $tagtext => $currenttag)
-				{
-					$tags["$tagtext"]['deviation'] = $currenttag['searchcount'] - $mean;
-					$tags["$tagtext"]['sds'] = $tags["$tagtext"]['deviation'] / $sd;
-					$sdtags[] = $tags["$tagtext"];
-
-					if ($tags["$tagtext"]['sds'] < $lowestsds)
-					{
-						$lowestsds = $tags["$tagtext"]['sds'];
-					}
-
-					if ($tags["$tagtext"]['sds'] > $highestsds)
-					{
-						$highestsds = $tags["$tagtext"]['sds'];
-					}
-				}
-
-				$levels = $vbulletin->options['tagcloud_levels'];
-
-				foreach ($sdtags AS $thistag)
-				{
-					// normalize the std devs to 0 - 1, then map back to 1 - #levls
-					$thistag['level'] = round((($thistag['sds'] - $lowestsds) / ($highestsds - $lowestsds)) * ($levels - 1)) + 1;
-					$thistag['tagtext_url'] = urlencode(unhtmlspecialchars($thistag['tagtext']));
-
-					$final_tags[] = $thistag;
-				}
-			}
-			else
-			{
-				foreach ($tags AS $tagtext => $tagarr)
-				{
-					$final_tags[] = array(
-						'tagid' => $tagarr['tagid'],
-						'tagtext' => $tagtext,
-						'tagtext_url' => urlencode(unhtmlspecialchars($tagtext)),
-						'level' => round($vbulletin->options['tagcloud_levels'] / 2)
-					);
-				}
+				$tag_names["$tagtext[tagid]"] = $tagtext['tagtext'];
 			}
 		}
+
+		while ($currenttag = $vbulletin->db->fetch_array($tags_result))
+		{
+			$tag_name = $tag_names[$currenttag['tagid']];
+			$currenttag['tagtext'] = $tag_name;
+			$tags["$tag_name"] = $currenttag;
+			$totals[$currenttag['tagid']] = $currenttag['searchcount'];
+		}
+
+		// fetch the stddev levels
+		$levels = fetch_standard_deviated_levels($totals, $vbulletin->options['tagcloud_levels']);
+
+		// assign the levels back to the tags
+		foreach ($tags AS $tagtext => $tag)
+		{
+			$tags[$tagtext]['level'] = $levels[$tag['tagid']];
+			$tags[$tagtext]['tagtext_url'] = urlencode(unhtmlspecialchars($tag['tagtext']));
+		}
+
+		// sort the categories by title
+		uksort($tags, 'strnatcasecmp');
 
 		$cloud = array(
-			'tags' => $final_tags,
-			'count' => sizeof($final_tags),
+			'tags' => $tags,
+			'count' => sizeof($tags),
 			'dateline' => TIMENOW
 		);
 
 		if ($cacheable)
 		{
-			if ($type == 'search')
+			if ($type == 'search' OR $type == 'selectlist')
 			{
 				$vbulletin->searchcloud = $cloud;
 				build_datastore('searchcloud', serialize($cloud), 1);
@@ -1132,30 +637,66 @@ function fetch_tagcloud($type = 'usage')
 			}
 		}
 	}
+	return $cloud;
+	
+}
 
-	if (empty($cloud['tags']))
+
+function prepare_tagcloudlinks($cloud)
+{
+	if (!$cloud OR !isset($cloud['tags']) OR !is_array($cloud['tags']) OR empty($cloud['tags']))
 	{
-		return '';
+		return $cloud;
 	}
-
 	$cloud['links'] = '';
 
 	foreach ($cloud['tags'] AS $thistag)
 	{
 		($hook = vBulletinHook::fetch_hook('tag_cloud_bit')) ? eval($hook) : false;
 
-		eval('$cloud[\'links\'] .= "' . fetch_template('tag_cloud_link') . '";');
+		$templater = vB_Template::create('tag_cloud_link');
+		$templater->register('thistag', $thistag);
+		$cloud['links'] .= $templater->render();
+	}
+	return $cloud;
+}
+
+
+
+/**
+ * Fetches the HTML for the tag cloud.
+ *
+ * @param	string	Type of cloud. Supports search, usage
+ *
+ * @return	string	Tag cloud HTML (nothing if no cloud)
+ */
+function fetch_tagcloud($type = 'usage', $cloud = false)
+{
+	global $vbulletin, $vbphrase, $show, $template_hook;
+
+	if (! $cloud)
+	{
+		$cloud = prepare_tagcloud($type);
 	}
 
-	$cloud['count'] = vb_number_format($cloud['count']);
+	if (empty($cloud['tags']))
+	{
+		return '';
+	}
+
+	$cloud= prepare_tagcloudlinks($cloud);
 
 	if ($type == 'search')
 	{
-		eval('$cloud_html .= "' . fetch_template('tag_cloud_box_search') . '";');
+		$templater = vB_Template::create('tag_cloud_box_search');
+			$templater->register('cloud', $cloud);
+		$cloud_html .= $templater->render();
 	}
 	else
 	{
-		eval('$cloud_html .= "' . fetch_template('tag_cloud_box') . '";');
+		$templater = vB_Template::create('tag_cloud_box');
+			$templater->register('cloud', $cloud);
+		$cloud_html .= $templater->render();
 	}
 
 	return $cloud_html;
@@ -1163,8 +704,7 @@ function fetch_tagcloud($type = 'usage')
 
 /*======================================================================*\
 || ####################################################################
-|| # Downloaded: 16:21, Sat Apr 6th 2013
-|| # CVS: $RCSfile$ - $Revision: 26539 $
+|| # Downloaded: 14:57, Sun Aug 11th 2013
+|| # CVS: $RCSfile$ - $Revision: 61296 $
 || ####################################################################
 \*======================================================================*/
-?>

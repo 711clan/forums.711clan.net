@@ -1,9 +1,9 @@
 <?php
 /*======================================================================*\
 || #################################################################### ||
-|| # vBulletin 3.7.2 Patch Level 2 - Licence Number VBF2470E4F
+|| # vBulletin 4.2.1 - Licence Number VBC2DDE4FB
 || # ---------------------------------------------------------------- # ||
-|| # Copyright ©2000-2013 Jelsoft Enterprises Ltd. All Rights Reserved. ||
+|| # Copyright ©2000-2013 vBulletin Solutions Inc. All Rights Reserved. ||
 || # This file may not be redistributed in whole or significant part. # ||
 || # ---------------- VBULLETIN IS NOT FREE SOFTWARE ---------------- # ||
 || # http://www.vbulletin.com | http://www.vbulletin.com/license.html # ||
@@ -13,6 +13,23 @@
 define('ATTACH_AS_DB', 0);
 define('ATTACH_AS_FILES_OLD', 1);
 define('ATTACH_AS_FILES_NEW', 2);
+
+function fetch_attachmentinfo($posthash, $poststarttime, $contenttypeid, $values = array())
+{
+	global $vbulletin;
+	
+	return array(
+		'auth_type'     => (empty($_SERVER['AUTH_USER']) AND empty($_SERVER['REMOTE_USER'])) ? 0 : 1,
+		'asset_enable'  => ($vbulletin->userinfo['vbasset_enable'] ? $vbulletin->options['vbasset_enable'] : 0),
+		'posthash'      => $posthash,
+		'poststarttime' => $poststarttime,
+		'userid'        => $vbulletin->userinfo['userid'],
+		'contenttypeid' => $contenttypeid,
+		'max_file_size' => fetch_max_upload_size(),
+		'values'        => $values,
+	);
+
+}
 
 // ###################### Start checkattachpath #######################
 // Returns Attachment path
@@ -84,8 +101,6 @@ function vbmkdir($path, $mode = 0777)
 // must be called before outputting anything to the browser
 function file_download($filestring, $filename, $filetype = 'application/octet-stream')
 {
-	global $stylevar;
-
 	if (!isset($isIE))
 	{
 		static $isIE;
@@ -101,7 +116,7 @@ function file_download($filestring, $filename, $filetype = 'application/octet-st
 	{
 		if (function_exists('iconv'))
 		{
-			$filename = @iconv($stylevar['charset'], 'UTF-8//IGNORE', $filename);
+			$filename = @iconv(vB_Template_Runtime::fetchStyleVar('charset'), 'UTF-8//IGNORE', $filename);
 		}
 
 		$filename = preg_replace(
@@ -113,7 +128,7 @@ function file_download($filestring, $filename, $filetype = 'application/octet-st
 	}
 	else
 	{
-		$filename_charset = $stylevar['charset'];
+		$filename_charset = vB_Template_Runtime::fetchStyleVar('charset');
 	}
 	$filename = preg_replace('#[\r\n]#', '', $filename);
 
@@ -121,7 +136,6 @@ function file_download($filestring, $filename, $filetype = 'application/octet-st
 	if (is_browser('mozilla'))
 	{
 		$filename = "filename*=" . $filename_charset . "''" . rawurlencode($filename);
-		//$filename = "filename==?$stylevar[charset]?B?" . base64_encode($filename) . "?=";
 	}
 	else
 	{
@@ -148,7 +162,7 @@ function file_download($filestring, $filename, $filetype = 'application/octet-st
 	header('Expires: ' . gmdate('D, d M Y H:i:s') . ' GMT');
 	header('Content-Disposition: attachment; ' . $filename);
 	header('Content-Length: ' . strlen($filestring));
-	header('Cache-Control: must-revalidate, post-check=0, pre-check=0');
+	header('Cache-Control: private, must-revalidate, post-check=0, pre-check=0');
 	header('Pragma: public');
 
 	echo $filestring;
@@ -209,8 +223,7 @@ function fetch_body_request($url, $maxsize = 0, $dieonmaxsize = false, $returnhe
 
 /*======================================================================*\
 || ####################################################################
-|| # Downloaded: 16:21, Sat Apr 6th 2013
-|| # CVS: $RCSfile$ - $Revision: 16413 $
+|| # Downloaded: 14:57, Sun Aug 11th 2013
+|| # CVS: $RCSfile$ - $Revision: 42552 $
 || ####################################################################
 \*======================================================================*/
-?>

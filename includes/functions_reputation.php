@@ -1,9 +1,9 @@
 <?php
 /*======================================================================*\
 || #################################################################### ||
-|| # vBulletin 3.7.2 Patch Level 2 - Licence Number VBF2470E4F
+|| # vBulletin 4.2.1 - Licence Number VBC2DDE4FB
 || # ---------------------------------------------------------------- # ||
-|| # Copyright ©2000-2013 Jelsoft Enterprises Ltd. All Rights Reserved. ||
+|| # Copyright ©2000-2013 vBulletin Solutions Inc. All Rights Reserved. ||
 || # This file may not be redistributed in whole or significant part. # ||
 || # ---------------- VBULLETIN IS NOT FREE SOFTWARE ---------------- # ||
 || # http://www.vbulletin.com | http://www.vbulletin.com/license.html # ||
@@ -15,6 +15,8 @@
 function fetch_reppower(&$userinfo, &$perms, $reputation = 'pos')
 {
 	global $vbulletin;
+
+	$rawpower = 0;
 
 	// User does not have permission to leave negative reputation
 	if (!($perms['genericpermissions'] & $vbulletin->bf_ugp_genericpermissions['cannegativerep']))
@@ -28,6 +30,7 @@ function fetch_reppower(&$userinfo, &$perms, $reputation = 'pos')
 	}
 	else if ($perms['adminpermissions'] & $vbulletin->bf_ugp_adminpermissions['cancontrolpanel'] AND $vbulletin->options['adminpower'])
 	{
+		$rawpower = $vbulletin->options['adminpower'];
 		$reppower = iif($reputation != 'pos', $vbulletin->options['adminpower'] * -1, $vbulletin->options['adminpower']);
 	}
 	else if (($userinfo['posts'] < $vbulletin->options['minreputationpost']) OR ($userinfo['reputation'] < $vbulletin->options['minreputationcount']))
@@ -51,6 +54,13 @@ function fetch_reppower(&$userinfo, &$perms, $reputation = 'pos')
 			$reppower += intval(intval((TIMENOW - $userinfo['joindate']) / 86400) / $vbulletin->options['rdpower']);
 		}
 
+		if ($vbulletin->options['reputationcap'] AND $reppower > $vbulletin->options['reputationcap'])
+		{
+			$reppower = $vbulletin->options['reputationcap'];
+		}
+
+		$rawpower = $reppower;
+
 		if ($reputation != 'pos')
 		{
 			// make negative reputation worth half of positive, but at least 1
@@ -71,7 +81,7 @@ function fetch_reppower(&$userinfo, &$perms, $reputation = 'pos')
 // ###################### Start getreputationimage #######################
 function fetch_reputation_image(&$post, &$perms)
 {
-	global $stylevar, $vbphrase, $vbulletin;
+	global $vbphrase, $vbulletin;
 
 	if (!$vbulletin->options['reputationenable'])
 	{
@@ -107,12 +117,20 @@ function fetch_reputation_image(&$post, &$perms)
 		$reputationbars = 10;
 	}
 
+	$default = array(
+		'rowend' => '',
+		'imgext' => '.png',
+		'class'  => 'repimg',
+	);
+
+	$post['reputationdisplay'] = array();
+
 	if (!$post['showreputation'] AND $perms['genericpermissions'] & $vbulletin->bf_ugp_genericpermissions['canhiderep'])
 	{
 		$posneg = 'off';
-		$post['level'] = $vbphrase['reputation_disabled'];
-
-		eval('$post[\'reputationdisplay\'] = "' . fetch_template('postbit_reputation') . '";');
+		$display = $default;
+		$display['posneg'] = $posneg;
+		$post['reputationdisplay'][] = $display;
 	}
 	else
 	{
@@ -120,6 +138,11 @@ function fetch_reputation_image(&$post, &$perms)
 		{
 			$post['level'] = $vbulletin->options['reputationundefined'];
 		}
+		else
+		{
+			$post['level'] = $vbphrase['reputation' . $post['reputationlevelid']];
+		}
+
 		for ($i = 0; $i <= $reputationbars; $i++)
 		{
 			if ($i >= 5)
@@ -131,8 +154,9 @@ function fetch_reputation_image(&$post, &$perms)
 				$posneg = $reputationgif;
 			}
 
-			$post['level'] = $vbphrase['reputation' . $post['reputationlevelid']];
-			eval('$post[\'reputationdisplay\'] .= "' . fetch_template('postbit_reputation') . '";');
+			$display = $default;
+			$display['posneg'] = $posneg;
+			$post['reputationdisplay'][] = $display;
 		}
 	}
 
@@ -143,8 +167,8 @@ function fetch_reputation_image(&$post, &$perms)
 
 /*======================================================================*\
 || ####################################################################
-|| # Downloaded: 16:21, Sat Apr 6th 2013
-|| # CVS: $RCSfile$ - $Revision: 24960 $
+|| # Downloaded: 14:57, Sun Aug 11th 2013
+|| # CVS: $RCSfile$ - $Revision: 62098 $
 || ####################################################################
 \*======================================================================*/
 ?>

@@ -1,9 +1,9 @@
 <?php
 /*======================================================================*\
 || #################################################################### ||
-|| # vBulletin 3.7.2 Patch Level 2 - Licence Number VBF2470E4F
+|| # vBulletin 4.2.1 - Licence Number VBC2DDE4FB
 || # ---------------------------------------------------------------- # ||
-|| # Copyright ©2000-2013 Jelsoft Enterprises Ltd. All Rights Reserved. ||
+|| # Copyright ©2000-2013 vBulletin Solutions Inc. All Rights Reserved. ||
 || # This file may not be redistributed in whole or significant part. # ||
 || # ---------------- VBULLETIN IS NOT FREE SOFTWARE ---------------- # ||
 || # http://www.vbulletin.com | http://www.vbulletin.com/license.html # ||
@@ -14,7 +14,7 @@
 error_reporting(E_ALL & ~E_NOTICE);
 
 // ##################### DEFINE IMPORTANT CONSTANTS #######################
-define('CVS_REVISION', '$RCSfile$ - $Revision: 26863 $');
+define('CVS_REVISION', '$RCSfile$ - $Revision: 40911 $');
 
 // #################### PRE-CACHE TEMPLATES AND DATA ######################
 $phrasegroups = array('user', 'cpuser', 'infraction', 'infractionlevel', 'banning');
@@ -867,7 +867,8 @@ if ($_REQUEST['do'] == 'dolist')
 		SELECT infraction.*,
 			user2.username,
 			user.username AS leftby_username,
-			IF(ISNULL(post.postid) AND infraction.postid != 0, 1, 0) AS postdeleted
+			IF(ISNULL(post.postid) AND infraction.postid != 0, 1, 0) AS postdeleted,
+			post.threadid AS postthreadid
 		FROM " . TABLE_PREFIX . "infraction AS infraction
 		LEFT JOIN " . TABLE_PREFIX . "user AS user ON (infraction.whoadded = user.userid)
 		LEFT JOIN " . TABLE_PREFIX . "user AS user2 ON (infraction.userid = user2.userid)
@@ -962,10 +963,27 @@ if ($_REQUEST['do'] == 'dolist')
 				}
 			}
 
-			$cell[] = (!empty($infraction['postid']) AND !$infraction['postdeleted']) ? construct_link_code(htmlspecialchars_uni($vbphrase['post']), "../showthread.php?" . $vbulletin->session->vars['sessionurl'] . "postid=$infraction[postid]#post$infraction[postid]", true, '', true) : '&nbsp;';
-			$cell[] = (($infraction['action'] != 2) ? construct_link_code($vbphrase['reverse'], "admininfraction.php?" . $vbulletin->session->vars['sessionurl'] . "do=reverse&infractionid=$infraction[infractionid]" . $args . $vbulletin->GPC['orderby'], false, '', true) : '') .
-			' ' . construct_link_code($vbphrase['infraction_view'], "admininfraction.php?" . $vbulletin->session->vars['sessionurl'] . "do=details&infractionid=$infraction[infractionid]", false, '', true) .
-			' ' . construct_link_code($vbphrase['delete'], "admininfraction.php?" . $vbulletin->session->vars['sessionurl'] . "do=deleteinfraction&infractionid=$infraction[infractionid]" . $args . $vbulletin->GPC['orderby'], false, '', true);
+			$postlink = '';
+			if (!empty($infraction['postid']) AND !$infraction['postdeleted'])
+			{
+				//deliberately don't use the title.  We don't have it in our result set (or
+				//in any of the tables in our result set) and we'll catch it on redirect.  
+				//Plus the admincp isn't a big SEO issue -- we just want to get the links
+				//on the classes so that they work and centralize logic for future changes.`
+				$postlink = fetch_seo_url('thread|bburl', $infraction, 
+					array('p' => $infraction['postid']), 'postthreadid') . "#post$infraction[postid]";
+			}
+
+			$cell[] = ($postlink) ?	construct_link_code(htmlspecialchars_uni($vbphrase['post']), 
+				$postlink, true, '', true) : '&nbsp;';
+			$cell[] = (($infraction['action'] != 2) ? 
+				construct_link_code($vbphrase['reverse'], "admininfraction.php?" . $vbulletin->session->vars['sessionurl'] . 
+					"do=reverse&infractionid=$infraction[infractionid]" . $args . $vbulletin->GPC['orderby'], false, '', true) : '') .
+				' ' . construct_link_code($vbphrase['infraction_view'], "admininfraction.php?" . 
+					$vbulletin->session->vars['sessionurl'] . "do=details&infractionid=$infraction[infractionid]", false, '', true) .
+				' ' . construct_link_code($vbphrase['delete'], "admininfraction.php?" . $vbulletin->session->vars['sessionurl'] . 
+					"do=deleteinfraction&infractionid=$infraction[infractionid]" . $args . $vbulletin->GPC['orderby'], 
+					false, '', true);
 
 			print_cells_row($cell);
 		}
@@ -1203,7 +1221,7 @@ if ($_POST['do'] == 'updatebangroup')
 		'amount'         => TYPE_UINT,
 		'usergroupid'    => TYPE_INT,
 		'banusergroupid' => TYPE_UINT,
-		'period'         => TYPE_NOHHTML
+		'period'         => TYPE_NOHTML
 	));
 
 	if (empty($vbulletin->GPC['amount']))
@@ -1260,8 +1278,8 @@ print_cp_footer();
 
 /*======================================================================*\
 || ####################################################################
-|| # Downloaded: 16:21, Sat Apr 6th 2013
-|| # CVS: $RCSfile$ - $Revision: 26863 $
+|| # Downloaded: 14:57, Sun Aug 11th 2013
+|| # CVS: $RCSfile$ - $Revision: 40911 $
 || ####################################################################
 \*======================================================================*/
 ?>

@@ -1,9 +1,9 @@
 <?php
 /*======================================================================*\
 || #################################################################### ||
-|| # vBulletin 3.7.2 Patch Level 2 - Licence Number VBF2470E4F
+|| # vBulletin 4.2.1 - Licence Number VBC2DDE4FB
 || # ---------------------------------------------------------------- # ||
-|| # Copyright ©2000-2013 Jelsoft Enterprises Ltd. All Rights Reserved. ||
+|| # Copyright ©2000-2013 vBulletin Solutions Inc. All Rights Reserved. ||
 || # This file may not be redistributed in whole or significant part. # ||
 || # ---------------- VBULLETIN IS NOT FREE SOFTWARE ---------------- # ||
 || # http://www.vbulletin.com | http://www.vbulletin.com/license.html # ||
@@ -14,7 +14,7 @@
 error_reporting(E_ALL & ~E_NOTICE);
 
 // ##################### DEFINE IMPORTANT CONSTANTS #######################
-define('CVS_REVISION', '$RCSfile$ - $Revision: 24444 $');
+define('CVS_REVISION', '$RCSfile$ - $Revision: 32878 $');
 
 // #################### PRE-CACHE TEMPLATES AND DATA ######################
 $phrasegroups = array('attachment_image');
@@ -127,7 +127,7 @@ if ($_REQUEST['do'] == 'switchtype')
 		print_form_header('avatar', 'doswitchtype');
 		construct_hidden_code('dowhat', $vbulletin->GPC['dowhat']);
 
-		switch($dowhat)
+		switch($vbulletin->GPC['dowhat'])
 		{
 			case 'FS_to_FS1':
 				print_table_header($vbphrase['move_avatars_to_a_different_directory']);
@@ -347,7 +347,7 @@ if ($_REQUEST['do'] == 'domoveavatar')
 			$vbulletin->options['usefileavatar'] = true;
 
 			// Converting FROM mysql TO fs
-			if (!empty($image['afilename']))
+			if (!empty($image['afiledata']))
 			{
 				$userpic =& datamanager_init('Userpic_Avatar', $vbulletin, ERRTYPE_CP, 'userpic');
 				$userpic->set_existing($image);
@@ -362,7 +362,7 @@ if ($_REQUEST['do'] == 'domoveavatar')
 				}
 			}
 
-			if (!empty($image['pfilename']))
+			if (!empty($image['pfiledata']))
 			{
 				$userpic =& datamanager_init('Userpic_Profilepic', $vbulletin, ERRTYPE_CP, 'userpic');
 				$userpic->set_existing($image);
@@ -373,7 +373,7 @@ if ($_REQUEST['do'] == 'domoveavatar')
 				}
 			}
 
-			if (!empty($image['sfilename']))
+			if (!empty($image['sfiledata']))
 			{
 				$userpic =& datamanager_init('Userpic_Sigpic', $vbulletin, ERRTYPE_CP, 'userpic');
 				$userpic->set_existing($image);
@@ -494,8 +494,8 @@ print_cp_footer();
 
 /*======================================================================*\
 || ####################################################################
-|| # Downloaded: 16:21, Sat Apr 6th 2013
-|| # CVS: $RCSfile$ - $Revision: 24444 $
+|| # Downloaded: 14:57, Sun Aug 11th 2013
+|| # CVS: $RCSfile$ - $Revision: 32878 $
 || ####################################################################
 \*======================================================================*/
 ?>

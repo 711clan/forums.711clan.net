@@ -1,9 +1,9 @@
 <?php
 /*======================================================================*\
 || #################################################################### ||
-|| # vBulletin 3.7.2 Patch Level 2 - Licence Number VBF2470E4F
+|| # vBulletin 4.2.1 - Licence Number VBC2DDE4FB
 || # ---------------------------------------------------------------- # ||
-|| # Copyright ©2000-2013 Jelsoft Enterprises Ltd. All Rights Reserved. ||
+|| # Copyright ©2000-2013 vBulletin Solutions Inc. All Rights Reserved. ||
 || # This file may not be redistributed in whole or significant part. # ||
 || # ---------------- VBULLETIN IS NOT FREE SOFTWARE ---------------- # ||
 || # http://www.vbulletin.com | http://www.vbulletin.com/license.html # ||
@@ -24,6 +24,9 @@ if (!is_object($vbulletin->db))
 // $nextrun is the time difference between runs. Should be sent over from cron.php!!
 // We only check the users that have been active since the lastrun to save a bit of cpu time.
 
+$thisrun = TIMENOW;
+$lastrun = $vbulletin->crondata['promotions_lastrun'] ? $vbulletin->crondata['promotions_lastrun'] : $thisrun - ($nextrun - $thisrun);
+
 $promotions = $vbulletin->db->query_read("
 	SELECT user.joindate, user.userid, user.membergroupids, user.posts, user.reputation,
 		user.usergroupid, user.displaygroupid, user.customtitle, user.username, user.ipoints,
@@ -35,7 +38,7 @@ $promotions = $vbulletin->db->query_read("
 	INNER JOIN " . TABLE_PREFIX . "userpromotion AS userpromotion ON (user.usergroupid = userpromotion.usergroupid)
 	LEFT JOIN " . TABLE_PREFIX . "usergroup AS usergroup ON (userpromotion.joinusergroupid = usergroup.usergroupid)
 	LEFT JOIN " . TABLE_PREFIX . "usertextfield AS usertextfield ON (usertextfield.userid = user.userid)
-	" . iif(VB_AREA != 'AdminCP', "WHERE user.lastactivity >= " . (TIMENOW - ($nextrun - TIMENOW)))
+	" . iif(VB_AREA != 'AdminCP', "WHERE user.lastactivity >= $lastrun")
 );
 
 $usertitlecache = array();
@@ -163,41 +166,47 @@ while ($promotion = $vbulletin->db->fetch_array($promotions))
 		if ($dojoin)
 		{
 			$user = $promotion;
+			$undeletable_users = ($vbulletin->config['SpecialUsers']['undeletableusers']) ? 
+					explode(',', $vbulletin->config['SpecialUsers']['undeletableusers']) : array();
+			$undeletable_user = (in_array($promotion['userid'], $undeletable_users)) ? true : false;
 
-			if ($promotion['type'] == 1) // Primary
+			if ($promotion['type'] == 1 ) // Primary
 			{
-				$primaryupdates["$joinusergroupid"] .= ",$promotion[userid]";
-				$primarynames["$joinusergroupid"] .= iif($primarynames["$joinusergroupid"], ", $promotion[username]", $promotion['username']);
-
-				if (
-					(!$promotion['displaygroupid'] OR $promotion['displaygroupid'] == $promotion['usergroupid']) AND
-					!$promotion['customtitle']
-					)
+				if (!$undeletable_user)
 				{
-					if ($promotion['ug_usertitle'])
+					$primaryupdates["$joinusergroupid"] .= ",$promotion[userid]";
+					$primarynames["$joinusergroupid"] .= iif($primarynames["$joinusergroupid"], ", $promotion[username]", $promotion['username']);
+
+					if (
+						(!$promotion['displaygroupid'] OR $promotion['displaygroupid'] == $promotion['usergroupid']) AND
+						!$promotion['customtitle']
+						)
 					{
-						// update title if the user (doesn't have a special display group or if their display group is their primary group)
-						// and he doesn't have a custom title already, and the new usergroup has a custom title
-						$userupdates["$promotion[userid]"]['title'] = $promotion['ug_usertitle'];
-					}
-					else
-					{ // need to use default thats specified for X posts.
-						foreach ($usertitlecache AS $minposts => $title)
+						if ($promotion['ug_usertitle'])
 						{
-							if ($minposts <= $promotion['posts'])
+							// update title if the user (doesn't have a special display group or if their display group is their primary group)
+							// and he doesn't have a custom title already, and the new usergroup has a custom title
+							$userupdates["$promotion[userid]"]['title'] = $promotion['ug_usertitle'];
+						}
+						else
+						{ // need to use default thats specified for X posts.
+							foreach ($usertitlecache AS $minposts => $title)
 							{
-								$userupdates["$promotion[userid]"]['title'] = $title;
-							}
-							else
-							{
-								break;
+								if ($minposts <= $promotion['posts'])
+								{
+									$userupdates["$promotion[userid]"]['title'] = $title;
+								}
+								else
+								{
+									break;
+								}
 							}
 						}
 					}
-				}
 
-				$user['displaygroupid'] = ($user['displaygroupid'] == $user['usergroupid']) ? $joinusergroupid : $user['displaygroupid'];
-				$user['usergroupid'] = $joinusergroupid;
+					$user['displaygroupid'] = ($user['displaygroupid'] == $user['usergroupid']) ? $joinusergroupid : $user['displaygroupid'];
+					$user['usergroupid'] = $joinusergroupid;
+				}
 			}
 			else
 			{
@@ -208,7 +217,7 @@ while ($promotion = $vbulletin->db->fetch_array($promotions))
 
 			require_once(DIR . '/includes/functions_ranks.php');
 			$userrank =& fetch_rank($user);
-			if ($promotion['rank'] != $userrank)
+			if ($promotion['rank'] != $userrank AND !$undeletable_user)
 			{
 				$userupdates["$promotion[userid]"]['rank'] = $userrank;
 			}
@@ -345,6 +354,9 @@ foreach ($userupdates AS $userid => $info)
 	unset($userdm);
 }
 
+$vbulletin->crondata['promotions_lastrun'] = $thisrun;
+build_datastore('crondata', serialize($vbulletin->crondata), 1);
+
 foreach ($secondaryupdates AS $joinusergroupid => $ids)
 {
 	$vbulletin->db->query_write("
@@ -362,8 +374,8 @@ foreach ($secondaryupdates AS $joinusergroupid => $ids)
 
 /*======================================================================*\
 || ####################################################################
-|| # Downloaded: 16:21, Sat Apr 6th 2013
-|| # CVS: $RCSfile$ - $Revision: 17247 $
+|| # Downloaded: 14:57, Sun Aug 11th 2013
+|| # CVS: $RCSfile$ - $Revision: 58368 $
 || ####################################################################
 \*======================================================================*/
 ?>

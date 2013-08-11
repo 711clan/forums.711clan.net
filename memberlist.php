@@ -1,9 +1,9 @@
 <?php
 /*======================================================================*\
 || #################################################################### ||
-|| # vBulletin 3.7.2 Patch Level 2 - Licence Number VBF2470E4F
+|| # vBulletin 4.2.1 - Licence Number VBC2DDE4FB
 || # ---------------------------------------------------------------- # ||
-|| # Copyright ©2000-2013 Jelsoft Enterprises Ltd. All Rights Reserved. ||
+|| # Copyright ©2000-2013 vBulletin Solutions Inc. All Rights Reserved. ||
 || # This file may not be redistributed in whole or significant part. # ||
 || # ---------------- VBULLETIN IS NOT FREE SOFTWARE ---------------- # ||
 || # http://www.vbulletin.com | http://www.vbulletin.com/license.html # ||
@@ -39,7 +39,6 @@ $actiontemplates = array(
 		'memberlist',
 		'memberlist_letter',
 		'memberlist_results_header',
-		'memberlist_resultsbit',
 		'memberlist_resultsbit_field',
 
 		'im_aim',
@@ -49,7 +48,6 @@ $actiontemplates = array(
 		'im_skype',
 
 		'forumdisplay_sortarrow',
-		'postbit_reputation',
 	),
 	'search' => array(
 		'memberlist_search',
@@ -71,6 +69,7 @@ $actiontemplates['getall'] =& $actiontemplates['none'];
 // ######################### REQUIRE BACK-END ############################
 require_once('./global.php');
 require_once(DIR . '/includes/functions_misc.php');
+require_once(DIR . '/includes/functions_user.php');
 require_once(DIR . '/includes/class_postbit.php');
 
 // #######################################################################
@@ -153,8 +152,13 @@ $show['advancedlink'] = false;
 // work out total columns
 $totalcols = $show['emailcol'] + $show['homepagecol'] + $show['searchcol'] + $show['datejoinedcol'] + $show['postscol'] + $show['lastvisitcol'] + $show['reputationcol'] + $show['avatarcol'] + $show['birthdaycol'] + $show['agecol'] + $show['profilepiccol'] + $show['imicons'];
 
-// build forum jump
-construct_forum_jump();
+$navpopup = array(
+	'id'    => 'memberlist_navpopup',
+	'title' => $vbphrase['members_list'],
+	'link'  => 'memberlist.php' . $vbulletin->session->vars['sessionurl_q'],
+);
+construct_quick_nav($navpopup);
+
 
 // #############################################################################
 // show results
@@ -177,7 +181,14 @@ if ($_REQUEST['do'] == 'getall')
 	{
 		if ($vbulletin->GPC['email'])
 		{
-			$condition .= " AND email LIKE '%" . $db->escape_string_like(htmlspecialchars_uni($vbulletin->GPC['email'])) . "%' ";
+			if (can_moderate())
+			{
+				$condition .= " AND email LIKE '%" . $db->escape_string_like(htmlspecialchars_uni($vbulletin->GPC['email'])) . "%' ";
+			}
+			else
+			{
+				print_no_permission();
+			}
 		}
 		if ($vbulletin->GPC['homepage'])
 		{
@@ -495,19 +506,36 @@ if ($_REQUEST['do'] == 'getall')
 	$currentletter = '#';
 	$linkletter = urlencode('#');
 	$show['selectedletter'] = $selectedletter == '#' ? true : false;
-	eval('$letterbits = "' . fetch_template('memberlist_letter') . '";');
+	$templater = vB_Template::create('memberlist_letter');
+		$templater->register('currentletter', $currentletter);
+		$templater->register('linkletter', $linkletter);
+		$templater->register('ltrurl', $ltrurl);
+		$templater->register('perpage', $perpage);
+		$templater->register('sortfield', $sortfield);
+		$templater->register('sortorder', $sortorder);
+		$templater->register('usergrouplink', $usergrouplink);
+	$letterbits = $templater->render();
 	// now do alpha-characters
 	for ($i=65; $i < 91; $i++)
 	{
 		$currentletter = chr($i);
 		$linkletter =& $currentletter;
 		$show['selectedletter'] = $selectedletter == $currentletter ? true : false;
-		eval('$letterbits .= "' . fetch_template('memberlist_letter') . '";');
+		$templater = vB_Template::create('memberlist_letter');
+			$templater->register('currentletter', $currentletter);
+			$templater->register('linkletter', $linkletter);
+			$templater->register('ltrurl', $ltrurl);
+			$templater->register('perpage', $perpage);
+			$templater->register('sortfield', $sortfield);
+			$templater->register('sortorder', $sortorder);
+			$templater->register('usergrouplink', $usergrouplink);
+		$letterbits .= $templater->render();
 	}
 
-	eval('$sortarrow[' . $sortfield . '] = "' . fetch_template('forumdisplay_sortarrow') . '";');
+	$templater = vB_Template::create('forumdisplay_sortarrow');
+		$templater->register('oppositesort', $oppositesort);
+	$sortarrow["$sortfield"] = $templater->render();
 
-	$memberlistbit = '';
 	$limitlower = ($pagenumber - 1) * $perpage + 1;
 	$limitupper = ($pagenumber) * $perpage;
 	$counter = 0;
@@ -531,7 +559,7 @@ if ($_REQUEST['do'] == 'getall')
 	}
 	else
 	{
-		$lastvisitcond = " , IF((options & " . $vbulletin->bf_misc_useroptions['invisible'] . " AND user.userid <> " . $vbulletin->userinfo['userid'] . "), 1, lastactivity) AS lastvisittime ";
+		$lastvisitcond = " , IF((options & " . $vbulletin->bf_misc_useroptions['invisible'] . " AND user.userid <> " . $vbulletin->userinfo['userid'] . "), 0, lastactivity) AS lastvisittime ";
 	}
 
 	if ($show['reputationcol'])
@@ -572,7 +600,7 @@ if ($_REQUEST['do'] == 'getall')
 			IF(displaygroupid=0, user.usergroupid, displaygroupid) AS displaygroupid, infractiongroupid
 		$repcondition
 		" . iif($show['avatarcol'], ',avatar.avatarpath,NOT ISNULL(customavatar.userid) AS hascustomavatar,customavatar.dateline AS avatardateline, customavatar.width AS avwidth, customavatar.height AS avheight') ."
-		" . iif($show['profilepiccol'], ',customprofilepic.userid AS profilepic, customprofilepic.dateline AS profilepicdateline, customprofilepic.width AS ppwidth, customprofilepic.height AS ppheight') . "
+		" . iif($show['profilepiccol'], ', pp_profilepic.requirement AS profilepicrequirement, customprofilepic.userid AS profilepic, customprofilepic.dateline AS profilepicdateline, customprofilepic.width AS ppwidth, customprofilepic.height AS ppheight') . "
 		$lastvisitcond
 		$agecondition
 		" . iif($usergroupid, ", NOT ISNULL(usergroupleader.usergroupid) AS isleader") . "
@@ -582,7 +610,10 @@ if ($_REQUEST['do'] == 'getall')
 		LEFT JOIN " . TABLE_PREFIX . "userfield AS userfield ON(userfield.userid=user.userid)
 		" . iif($show['reputationcol'], "LEFT JOIN " . TABLE_PREFIX . "reputationlevel AS reputationlevel ON(user.reputationlevelid=reputationlevel.reputationlevelid) ") . "
 		" . iif($show['avatarcol'], "LEFT JOIN " . TABLE_PREFIX . "avatar AS avatar ON(avatar.avatarid = user.avatarid) LEFT JOIN " . TABLE_PREFIX . "customavatar AS customavatar ON(customavatar.userid = user.userid)") . "
-		" . iif($show['profilepiccol'], "LEFT JOIN " . TABLE_PREFIX . "customprofilepic AS customprofilepic ON (user.userid = customprofilepic.userid) ") . "
+		" . iif($show['profilepiccol'], "
+			LEFT JOIN " . TABLE_PREFIX . "customprofilepic AS customprofilepic ON (user.userid = customprofilepic.userid)
+			LEFT JOIN " . TABLE_PREFIX . "profileblockprivacy AS pp_profilepic ON
+				(pp_profilepic.userid = user.userid AND pp_profilepic.blockid = 'profile_picture')") . "
 		" . iif($usergroupid, "LEFT JOIN " . TABLE_PREFIX . "usergroupleader AS usergroupleader ON (user.userid = usergroupleader.userid AND usergroupleader.usergroupid=$usergroupid) ") . "
 		$hook_query_joins
 		WHERE $condition
@@ -593,7 +624,7 @@ if ($_REQUEST['do'] == 'getall')
 	");
 
 	$counter = 0;
-	$memberlistbits = '';
+	$memberlistbits = array();
 	$today_year = vbdate('Y', TIMENOW, false, false);
 	$today_month = vbdate('n', TIMENOW, false, false);
 	$today_day = vbdate('j', TIMENOW, false, false);
@@ -604,6 +635,7 @@ if ($_REQUEST['do'] == 'getall')
 
 	while ($userinfo = $db->fetch_array($users) AND $counter++ < $perpage)
 	{
+		$memberlist = array();
 		$userinfo = array_merge($userinfo , convert_bits_to_array($userinfo['options'] , $vbulletin->bf_misc_useroptions));
 		$userinfo = array_merge($userinfo , convert_bits_to_array($userinfo['adminoptions'] , $vbulletin->bf_misc_adminoptions));
 		cache_permissions($userinfo, false);
@@ -618,52 +650,43 @@ if ($_REQUEST['do'] == 'getall')
 		fetch_musername($userinfo);
 		$userinfo['datejoined'] = vbdate($vbulletin->options['dateformat'], $userinfo['joindate'], true);
 
-		if ($userinfo['lastvisittime'] == 1)
-		{
-			$userinfo['lastvisit'] = $vbphrase['n_a'];
-		}
-		else
-		{
-			$userinfo['lastvisit'] = vbdate($vbulletin->options['dateformat'], $userinfo['lastvisittime'], true);
-		}
-
 		if ($userinfo['lastpost'])
 		{
-			$show['searchlink'] = true;
+			$memberlist['searchlink'] = true;
 		}
 		else
 		{
-			$show['searchlink'] = false;
+			$memberlist['searchlink'] = false;
 		}
-		if ($userinfo['showemail'] AND $vbulletin->options['displayemails'] AND (!$vbulletin->options['secureemail'] OR ($vbulletin->options['secureemail'] AND $vbulletin->options['enableemail'])) AND $vbulletin->userinfo['permissions']['genericpermissions'] & $vbulletin->bf_ugp_genericpermissions['canemailmember'])
+		if ($userinfo['showemail'] AND $vbulletin->options['displayemails'] AND (!$vbulletin->options['secureemail'] OR ($vbulletin->options['secureemail'] AND $vbulletin->options['enableemail'])) AND $vbulletin->userinfo['permissions']['genericpermissions'] & $vbulletin->bf_ugp_genericpermissions['canemailmember'] AND $vbulletin->userinfo['userid'])
 		{
-			$show['emaillink'] = true;
+			$memberlist['emaillink'] = true;
 		}
 		else
 		{
-			$show['emaillink'] = false;
+			$memberlist['emaillink'] = false;
 		}
 
 		construct_im_icons($userinfo, true);
 
 		if ($userinfo['homepage'] != '' AND $userinfo['homepage'] != 'http://')
 		{
-			$show['homepagelink'] = true;
+			$memberlist['homepagelink'] = true;
 		}
 		else
 		{
-			$show['homepagelink'] = false;
+			$memberlist['homepagelink'] = false;
 		}
 		if ($vbulletin->options['enablepms'] AND $vbulletin->userinfo['permissions']['pmquota'] AND ($vbulletin->userinfo['permissions']['adminpermissions'] & $vbulletin->bf_ugp_adminpermissions['cancontrolpanel']
 	 					OR ($userinfo['receivepm'] AND $userinfo['permissions']['pmquota']
 	 						AND (!$userinfo['receivepmbuddies'] OR can_moderate() OR strpos(" $userinfo[buddylist] ", ' ' . $vbulletin->userinfo['userid'] . ' ') !== false))
 	 				))
 	 	{
-			$show['pmlink'] = true;
+			$memberlist['pmlink'] = true;
 		}
 		else
 		{
-			$show['pmlink'] = false;
+			$memberlist['pmlink'] = false;
 		}
 		if ($show['birthdaycol'] OR $show['agecol'])
 		{
@@ -739,7 +762,18 @@ if ($_REQUEST['do'] == 'getall')
 			$checkperms = cache_permissions($userinfo, false);
 			fetch_reputation_image($userinfo, $checkperms);
 		}
-		if ($show['profilepiccol'] AND $userinfo['profilepic'] AND ($userinfo['permissions']['genericpermissions'] & $vbulletin->bf_ugp_genericpermissions['canprofilepic'] OR $userinfo['adminprofilepic']))
+
+		$can_view_profile_pic = (
+			$show['profilepiccol']
+			AND $userinfo['profilepic']
+			AND ($userinfo['permissions']['genericpermissions'] & $vbulletin->bf_ugp_genericpermissions['canprofilepic'] OR $userinfo['adminprofilepic'])
+		);
+		if ($userinfo['profilepicrequirement'] AND !can_view_profile_section($userinfo['userid'], 'profile_picture', $userinfo['profilepicrequirement'], $userinfo))
+		{
+			$can_view_profile_pic = false;
+		}
+
+		if ($can_view_profile_pic)
 		{
 			if ($vbulletin->options['usefileavatar'])
 			{
@@ -760,11 +794,11 @@ if ($_REQUEST['do'] == 'getall')
 
 		if ($show['avatarcol'])
 		{
-			$avwidth = '';
-			$avheight = '';
+			$memberlist['avwidth'] = '';
+			$memberlist['avheight'] = '';
 			if ($userinfo['avatarid'])
 			{
-				$avatarurl = $userinfo['avatarpath'];
+				$memberlist['avatarurl'] = $userinfo['avatarpath'];
 			}
 			else
 			{
@@ -772,36 +806,34 @@ if ($_REQUEST['do'] == 'getall')
 				{
 					if ($vbulletin->options['usefileavatar'])
 					{
-						$avatarurl = $vbulletin->options['avatarurl'] . "/avatar$userinfo[userid]_$userinfo[avatarrevision].gif";
+						$memberlist['avatarurl'] = $vbulletin->options['avatarurl'] . "/thumbs/avatar$userinfo[userid]_$userinfo[avatarrevision].gif";
 					}
 					else
 					{
-						$avatarurl = 'image.php?' . $vbulletin->session->vars['sessionurl'] . "u=$userinfo[userid]&amp;dateline=$userinfo[avatardateline]";
+						$memberlist['avatarurl'] = 'image.php?' . $vbulletin->session->vars['sessionurl'] . "u=$userinfo[userid]&amp;dateline=$userinfo[avatardateline]" . '&amp;type=thumb';
 					}
 					if ($userinfo['avheight'] AND $userinfo['avwidth'])
 					{
-						$avheight = "height=\"$userinfo[avheight]\"";
-						$avwidth = "width=\"$userinfo[avwidth]\"";
+						$memberlist['avheight'] = "height=\"$userinfo[avheight]\"";
+						$memberlist['avwidth'] = "width=\"$userinfo[avwidth]\"";
 					}
 				}
 				else
 				{
-					$avatarurl = '';
+					$memberlist['avatarurl'] = '';
 				}
 			}
-			if ($avatarurl == '')
+			if ($memberlist['avatarurl'] == '')
 			{
-				$show['avatar'] = false;
+				$memberlist['avatar'] = false;
 			}
 			else
 			{
-				$show['avatar'] = true;
+				$memberlist['avatar'] = true;
 			}
 		}
 
-		$bgclass = iif(($totalcols % 2) == 1, 'alt2', 'alt1');
-
-		$customfields = '';
+		$memberlist['customfields'] = '';
 
 		if ($show['customfields'] AND !empty($profileinfo))
 		{
@@ -830,20 +862,21 @@ if ($_REQUEST['do'] == 'getall')
 					$customfield = '&nbsp;';
 				}
 
-				exec_switch_bg();
-				eval('$customfields .= "' . fetch_template('memberlist_resultsbit_field') . '";');
+				$templater = vB_Template::create('memberlist_resultsbit_field');
+					$templater->register('customfield', $customfield);
+				$memberlist['customfields'] .= $templater->render();
 			}
 		}
 
-		$show['hideleader'] = iif ($userinfo['isleader'] OR $userinfo['usergroupid'] == $usergroupid, true, false);
+		$memberlist['hideleader'] = iif ($userinfo['isleader'] OR $userinfo['usergroupid'] == $usergroupid, true, false);
 
-		$bgclass = 'alt1';
 		$itemcount++;
+		$memberlist += $userinfo;
 
 		($hook = vBulletinHook::fetch_hook('memberlist_bit')) ? eval($hook) : false;
-
-		eval('$memberlistbits .= "' . fetch_template('memberlist_resultsbit') . '";');
-	}  // end while
+		
+		$memberlistbits[] = $memberlist;
+	}
 
 	$last = $itemcount;
 
@@ -866,7 +899,9 @@ if ($_REQUEST['do'] == 'getall')
 		{
 			$totalcols++;
 			$customfield = $customfield['title'];
-			eval('$customfieldsheader .= "' . fetch_template('memberlist_results_header') . '";');
+			$templater = vB_Template::create('memberlist_results_header');
+				$templater->register('customfield', $customfield);
+			$customfieldsheader .= $templater->render();
 		}
 	}
 	// build navbar
@@ -874,7 +909,29 @@ if ($_REQUEST['do'] == 'getall')
 
 	$searchtime = vb_number_format(fetch_microtime_difference($searchstart), 2);
 	$totalcols += !empty($usergroupid) ? 2 : 1;
-	$templatename = 'memberlist';
+
+	$page_templater = vB_Template::create('memberlist');
+	$page_templater->register('customfieldsheader', $customfieldsheader);
+	$page_templater->register('first', $first);
+	$page_templater->register('forumjump', $forumjump);
+	$page_templater->register('gobutton', $gobutton);
+	$page_templater->register('last', $last);
+	$page_templater->register('leadergroup', $leadergroup);
+	$page_templater->register('letterbits', $letterbits);
+	$page_templater->register('ltr', $ltr);
+	$page_templater->register('memberlistbits', $memberlistbits);
+	$page_templater->register('pagenav', $pagenav);
+	$page_templater->register('perpage', $perpage);
+	$page_templater->register('searchtime', $searchtime);
+	$page_templater->register('sortarrow', $sortarrow);
+	$page_templater->register('sorturl', $sorturl);
+	$page_templater->register('spacer_close', $spacer_close);
+	$page_templater->register('spacer_open', $spacer_open);
+	$page_templater->register('totalcols', $totalcols);
+	$page_templater->register('totalusers', $totalusers);
+	$page_templater->register('usergroupid', $usergroupid);
+	$page_templater->register('usergrouplink', $usergrouplink);
+	$page_templater->register('oppositesort', $oppositesort);
 }
 
 // #############################################################################
@@ -910,7 +967,10 @@ if ($_REQUEST['do'] == 'search')
 		if ($profilefield['type'] == 'input' OR $profilefield['type'] == 'textarea')
 		{
 			$vbulletin->userinfo["$profilefieldname"] = '';
-			eval('$customfields .= "' . fetch_template('memberlist_search_textbox') . '";');
+			$templater = vB_Template::create('memberlist_search_textbox');
+				$templater->register('profilefield', $profilefield);
+				$templater->register('profilefieldname', $profilefieldname);
+			$customfields .= $templater->render();
 		}
 		else if ($profilefield['type'] == 'select')
 		{
@@ -921,76 +981,80 @@ if ($_REQUEST['do'] == 'search')
 			foreach ($data AS $key => $val)
 			{
 				$key++;
-				eval('$selectbits .= "' . fetch_template('userfield_select_option') . '";');
+				$templater = vB_Template::create('userfield_select_option');
+					$templater->register('key', $key);
+					$templater->register('selected', $selected);
+					$templater->register('val', $val);
+				$selectbits .= $templater->render();
 			}
 			if ($profilefield['optional'])
 			{
-				eval('$optionalfield = "' . fetch_template('memberlist_search_optional_input') . '";');
+				$templater = vB_Template::create('memberlist_search_optional_input');
+					$templater->register('optional', $optional);
+					$templater->register('optionalname', $optionalname);
+					$templater->register('profilefield', $profilefield);
+					$templater->register('tabindex', $tabindex);
+				$optionalfield = $templater->render();
 			}
 			$selected = 'selected="selected"';
-			eval('$customfields .= "' . fetch_template('memberlist_search_select') . '";');
+			$templater = vB_Template::create('memberlist_search_select');
+				$templater->register('optionalfield', $optionalfield);
+				$templater->register('profilefield', $profilefield);
+				$templater->register('profilefieldname', $profilefieldname);
+				$templater->register('selectbits', $selectbits);
+				$templater->register('selected', $selected);
+			$customfields .= $templater->render();
 		}
 		else if ($profilefield['type'] == 'radio')
 		{
-			$unclosedtr = true;
-			$perline = 0;
 			$data = unserialize($profilefield['data']);
 			$radiobits = '';
 			$checked = '';
 			foreach ($data AS $key => $val)
 			{
 				$key++;
-				if ($perline == 0)
-				{
-					$radiobits .= '<tr>';
-				}
-				eval('$radiobits .= "' . fetch_template('userfield_radio_option') . '";');
-				$perline++;
-				if ($profilefield['perline'] > 0 AND $perline >= $profilefield['perline'])
-				{
-					$radiobits .= '</tr>';
-					$perline = 0;
-					$unclosedtr = false;
-				}
+				$templater = vB_Template::create('userfield_radio_option');
+					$templater->register('checked', $checked);
+					$templater->register('key', $key);
+					$templater->register('profilefieldname', $profilefieldname);
+					$templater->register('val', $val);
+				$radiobits .= $templater->render();
 			}
 			if ($profilefield['optional'])
 			{
-				eval('$optionalfield = "' . fetch_template('memberlist_search_optional_input') . '";');
+				$templater = vB_Template::create('memberlist_search_optional_input');
+					$templater->register('optional', $optional);
+					$templater->register('optionalname', $optionalname);
+					$templater->register('profilefield', $profilefield);
+					$templater->register('tabindex', $tabindex);
+				$optionalfield = $templater->render();
 			}
-			if ($unclosedtr)
-			{
-				$radiobits .= '</tr>';
-			}
-			eval('$customfields .= "' . fetch_template('memberlist_search_radio') . '";');
+			$templater = vB_Template::create('memberlist_search_radio');
+				$templater->register('optionalfield', $optionalfield);
+				$templater->register('profilefield', $profilefield);
+				$templater->register('radiobits', $radiobits);
+			$customfields .= $templater->render();
 		}
 		else if ($profilefield['type'] == 'checkbox')
 		{
 			$data = unserialize($profilefield['data']);
 			$radiobits = '';
-			$unclosedtr = true;
-			$perline = 0;
 			$checked = '';
 			foreach ($data AS $key => $val)
 			{
 				$key++;
-				if ($perline == 0)
-				{
-					$radiobits .= '<tr>';
-				}
-				eval('$radiobits .= "' . fetch_template('userfield_checkbox_option') . '";');
-				$perline++;
-				if ($profilefield['perline'] > 0 AND $perline >= $profilefield['perline'])
-				{
-					$radiobits .= '</tr>';
-					$perline = 0;
-					$unclosedtr = false;
-				}
+				$templater = vB_Template::create('userfield_checkbox_option');
+					$templater->register('checked', $checked);
+					$templater->register('key', $key);
+					$templater->register('profilefieldname', $profilefieldname);
+					$templater->register('val', $val);
+				$radiobits .= $templater->render();
 			}
-			if ($unclosedtr)
-			{
-				$radiobits .= '</tr>';
-			}
-			eval('$customfields .= "' . fetch_template('memberlist_search_radio') . '";');
+			$templater = vB_Template::create('memberlist_search_radio');
+				$templater->register('optionalfield', $optionalfield);
+				$templater->register('profilefield', $profilefield);
+				$templater->register('radiobits', $radiobits);
+			$customfields .= $templater->render();
 		}
 		else if ($profilefield['type'] == 'select_multiple')
 		{
@@ -1000,9 +1064,17 @@ if ($_REQUEST['do'] == 'search')
 			foreach ($data AS $key => $val)
 			{
 				$key++;
-				eval('$selectbits .= "' . fetch_template('userfield_select_option') . '";');
+				$templater = vB_Template::create('userfield_select_option');
+					$templater->register('key', $key);
+					$templater->register('selected', $selected);
+					$templater->register('val', $val);
+				$selectbits .= $templater->render();
 			}
-			eval('$customfields .= "' . fetch_template('memberlist_search_select_multiple') . '";');
+			$templater = vB_Template::create('memberlist_search_select_multiple');
+				$templater->register('profilefield', $profilefield);
+				$templater->register('profilefieldname', $profilefieldname);
+				$templater->register('selectbits', $selectbits);
+			$customfields .= $templater->render();
 		}
 	}
 
@@ -1012,25 +1084,30 @@ if ($_REQUEST['do'] == 'search')
 		'' => $vbphrase['search']
 	);
 
-	$templatename = 'memberlist_search';
+	$page_templater = vB_Template::create('memberlist_search');
+	$page_templater->register('customfields', $customfields);
+	$page_templater->register('forumjump', $forumjump);
 }
 
 // now spit out the HTML, assuming we got this far with no errors or redirects.
 
 ($hook = vBulletinHook::fetch_hook('memberlist_complete')) ? eval($hook) : false;
 
-if ($templatename != '')
+if (!empty($page_templater))
 {
 	$navbits = construct_navbits($navbits);
-	eval('$navbar = "' . fetch_template('navbar') . '";');
-	eval('print_output("' . fetch_template($templatename) . '");');
+	$navbar = render_navbar_template($navbits);
+
+	$page_templater->register_page_templates();
+	$page_templater->register('navbar', $navbar);
+	print_output($page_templater->render());
 }
 
 
 /*======================================================================*\
 || ####################################################################
-|| # Downloaded: 16:21, Sat Apr 6th 2013
-|| # CVS: $RCSfile$ - $Revision: 26833 $
+|| # Downloaded: 14:57, Sun Aug 11th 2013
+|| # CVS: $RCSfile$ - $Revision: 61069 $
 || ####################################################################
 \*======================================================================*/
 ?>

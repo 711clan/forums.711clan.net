@@ -1,26 +1,28 @@
 <?php
 /*======================================================================*\
 || #################################################################### ||
-|| # vBulletin 3.7.2 Patch Level 2 - Licence Number VBF2470E4F
+|| # vBulletin 4.2.1 - Licence Number VBC2DDE4FB
 || # ---------------------------------------------------------------- # ||
-|| # Copyright ©2000-2013 Jelsoft Enterprises Ltd. All Rights Reserved. ||
+|| # Copyright ©2000-2013 vBulletin Solutions Inc. All Rights Reserved. ||
 || # This file may not be redistributed in whole or significant part. # ||
 || # ---------------- VBULLETIN IS NOT FREE SOFTWARE ---------------- # ||
 || # http://www.vbulletin.com | http://www.vbulletin.com/license.html # ||
 || #################################################################### ||
 \*======================================================================*/
 
-if (!class_exists('vB_DataManager'))
+if (!class_exists('vB_DataManager', false))
 {
 	exit;
 }
+
+require_once(DIR . '/vb/search/indexcontroller/queue.php');
 
 /**
 * Class to do data save/delete operations for profile messages
 *
 * @package	vBulletin
-* @version	$Revision: 26098 $
-* @date		$Date: 2008-03-14 06:52:33 -0500 (Fri, 14 Mar 2008) $
+* @version	$Revision: 62619 $
+* @date		$Date: 2012-05-15 16:54:47 -0700 (Tue, 15 May 2012) $
 */
 class vB_DataManager_GroupMessage extends vB_DataManager
 {
@@ -31,7 +33,7 @@ class vB_DataManager_GroupMessage extends vB_DataManager
 	*/
 	var $validfields = array(
 		'gmid'           => array(TYPE_UINT,       REQ_INCR, VF_METHOD, 'verify_nonzero'),
-		'groupid'        => array(TYPE_UINT,       REQ_YES),
+		'discussionid'   => array(TYPE_UINT,       REQ_YES),
 		'postuserid'     => array(TYPE_UINT,       REQ_NO,   VF_METHOD, 'verify_userid'),
 		'postusername'   => array(TYPE_NOHTMLCOND, REQ_NO,   VF_METHOD, 'verify_username'),
 		'dateline'       => array(TYPE_UNIXTIME,   REQ_AUTO),
@@ -70,6 +72,12 @@ class vB_DataManager_GroupMessage extends vB_DataManager
 		$title = preg_replace('/&#(0*32|x0*20);/', ' ', $title);
 
 		$title = trim($title);
+
+		if ($title == '')
+		{
+			$this->error('nosubject');
+			return false;
+		}
 
 		if ($this->registry->options['titlemaxchars'] AND $title != $this->existing['title'])
 		{
@@ -164,7 +172,7 @@ class vB_DataManager_GroupMessage extends vB_DataManager
 			$akismet = new vB_Akismet($this->registry);
 			$akismet->akismet_board = $this->registry->options['bburl'];
 			$akismet->akismet_key = $this->registry->options['vb_antispam_key'];
-			if ($akismet->verify_text(array('user_ip' => IPADDRESS, 'user_agent' => USER_AGENT, 'comment_type' => 'post', 'comment_author' => ($this->info['user']['userid'] ? $this->info['user']['username'] : $this->fetch_field('postusername')), 'comment_content' => $this->fetch_field('pagetext'))) === 'spam')
+			if ($akismet->verify_text(array('user_ip' => IPADDRESS, 'user_agent' => USER_AGENT, 'comment_type' => 'post', 'comment_author' => ($this->info['user']['userid'] ? $this->info['user']['username'] : $this->fetch_field('postusername')), 'comment_author_email' => $this->info['user']['email'], 'comment_author_url' => $this->info['user']['homepage'], 'comment_content' => $this->fetch_field('pagetext'))) === 'spam')
 			{
 				$this->set('state', 'moderation');
 				$this->spamlog_insert = true;
@@ -178,6 +186,36 @@ class vB_DataManager_GroupMessage extends vB_DataManager
 		return $return_value;
 	}
 
+
+	/**
+	 * Overridding parent function to add search index updates
+	 *
+	* @param	boolean	Do the query?
+	* @param	mixed	Whether to run the query now; see db_update() for more info
+	* @param 	bool 	Whether to return the number of affected rows.
+	* @param 	bool	Perform REPLACE INTO instead of INSERT
+	8 @param 	bool	Perfrom INSERT IGNORE instead of INSERT
+	*
+	* @return	mixed	If this was an INSERT query, the INSERT ID is returned
+	*/
+	function save($doquery = true, $delayed = false, $affected_rows = false, $replace = false, $ignore = false)
+	{
+		// Call and get the new id
+		$result = parent::save($doquery, $delayed, $affected_rows, $replace, $ignore);
+
+		// Search index maintenance
+		if ($result AND ($this->groupmessage['discussionid'] OR $this->existing['discussionid']))
+		{
+			// If result is the number (opposed to just TRUE) then use that, or which ever of the others is a number
+			$do = (is_bool($result) == true ? (is_numeric($this->existing['gmid']) == true ? $this->existing['gmid'] : $this->existing['discussionid']) : $result);
+
+			vb_Search_Indexcontroller_Queue::indexQueue('vBForum', 'SocialGroupMessage', 'index', $do);
+		}
+
+		return $result;
+	}
+
+
 	/**
 	 * Deleted a SG Message
 	 *
@@ -188,27 +226,27 @@ class vB_DataManager_GroupMessage extends vB_DataManager
 		if ($gmid = $this->existing['gmid'])
 		{
 			$db =& $this->registry->db;
+			// Search index maintenance - Remove for a hard delete.
+			require_once(DIR . '/vb/search/core.php');
 
 			if ($this->info['hard_delete'])
 			{
-				$db->query_write("
-					DELETE FROM " . TABLE_PREFIX . "deletionlog WHERE primaryid = $gmid AND type = 'groupmessage'
-				");
+				$db->query_write("DELETE FROM " . TABLE_PREFIX . "deletionlog WHERE primaryid = $gmid AND type = 'groupmessage'");
+				$db->query_write("DELETE FROM " . TABLE_PREFIX . "groupmessage WHERE gmid = $gmid");
+				$db->query_write("DELETE FROM " . TABLE_PREFIX . "moderation WHERE primaryid = $gmid AND type = 'groupmessage'");
+				vb_Search_Indexcontroller_Queue::indexQueue('vBForum', 'SocialGroupMessage', 'delete', $gmid);
 
-				$db->query_write("
-					DELETE FROM " . TABLE_PREFIX . "groupmessage WHERE gmid = $gmid
-				");
-
-				$db->query_write("
-					DELETE FROM " . TABLE_PREFIX . "moderation WHERE primaryid = $gmid AND type = 'groupmessage'
-				");
-
+				$activity = new vB_ActivityStream_Manage('socialgroup', 'groupmessage');
+				$activity->set('contentid', $gmid);			
+				$activity->delete();
+				
 				// Logging?
 			}
 			else
 			{
 				$this->set('state', 'deleted');
 				$this->save();
+				vb_Search_Indexcontroller_Queue::indexQueue('vBForum', 'SocialGroupMessage', 'index', $gmid);
 
 				$deletionman =& datamanager_init('Deletionlog_GroupMessage', $this->registry, ERRTYPE_SILENT, 'deletionlog');
 				$deletionman->set('primaryid', $gmid);
@@ -227,8 +265,11 @@ class vB_DataManager_GroupMessage extends vB_DataManager
 			if (!$this->info['skip_build_counters'])
 			{
 				require_once(DIR . '/includes/functions_socialgroup.php');
-				build_group_counters($this->existing['groupid']);
+				build_discussion_counters($this->existing['discussionid']);
+				build_group_counters($this->info['group']['groupid']);
 			}
+
+			$this->post_delete();
 
 			return true;
 		}
@@ -243,6 +284,11 @@ class vB_DataManager_GroupMessage extends vB_DataManager
 	function post_delete($doquery = true)
 	{
 		($hook = vBulletinHook::fetch_hook('groupmessagedata_delete')) ? eval($hook) : false;
+
+		if ($this->info['group'])
+		{
+			update_owner_pending_gm_count($this->info['group']['creatoruserid']);
+		}
 	}
 
 
@@ -253,38 +299,53 @@ class vB_DataManager_GroupMessage extends vB_DataManager
 	function post_save_once($doquery = true)
 	{
 		$gmid = intval($this->fetch_field('gmid'));
-		$groupid = intval($this->fetch_field('groupid'));
+		$discussionid = intval($this->fetch_field('discussionid'));
 
 		if (!$this->condition)
 		{
-			if ($this->fetch_field('groupid'))
+			if ($this->fetch_field('discussionid'))
 			{
-				$this->insert_dupehash($this->fetch_field('groupid'));
+				$this->insert_dupehash($this->fetch_field('discussionid'));
 			}
 
-			if ($this->info['group'])
+			// Update last post info on parent discussion
+			if ($this->info['discussion'])
 			{
-				$dataman =& datamanager_init('SocialGroup', $this->registry, ERRTYPE_SILENT);
-				$dataman->set_existing($this->info['group']);
+				$dataman =& datamanager_init('Discussion', $this->registry, ERRTYPE_SILENT);
+				$dataman->set_existing($this->info['discussion']);
+
+				// Give group info to discussion
+				if ($this->info['group'])
+				{
+					$dataman->setr_info('group', $this->info['group']);
+				}
 
 				if ($this->fetch_field('state') == 'visible' AND $this->fetch_field('dateline') == TIMENOW)
 				{
 					$dataman->set('lastpost', TIMENOW);
 					$dataman->set('lastposter', $this->fetch_field('postusername'));
 					$dataman->set('lastposterid', $this->fetch_field('postuserid'));
-					$dataman->set('lastgmid', $gmid);
+					$dataman->set('lastpostid', $gmid);
+					$dataman->set_info('lastposttitle', $this->info['discussion']['title']);
 				}
 
 				if ($this->fetch_field('state') == 'visible')
 				{
 					$dataman->set('visible', 'visible + 1', false);
 				}
-				else
-				if ($this->fetch_field['state'] == 'moderation')
+				else if ($this->fetch_field('state') == 'moderation')
 				{
 					$dataman->set('moderation', 'moderation + 1', false);
 				}
 				$dataman->save();
+				unset($dataman);		
+				
+				$activity = new vB_ActivityStream_Manage('socialgroup', 'groupmessage');
+				$activity->set('contentid', $gmid);
+				$activity->set('userid', $this->fetch_field('postuserid'));
+				$activity->set('dateline', $this->fetch_field('dateline'));
+				$activity->set('action', 'create');
+				$activity->save();					
 			}
 		}
 
@@ -293,33 +354,21 @@ class vB_DataManager_GroupMessage extends vB_DataManager
 			/*insert query*/
 			$this->dbobject->query_write("INSERT IGNORE INTO " . TABLE_PREFIX . "moderation (primaryid, type, dateline) VALUES ($gmid, 'groupmessage', " . TIMENOW . ")");
 		}
+		else if ($this->fetch_field('state') == 'visible' AND $this->existing['state'] == 'moderation')
+		{
+			// message was made visible, remove the moderation record
+			$this->dbobject->query_write("
+				DELETE FROM " . TABLE_PREFIX . "moderation
+				WHERE primaryid = $gmid AND type = 'groupmessage'
+			");
+		}
 
 		if ($this->info['group'])
 		{
-			$this->update_owner_pending_gm_count($this->info['group']['creatoruserid']);
+			update_owner_pending_gm_count($this->info['group']['creatoruserid']);
 		}
 
 		($hook = vBulletinHook::fetch_hook('groupmessagedata_postsave')) ? eval($hook) : false;
-	}
-
-	/**
-	* Updates the counter for the owner of the group that shows how many pending members
-	* they have awaiting them to deal with
-	*
-	* @param	integer	The userid of the owner of the group
-	*/
-	function update_owner_pending_gm_count($ownerid)
-	{
-		list($pendingcountforowner) = $this->registry->db->query_first("
-			SELECT SUM(moderation) FROM " . TABLE_PREFIX . "socialgroup
-			WHERE creatoruserid = " . $ownerid
-		, DBARRAY_NUM);
-
-		$this->registry->db->query_write("
-			UPDATE " . TABLE_PREFIX . "user
-			SET gmmoderatedcount = " . intval($pendingcountforowner) . "
-			WHERE userid = " . $ownerid
-		);
 	}
 
 	/**
@@ -333,12 +382,12 @@ class vB_DataManager_GroupMessage extends vB_DataManager
 	{
 		if ($userid == $this->registry->userinfo['userid'])
 		{
-			$this->info['user'] =& $this->registry->userinfo;
+			$this->info['user'] = $this->registry->userinfo;
 			$return = true;
 		}
 		else if ($userinfo = fetch_userinfo($userid))
 		{	// This case should hit the cache most of the time
-			$this->info['user'] =& $userinfo;
+			$this->info['user'] = $userinfo;
 			$return = true;
 		}
 		else
@@ -380,9 +429,9 @@ class vB_DataManager_GroupMessage extends vB_DataManager
 	{
 		if (empty($this->info['is_automated']))
 		{
-			if ($this->registry->options['postmaxchars'] != 0 AND ($postlength = vbstrlen($pagetext)) > $this->registry->options['postmaxchars'])
+			if ($this->registry->options['gm_maxchars'] != 0 AND ($postlength = vbstrlen($pagetext)) > $this->registry->options['gm_maxchars'])
 			{
-				$this->error('toolong', $postlength, $this->registry->options['postmaxchars']);
+				$this->error('toolong', $postlength, $this->registry->options['gm_maxchars']);
 				return false;
 			}
 
@@ -493,10 +542,11 @@ class vB_DataManager_GroupMessage extends vB_DataManager
 		");
 	}
 }
+
 /*======================================================================*\
 || ####################################################################
-|| # Downloaded: 16:21, Sat Apr 6th 2013
-|| # CVS: $RCSfile$ - $Revision: 26098 $
+|| # Downloaded: 14:57, Sun Aug 11th 2013
+|| # CVS: $RCSfile$ - $Revision: 62619 $
 || ####################################################################
 \*======================================================================*/
 ?>

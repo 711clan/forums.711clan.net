@@ -1,9 +1,9 @@
 <?php
 /*======================================================================*\
 || #################################################################### ||
-|| # vBulletin 3.7.2 Patch Level 2 - Licence Number VBF2470E4F
+|| # vBulletin 4.2.1 - Licence Number VBC2DDE4FB
 || # ---------------------------------------------------------------- # ||
-|| # Copyright ©2000-2013 Jelsoft Enterprises Ltd. All Rights Reserved. ||
+|| # Copyright ©2000-2013 vBulletin Solutions Inc. All Rights Reserved. ||
 || # This file may not be redistributed in whole or significant part. # ||
 || # ---------------- VBULLETIN IS NOT FREE SOFTWARE ---------------- # ||
 || # http://www.vbulletin.com | http://www.vbulletin.com/license.html # ||
@@ -109,11 +109,24 @@ function build_language_datastore()
 *
 * @param	integer	ID of language to be built; if -1, build all
 * @param	integer	Not sure actually... any ideas?
+* @param	boolean.  Wether to reset the static vars the function uses to cache items for recursing
+* 			when we we build the master language.  Otherwise if we attempt to call this function
+* 			twice in the same pageload we don't actually manage to update any changes after the first
+* 			call.
+* 			The better approach would be to use an internal function and a master function
+* 			that generates the cached values once and passes them in.
+* 			However that means unwinding this function which works but is... odd.
 */
-function build_language($languageid = -1, $phrasearray = 0)
+function build_language($languageid = -1, $phrasearray = 0, $reset_static=true)
 {
 	global $vbulletin;
 	static $masterlang, $jsphrases = null;
+
+	if($reset_static)
+	{
+		$masterlang = null;
+		$jsphrases = null;
+	}
 
 	// load js safe phrases
 	if ($jsphrases === null)
@@ -134,15 +147,15 @@ function build_language($languageid = -1, $phrasearray = 0)
 		unset($safephrases, $xmlobj);
 	}
 
-
 	// update all languages if this is the master language
 	if ($languageid == -1)
 	{
 		$languages = $vbulletin->db->query_read("SELECT languageid FROM " . TABLE_PREFIX . "language");
 		while ($language = $vbulletin->db->fetch_array($languages))
 		{
-			build_language($language['languageid']);
+			build_language($language['languageid'], 0, false);
 		}
+
 		return;
 	}
 
@@ -166,7 +179,7 @@ function build_language($languageid = -1, $phrasearray = 0)
 		$masterlang = array();
 
 		$phrases = $vbulletin->db->query_read("
-			SELECT fieldname, varname, text
+			SELECT fieldname, varname, text, languageid
 			FROM " . TABLE_PREFIX . "phrase
 			WHERE languageid IN(-1,0) AND
 				fieldname IN (" . implode(',', $gettypes) . ")
@@ -188,7 +201,10 @@ function build_language($languageid = -1, $phrasearray = 0)
 				$phrase['text']
 			);
 
-			$masterlang["{$phrase['fieldname']}"]["$phrase[varname]"] = $phrase['text'];
+			if (!isset($masterlang["{$phrase['fieldname']}"]["$phrase[varname]"]) OR !$phrase['languageid'])
+			{
+				$masterlang["{$phrase['fieldname']}"]["$phrase[varname]"] = $phrase['text'];
+			}
 		}
 	}
 
@@ -226,6 +242,22 @@ function build_language($languageid = -1, $phrasearray = 0)
 		$cachetext = $vbulletin->db->escape_string(serialize($phrases));
 		$SQL .= ", phrasegroup_$cachefield = '$cachetext'";
 	}
+
+	// This only loads the last dateline for the ckeditor group, if this functionality is ever needed for other groups,
+	// just move this code block into the foreach() above
+	$maxdateline = $vbulletin->db->query_first("
+		SELECT MAX(dateline) AS dateline
+		FROM " . TABLE_PREFIX . "phrase
+		WHERE
+			languageid IN ($languageid,-1)
+				AND
+			fieldname = 'ckeditor'
+	");
+	$info['ckeditor'] = array(
+		'maxdateline' => $maxdateline['dateline']
+	);
+
+	$SQL .= ", phrasegroupinfo = '" . $vbulletin->db->escape_string(serialize($info)) . "'";
 
 	$vbulletin->db->query_write("UPDATE " . TABLE_PREFIX . "language SET $SQL WHERE languageid = $languageid");
 
@@ -364,6 +396,145 @@ function fetch_standard_phrases($languageid, $fieldname = '', $offset = 0)
 
 }
 
+
+/*
+ *	This function requries that the new vb framework is initialized.
+ */
+function get_language_export_xml($languageid, $product, $custom, $just_phrases, $charset = 'ISO-8859-1')
+{
+	global $vbulletin;
+
+	//moved here from the top of language.php
+	$default_skipped_groups = array(
+		'cphelptext'
+	);
+
+	if ($languageid == -1)
+	{
+		//		$language['title'] = $vbphrase['master_language'];
+		$language['title'] = new vB_Phrase('language', 'master_language');
+	}
+	else
+	{
+		$language = $vbulletin->db->query_first("
+			SELECT *
+			FROM " . TABLE_PREFIX . "language
+			WHERE languageid = " . $languageid
+		);
+	}
+
+	$title = str_replace('"', '\"', $language['title']);
+	$version = str_replace('"', '\"', $vbulletin->options['templateversion']);
+
+	$phrasetypes = fetch_phrasetypes_array(false);
+
+	$phrases = array();
+	$getphrases = $vbulletin->db->query_read("
+		SELECT phrase.varname, phrase.text, phrase.fieldname, phrase.languageid,
+			phrase.username, phrase.dateline, phrase.version
+			" . (($languageid != -1) ? ", IF(ISNULL(phrase2.phraseid), 1, 0) AS iscustom" : "") . "
+		FROM " . TABLE_PREFIX . "phrase AS phrase
+		" . (($languageid != -1) ? "LEFT JOIN " . TABLE_PREFIX . "phrase AS phrase2 ON (phrase.varname = phrase2.varname AND phrase2.languageid = -1 AND phrase.fieldname = phrase2.fieldname)" : "") . "
+		WHERE phrase.languageid IN (" . $languageid . ($custom ? ", 0" : "") . ")
+			AND (phrase.product = '" . $vbulletin->db->escape_string($product) . "'" .
+			iif($product == 'vbulletin', " OR phrase.product = ''") . ")
+			" . (($languageid == -1 AND !empty($default_skipped_groups)) ? "AND fieldname NOT IN ('" . implode("', '", $default_skipped_groups) . "')" : '') . "
+		ORDER BY phrase.languageid, phrase.fieldname, phrase.varname
+	");
+	while ($getphrase = $vbulletin->db->fetch_array($getphrases))
+	{
+		if (!$custom AND $getphrase['iscustom'])
+		{
+			continue;
+		}
+		$phrases["$getphrase[fieldname]"]["$getphrase[varname]"] = $getphrase;
+	}
+	unset($getphrase);
+	$vbulletin->db->free_result($getphrases);
+
+	if (empty($phrases) AND $just_phrases)
+	{
+		throw new vB_Exception_AdminStopMessage('download_contains_no_customizations');
+	}
+
+	require_once(DIR . '/includes/class_xml.php');
+	$xml = new vB_XML_Builder($vbulletin, null, $charset);
+
+	$xml->add_group('language',
+		array
+		(
+			'name' => $title,
+			'vbversion' => $version,
+			'product' => $product,
+			'type' => iif($languageid == -1, 'master', iif($just_phrases, 'phrases', 'custom'))
+		)
+	);
+
+	if ($languageid != -1 AND !$just_phrases)
+	{
+		$xml->add_group('settings');
+		$ignorefields = array('languageid', 'title', 'userselect');
+		foreach ($language AS $fieldname => $value)
+		{
+			if (substr($fieldname, 0, 12) != 'phrasegroup_' AND !in_array($fieldname, $ignorefields))
+			{
+				$xml->add_tag($fieldname, $value, array(), true);
+			}
+		}
+		$xml->close_group();
+	}
+
+	if ($languageid == -1 AND !empty($default_skipped_groups))
+	{
+		$xml->add_group('skippedgroups');
+		foreach ($default_skipped_groups AS $skipped_group)
+		{
+			$xml->add_tag('skippedgroup', $skipped_group);
+		}
+		$xml->close_group();
+	}
+
+	foreach ($phrases AS $_fieldname => $typephrases)
+	{
+		$xml->add_group('phrasetype', array('name' => $phrasetypes["$_fieldname"]['title'], 'fieldname' => $_fieldname));
+		foreach ($typephrases AS $phrase)
+		{
+			$attributes = array(
+				'name' => $phrase['varname']
+			);
+
+			if ($phrase['dateline'])
+			{
+				$attributes['date'] = $phrase['dateline'];
+			}
+			if ($phrase['username'])
+			{
+				$attributes['username'] = $phrase['username'];
+			}
+			if ($phrase['version'])
+			{
+				$attributes['version'] = htmlspecialchars_uni($phrase['version']);
+			}
+			if ($custom AND $phrase['languageid'] == 0)
+			{
+				$attributes['custom'] = 1;
+			}
+
+			$xml->add_tag('phrase', $phrase['text'], $attributes, true);
+		}
+		$xml->close_group();
+	}
+
+	$xml->close_group();
+
+
+	$doc = "<?xml version=\"1.0\" encoding=\"{$charset}\"?>\r\n\r\n";
+	$doc .= $xml->output();
+	$xml = null;
+
+	return $doc;
+}
+
 /**
 * Imports a language from a language XML file
 *
@@ -372,16 +543,19 @@ function fetch_standard_phrases($languageid, $fieldname = '', $offset = 0)
 * @param	string	Override title for imported language
 * @param	boolean	Allow import of language from mismatched vBulletin version
 * @param	boolean	Allow user-select of imported language
+* @param	boolean	Echo output..
+* @param	boolean	Read charset from XML header
 */
-function xml_import_language($xml = false, $languageid = -1, $title = '', $anyversion = false, $userselect = true)
+function xml_import_language($xml = false, $languageid = -1, $title = '', $anyversion = false, $userselect = true, $output = true, $readcharset = false)
 {
 	global $vbulletin, $vbphrase;
 
 	print_dots_start('<b>' . $vbphrase['importing_language'] . "</b>, $vbphrase[please_wait]", ':', 'dspan');
 
 	require_once(DIR . '/includes/class_xml.php');
+	require_once(DIR . '/includes/functions_misc.php');
 
-	$xmlobj = new vB_XML_Parser($xml, $GLOBALS['path']);
+	$xmlobj = new vB_XML_Parser($xml, $GLOBALS['path'], $readcharset);
 	if ($xmlobj->error_no == 1)
 	{
 			print_dots_stop();
@@ -450,7 +624,6 @@ function xml_import_language($xml = false, $languageid = -1, $title = '', $anyve
 		$sql_skipped = '';
 	}
 
-	$arr = $arr['phrasetype'];
 
 	foreach ($langinfo AS $key => $val)
 	{
@@ -464,14 +637,42 @@ function xml_import_language($xml = false, $languageid = -1, $title = '', $anyve
 		print_stop_message('upload_file_created_with_different_version', $vbulletin->options['templateversion'], $version);
 	}
 
+
+	//set up the phrase array
+	$arr = $arr['phrasetype'];
+	if (!is_array($arr[0]))
+	{
+		$arr = array($arr);
+	}
+
+	//spin through the phrases to check validity.  We want to do this *before* we prep for import
+	//so that if we abort do to an error, we haven't made any changes first
+	foreach (array_keys($arr) AS $key)
+	{
+		$phraseTypes =& $arr["$key"];
+
+		foreach($phraseTypes['phrase'] AS $phrase)
+		{
+			if (!validate_string_for_interpolation($phrase['value']))
+			{
+				print_dots_stop();
+				print_stop_message('phrase_text_not_safe', $phrase['name']);
+			}
+		}
+	}
+
+
 	// prepare for import
 	if ($master)
 	{
 		// lets stop it from dieing cause someone borked a previous update
 		$vbulletin->db->query_write("DELETE FROM " . TABLE_PREFIX . "phrase WHERE languageid = -10");
 		// master style
-		echo "<h3>$vbphrase[master_language]</h3>\n<p>$vbphrase[please_wait]</p>";
-		vbflush();
+		if ($output AND VB_AREA != 'Install' AND VB_AREA != 'Upgrade')
+		{
+			echo "<h3>$vbphrase[master_language]</h3>\n<p>$vbphrase[please_wait]</p>";
+			vbflush();
+		}
 
 		$vbulletin->db->query_write("
 			UPDATE " . TABLE_PREFIX . "phrase SET
@@ -572,12 +773,8 @@ function xml_import_language($xml = false, $languageid = -1, $title = '', $anyve
 		}
 	}
 
-	// get phrase types
-	$phraseTypes = array();
-	foreach(fetch_phrasetypes_array(false) as $phraseType)
-	{
-		$phraseTypes["$phraseType[title]"] = $phraseType['fieldname'];
-	}
+	// get current phrase types
+	$current_phrasetypes = fetch_phrasetypes_array(false);
 
 	if (!$master)
 	{
@@ -594,11 +791,9 @@ function xml_import_language($xml = false, $languageid = -1, $title = '', $anyve
 	}
 
 	// import language
-	if (!is_array($arr[0]))
-	{
-		$arr = array($arr);
-	}
 
+	// track new phrasetypes
+	$new_phrasetypes = array();
 	foreach (array_keys($arr) AS $key)
 	{
 		$phraseTypes =& $arr["$key"];
@@ -615,6 +810,20 @@ function xml_import_language($xml = false, $languageid = -1, $title = '', $anyve
 		if (!is_array($phraseTypes['phrase'][0]))
 		{
 			$phraseTypes['phrase'] = array($phraseTypes['phrase']);
+		}
+
+		// check if the phrasetype is new
+		if (!isset($current_phrasetypes[$fieldname]) AND !empty($phraseTypes['phrase']))
+		{
+			$new_phrasetypes[] = array('fieldname' => $fieldname, 'title' => $phraseTypes['name']);
+		}
+
+		// Send some output to the browser inside this loop so certain hosts
+		// don't artificially kill the script. See bug #34585
+		if ($output)
+		{
+			echo ' ';
+			vbflush();
 		}
 
 		foreach($phraseTypes['phrase'] AS $phrase)
@@ -664,6 +873,14 @@ function xml_import_language($xml = false, $languageid = -1, $title = '', $anyve
 				$sql = array();
 				$strlen = 0;
 			}
+
+			// Send some output to the browser inside this loop so certain hosts
+			// don't artificially kill the script. See bug #34585
+			if ($output)
+			{
+				echo ' ';
+				vbflush();
+			}
 		}
 
 		if ($sql)
@@ -679,8 +896,13 @@ function xml_import_language($xml = false, $languageid = -1, $title = '', $anyve
 
 		unset($arr["$key"], $phraseTypes);
 	}
+	unset($sql, $arr, $current_phrasetypes);
 
-	unset($sql, $arr);
+	// insert any new phrasetypes
+	foreach ($new_phrasetypes AS $phrasetype)
+	{
+		add_phrase_type($phrasetype['fieldname'], $phrasetype['title'], $langinfo['product']);
+	}
 
 	$vbulletin->db->query_write("
 		UPDATE IGNORE " . TABLE_PREFIX . "phrase
@@ -894,7 +1116,7 @@ function fetch_varname_fieldname($key, &$varname, &$fieldname)
 {
 	$firstatsignpos = strpos($key, '@');
 
-	$varname = substr($key, 0, $firstatsignpos);
+	$varname = urldecode(substr($key, 0, $firstatsignpos));
 	$fieldname = substr($key, $firstatsignpos + 1);
 }
 
@@ -933,16 +1155,21 @@ function add_phrase_type($phrasegroup_name, $phrasegroup_title, $productid = 'vb
 				3,
 				'" . $vbulletin->db->escape_string($productid) . "')
 		");
-		$vbulletin->db->query_write("ALTER TABLE " . TABLE_PREFIX . "language ADD phrasegroup_" . $vbulletin->db->escape_string($phrasegroup_name) . " MEDIUMTEXT NOT NULL");
+
+		if (!$vbulletin->db->query_first($sql = "SHOW FULL COLUMNS FROM " . TABLE_PREFIX . "language LIKE 'phrasegroup_" . $vbulletin->db->escape_string($phrasegroup_name) . "'"))
+		{
+			$vbulletin->db->query_write("ALTER TABLE " . TABLE_PREFIX . "language ADD phrasegroup_" . $vbulletin->db->escape_string($phrasegroup_name) . " MEDIUMTEXT NOT NULL");
+		}
+
 		return $phrasegroup_name;
 	}
+
 	return false;
 }
 
 /*======================================================================*\
 || ####################################################################
-|| # Downloaded: 16:21, Sat Apr 6th 2013
-|| # CVS: $RCSfile$ - $Revision: 26153 $
+|| # Downloaded: 14:57, Sun Aug 11th 2013
+|| # CVS: $RCSfile$ - $Revision: 62562 $
 || ####################################################################
 \*======================================================================*/
-?>

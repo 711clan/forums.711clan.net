@@ -1,9 +1,9 @@
 <?php
 /*======================================================================*\
 || #################################################################### ||
-|| # vBulletin 3.7.2 Patch Level 2 - Licence Number VBF2470E4F
+|| # vBulletin 4.2.1 - Licence Number VBC2DDE4FB
 || # ---------------------------------------------------------------- # ||
-|| # Copyright ©2000-2013 Jelsoft Enterprises Ltd. All Rights Reserved. ||
+|| # Copyright ©2000-2013 vBulletin Solutions Inc. All Rights Reserved. ||
 || # This file may not be redistributed in whole or significant part. # ||
 || # ---------------- VBULLETIN IS NOT FREE SOFTWARE ---------------- # ||
 || # http://www.vbulletin.com | http://www.vbulletin.com/license.html # ||
@@ -72,12 +72,12 @@ function fetch_modlogtypes($logtype)
 
 		'picture_x_in_y_by_z_approved'            => 46,
 
-		'gm_by_x_for_y_edited'                    => 47,
-		'gm_by_x_for_y_soft_deleted'              => 48,
-		'gm_by_x_for_y_removed'                   => 49,
-		'gm_by_x_for_y_undeleted'                 => 50,
-		'gm_by_x_for_y_unapproved'                => 51,
-		'gm_by_x_for_y_approved'                  => 52,
+		'gm_by_x_in_y_for_z_edited'               => 47,
+		'gm_by_x_in_y_for_z_soft_deleted'         => 48,
+		'gm_by_x_in_y_for_z_removed'              => 49,
+		'gm_by_x_in_y_for_z_undeleted'            => 50,
+		'gm_by_x_in_y_for_z_unapproved'           => 51,
+		'gm_by_x_in_y_for_z_approved'             => 52,
 
 		'vm_by_x_for_y_edited'                    => 53,
 		'vm_by_x_for_y_soft_deleted'              => 54,
@@ -85,6 +85,13 @@ function fetch_modlogtypes($logtype)
 		'vm_by_x_for_y_undeleted'                 => 56,
 		'vm_by_x_for_y_unapproved'                => 57,
 		'vm_by_x_for_y_approved'                  => 58,
+
+		'discussion_by_x_for_y_edited'            => 59,
+		'discussion_by_x_for_y_soft_deleted'      => 60,
+		'discussion_by_x_for_y_removed'           => 61,
+		'discussion_by_x_for_y_undeleted'         => 62,
+		'discussion_by_x_for_y_unapproved'        => 63,
+		'discussion_by_x_for_y_approved'          => 64,
 	);
 
 	($hook = vBulletinHook::fetch_hook('fetch_modlogtypes')) ? eval($hook) : false;
@@ -154,12 +161,12 @@ function fetch_modlogactions($logaction)
 
 		46 => 'picture_x_in_y_by_z_approved',
 
-		47 => 'gm_by_x_for_y_edited',
-		48 => 'gm_by_x_for_y_soft_deleted',
-		49 => 'gm_by_x_for_y_removed',
-		50 => 'gm_by_x_for_y_undeleted',
-		51 => 'gm_by_x_for_y_unapproved',
-		52 => 'gm_by_x_for_y_approved',
+		47 => 'gm_by_x_in_y_for_z_edited',
+		48 => 'gm_by_x_in_y_for_z_soft_deleted',
+		49 => 'gm_by_x_in_y_for_z_removed',
+		50 => 'gm_by_x_in_y_for_z_undeleted',
+		51 => 'gm_by_x_in_y_for_z_unapproved',
+		52 => 'gm_by_x_in_y_for_z_approved',
 
 		53 => 'vm_by_x_for_y_edited',
 		54 => 'vm_by_x_for_y_soft_deleted',
@@ -167,6 +174,13 @@ function fetch_modlogactions($logaction)
 		56 => 'vm_by_x_for_y_undeleted',
 		57 => 'vm_by_x_for_y_unapproved',
 		58 => 'vm_by_x_for_y_approved',
+
+		59 => 'discussion_by_x_for_y_edited',
+		60 => 'discussion_by_x_for_y_soft_deleted',
+		61 => 'discussion_by_x_for_y_removed',
+		62 => 'discussion_by_x_for_y_undeleted',
+		63 => 'discussion_by_x_for_y_unapproved',
+		64 => 'discussion_by_x_for_y_approved',
 	);
 
 	($hook = vBulletinHook::fetch_hook('fetch_modlogactions')) ? eval($hook) : false;
@@ -227,7 +241,7 @@ function log_vbulletin_error($errstring, $type = 'database')
 	}
 
 	// if no filename is specified, exit this function
-	if (!($errfile = trim($errfile)) OR (defined('DEMO_MODE') AND DEMO_MODE == true))
+	if (!isset($errfile) OR !($errfile = trim($errfile)) OR (defined('DEMO_MODE') AND DEMO_MODE == true))
 	{
 		return false;
 	}
@@ -326,8 +340,8 @@ function log_moderator_action($loginfo, $logtype, $action = '')
 
 /*======================================================================*\
 || ####################################################################
-|| # Downloaded: 16:21, Sat Apr 6th 2013
-|| # CVS: $RCSfile$ - $Revision: 26365 $
+|| # Downloaded: 14:57, Sun Aug 11th 2013
+|| # CVS: $RCSfile$ - $Revision: 32878 $
 || ####################################################################
 \*======================================================================*/
 ?>

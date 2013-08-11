@@ -1,9 +1,9 @@
 <?php
 /*======================================================================*\
 || #################################################################### ||
-|| # vBulletin 3.7.2 Patch Level 2 - Licence Number VBF2470E4F
+|| # vBulletin 4.2.1 - Licence Number VBC2DDE4FB
 || # ---------------------------------------------------------------- # ||
-|| # Copyright ©2000-2013 Jelsoft Enterprises Ltd. All Rights Reserved. ||
+|| # Copyright ©2000-2013 vBulletin Solutions Inc. All Rights Reserved. ||
 || # This file may not be redistributed in whole or significant part. # ||
 || # ---------------- VBULLETIN IS NOT FREE SOFTWARE ---------------- # ||
 || # http://www.vbulletin.com | http://www.vbulletin.com/license.html # ||
@@ -14,7 +14,7 @@
 error_reporting(E_ALL & ~E_NOTICE);
 
 // ##################### DEFINE IMPORTANT CONSTANTS #######################
-define('CVS_REVISION', '$RCSfile$ - $Revision: 26250 $');
+define('CVS_REVISION', '$RCSfile$ - $Revision: 62096 $');
 
 // #################### PRE-CACHE TEMPLATES AND DATA ######################
 $phrasegroups = array('user', 'cpuser', 'messaging', 'cprofilefield', 'profilefield');
@@ -67,7 +67,7 @@ if ($_POST['do'] == 'dosendmail' OR $_POST['do'] == 'makelist')
 	// ensure that we don't send blank emails by mistake
 	if ($_POST['do'] == 'dosendmail')
 	{
-		if ($vbulletin->GPC['subject'] == '' OR $vbulletin->GPC['message'] == '')
+		if ($vbulletin->GPC['subject'] == '' OR $vbulletin->GPC['message'] == '' OR !is_valid_email($vbulletin->GPC['from']))
 		{
 			print_stop_message('please_complete_required_fields');
 		}
@@ -179,22 +179,22 @@ if ($_POST['do'] == 'dosendmail' OR $_POST['do'] == 'makelist')
 						{ // if in correct usergroup
 							if (empty($user['activationid']))
 							{ //none exists so create one
-								$activate['activationid'] = vbrand(0, 100000000);
+								$activate['activationid'] = fetch_random_string(40);
 								/*insert query*/
 								$db->query_write("
 									REPLACE INTO " . TABLE_PREFIX . "useractivation
 										(userid, dateline, activationid, type, usergroupid)
 									VALUES
-										($user[userid], " . TIMENOW . ", $activate[activationid], 0, 2)
+										($user[userid], " . TIMENOW . ", '$activate[activationid]', 0, 2)
 								");
 							}
 							else
 							{
-								$activate['activationid'] = vbrand(0, 100000000);
+								$activate['activationid'] = fetch_random_string(40);
 								$db->query_write("
 									UPDATE " . TABLE_PREFIX . "useractivation SET
 										dateline = " . TIMENOW . ",
-										activationid = $activate[activationid]
+										activationid = '$activate[activationid]'
 									WHERE userid = $user[userid] AND
 										type = 0
 								");
@@ -222,7 +222,7 @@ if ($_POST['do'] == 'dosendmail' OR $_POST['do'] == 'makelist')
 					if (!$vbulletin->GPC['test'])
 					{
 						echo $vbphrase['emailing'] . " \n";
-						vbmail($user['email'], $vbulletin->GPC['subject'], $sendmessage, true, $vbulletin->GPC['from']);
+						vbmail($user['email'], $vbulletin->GPC['subject'], $sendmessage, false, $vbulletin->GPC['from']);
 					}
 					else
 					{
@@ -345,8 +345,8 @@ print_cp_footer();
 
 /*======================================================================*\
 || ####################################################################
-|| # Downloaded: 16:21, Sat Apr 6th 2013
-|| # CVS: $RCSfile$ - $Revision: 26250 $
+|| # Downloaded: 14:57, Sun Aug 11th 2013
+|| # CVS: $RCSfile$ - $Revision: 62096 $
 || ####################################################################
 \*======================================================================*/
 ?>

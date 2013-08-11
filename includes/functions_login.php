@@ -1,9 +1,9 @@
 <?php
 /*======================================================================*\
 || #################################################################### ||
-|| # vBulletin 3.7.2 Patch Level 2 - Licence Number VBF2470E4F
+|| # vBulletin 4.2.1 - Licence Number VBC2DDE4FB
 || # ---------------------------------------------------------------- # ||
-|| # Copyright ©2000-2013 Jelsoft Enterprises Ltd. All Rights Reserved. ||
+|| # Copyright ©2000-2013 vBulletin Solutions Inc. All Rights Reserved. ||
 || # This file may not be redistributed in whole or significant part. # ||
 || # ---------------- VBULLETIN IS NOT FREE SOFTWARE ---------------- # ||
 || # http://www.vbulletin.com | http://www.vbulletin.com/license.html # ||
@@ -131,12 +131,41 @@ function exec_unstrike_user($username)
 	$vbulletin->db->query_write("DELETE FROM " . TABLE_PREFIX . "strikes WHERE strikeip = '" . $vbulletin->db->escape_string(IPADDRESS) . "' AND username='" . $vbulletin->db->escape_string(htmlspecialchars_uni($username)) . "'");
 }
 
+// ###################### Start set_authentication_cookies #######################
+// requires $vbulletin->userinfo to already be set by verify_authentication
+function set_authentication_cookies($cookieuser)
+{
+	global $vbulletin;
+	if ($cookieuser)
+	{
+		vbsetcookie('userid', $vbulletin->userinfo['userid'], true, true, true);
+		vbsetcookie('password', md5($vbulletin->userinfo['password'] . COOKIE_SALT), true, true, true);
+	}
+	else if ($vbulletin->GPC[COOKIE_PREFIX . 'userid'] AND $vbulletin->GPC[COOKIE_PREFIX . 'userid'] != $vbulletin->userinfo['userid'])
+	{
+		// we have a cookie from a user and we're logging in as
+		// a different user and we're not going to store a new cookie,
+		// so let's unset the old one
+		vbsetcookie('userid', '', true, true, true);
+		vbsetcookie('password', '', true, true, true);
+	}
+}
+
 // ###################### Start verify_authentication #######################
 function verify_authentication($username, $password, $md5password, $md5password_utf, $cookieuser, $send_cookies)
 {
 	global $vbulletin;
 
 	$username = strip_blank_ascii($username, ' ');
+	// See VBM-635: &#xxx; should be converted to windows-1252 extended char. This may not happen if a browser submits the form. But from API or user manually input, it does.
+	// See also vB_DataManager_User::verify_username()
+	$charset = strtolower(vB_Template_Runtime::fetchStyleVar('charset')) == 'iso-8859-1' ? 'windows-1252' : vB_Template_Runtime::fetchStyleVar('charset');
+	$username = preg_replace(
+		'/&#([0-9]+);/ie',
+		"convert_unicode_char_to_charset('\\1', '$charset')",
+		$username
+	);
+
 	if ($vbulletin->userinfo = $vbulletin->db->query_first("SELECT userid, usergroupid, membergroupids, infractiongroupids, username, password, salt FROM " . TABLE_PREFIX . "user WHERE username = '" . $vbulletin->db->escape_string(htmlspecialchars_uni($username)) . "'"))
 	{
 		if (
@@ -167,20 +196,9 @@ function verify_authentication($username, $password, $md5password, $md5password_
 
 		if ($send_cookies)
 		{
-			if ($cookieuser)
-			{
-				vbsetcookie('userid', $vbulletin->userinfo['userid'], true, true, true);
-				vbsetcookie('password', md5($vbulletin->userinfo['password'] . COOKIE_SALT), true, true, true);
-			}
-			else if ($vbulletin->GPC[COOKIE_PREFIX . 'userid'] AND $vbulletin->GPC[COOKIE_PREFIX . 'userid'] != $vbulletin->userinfo['userid'])
-			{
-				// we have a cookie from a user and we're logging in as
-				// a different user and we're not going to store a new cookie,
-				// so let's unset the old one
-				vbsetcookie('userid', '', true, true, true);
-				vbsetcookie('password', '', true, true, true);
-			}
+			set_authentication_cookies($cookieuser);
 		}
+
 		$return_value = true;
 		($hook = vBulletinHook::fetch_hook('login_verify_success')) ? eval($hook) : false;
 		return $return_value;
@@ -188,6 +206,58 @@ function verify_authentication($username, $password, $md5password, $md5password_
 
 	$return_value = false;
 	($hook = vBulletinHook::fetch_hook('login_verify_failure_username')) ? eval($hook) : false;
+	return $return_value;
+}
+
+// similar to verify_authentication(), but instead of checking user/pass match, we use asociated fb userid
+function verify_facebook_authentication()
+{
+	global $vbulletin;
+
+	// get the userinfo associated with current logged in facebook user
+	// return false if not logged in to fb, or there is no associated user record
+	if (!$fb_userid = vB_Facebook::instance()->getLoggedInFbUserId())
+	{
+		return false;
+	}
+	if (!$vbulletin->userinfo = $vbulletin->db->query_first("
+		SELECT userid, usergroupid, membergroupids, infractiongroupids, username, password, salt
+		FROM " . TABLE_PREFIX . "user
+		WHERE fbuserid = '$fb_userid'
+	"))
+	{
+		return false;
+	}
+
+	// facebook login successful, fetch hook and return true
+	$return_value = true;
+	($hook = vBulletinHook::fetch_hook('login_verify_success')) ? eval($hook) : false;
+	return $return_value;
+}
+
+// duplicates verify_facebook_authentication(), but we use the facebook app app id and secret, not fbconnect
+function verify_facebook_app_authentication()
+{
+	global $vbulletin;
+
+	// get the userinfo associated with current logged in facebook user
+	// return false if not logged in to fb, or there is no associated user record
+	if (!$fb_userid = vB_Facebook::login_facebook_instance()->getLoggedInFbUserId())
+	{
+		return false;
+	}
+	if (!$vbulletin->userinfo = $vbulletin->db->query_first("
+		SELECT userid, usergroupid, membergroupids, infractiongroupids, username, password, salt
+		FROM " . TABLE_PREFIX . "user
+		WHERE fbuserid = '$fb_userid'
+	"))
+	{
+		return false;
+	}
+
+	// facebook login successful, fetch hook and return true
+	$return_value = true;
+	($hook = vBulletinHook::fetch_hook('login_verify_success')) ? eval($hook) : false;
 	return $return_value;
 }
 
@@ -212,7 +282,7 @@ function process_new_login($logintype, $cookieuser, $cssprefs)
 	}
 	else
 	{
-		$newsession =& new vB_Session($vbulletin, '', $vbulletin->userinfo['userid'], '', $vbulletin->session->vars['styleid'], $vbulletin->session->vars['languageid']);
+		$newsession = new vB_Session($vbulletin, '', $vbulletin->userinfo['userid'], '', $vbulletin->session->vars['styleid'], $vbulletin->session->vars['languageid']);
 	}
 	$newsession->set('userid', $vbulletin->userinfo['userid']);
 	$newsession->set('loggedin', 1);
@@ -285,6 +355,12 @@ function process_new_login($logintype, $cookieuser, $cssprefs)
 		}
 	}
 
+	// API cookieuser
+	if (defined('VB_API') AND VB_API === true AND $vbulletin->apiclient['apiclientid'] AND $cookieuser)
+	{
+		$vbulletin->db->query_write("UPDATE " . TABLE_PREFIX . "apiclient SET userid = " . intval($vbulletin->userinfo['userid']) . " WHERE apiclientid = " . intval($vbulletin->apiclient['apiclientid']));
+	}
+
 	($hook = vBulletinHook::fetch_hook('login_process')) ? eval($hook) : false;
 }
 
@@ -293,13 +369,20 @@ function do_login_redirect()
 {
 	global $vbulletin, $vbphrase;
 
+	$vbulletin->input->fetch_basepath();
+
+	//the clauses
+	//url $vbulletin->url == 'login.php' and $vbulletin->url == $vbulletin->options['forumhome'] . '.php'
+	//will never be true -- $vbulletin->url contains the full url path.
+	//The second shouldn't be needed, the else clause seems to handle this just fine.
+	//the first we'll change to match a partial url.
 	if (
-		$vbulletin->url == 'login.php'
-		OR $vbulletin->url == $vbulletin->options['forumhome'] . '.php'
+		preg_match('#login.php(?:\?|$)#', $vbulletin->url)
 		OR strpos($vbulletin->url, 'do=logout') !== false
+		OR (!$vbulletin->options['allowmultiregs'] AND strpos($vbulletin->url, $vbulletin->basepath . 'register.php') === 0)
 	)
 	{
-		$vbulletin->url = $vbulletin->options['forumhome'] . '.php' . $vbulletin->session->vars['sessionurl_q'];
+		$vbulletin->url = fetch_seo_url('forumhome', array());
 	}
 	else
 	{
@@ -321,38 +404,54 @@ function do_login_redirect()
 
 	($hook = vBulletinHook::fetch_hook('login_redirect')) ? eval($hook) : false;
 
-	// recache the global group to get the stuff from the new language
-	$globalgroup = $vbulletin->db->query_first_slave("
-		SELECT phrasegroup_global, languagecode, charset
-		FROM " . TABLE_PREFIX . "language
-		WHERE languageid = " . intval($vbulletin->userinfo['languageid'] ? $vbulletin->userinfo['languageid'] : $vbulletin->options['languageid'])
-	);
-	if ($globalgroup)
+	if (!VB_API)
 	{
-		$vbphrase = array_merge($vbphrase, unserialize($globalgroup['phrasegroup_global']));
-
-		global $stylevar;
-		if ($stylevar['charset'] != $globalgroup['charset'])
+		// recache the global group to get the stuff from the new language
+		$globalgroup = $vbulletin->db->query_first_slave("
+			SELECT phrasegroup_global, languagecode, charset
+			FROM " . TABLE_PREFIX . "language
+			WHERE languageid = " . intval($vbulletin->userinfo['languageid'] ? $vbulletin->userinfo['languageid'] : $vbulletin->options['languageid'])
+		);
+		if ($globalgroup)
 		{
-			// change the character set in a bunch of places - a total hack
-			global $headinclude;
+			$vbphrase = array_merge($vbphrase, unserialize($globalgroup['phrasegroup_global']));
 
-			$headinclude = str_replace(
-				"content=\"text/html; charset=$stylevar[charset]\"",
-				"content=\"text/html; charset=$globalgroup[charset]\"",
-				$headinclude
-			);
+			if (vB_Template_Runtime::fetchStyleVar('charset') != $globalgroup['charset'])
+			{
+				// change the character set in a bunch of places - a total hack
+				global $headinclude;
 
-			$stylevar['charset'] = $globalgroup['charset'];
-			$vbulletin->userinfo['lang_charset'] = $globalgroup['charset'];
+				$headinclude = str_replace(
+					"content=\"text/html; charset=" . vB_Template_Runtime::fetchStyleVar('charset') . "\"",
+					"content=\"text/html; charset=$globalgroup[charset]\"",
+					$headinclude
+				);
 
-			exec_headers();
+				vB_Template_Runtime::addStyleVar('charset', $globalgroup['charset'], 'imgdir');
+				$vbulletin->userinfo['lang_charset'] = $globalgroup['charset'];
+
+				exec_headers();
+			}
+			if ($vbulletin->GPC['postvars'])
+			{
+				$postvars = @unserialize(verify_client_string($vbulletin->GPC['postvars']));
+				$postvars['login_redirect'] = true;
+
+				if ($postvars['securitytoken'] == 'guest')
+				{
+					$vbulletin->userinfo['securitytoken_raw'] = sha1($vbulletin->userinfo['userid'] . sha1($vbulletin->userinfo['salt']) . sha1(COOKIE_SALT));
+					$vbulletin->userinfo['securitytoken'] = TIMENOW . '-' . sha1(TIMENOW . $vbulletin->userinfo['securitytoken_raw']);
+					$postvars['securitytoken'] = $vbulletin->userinfo['securitytoken'];
+				}
+
+				$vbulletin->GPC['postvars'] = sign_client_string(serialize($postvars));
+			}
+
+			vB_Template_Runtime::addStyleVar('languagecode', $globalgroup['languagecode']);
 		}
-
-		$stylevar['languagecode'] = $globalgroup['languagecode'];
 	}
 
-	eval(print_standard_redirect('redirect_login', true, true, $vbulletin->userinfo['languageid']));
+	print_standard_redirect(array('redirect_login', $vbulletin->userinfo['username']), true, true, $vbulletin->userinfo['languageid']);
 }
 
 // ###################### Start process logout #######################
@@ -392,14 +491,23 @@ function process_logout()
 
 	$vbulletin->db->query_write("DELETE FROM " . TABLE_PREFIX . "session WHERE sessionhash = '" . $vbulletin->db->escape_string($vbulletin->session->vars['dbsessionhash']) . "'");
 
-	if ($vbulletin->session->created == true)
+	// Remove accesstoken from apiclient table so that a new one will be generated
+	if (defined('VB_API') AND VB_API === true AND $vbulletin->apiclient['apiclientid'])
+	{
+		$vbulletin->db->query_write("UPDATE " . TABLE_PREFIX . "apiclient SET apiaccesstoken = '', userid = 0
+			WHERE apiclientid = " . intval($vbulletin->apiclient['apiclientid']));
+		$vbulletin->apiclient['apiaccesstoken'] = '';
+	}
+
+	if ($vbulletin->session->created == true AND !VB_API)
 	{
 		// if we just created a session on this page, there's no reason not to use it
-		$newsession =& $vbulletin->session;
+		$newsession = $vbulletin->session;
 	}
 	else
 	{
-		$newsession =& new vB_Session($vbulletin, '', 0, '', $vbulletin->session->vars['styleid']);
+		// API should always create a new session here to generate a new accesstoken
+		$newsession = new vB_Session($vbulletin, '', 0, '', $vbulletin->session->vars['styleid']);
 	}
 	$newsession->set('userid', 0);
 	$newsession->set('loggedin', 0);
@@ -410,8 +518,8 @@ function process_logout()
 }
 /*======================================================================*\
 || ####################################################################
-|| # Downloaded: 16:21, Sat Apr 6th 2013
-|| # CVS: $RCSfile$ - $Revision: 26702 $
+|| # Downloaded: 14:57, Sun Aug 11th 2013
+|| # CVS: $RCSfile$ - $Revision: 64534 $
 || ####################################################################
 \*======================================================================*/
 ?>

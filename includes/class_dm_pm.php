@@ -1,16 +1,16 @@
 <?php
 /*======================================================================*\
 || #################################################################### ||
-|| # vBulletin 3.7.2 Patch Level 2 - Licence Number VBF2470E4F
+|| # vBulletin 4.2.1 - Licence Number VBC2DDE4FB
 || # ---------------------------------------------------------------- # ||
-|| # Copyright ©2000-2013 Jelsoft Enterprises Ltd. All Rights Reserved. ||
+|| # Copyright ©2000-2013 vBulletin Solutions Inc. All Rights Reserved. ||
 || # This file may not be redistributed in whole or significant part. # ||
 || # ---------------- VBULLETIN IS NOT FREE SOFTWARE ---------------- # ||
 || # http://www.vbulletin.com | http://www.vbulletin.com/license.html # ||
 || #################################################################### ||
 \*======================================================================*/
 
-if (!class_exists('vB_DataManager'))
+if (!class_exists('vB_DataManager', false))
 {
 	exit;
 }
@@ -23,12 +23,13 @@ if (!class_exists('vB_DataManager'))
 *	- savecopy (bool): whether to save a copy in the sent items folder
 *	- receipt (bool): whether to ask for a read receipt
 *	- cantrackpm (bool): whether the person sending the message has permission to track PMs
-*	- parentpmid (int): the parent PM this is in response to
+*	- parentpmid (int): the parent PM this is in response to; will be resolved to the first message in a "thread"
+*	- replypmid (int): the PM this one is in response to
 *	- forward (bool): whether this is a forward of the parent (true) or a reply (false)
 *
 * @package	vBulletin
-* @version	$Revision: 26257 $
-* @date		$Date: 2008-04-03 07:34:52 -0500 (Thu, 03 Apr 2008) $
+* @version	$Revision: 53471 $
+* @date		$Date: 2011-10-10 16:10:55 -0700 (Mon, 10 Oct 2011) $
 */
 class vB_DataManager_PM extends vB_DataManager
 {
@@ -155,6 +156,10 @@ class vB_DataManager_PM extends vB_DataManager
 		}
 
 		$message = fetch_censored_text($message);
+
+		require_once(DIR . '/includes/functions_video.php');
+		$message = parse_video_bbcode($message);
+
 		return true;
 	}
 
@@ -272,6 +277,7 @@ class vB_DataManager_PM extends vB_DataManager
 	*/
 	function set_recipients($recipientlist, &$permissions, $type = 'bcc')
 	{
+		global $vbphrase;
 		$names = array();      // names in the recipient list
 		$users = array();      // users from the recipient list found in the user table
 		$notfound = array();   // names from the recipient list NOT found in the user table
@@ -357,6 +363,8 @@ class vB_DataManager_PM extends vB_DataManager
 			$users["$lowname"] = $checkuser;
 		}
 
+		$this->dbobject->free_result($checkusers);
+
 		// check to see if any recipients were not found
 		foreach ($names AS $name)
 		{
@@ -366,9 +374,11 @@ class vB_DataManager_PM extends vB_DataManager
 				$notfound[] = $name;
 			}
 		}
+
 		if (!empty($notfound)) // error - some users were not found
 		{
-			$this->error('pmrecipientsnotfound', implode("</li>\r\n<li>", $notfound));
+			$comma = $vbphrase['comma_space'];
+			$this->error('pmrecipientsnotfound', implode("</li>$comma<li>", $notfound));
 			return false;
 		}
 
@@ -504,6 +514,19 @@ class vB_DataManager_PM extends vB_DataManager
 			}
 		}
 
+		// Check if the parent pm is already a child of a thread
+		if ($parentpmid = intval($this->info['parentpmid']))
+		{
+			$pm = $this->dbobject->query_first_slave("
+				SELECT parentpmid
+				FROM " . TABLE_PREFIX . "pm
+				WHERE pmid = $parentpmid
+					AND userid = " . intval($this->fetch_field('fromuserid'))
+			);
+
+			$this->info['parentpmid'] = (intval($pm['parentpmid']) ? $pm['parentpmid'] : $parentpmid);
+		}
+
 		$tostring = serialize($this->info['tostring']);
 		$this->do_set('touserarray', $tostring);
 
@@ -514,28 +537,15 @@ class vB_DataManager_PM extends vB_DataManager
 		return $return_value;
 	}
 
-	function post_save_each($doquery = true)
+	function post_save_each($doquery = true, $result = false)
 	{
 		$pmtextid = ($this->existing['pmtextid'] ? $this->existing['pmtextid'] : $this->pmtext['pmtextid']);
 		$fromuserid = intval($this->fetch_field('fromuserid'));
 		$fromusername = $this->fetch_field('fromusername');
+		$parentpmid = intval($this->info['parentpmid']);
 
 		if (!$this->condition)
 		{
-			// save a copy in the sent items folder
-			if ($this->info['savecopy'])
-			{
-				/*insert query*/
-				$this->dbobject->query_write("INSERT INTO " . TABLE_PREFIX . "pm (pmtextid, userid, folderid, messageread) VALUES ($pmtextid, $fromuserid, -1, 1)");
-
-				$user = fetch_userinfo($fromuserid);
-				$userdm =& datamanager_init('User', $this->registry, ERRTYPE_SILENT);
-				$userdm->set_existing($user);
-				$userdm->set('pmtotal', 'pmtotal + 1', false);
-				$userdm->save();
-				unset($userdm);
-			}
-
 			if (is_array($this->info['recipients']))
 			{
 				$receipt_sql = array();
@@ -543,14 +553,20 @@ class vB_DataManager_PM extends vB_DataManager
 				$warningusers = array();
 
 				require_once(DIR . '/includes/class_bbcode_alt.php');
-				$plaintext_parser =& new vB_BbCodeParser_PlainText($this->registry, fetch_tag_list());
+				$plaintext_parser = new vB_BbCodeParser_PlainText($this->registry, fetch_tag_list());
 				$plaintext_title = unhtmlspecialchars($this->fetch_field('title'));
 
 				// insert records for recipients
 				foreach ($this->info['recipients'] AS $userid => $user)
 				{
 					/*insert query*/
-					$this->dbobject->query_write("INSERT INTO " . TABLE_PREFIX . "pm (pmtextid, userid) VALUES ($pmtextid, $user[userid])");
+					$query = $this->dbobject->query_write($sql = "INSERT INTO " . TABLE_PREFIX . "pm (pmtextid, userid, parentpmid) VALUES ($pmtextid, $user[userid], $parentpmid)");
+
+					// ensure all subsequent pm's use a common parentpmid
+					if (!$parentpmid)
+					{
+						$parentpmid = $this->info['parentpmid'] = $this->dbobject->insert_id();
+					}
 
 					if ($this->info['receipt'])
 					{
@@ -623,7 +639,7 @@ class vB_DataManager_PM extends vB_DataManager
 					";
 				}
 
-				$this->dbobject->query_read("
+				$this->dbobject->query_write("
 					UPDATE " . TABLE_PREFIX . "user
 					SET " . implode(', ', $querysql) . "
 					WHERE userid IN(" . implode(', ', array_keys($this->info['recipients'])) . ")
@@ -632,13 +648,61 @@ class vB_DataManager_PM extends vB_DataManager
 			}
 
 			// update replied to / forwarded message 'messageread' status
-			if (!empty($this->info['parentpmid']))
+			if (!empty($this->info['replypmid']))
 			{
 				$this->dbobject->query_write("
 					UPDATE " . TABLE_PREFIX . "pm SET
 						messageread = " . ($this->info['forward'] ? 3 : 2) . "
-					WHERE userid = $fromuserid AND pmid = " . $this->info['parentpmid']
+					WHERE userid = $fromuserid AND pmid = " . intval($this->info['replypmid'])
 				);
+
+				// mark receipt as read
+				$this->dbobject->query_write("
+					UPDATE " . TABLE_PREFIX . "pmreceipt
+					SET readtime = " . TIMENOW . ",
+						denied = 0
+					WHERE pmid = " . intval($this->info['replypmid']) . "
+					AND touserid = " . $fromuserid . "
+					AND readtime = 0
+				");
+			}
+
+			// save a copy in the sent items folder
+			if ($this->info['savecopy'])
+			{
+				/*insert query*/
+				$this->dbobject->query_write("
+					INSERT INTO " . TABLE_PREFIX . "pm
+						(pmtextid, userid, folderid, messageread, parentpmid)
+					VALUES
+						($pmtextid, $fromuserid, -1, 1, $parentpmid)
+				");
+
+				$user = fetch_userinfo($fromuserid);
+				$userdm =& datamanager_init('User', $this->registry, ERRTYPE_SILENT);
+				$userdm->set_existing($user);
+				$userdm->set('pmtotal', 'pmtotal + 1', false);
+				$userdm->save();
+				unset($userdm);
+			}
+
+			// log message for throttling
+			$frompermissions = fetch_permissions(0, $fromuserid);
+			if ($this->registry->options['pmthrottleperiod'] AND $frompermissions['pmthrottlequantity'])
+			{
+				$throttle_sql = array();
+				foreach ($this->info['recipients'] AS $user)
+				{
+					$throttle_sql[] = "($fromuserid, " . TIMENOW . ")";
+				}
+
+				if (!empty($throttle_sql))
+				{
+					$this->registry->db->query_write("
+						INSERT INTO " . TABLE_PREFIX . "pmthrottle (userid, dateline) VALUES " .
+						implode(",\n\t", $throttle_sql)
+					);
+				}
 			}
 		}
 
@@ -648,8 +712,8 @@ class vB_DataManager_PM extends vB_DataManager
 
 /*======================================================================*\
 || ####################################################################
-|| # Downloaded: 16:21, Sat Apr 6th 2013
-|| # CVS: $RCSfile$ - $Revision: 26257 $
+|| # Downloaded: 14:57, Sun Aug 11th 2013
+|| # CVS: $RCSfile$ - $Revision: 53471 $
 || ####################################################################
 \*======================================================================*/
 ?>

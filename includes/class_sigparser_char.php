@@ -1,9 +1,9 @@
 <?php
 /*======================================================================*\
 || #################################################################### ||
-|| # vBulletin 3.7.2 Patch Level 2 - Licence Number VBF2470E4F
+|| # vBulletin 4.2.1 - Licence Number VBC2DDE4FB
 || # ---------------------------------------------------------------- # ||
-|| # Copyright ©2000-2013 Jelsoft Enterprises Ltd. All Rights Reserved. ||
+|| # Copyright ©2000-2013 vBulletin Solutions Inc. All Rights Reserved. ||
 || # This file may not be redistributed in whole or significant part. # ||
 || # ---------------- VBULLETIN IS NOT FREE SOFTWARE ---------------- # ||
 || # http://www.vbulletin.com | http://www.vbulletin.com/license.html # ||
@@ -23,8 +23,8 @@ require_once(DIR . '/includes/class_sigparser.php');
 * 3 size 2 characters). This is primarily used with signatures for line counting.
 *
 * @package 		vBulletin
-* @version		$Revision: 26966 $
-* @date 		$Date: 2008-06-18 04:38:54 -0500 (Wed, 18 Jun 2008) $
+* @version		$Revision: 32878 $
+* @date 		$Date: 2009-10-28 11:38:49 -0700 (Wed, 28 Oct 2009) $
 *
 */
 class vB_SignatureParser_CharCount extends vB_SignatureParser
@@ -122,8 +122,8 @@ class vB_SignatureParser_CharCount extends vB_SignatureParser
 					'callback' => 'handle_standard_tag',
 					'strip_empty' 		=> $customtag['strip_empty'],
 					'stop_parse'		=> $customtag['stop_parse'],
-					'disable_smilies'	=> $custontag['disable_smilies'],
-					'disable_wordwrap'	=> $custontag['disable_wordwrap'],
+					'disable_smilies'	=> $customtag['disable_smilies'],
+					'disable_wordwrap'	=> $customtag['disable_wordwrap'],
 				);
 			}
 		}
@@ -196,14 +196,15 @@ class vB_SignatureParser_CharCount extends vB_SignatureParser
 	*
 	* @param	string	Input Text (BB code)
 	* @param	bool	Whether to parse smilies
+	* @param	bool	Whether to parse img (for the video bbcodes)
 	* @param	bool	Whether to allow HTML (for smilies)
 	*
 	* @return	string	Ouput Text (HTML)
 	*/
-	function parse_bbcode($input_text, $do_smilies, $do_html = false)
+	function parse_bbcode($input_text, $do_smilies, $do_imgcode, $do_html = false)
 	{
 		$input_text = '[_wrapper]' . $input_text . '[/_wrapper]';
-		return $this->parse_array($this->fix_tags($this->build_parse_array($input_text)), $do_smilies, $do_html);
+		return $this->parse_array($this->fix_tags($this->build_parse_array($input_text)), $do_smilies, $do_imgcode, $do_html);
 	}
 
 	/**
@@ -504,8 +505,8 @@ class vB_SignatureParser_CharCount extends vB_SignatureParser
 
 /*======================================================================*\
 || ####################################################################
-|| # Downloaded: 16:21, Sat Apr 6th 2013
-|| # CVS: $RCSfile$ - $Revision: 26966 $
+|| # Downloaded: 14:57, Sun Aug 11th 2013
+|| # CVS: $RCSfile$ - $Revision: 32878 $
 || ####################################################################
 \*======================================================================*/
 ?>

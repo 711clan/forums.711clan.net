@@ -1,9 +1,9 @@
 <?php
 /*======================================================================*\
 || #################################################################### ||
-|| # vBulletin 3.7.2 Patch Level 2 - Licence Number VBF2470E4F
+|| # vBulletin 4.2.1 - Licence Number VBC2DDE4FB
 || # ---------------------------------------------------------------- # ||
-|| # Copyright ©2000-2013 Jelsoft Enterprises Ltd. All Rights Reserved. ||
+|| # Copyright ©2000-2013 vBulletin Solutions Inc. All Rights Reserved. ||
 || # This file may not be redistributed in whole or significant part. # ||
 || # ---------------- VBULLETIN IS NOT FREE SOFTWARE ---------------- # ||
 || # http://www.vbulletin.com | http://www.vbulletin.com/license.html # ||
@@ -21,7 +21,7 @@
 function construct_icons($seliconid = 0, $allowicons = true)
 {
 	// returns the icons chooser for posting new messages
-	global $vbulletin, $stylevar;
+	global $vbulletin;
 	global $vbphrase, $selectedicon, $show;
 
 	$selectedicon = array('src' => $vbulletin->options['cleargifurl'], 'alt' => '');
@@ -48,6 +48,8 @@ function construct_icons($seliconid = 0, $allowicons = true)
 	{
 		$noperms["$avperm[imagecategoryid]"][] = $avperm['usergroupid'];
 	}
+
+	$badcategories = '';
 	foreach($noperms AS $imagecategoryid => $usergroups)
 	{
 		foreach($usergroups AS $usergroupid)
@@ -64,13 +66,16 @@ function construct_icons($seliconid = 0, $allowicons = true)
 	}
 
 	$icons = $vbulletin->db->query_read_slave("
-		SELECT iconid, iconpath, title
+		SELECT icon.iconid, icon.iconpath, icon.title
 		FROM " . TABLE_PREFIX . "icon AS icon
-		WHERE imagecategoryid NOT IN (0$badcategories)
-		ORDER BY imagecategoryid, displayorder
+		INNER JOIN " . TABLE_PREFIX . "imagecategory AS icat USING (imagecategoryid)
+		WHERE icat.imagecategoryid NOT IN (0$badcategories)
+		ORDER BY icat.displayorder, icat.imagecategoryid, icon.displayorder, icon.iconid
 	");
 
-	if (!$vbulletin->db->num_rows($icons))
+	$totalicons=$vbulletin->db->num_rows($icons);
+
+	if (!$totalicons)
 	{
 		return false;
 	}
@@ -80,14 +85,18 @@ function construct_icons($seliconid = 0, $allowicons = true)
 
 	while ($icon = $vbulletin->db->fetch_array($icons))
 	{
-		$show['posticons'] = true;
-		if ($numicons % 7 == 0 AND $numicons != 0)
-		{
-			$posticonbits .= "</tr><tr><td>&nbsp;</td>";
-		}
-
 		$numicons++;
-
+		$show['posticons'] = true;
+		$show['opentr'] = false;
+		$show['closetr'] = false;
+		if ($numicons % 7 == 0 AND $numicons != 1 AND $numicons!==$totalicons)
+		{
+			$show['closetr'] = true;
+		}
+		if (($numicons - 1) % 7 == 0 AND $numicons != 1)
+		{
+			$show['opentr'] = true;
+		}
 		$iconid = $icon['iconid'];
 		$iconpath = $icon['iconpath'];
 		$alttext = $icon['title'];
@@ -103,7 +112,12 @@ function construct_icons($seliconid = 0, $allowicons = true)
 
 		($hook = vBulletinHook::fetch_hook('posticons_bit')) ? eval($hook) : false;
 
-		eval('$posticonbits .= "' . fetch_template('posticonbit') . '";');
+		$templater = vB_Template::create('posticonbit');
+			$templater->register('alttext', $alttext);
+			$templater->register('iconchecked', $iconchecked);
+			$templater->register('iconid', $iconid);
+			$templater->register('iconpath', $iconpath);
+		$posticonbits .= $templater->render();
 
 	}
 
@@ -131,33 +145,14 @@ function construct_icons($seliconid = 0, $allowicons = true)
 
 	($hook = vBulletinHook::fetch_hook('posticons_complete')) ? eval($hook) : false;
 
-	eval('$posticons = "' . fetch_template('posticons') . '";');
+	$templater = vB_Template::create('posticons');
+		$templater->register('iconchecked', $iconchecked);
+		$templater->register('posticonbits', $posticonbits);
+		$templater->register('remainingspan', $remainingspan);
+	$posticons = $templater->render();
 
 	return $posticons;
 
-}
-
-/**
-* Converts the newpost_attachmentbit template for use with javascript/construct_phrase
-*
-* @return	string
-*/
-function prepare_newpost_attachmentbit()
-{
-	// do not globalize $session or $attach!
-
-	$attach = array(
-		'imgpath' => '%1$s',
-		'attachmentid' => '%3$s',
-		'dateline' => '%4$s',
-		'filename' => '%5$s',
-		'filesize' => '%6$s'
-	);
-	$session['sessionurl'] = '%2$s';
-
-	eval('$template = "' . fetch_template('newpost_attachmentbit') . '";');
-
-	return addslashes_js($template, "'");
 }
 
 /**
@@ -169,13 +164,37 @@ function prepare_newpost_attachmentbit()
 */
 function convert_url_to_bbcode($messagetext)
 {
+	global $vbulletin;
+
 	// areas we should attempt to skip auto-parse in
 	$skiptaglist = 'url|email|code|php|html|noparse';
+
+	if (!isset($vbulletin->bbcodecache))
+	{
+		$vbulletin->bbcodecache = array();
+
+		$bbcodes = $vbulletin->db->query_read_slave("
+			SELECT *
+			FROM " . TABLE_PREFIX . "bbcode
+		");
+		while ($customtag = $vbulletin->db->fetch_array($bbcodes))
+		{
+			$vbulletin->bbcodecache["$customtag[bbcodeid]"] = $customtag;
+		}
+	}
+
+	foreach ($vbulletin->bbcodecache AS $customtag)
+	{
+		if (intval($customtag['options']) & $vbulletin->bf_misc['bbcodeoptions']['stop_parse'] OR intval($customtag['options']) & $vbulletin->bf_misc['bbcodeoptions']['disable_urlconversion'])
+		{
+			$skiptaglist .= '|' . preg_quote($customtag['bbcodetag'], '#');
+		}
+	}
 
 	($hook = vBulletinHook::fetch_hook('url_to_bbcode')) ? eval($hook) : false;
 
 	return preg_replace(
-		'#(^|\[/(' . $skiptaglist . ')\])(.*(\[(' . $skiptaglist . ')|$))#siUe',
+		'#(^|\[/(' . $skiptaglist . ')\])(.*(\[(' . $skiptaglist . ')\]|$))#siUe',
 		"convert_url_to_bbcode_callback('\\3', '\\1')",
 		$messagetext
 	);
@@ -191,6 +210,7 @@ function convert_url_to_bbcode($messagetext)
 */
 function convert_url_to_bbcode_callback($messagetext, $prepend)
 {
+	global $vbulletin;
 	// the auto parser - adds [url] tags around neccessary things
 	$messagetext = str_replace('\"', '"', $messagetext);
 	$prepend = str_replace('\"', '"', $prepend);
@@ -200,23 +220,28 @@ function convert_url_to_bbcode_callback($messagetext, $prepend)
 	{
 		$taglist = '\[b|\[i|\[u|\[left|\[center|\[right|\[indent|\[quote|\[highlight|\[\*' .
 			'|\[/b|\[/i|\[/u|\[/left|\[/center|\[/right|\[/indent|\[/quote|\[/highlight';
-		$urlSearchArray = array(
-			'#(^|(?<=[^_a-z0-9-=\]"\'/@]|(?<=' . $taglist . ')\]))((https?|ftp|gopher|news|telnet)://|www\.)((\[(?!/)|[^\s[^$`"{}<>])+)(?!\[/url|\[/img)(?=[,.!\')]*(\)\s|\)$|[\s[]|$))#siU'
-		);
 
-		$urlReplaceArray = array(
-			"[url]\\2\\4[/url]"
-		);
+		foreach ($vbulletin->bbcodecache AS $customtag)
+		{
+			if (!(intval($customtag['options']) & $vbulletin->bf_misc['bbcodeoptions']['disable_urlconversion']))
+			{
+				$customtag_quoted = preg_quote($customtag['bbcodetag'], '#');
+				$taglist .= '|\[' . $customtag_quoted . '|\[/' . $customtag_quoted;
+			}
+		}
 
-		$emailSearchArray = array(
-			'/([ \n\r\t])([_a-z0-9-]+(\.[_a-z0-9-]+)*@[^\s]+(\.[a-z0-9-]+)*(\.[a-z]{2,4}))/si',
-			'/^([_a-z0-9-]+(\.[_a-z0-9-]+)*@[^\s]+(\.[a-z0-9-]+)*(\.[a-z]{2,4}))/si'
-		);
+		$urlSearchArray = $urlReplaceArray = $emailSearchArray = $emailReplaceArray = array();
 
-		$emailReplaceArray = array(
-			"\\1[email]\\2[/email]",
-			"[email]\\0[/email]"
-		);
+		($hook = vBulletinHook::fetch_hook('url_to_bbcode_callback')) ? eval($hook) : false;
+
+		$urlSearchArray[] = '#(^|(?<=[^_a-z0-9-=\]"\'/@]|(?<=' . $taglist . ')\]))((https?|ftp|gopher|news|telnet)://|www\.)((\[(?!/)|[^\s[^$`"{}<>])+)(?!\[/url|\[/img)(?=[,.!\')]*(\)\s|\)$|[\s[]|$))#siU';
+		$urlReplaceArray[] = "[url]\\2\\4[/url]";
+
+		$emailSearchArray[] = '/([ \n\r\t])([_a-z0-9-+]+(\.[_a-z0-9-+]+)*@[^\s]+(\.[a-z0-9-]+)*(\.[a-z]{2,6}))/si';
+		$emailSearchArray[] = '/^([_a-z0-9-+]+(\.[_a-z0-9-+]+)*@[^\s]+(\.[a-z0-9-]+)*(\.[a-z]{2,6}))/si';
+
+		$emailReplaceArray[] = "\\1[email]\\2[/email]";
+		$emailReplaceArray[] = "[email]\\0[/email]";
 	}
 
 	$text = preg_replace($urlSearchArray, $urlReplaceArray, $messagetext);
@@ -225,7 +250,38 @@ function convert_url_to_bbcode_callback($messagetext, $prepend)
 		$text = preg_replace($emailSearchArray, $emailReplaceArray, $text);
 	}
 
+	$text = convert_url_to_bbcode_parenreplace($text);
+
 	return $prepend . $text;
+}
+
+/**
+* Tries to be smart about Parentheses in linked urls
+*
+* Example:
+* (http://en.wikipedia.org/wiki/Ape_disambiguation) does not include the parens
+* http://en.wikipedia.org/wiki/Ape_(disambiguation) includes both parens
+* http://en.wikipedia.org/wiki/Ape_disambiguation) does not include the paren
+* http://en.wikipedia.org/wiki/Ape_disambiguation)) does not include the parens
+* (http://en.wikipedia.org/wiki/Ape_(disambiguation)) includes one, but not both end parens
+* ((http://en.wikipedia.org/wiki/Ape_disambiguation)) does not include the parens
+* http://en.wikipedia.org/wiki/((Ape_disambiguation)) includes both trailing parens
+*
+* @param	string	Message text
+*
+* @return	string
+*/
+function convert_url_to_bbcode_parenreplace($text)
+{
+	preg_match_all('#\[url\]([^\[]*[\(][^\[]*)\[/url\][\)]+?#siU', $text, $matches, PREG_SET_ORDER);
+	foreach ($matches as $match)
+	{
+		$paren_count = substr_count($match[1], '(');
+		$new_url = preg_replace('#\[url\]('.preg_quote($match[1]).')\[/url\]([\)]{'.$paren_count.'})#siU', "[url]\\1\\2[/url]", $match[0]);
+		$text = str_replace($match[0], $new_url, $text);
+	}
+
+	return $text;
 }
 
 // ###################### Start newpost #######################
@@ -258,16 +314,6 @@ function build_new_post($type = 'thread', $foruminfo, $threadinfo, $postinfo, &$
 	$post['emailupdate'] = intval($post['emailupdate']);
 	$post['rating'] = intval($post['rating']);
 	$post['podcastsize'] = intval($post['podcastsize']);
-	/*$post['parseurl'] = intval($post['parseurl']);
-	$post['email'] = intval($post['email']);
-	$post['signature'] = intval($post['signature']);
-	$post['preview'] = iif($post['preview'], 1, 0);
-	$post['iconid'] = intval($post['iconid']);
-	$post['message'] = trim($post['message']);
-	$post['title'] = trim(preg_replace('/&#0*32;/', ' ', $post['title']));
-	$post['username'] = trim($post['username']);
-	$post['posthash'] = trim($post['posthash']);
-	$post['poststarttime'] = trim($post['poststarttime']);*/
 
 	// Make sure the posthash is valid
 	if (md5($post['poststarttime'] . $vbulletin->userinfo['userid'] . $vbulletin->userinfo['salt']) != $post['posthash'])
@@ -278,6 +324,9 @@ function build_new_post($type = 'thread', $foruminfo, $threadinfo, $postinfo, &$
 	// OTHER SANITY CHECKS
 	$threadinfo['threadid'] = intval($threadinfo['threadid']);
 
+	// Doublepost //
+	$dp_flag = false;
+
 	// create data manager
 	if ($type == 'thread')
 	{
@@ -287,9 +336,128 @@ function build_new_post($type = 'thread', $foruminfo, $threadinfo, $postinfo, &$
 	else
 	{
 		$dataman =& datamanager_init('Post', $vbulletin, ERRTYPE_ARRAY, 'threadpost');
+		$dupehash = md5($foruminfo['forumid'] . $post['title'] . $post['message'] . $vbulletin->userinfo['userid'] . $type);
+
+		// Doublepost Check //
+		if ($vbulletin->options['dp_timespan'] AND VB_API !== true
+		AND ($cutoff = TIMENOW - $vbulletin->options['dp_timespan'] * 60)
+		AND $threadinfo['lastpost'] > $cutoff AND !$post['preview']
+		AND $threadinfo['lastposter'] == $vbulletin->userinfo['username']
+		AND !($foruminfo['options'] & $vbulletin->bf_misc_forumoptions['bypassdp'])
+		AND !($vbulletin->userinfo['permissions']['forumpermissions'] & $vbulletin->bf_ugp_forumpermissions['bypassdoublepost'])
+		AND $doublepost = $vbulletin->db->query_first("
+				SELECT post.*, posthash.userid AS dupe_userid
+				FROM " . TABLE_PREFIX . "post AS post
+				LEFT JOIN " . TABLE_PREFIX . "posthash AS posthash ON (
+					posthash.threadid = {$threadinfo['threadid']}
+						AND
+					posthash.dupehash = '" . $vbulletin->db->escape_string($dupehash) . "'
+						AND
+					posthash.userid = {$vbulletin->userinfo['userid']}
+						AND
+					posthash.dateline > " . (TIMENOW - 300) . "
+				)
+				WHERE
+					post.visible = 1
+						AND
+					post.postid = " . $threadinfo['lastpostid'] . "
+						AND
+					post.threadid = " . $threadinfo['threadid'] . "
+				LIMIT 1	"
+			)
+		AND	$attach = $vbulletin->db->query_first("
+				SELECT count(attachmentid) AS attach
+				FROM " . TABLE_PREFIX . "attachment
+				WHERE state = 'visible'
+				AND posthash = '" . $post['posthash'] . "'"
+			)
+		AND ($vbulletin->options['attachlimit'] == 0
+		OR (($attach['attach'] + $doublepost['attach']) <= $vbulletin->options['attachlimit']))
+		)
+		{
+			$cstate = $vbulletin->options['dp_color'] ? 1 : 0;
+			$minchar = intval($vbulletin->options['postminchars']) <= 0 ? 1 : intval($vbulletin->options['postminchars']);
+
+			if (vbstrlen(strip_bbcode($post['message'], $vbulletin->options['ignorequotechars'])) < $minchar)
+			{
+				require_once(DIR . '/includes/functions_misc.php');
+				$errors[] = construct_phrase(fetch_phrase('tooshort', 'error'), $minchar);
+				return false;
+			}
+
+			if ($doublepost['dupe_userid'])
+			{
+				require_once(DIR . '/includes/functions_misc.php');
+				$errors[] = fetch_phrase('duplicate_post', 'error');
+				return false;
+			}
+
+			switch ($vbulletin->options['dp_spacer'])
+			{
+				case 1; // None
+					$cstate = 2;
+					break;
+
+				case 2; // Custom
+					$spacer = $vbulletin->options['dp_text'];
+					break;
+
+				default;
+					$spacer = $vbphrase['dp_spacer_default'];
+					break;
+			}
+
+			switch ($cstate)
+			{
+				case 1; // Coloured spacer
+					$spacer = "\n\n" . '[COLOR="' . $vbulletin->options['dp_color'] . '"]' . $spacer . '[/COLOR]' . "\n\n";
+					break;
+
+				case 2; // No spacer.
+					$spacer = "\n\n";
+					break;
+
+				default;
+					$spacer = "\n\n" . $spacer . "\n\n";
+					break;
+			}
+
+			$dp_flag = true;
+			$id = $doublepost['postid'];
+
+			// Need to set valid values for later //
+			$doublepost['signature'] = $doublepost['showsignature'];
+			$doublepost['disablesmilies'] = intval($doublepost['disablesmilies']);
+			$doublepost['enablesmilies'] = ($doublepost['disablesmilies'] ?  0 : 1);
+			$doublepost['folderid'] = intval($doublepost['folderid']);
+			$doublepost['emailupdate'] = intval($doublepost['emailupdate']);
+			$doublepost['rating'] = intval($doublepost['rating']);
+			$doublepost['podcastsize'] = intval($doublepost['podcastsize']);
+
+			$doublepost['doublepost'] = $dp_flag;
+			$doublepost['posthash'] = $post['posthash'];
+
+			$doublepost['oldmessage'] = $post['message'];
+			$doublepost['message'] = $doublepost['pagetext'] . $spacer . $post['message'];
+
+			$post = $doublepost;
+			unset ($doublepost);
+			$dataman->set_existing($post);
+
+			if ($vbulletin->options['dp_bump'])
+			{
+				$post['dateline'] = TIMENOW;
+				$dataman->set('dateline', $post['dateline']);
+			}
+		}
+		else
+		{
+			$dp_flag = false;
+		}
 	}
 
 	// set info
+	$dataman->set_info('dpflag', $dp_flag);
 	$dataman->set_info('preview', $post['preview']);
 	$dataman->set_info('parseurl', $post['parseurl']);
 	$dataman->set_info('posthash', $post['posthash']);
@@ -315,6 +483,7 @@ function build_new_post($type = 'thread', $foruminfo, $threadinfo, $postinfo, &$
 	// set options
 	$dataman->setr('showsignature', $post['signature']);
 	$dataman->setr('allowsmilie', $post['enablesmilies']);
+	$dataman->setr('htmlstate', $post['htmlstate']);
 
 	// set data
 	$dataman->setr('userid', $vbulletin->userinfo['userid']);
@@ -355,8 +524,17 @@ function build_new_post($type = 'thread', $foruminfo, $threadinfo, $postinfo, &$
 		{
 			// get parentid of the new post
 			// we're not posting a new thread, so make this post a child of the first post in the thread
-			$getfirstpost = $vbulletin->db->query_first("SELECT postid FROM " . TABLE_PREFIX . "post WHERE threadid=$threadinfo[threadid] ORDER BY dateline LIMIT 1");
-			$parentid = $getfirstpost['postid'];
+			if(!empty($threadinfo['firstpostid']))
+			{
+				//we have the postid in the thread table (firstpostid)
+				$parentid = $threadinfo['firstpostid'];
+			}
+			else
+			{
+				//for some reason it might not be available in the $threadinfo array, need to fetch it
+				$getfirstpost = $vbulletin->db->query_first("SELECT postid FROM " . TABLE_PREFIX . "post WHERE threadid=$threadinfo[threadid] ORDER BY dateline LIMIT 1");
+				$parentid = $getfirstpost['postid'];
+			}
 		}
 		else
 		{
@@ -381,7 +559,7 @@ function build_new_post($type = 'thread', $foruminfo, $threadinfo, $postinfo, &$
 		return;
 	}
 
-	if ($vbulletin->options['hvcheck_post'] AND !$post['preview'] AND !$vbulletin->userinfo['userid'])
+	if (fetch_require_hvcheck('post') AND !$post['preview'])
 	{
 		require_once(DIR . '/includes/class_humanverify.php');
 		$verify =& vB_HumanVerify::fetch_library($vbulletin);
@@ -409,7 +587,15 @@ function build_new_post($type = 'thread', $foruminfo, $threadinfo, $postinfo, &$
 
 	if ($type == 'thread' AND $post['taglist'])
 	{
-		fetch_valid_tags($dataman->thread, $post['taglist'], $tag_errors, true, false);
+		$threadinfo['postuserid'] = $vbulletin->userinfo['userid'];
+
+		require_once(DIR . '/includes/class_taggablecontent.php');
+		$content = vB_Taggable_Content_Item::create($vbulletin, "vBForum_Thread",
+			$dataman->thread['threadid'], $threadinfo);
+
+		$limits = $content->fetch_tag_limits();
+		$content->filter_tag_list_content_limits($post['taglist'], $limits, $tag_errors, true, false);
+
 		if ($tag_errors)
 		{
 			foreach ($tag_errors AS $error)
@@ -417,6 +603,13 @@ function build_new_post($type = 'thread', $foruminfo, $threadinfo, $postinfo, &$
 				$dataman->error($error);
 			}
 		}
+
+		$dataman->setr('taglist', $post['taglist']);
+	}
+
+	if ($type == 'reply' AND $vbulletin->GPC['return_node'])
+	{
+		$dataman->set_info('nodeid', $vbulletin->GPC['return_node']);
 	}
 
 	$dataman->pre_save();
@@ -433,8 +626,9 @@ function build_new_post($type = 'thread', $foruminfo, $threadinfo, $postinfo, &$
 	$prevpostthreadid = 0;
 
 	if ($prevpost = $vbulletin->db->query_first("
-		SELECT posthash.threadid
+		SELECT posthash.threadid, thread.title
 		FROM " . TABLE_PREFIX . "posthash AS posthash
+		LEFT JOIN " . TABLE_PREFIX . "thread AS thread ON (thread.threadid = posthash.threadid)
 		WHERE posthash.userid = " . $vbulletin->userinfo['userid'] . " AND
 			posthash.dupehash = '" . $vbulletin->db->escape_string($dupehash) . "' AND
 			posthash.dateline > " . (TIMENOW - 300) . "
@@ -452,8 +646,8 @@ function build_new_post($type = 'thread', $foruminfo, $threadinfo, $postinfo, &$
 	{
 		if ($type == 'thread')
 		{
-			$vbulletin->url = 'forumdisplay.php?' . $vbulletin->session->vars['sessionurl'] . "f=$foruminfo[forumid]";
-			eval(print_standard_redirect('redirect_duplicatethread', true, true));
+			$vbulletin->url = fetch_seo_url('forum', $foruminfo);
+			print_standard_redirect('redirect_duplicatethread', true, true);
 		}
 		else
 		{
@@ -466,8 +660,17 @@ function build_new_post($type = 'thread', $foruminfo, $threadinfo, $postinfo, &$
 			}
 			else
 			{
-				$vbulletin->url = 'showthread.php?' . $vbulletin->session->vars['sessionurl'] . "t=$prevpostthreadid&goto=newpost";
-				eval(print_standard_redirect('redirect_duplicatepost', true, true));
+				$vbulletin->url = fetch_seo_url('thread', $prevpost, array('goto' => 'newpost'));
+				if ($post['ajaxqrfailed'])
+				{
+					// ajax qr failed. While this is a dupe, most likely the user didn't
+					// see the initial post, so act like it went through.
+					print_standard_redirect('redirect_postthanks');
+				}
+				else
+				{
+					print_standard_redirect('redirect_duplicatepost', true, true);
+				}
 			}
 		}
 	}
@@ -477,17 +680,39 @@ function build_new_post($type = 'thread', $foruminfo, $threadinfo, $postinfo, &$
 		return;
 	}
 
-	$id = $dataman->save();
+	if ($post['doublepost'])
+	{
+		$dataman->save();
+	}
+	else
+	{
+		$id = $dataman->save();
+	}
+
 	if ($type == 'thread')
 	{
 		$post['threadid'] = $id;
 		$threadinfo =& $dataman->thread;
 		$post['postid'] = $dataman->fetch_field('firstpostid');
+
+		clear_autosave_text('vBForum_Thread', 0, 0, $vbulletin->userinfo['userid']);
 	}
 	else
 	{
 		$post['postid'] = $id;
+
+		if ($vbulletin->GPC_exists['return_node'] AND intval($vbulletin->GPC['return_node']))
+		{
+			clear_autosave_text('vBCms_ArticleComment', 0, $vbulletin->GPC['return_node'], $vbulletin->userinfo['userid']);
+		}
+		else
+		{
+			clear_autosave_text('vBForum_Post', 0, $threadinfo['threadid'], $vbulletin->userinfo['userid']);
+		}
 	}
+
+	post_vb_api_details('vBForum_Post', $post['postid']);
+
 	$post['visible'] = $dataman->fetch_field('visible');
 
 	$set_open_status = false;
@@ -531,7 +756,12 @@ function build_new_post($type = 'thread', $foruminfo, $threadinfo, $postinfo, &$
 
 	if ($type == 'thread')
 	{
-		add_tags_to_thread($threadinfo, $post['taglist']);
+		require_once(DIR . '/includes/class_taggablecontent.php');
+		$content = vB_Taggable_Content_Item::create($vbulletin, "vBForum_Thread",
+			$dataman->thread['threadid'], $threadinfo);
+
+		$limits = $content->fetch_tag_limits();
+		$content->add_tags_to_content($post['taglist'], $limits);
 	}
 
 	// ### DO THREAD RATING ###
@@ -574,411 +804,6 @@ function build_new_post($type = 'thread', $foruminfo, $threadinfo, $postinfo, &$
 	}
 
 	($hook = vBulletinHook::fetch_hook('newpost_complete')) ? eval($hook) : false;
-}
-
-/**
-* Adds tags to a thread. Errors are silently ignored, but returned.
-*
-* @param	array			Array of thread info
-* @param	string|array	List of tags to add (comma delimited, or an array as is). If array, ensure there are no commas.
-*
-* @return	array			Array of errors, if any
-*/
-function add_tags_to_thread($threadinfo, $taglist)
-{
-	global $vbulletin;
-
-	$threadid = intval($threadinfo['threadid']);
-	if (!$threadid)
-	{
-		return array();
-	}
-
-	$taglist = fetch_valid_tags($threadinfo, $taglist, $errors);
-
-	if (!$taglist)
-	{
-		return $errors;
-	}
-
-	insert_tags_thread($threadid, $taglist);
-
-	return $errors;
-}
-
-/**
-* Splits the tag list based on an admin-specified set of delimiters (and comma).
-*
-* @param	string	List of tags
-*
-* @return	array	Tags in seperate array entries
-*/
-function split_tag_list($taglist)
-{
-	global $vbulletin;
-	static $delimiters = array();
-
-	if (empty($delimiters))
-	{
-		$delimiter_list = $vbulletin->options['tagdelimiter'];
-		$delimiters = array(',');
-
-		// match {...} segments as is, then remove them from the string
-		if (preg_match_all('#\{([^}]*)\}#s', $delimiter_list, $matches, PREG_SET_ORDER))
-		{
-			foreach ($matches AS $match)
-			{
-				if ($match[1] !== '')
-				{
-					$delimiters[] = preg_quote($match[1], '#');
-				}
-				$delimiter_list = str_replace($match[0], '', $delimiter_list);
-			}
-		}
-
-		// remaining is simple, space-delimited text
-		foreach (preg_split('#\s+#', $delimiter_list, -1, PREG_SPLIT_NO_EMPTY) AS $delimiter)
-		{
-			$delimiters[] = preg_quote($delimiter, '#');
-		}
-	}
-
-	return ($delimiters
-		? preg_split('#(' . implode('|', $delimiters) . ')#', $taglist, -1, PREG_SPLIT_NO_EMPTY)
-		: array($taglist)
-	);
-}
-
-//split_tag_list('a bx yte!stzmoo');
-
-/**
-* Fetch the valid tags from a list. Filters are length, censorship, perms (if desired).
-*
-* @param	array			Array of existing thread info (including the existing tags)
-* @param	string|array	List of tags to add (comma delimited, or an array as is). If array, ensure there are no commas.
-* @param	array			(output) List of errors that happens
-* @param	boolean		Whether to check the browsing user's create tag perms
-* @param	boolean		Whether to expand the error phrase
-*
-* @return	array			List of valid tags
-*/
-function fetch_valid_tags($threadinfo, $taglist, &$errors, $check_browser_perms = true, $evalerrors = true)
-{
-	global $vbulletin;
-	static $tagbadwords, $taggoodwords;
-
-	$errors = array();
-
-	if (!is_array($taglist))
-	{
-		$taglist = split_tag_list($taglist);
-	}
-
-	if (!trim($threadinfo['taglist']))
-	{
-		$existing_tags = array();
-	}
-	else
-	{
-		// this will always be delimited by a comma
-		$existing_tags = explode(',', trim($threadinfo['taglist']));
-	}
-
-	if ($vbulletin->options['tagmaxthread'] AND count($existing_tags) >= $vbulletin->options['tagmaxthread'])
-	{
-		$errors['threadmax'] = $evalerrors ? fetch_error('thread_has_max_allowed_tags') : 'thread_has_max_allowed_tags';
-		return array();
-	}
-
-	if ($vbulletin->options['tagmaxlen'] <= 0 OR $vbulletin->options['tagmaxlen'] >= 100)
-	{
-		$vbulletin->options['tagmaxlen'] = 100;
-	}
-
-	$valid_raw = array();
-
-	// stop words: too common
-	require(DIR . '/includes/searchwords.php'); // get the stop word list; allow multiple requires
-	
-	// filter the stop words by adding custom stop words (tagbadwords) and allowing through exceptions (taggoodwords)
-	if (!is_array($tagbadwords))
-	{
-		$tagbadwords = preg_split('/\s+/s', vbstrtolower($vbulletin->options['tagbadwords']), -1, PREG_SPLIT_NO_EMPTY);
-	}
-	
-	if (!is_array($taggoodwords))
-	{
-		$taggoodwords = preg_split('/\s+/s', vbstrtolower($vbulletin->options['taggoodwords']), -1, PREG_SPLIT_NO_EMPTY);
-	}
-	
-	// merge hard-coded badwords and tag-specific badwords
-	$badwords = array_merge($badwords, $tagbadwords);
-
-	foreach ($taglist AS $tagtext)
-	{
-		$tagtext = trim(preg_replace('#[ \r\n\t]+#', ' ', $tagtext));
-		if ($tagtext === '')
-		{
-			continue;
-		}
-		
-		if (!in_array(vbstrtolower($tagtext), $taggoodwords))
-		{
-			$char_strlen = vbstrlen($tagtext, true);
-	
-			if ($vbulletin->options['tagminlen'] AND $char_strlen < $vbulletin->options['tagminlen'])
-			{
-				$errors['min_length'] = $evalerrors ? fetch_error('tag_too_short_min_x', $vbulletin->options['tagminlen']) : array('tag_too_short_min_x', $vbulletin->options['tagminlen']);
-				continue;
-			}
-	
-			if ($char_strlen > $vbulletin->options['tagmaxlen'])
-			{
-				$errors['max_length'] =  $evalerrors ? fetch_error('tag_too_long_max_x', $vbulletin->options['tagmaxlen']) : array('tag_too_long_max_x', $vbulletin->options['tagmaxlen']);
-				continue;
-			}
-	
-			if (strlen($tagtext) > 100)
-			{
-				// only have 100 bytes to store a tag
-				$errors['max_length'] =  $evalerrors ? fetch_error('tag_too_long_max_x', $vbulletin->options['tagmaxlen']) : array('tag_too_long_max_x', $vbulletin->options['tagmaxlen']);
-				continue;
-			}
-	
-			$censored = fetch_censored_text($tagtext);
-			if ($censored != $tagtext)
-			{
-				// can't have tags with censored text
-				$errors['censor'] = $evalerrors ? fetch_error('tag_no_censored') : 'tag_no_censored';
-				continue;
-			}
-	
-			if (count(split_tag_list($tagtext)) > 1)
-			{
-				// contains a delimiter character
-				$errors['comma'] = $evalerrors ? fetch_error('tag_no_comma') : 'tag_no_comma';
-				continue;
-			}
-	
-			if (in_array(strtolower($tagtext), $badwords))
-			{
-				$errors['common'] = $evalerrors ? fetch_error('tag_x_not_be_common_words', $tagtext) : array('tag_x_not_be_common_words', $tagtext);
-				continue;
-			}
-		}
-
-		$valid_raw[] = ($vbulletin->options['tagforcelower'] ? vbstrtolower($tagtext) : $tagtext);
-	}
-
-	// we need to essentially do a case-insensitive array_unique here
-	$valid_unique = array_unique(array_map('vbstrtolower', $valid_raw));
-	$valid = array();
-	foreach (array_keys($valid_unique) AS $key)
-	{
-		$valid[] = $valid_raw["$key"];
-	}
-	$valid_unique = array_values($valid_unique); // make the keys jive with $valid
-
-	if ($valid)
-	{
-		$existing_sql = $vbulletin->db->query_read("
-			SELECT tag.tagtext, IF(tagthread.tagid IS NULL, 0, 1) AS taginthread
-			FROM " . TABLE_PREFIX . "tag AS tag
-			LEFT JOIN " . TABLE_PREFIX . "tagthread AS tagthread ON
-				(tag.tagid = tagthread.tagid AND tagthread.threadid = " . intval($threadinfo['threadid']) . ")
-			WHERE tag.tagtext IN ('" . implode("','", array_map(array(&$vbulletin->db, 'escape_string'), $valid)) . "')
-		");
-
-		if ($check_browser_perms AND !($vbulletin->userinfo['permissions']['genericpermissions'] & $vbulletin->bf_ugp_genericpermissions['cancreatetag']))
-		{
-			// can't create tags, need to throw errors about bad ones
-			$new_tags = array_flip($valid_unique);
-
-			while ($tag = $vbulletin->db->fetch_array($existing_sql))
-			{
-				unset($new_tags[vbstrtolower($tag['tagtext'])]);
-			}
-
-			if ($new_tags)
-			{
-				// trying to create tags without permissions. Remove and throw an error
-				$errors['no_create'] = $evalerrors ? fetch_error('tag_no_create') : 'tag_no_create';
-
-				foreach ($new_tags AS $new_tag => $key)
-				{
-					// remove those that we can't add from the list
-					unset($valid["$key"], $valid_unique["$key"]);
-				}
-			}
-		}
-
-		$vbulletin->db->data_seek($existing_sql, 0);
-
-		// determine which tags are already in the thread and just ignore them
-		while ($tag = $vbulletin->db->fetch_array($existing_sql))
-		{
-			if ($tag['taginthread'])
-			{
-				// tag is in thread, find it and remove
-				if (($key = array_search(vbstrtolower($tag['tagtext']), $valid_unique)) !== false)
-				{
-					unset($valid["$key"], $valid_unique["$key"]);
-				}
-			}
-		}
-
-		$user_tags_remain = null;
-
-		if ($vbulletin->options['tagmaxthread'])
-		{
-			// check global limit
-			$user_tags_remain = $vbulletin->options['tagmaxthread'] - count($existing_tags) - count($valid);
-		}
-
-		if (!can_moderate($threadinfo['forumid'], 'caneditthreads'))
-		{
-			$my_tag_count_array = $vbulletin->db->query_first("
-				SELECT COUNT(*) AS count
-				FROM " . TABLE_PREFIX . "tagthread
-				WHERE threadid = " . intval($threadinfo['threadid']) . "
-					AND userid = " . $vbulletin->userinfo['userid']
-			);
-			$my_tag_count = $my_tag_count_array['count'] + count($valid);
-
-			$tags_remain = null;
-			if ($vbulletin->options['tagmaxstarter'] AND $threadinfo['postuserid'] == $vbulletin->userinfo['userid'])
-			{
-				$tags_remain = $vbulletin->options['tagmaxstarter'] - $my_tag_count;
-			}
-			else if ($vbulletin->options['tagmaxuser'])
-			{
-				$tags_remain = $vbulletin->options['tagmaxuser'] - $my_tag_count;
-			}
-
-			if ($tags_remain !== null)
-			{
-				$user_tags_remain = ($user_tags_remain == null ? $tags_remain : min($tags_remain, $user_tags_remain));
-			}
-		}
-
-		if ($user_tags_remain < 0)
-		{
-			$errors['threadmax'] = $evalerrors ? fetch_error('number_tags_add_exceeded_x', vb_number_format($user_tags_remain * -1)) : array('number_tags_add_exceeded_x', vb_number_format($user_tags_remain * -1));
-			$allowed_tag_count = count($valid) + $user_tags_remain;
-			if ($allowed_tag_count > 0)
-			{
-				$valid = array_slice($valid, 0, count($valid) + $user_tags_remain);
-			}
-			else
-			{
-				$valid = array();
-			}
-		}
-	}
-
-	return $valid;
-}
-
-/**
-* Inserts tags into the DB and adds them to the specified thread.
-*
-* @param	integer	Thread to add tags to
-* @param	array	Array of tags. Should already be validated!
-*/
-function insert_tags_thread($threadid, $taglist)
-{
-	global $vbulletin;
-
-	if (!$taglist OR !is_array($taglist))
-	{
-		return;
-	}
-
-	$taglist_db = array();
-	$taglist_insert = array();
-	foreach ($taglist AS $tag)
-	{
-		$tag = $vbulletin->db->escape_string($tag);
-
-		$taglist_db[] = $tag;
-		$taglist_insert[] = "('$tag', " . TIMENOW . ")";
-	}
-
-	// create new tags
-	$vbulletin->db->query_write("
-		INSERT IGNORE INTO " . TABLE_PREFIX . "tag
-			(tagtext, dateline)
-		VALUES
-			" . implode(',', $taglist_insert)
-	);
-
-	// now associate with thread
-	$tagthread = array();
-	$tagid_sql = $vbulletin->db->query_read("
-		SELECT tagid
-		FROM " . TABLE_PREFIX . "tag
-		WHERE tagtext IN ('" . implode("', '", $taglist_db) . "')
-	");
-	while ($tag = $vbulletin->db->fetch_array($tagid_sql))
-	{
-		$tagthread[] = "($threadid, $tag[tagid], " . $vbulletin->userinfo['userid'] . ", " . TIMENOW . ")";
-	}
-
-	if ($tagthread)
-	{
-		// this should always happen
-		$vbulletin->db->query_write("
-			INSERT IGNORE INTO " . TABLE_PREFIX . "tagthread
-				(threadid, tagid, userid, dateline)
-			VALUES
-				" . implode(',', $tagthread)
-		);
-	}
-
-	// now rebuild the tag list for the thread
-	rebuild_thread_taglist($threadid);
-}
-
-/**
-* Rebuilds the data in the taglist column of a thread.
-*
-* @param	integer	Thread ID to rebuild
-*
-* @return	string	Comma delimited tag list
-*/
-function rebuild_thread_taglist($threadid)
-{
-	global $vbulletin;
-
-	$threadid = intval($threadid);
-
-	$threadinfo = fetch_threadinfo($threadid);
-	if (!$threadinfo)
-	{
-		return '';
-	}
-
-	$tags = array();
-	$tags_sql = $vbulletin->db->query_read("
-		SELECT tag.tagtext
-		FROM " . TABLE_PREFIX . "tagthread AS tagthread
-		INNER JOIN " . TABLE_PREFIX . "tag AS tag ON (tag.tagid = tagthread.tagid)
-		WHERE tagthread.threadid = $threadid
-		ORDER BY tag.tagtext
-	");
-	while ($tag = $vbulletin->db->fetch_array($tags_sql))
-	{
-		$tags[] = $tag['tagtext'];
-	}
-
-	$taglist = implode(', ', $tags);
-
-	$dataman =& datamanager_init('Thread_FirstPost', $vbulletin, ERRTYPE_SILENT, 'threadpost');
-	$dataman->set_existing($threadinfo);
-	$dataman->set('taglist', $taglist);
-	$dataman->save();
-
-	return $taglist;
 }
 
 /**
@@ -1044,15 +869,23 @@ function build_thread_rating($rating, $foruminfo, $threadinfo)
  */
 function construct_errors($errors)
 {
-	global $vbulletin, $vbphrase, $stylevar, $show;
+	global $vbulletin, $vbphrase, $show;
 
 	$errorlist = '';
-	foreach ($errors AS $key => $errormessage)
+	if (!empty($errors))
 	{
-		eval('$errorlist .= "' . fetch_template('newpost_errormessage') . '";');
+		$show['errors'] = true;
+		$templater = vB_Template::create('newpost_errormessage');
+		$templater->register('errors', $errors);
+		$errorlist .= $templater->render();
 	}
-	$show['errors'] = true;
-	eval('$errortable = "' . fetch_template('newpost_preview') . '";');
+
+	$templater = vB_Template::create('newpost_preview');
+		$templater->register('errorlist', $errorlist);
+		$templater->register('newpost', $newpost);
+		$templater->register('post', $post);
+		$templater->register('previewmessage', $previewmessage);
+	$errortable = $templater->render();
 
 	return $errortable;
 }
@@ -1069,31 +902,43 @@ function construct_errors($errors)
  * @return	string	The Generated Preview
  *
  */
-function process_post_preview(&$newpost, $postuserid = 0, $attachmentinfo = NULL)
+function process_post_preview(&$newpost, $postuserid = 0, $attachment_bycontent = NULL, $attachment_byattachment = NULL)
 {
-	global $vbphrase, $checked, $rate, $previewpost, $stylevar, $foruminfo, $vbulletin, $show;
+	global $vbphrase, $checked, $rate, $previewpost, $foruminfo, $threadinfo, $vbulletin, $show;
 
 	require_once(DIR . '/includes/class_bbcode.php');
-	$bbcode_parser =& new vB_BbCodeParser($vbulletin, fetch_tag_list());
-	if ($attachmentinfo)
+	$bbcode_parser = new vB_BbCodeParser($vbulletin, fetch_tag_list());
+	if ($attachment_byattachment)
 	{
-		$bbcode_parser->attachments =& $attachmentinfo;
+		$bbcode_parser->attachments =& $attachment_byattachment;
+		$bbcode_parser->containerid = ($newpost['postid'] ? $newpost['postid'] : 0);
 	}
 
 	$previewpost = 1;
 	$bbcode_parser->unsetattach = true;
-	$previewmessage = $bbcode_parser->parse($newpost['message'], $foruminfo['forumid'], iif($newpost['disablesmilies'], 0, 1));
+	$previewmessage = $bbcode_parser->parse(
+		$newpost['message'],
+		$foruminfo['forumid'],
+		$newpost['disablesmilies'] ?  0 : 1,
+		false,
+		'',
+		3,
+		false,
+		$newpost['htmlstate']
+	);
 
 	$post = array(
 		'userid' => ($postuserid ? $postuserid : $vbulletin->userinfo['userid']),
 	);
 
-	if (!empty($attachmentinfo))
+	if (!empty($attachment_byattachment))
 	{
 		require_once(DIR . '/includes/class_postbit.php');
-		$post['attachments'] =& $attachmentinfo;
-		$postbit_factory =& new vB_Postbit_Factory();
+		$post['attachments'] = $attachment_byattachment;
+		$post['allattachments'] = $attachment_bycontent;
+		$postbit_factory = new vB_Postbit_Factory();
 		$postbit_factory->registry =& $vbulletin;
+		$postbit_factory->thread =& $threadinfo;
 		$postbit_factory->forum =& $foruminfo;
 		$postbit_obj =& $postbit_factory->fetch_postbit('post');
 		$postbit_obj->post =& $post;
@@ -1162,7 +1007,13 @@ function process_post_preview(&$newpost, $postuserid = 0, $attachmentinfo = NULL
 
 	if ($previewmessage != '')
 	{
-		eval('$postpreview = "' . fetch_template('newpost_preview')."\";");
+		$templater = vB_Template::create('newpost_preview');
+			$templater->register('errorlist', $errorlist);
+			$templater->register('newpost', $newpost);
+			$templater->register('post', $post);
+			$templater->register('previewmessage', $previewmessage);
+			$templater->register('content_type', 'forumcontent');
+		$postpreview = $templater->render();
 	}
 	else
 	{
@@ -1173,7 +1024,7 @@ function process_post_preview(&$newpost, $postuserid = 0, $attachmentinfo = NULL
 
 	if ($newpost['rating'])
 	{
-		$rate["$newpost[rating]"] = ' '.'selected="selected"';
+		$rate["$newpost[rating]"] = ' selected="selected"';
 	}
 
 	return $postpreview;
@@ -1191,7 +1042,7 @@ function construct_checkboxes($post, $extra_keys = null)
 	$checked = array();
 
 	// default array keys
-	$default_keys = array('parseurl', 'disablesmilies', 'signature', 'postpoll', 'receipt', 'savecopy', 'stickunstick', 'openclose', 'sendanyway');
+	$default_keys = array('parseurl', 'disablesmilies', 'signature', 'postpoll', 'receipt', 'savecopy', 'stickunstick', 'openclose', 'sendanyway', 'rate');
 
 	if (is_array($extra_keys))
 	{
@@ -1220,7 +1071,7 @@ function fetch_no_shouting_text($text)
 
 	$effective_string = preg_replace('#[^a-z0-9\s]#i', '\2', strip_bbcode($text, true, false));
 
-	if ($vbulletin->options['stopshouting'] AND vbstrlen($effective_string) >= $vbulletin->options['stopshouting'] AND $effective_string == strtoupper($effective_string))
+	if ($vbulletin->options['stopshouting'] AND vbstrlen($effective_string) >= $vbulletin->options['stopshouting'] AND $effective_string == strtoupper($effective_string) AND !preg_match('#^[\x20-\x40\x5B-\x60\x7B-\x7E\s]+$#', $effective_string)/* string does not consist entirely of non-alpha ascii chars #32591 */)
 	{
 		return fetch_sentence_case($text);
 	}
@@ -1235,7 +1086,7 @@ function fetch_no_shouting_text($text)
  * Ignores locales
  *
  * @param	string	Text to capitalize
- * 
+ *
  * @return	string
  */
 function fetch_sentence_case($text)
@@ -1345,13 +1196,15 @@ function exec_send_notification($threadid, $userid, $postid)
 	}
 
 	require_once(DIR . '/includes/class_bbcode_alt.php');
-	$plaintext_parser =& new vB_BbCodeParser_PlainText($vbulletin, fetch_tag_list());
+	$plaintext_parser = new vB_BbCodeParser_PlainText($vbulletin, fetch_tag_list());
 	$pagetext_cache = array(); // used to cache the results per languageid for speed
 
 	$mod_emails = fetch_moderator_newpost_emails('newpostemail', $foruminfo['parentlist'], $language_info);
 
 	($hook = vBulletinHook::fetch_hook('newpost_notification_start')) ? eval($hook) : false;
 
+	//If the target user's location is the same as the current user, then don't send them
+	//a notification.
 	$useremails = $vbulletin->db->query_read_slave("
 		SELECT user.*, subscribethread.emailupdate, subscribethread.subscribethreadid
 		FROM " . TABLE_PREFIX . "subscribethread AS subscribethread
@@ -1434,6 +1287,16 @@ function exec_send_notification($threadid, $userid, $postid)
 		{
 			$threadinfo['prefix_plain'] = '';
 		}
+
+		//magic phrases for thread eval below.
+		$threadlink = fetch_seo_url('thread|nosession|bburl', array('threadid' => $threadinfo['threadid'],
+			'title' => htmlspecialchars_uni($threadinfo['title'])), array('goto' => 'newpost'));
+		$unsubscribelink = fetch_seo_url('subscription|nosession|bburl|js', array(), array(
+			'do' => 'removesubscription', 'type' => 'thread',
+			'subscriptionid' => $touser['subscribethreadid'], 'auth' => $touser['auth'],
+		));
+		$managesubscriptionslink = fetch_seo_url('subscription|nosession|bburl|js', array(),
+			array('do' => 'viewsubscription', 'folderid' => 'all'));
 
 		($hook = vBulletinHook::fetch_hook('newpost_notification_message')) ? eval($hook) : false;
 
@@ -1628,6 +1491,25 @@ function fetch_quote_title($parentposttitle, $threadtitle)
 }
 
 /**
+ * function to set the checked value of the htmlstate
+ *
+ */
+function fetch_htmlchecked($value)
+{
+	switch($value)
+	{
+		case 'off':
+		case 'on':
+			$choice = $value;
+			break;
+		default:
+			$choice = 'on_nl2br';
+	}
+
+	return array($choice => 'selected="selected"');
+}
+
+/**
  * function to fetch the array containing the selected="selected" value for thread
  * subscription
  *
@@ -1771,7 +1653,10 @@ function fetch_quotable_posts($quote_postids, $threadid, &$unquoted_posts, &$quo
 		$pagetext = trim(strip_quotes($pagetext));
 
 		($hook = vBulletinHook::fetch_hook('newreply_quote')) ? eval($hook) : false;
-		eval('$message .= "' . fetch_template('newpost_quote', 0, false) . '\n";');
+		$templater = vB_Template::create('newpost_quote');
+			$templater->register('originalposter', $originalposter);
+			$templater->register('pagetext', $pagetext);
+		$message .= $templater->render(true) . "\n";
 
 		$quoted_post_ids[] = $quote_postid;
 	}
@@ -1784,10 +1669,142 @@ function fetch_quotable_posts($quote_postids, $threadid, &$unquoted_posts, &$quo
 	return $message;
 }
 
+/**
+ * Prepares pm array for use in replies.
+ *
+ * @param integer $pmid							- The pm being replied to
+ * @returns array mixed							- The normalized pm info array
+ */
+function fetch_privatemessage_reply($pm)
+{
+	global $vbulletin, $vbphrase;
+
+	if ($pm)
+	{
+		($hook = vBulletinHook::fetch_hook('private_fetchreply_start')) ? eval($hook) : false;
+
+		// quote reply
+		$originalposter = fetch_quote_username($pm['fromusername']);
+
+		// allow quotes to remain with an optional request variable
+		// this will fix a problem with forwarded PMs and replying to them
+		if ($vbulletin->GPC['stripquote'])
+		{
+			$pagetext = strip_quotes($pm['message']);
+		}
+		else
+		{
+			// this is now the default behavior -- leave quotes, like vB2
+			$pagetext = $pm['message'];
+		}
+		$pagetext = trim(htmlspecialchars_uni($pagetext));
+
+		$templater = vB_Template::create('newpost_quote');
+			$templater->register('originalposter', $originalposter);
+			$templater->register('pagetext', $pagetext);
+		$pm['message'] = $templater->render(true);
+
+		// work out FW / RE bits
+		if (preg_match('#^' . preg_quote($vbphrase['forward_prefix'], '#') . '(\s+)?#i', $pm['title'], $matches))
+		{
+			$pm['title'] = substr($pm['title'], strlen($vbphrase['forward_prefix']) + (isset($matches[1]) ? strlen($matches[1]) : 0));
+		}
+		else if (preg_match('#^' . preg_quote($vbphrase['reply_prefix'], '#') . '(\s+)?#i', $pm['title'], $matches))
+		{
+			$pm['title'] = substr($pm['title'], strlen($vbphrase['reply_prefix']) + (isset($matches[1]) ? strlen($matches[1]) : 0));
+		}
+		else
+		{
+			$pm['title'] = preg_replace('#^[a-z]{2}:#i', '', $pm['title']);
+		}
+
+		$pm['title'] = trim($pm['title']);
+
+		if ($vbulletin->GPC['forward'])
+		{
+			$pm['title'] = $vbphrase['forward_prefix'] . " $pm[title]";
+			$pm['recipients'] = '';
+			$pm['forward'] = 1;
+		}
+		else
+		{
+			$pm['title'] = $vbphrase['reply_prefix'] . " $pm[title]";
+			$pm['recipients'] = $pm['fromusername'] . ' ; ';
+			$pm['forward'] = 0;
+		}
+
+		($hook = vBulletinHook::fetch_hook('private_newpm_reply')) ? eval($hook) : false;
+	}
+	else
+	{
+		eval(standard_error(fetch_error('invalidid', $vbphrase['private_message'], $vbulletin->options['contactuslink'])));
+	}
+
+	return $pm;
+}
+
+function fetch_keywords_list($threadinfo, $pagetext = '')
+{
+	global $vbphrase, $vbulletin;
+
+	require_once(DIR . '/includes/functions_search.php');
+	require_once(DIR . '/includes/class_taggablecontent.php');
+
+	$keywords = vB_Taggable_Content_Item::filter_tag_list($threadinfo['taglist'], $errors, false);
+
+	if (!empty($threadinfo['prefixid']))
+	{
+		$prefix = $vbphrase["prefix_$threadinfo[prefixid]_title_plain"];
+		$keywords[] = trim($prefix);
+	}
+
+	if (!empty($pagetext))
+	{
+		// title has already been htmlspecialchar'd, pagetext has not
+		$words = fetch_postindex_text(unhtmlspecialchars($threadinfo['title']) . ' ' . $pagetext);
+		$wordarray = split_string($words);
+
+		$sorted_counts = array_count_values($wordarray);
+		arsort($sorted_counts);
+
+		require(DIR . '/includes/searchwords.php'); // get the stop word list; allow multiple requires
+		$badwords = array_merge($badwords, preg_split('/\s+/s', $vbulletin->options['badwords'], -1, PREG_SPLIT_NO_EMPTY));
+
+		foreach ($sorted_counts AS $word => $count)
+		{
+			$word = trim($word);
+
+			if (in_array(vbstrtolower($word), $badwords))
+			{
+				continue;
+			}
+
+			if (vbstrlen($word) <= $vbulletin->options['minsearchlength'] AND !in_array(vbstrtolower($word), $goodwords))
+			{
+				continue;
+			}
+
+			$word = htmlspecialchars_uni($word);
+
+			if (!in_array($word, $keywords))
+			{
+				$keywords[] = $word;
+			}
+
+			if (sizeof($keywords) >= 50)
+			{
+				break;
+			}
+		}
+	}
+
+	return implode(', ', $keywords);
+}
+
 /*======================================================================*\
 || ####################################################################
-|| # Downloaded: 16:21, Sat Apr 6th 2013
-|| # CVS: $RCSfile$ - $Revision: 26840 $
+|| # Downloaded: 14:57, Sun Aug 11th 2013
+|| # CVS: $RCSfile$ - $Revision: 63835 $
 || ####################################################################
 \*======================================================================*/
 ?>

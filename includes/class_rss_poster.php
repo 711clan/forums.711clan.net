@@ -1,9 +1,9 @@
 <?php
 /*======================================================================*\
 || #################################################################### ||
-|| # vBulletin 3.7.2 Patch Level 2 - Licence Number VBF2470E4F
+|| # vBulletin 4.2.1 - Licence Number VBC2DDE4FB
 || # ---------------------------------------------------------------- # ||
-|| # Copyright ©2000-2013 Jelsoft Enterprises Ltd. All Rights Reserved. ||
+|| # Copyright ©2000-2013 vBulletin Solutions Inc. All Rights Reserved. ||
 || # This file may not be redistributed in whole or significant part. # ||
 || # ---------------- VBULLETIN IS NOT FREE SOFTWARE ---------------- # ||
 || # http://www.vbulletin.com | http://www.vbulletin.com/license.html # ||
@@ -19,7 +19,9 @@ require_once(DIR . '/includes/class_xml.php');
 
 function &fetch_file_via_socket($rawurl, $postfields = array())
 {
-	$url = @parse_url($rawurl);
+	global $vbulletin;
+
+	$url = $vbulletin->input->parse_url($rawurl);
 
 	if (!$url OR empty($url['host']))
 	{
@@ -224,6 +226,7 @@ class vB_RSS_Poster
 	function fetch_xml($url)
 	{
 		$xml_string =& fetch_file_via_socket($url);
+
 		if ($xml_string === false OR empty($xml_string['body']))
 		{ // error returned
 			if (VB_AREA == 'AdminCP')
@@ -251,11 +254,30 @@ class vB_RSS_Poster
 		}
 
 		$this->set_xml_string($xml_string);
+		return true;
 	}
 
-	function parse_xml()
+	/**
+	 * Parses the RSS XML
+	 * If the target encoding is not specified then the XML parser will resolve it
+	 * from the current language settings.
+	 * The source encoding can be overridden with $override_encoding.  This forces
+	 * the RSS feed to be interpreted with that character set.  This should only be
+	 * done if the RSS fails to report it's encoding or reports it incorrectly.
+	 *
+	 * @param	string	The target encoding of the
+	 * @param	bool	Whether to ncrencode unicode
+	 * @param	string	Override the source encoding
+	 */
+	function parse_xml($target_encoding = false, $ncrencode = false, $override_encoding = false, $escape_html = false)
 	{
 		$this->xml_object = new vB_XML_Parser($this->xml_string);
+
+		// Set xml encoding
+		$this->xml_object->disable_legacy_mode();
+		$this->xml_object->set_target_encoding($target_encoding, $ncrencode, $escape_html);
+		$this->xml_object->set_encoding($override_encoding);
+
 		if ($this->xml_object->parse_xml())
 		{
 			$this->xml_array =& $this->xml_object->parseddata;
@@ -358,6 +380,55 @@ class vB_RSS_Poster
 		return getElementsByTagName($this->xml_array, $tagname, true);
 	}
 
+	/**
+	 * Fetches items and normalises the keys.
+	 * The result is in the following form:
+	 * 	array(
+	 * 		'link'				=> link,
+	 * 		'description' 		=> description,
+	 * 		'title' 			=> title
+	 * 		'id'				=> id,
+	 * 		'date'				=> date
+	 * 		'enclosure_link'	=> enclosure_link
+	 * 		'content'			=> content:encoded
+	 * 		'author'			=> author
+	 * );
+	 *
+	 * @return array mixed
+	 */
+	function fetch_normalised_items()
+	{
+		$items = $this->fetch_items();
+
+		if (empty($items))
+		{
+			return false;
+		}
+
+		$normalised_items = array();
+		foreach ($items AS $item)
+		{
+			$normalised_item = array(
+				'link'				=> $this->fetch_replacement('link',				$item),
+				'description'		=> $this->fetch_replacement('description',		$item),
+				'title'				=> $this->fetch_replacement('title',			$item),
+				'id'				=> $this->fetch_replacement('id',				$item),
+				'date'				=> $this->fetch_replacement('date',				$item),
+				'enclosure_link'	=> $this->fetch_replacement('enclosure_link',	$item),
+				'content'			=> $this->fetch_replacement('content',			$item),
+				'author'			=> $this->fetch_replacement('author',			$item)
+			);
+
+
+			$normalised_item['link'] = vB::$vbulletin->input->xss_clean_url($normalised_item['link']);
+			$normalised_item['enclosure_link'] = vB::$vbulletin->input->xss_clean_url($normalised_item['enclosure_link']);
+
+			$normalised_items[] = $normalised_item;
+		}
+
+		return $normalised_items;
+	}
+
 	function parse_template($template, $item, $unhtmlspecialchars = true)
 	{
 		if (preg_match_all('#\{(?:feed|rss):([\w:\[\]]+)\}#siU', $template, $matches))
@@ -379,7 +450,6 @@ class vB_RSS_Poster
 
 	function fetch_replacement($field, $item)
 	{
-
 		switch ($this->feedtype)
 		{
 			case 'atom':
@@ -395,7 +465,15 @@ class vB_RSS_Poster
 				{
 					case 'link':
 					{
-						if (empty($item['link'][0]))
+						if (empty($item['link']))
+						{
+							if (!empty($item['guid']))
+							{
+								return $item['guid']['value'];
+							}
+							return '';
+						}
+						else if (empty($item['link'][0]))
 						{
 							return $item['link']['href'];
 						}
@@ -464,6 +542,7 @@ class vB_RSS_Poster
 					}
 					break;
 
+					case 'content':
 					case 'content:encoded':
 					{
 						if (empty($item['content'][0]))
@@ -548,7 +627,15 @@ class vB_RSS_Poster
 				{
 					case 'link':
 					{
-						if (is_array($item['link']) AND isset($item['link']['href']))
+						if (empty($item['link']))
+						{
+							if (!empty($item['guid']))
+							{
+								return $item['guid']['value'];
+							}
+							return '';
+						}
+						else if (is_array($item['link']) AND isset($item['link']['href']))
 						{
 							return $item['link']['href'];
 						}
@@ -608,6 +695,7 @@ class vB_RSS_Poster
 					}
 					break;
 
+					case 'content':
 					case 'content:encoded':
 					{
 						return get_item_value($item['content:encoded']);
@@ -655,8 +743,7 @@ class vB_RSS_Poster
 
 /*======================================================================*\
 || ####################################################################
-|| # Downloaded: 16:21, Sat Apr 6th 2013
-|| # CVS: $RCSfile$ - $Revision: 26551 $
+|| # Downloaded: 14:57, Sun Aug 11th 2013
+|| # CVS: $RCSfile$ - $Revision: 63865 $
 || ####################################################################
 \*======================================================================*/
-?>

@@ -1,9 +1,9 @@
 <?php
 /*======================================================================*\
 || #################################################################### ||
-|| # vBulletin 3.7.2 Patch Level 2 - Licence Number VBF2470E4F
+|| # vBulletin 4.2.1 - Licence Number VBC2DDE4FB
 || # ---------------------------------------------------------------- # ||
-|| # Copyright ©2000-2013 Jelsoft Enterprises Ltd. All Rights Reserved. ||
+|| # Copyright ©2000-2013 vBulletin Solutions Inc. All Rights Reserved. ||
 || # This file may not be redistributed in whole or significant part. # ||
 || # ---------------- VBULLETIN IS NOT FREE SOFTWARE ---------------- # ||
 || # http://www.vbulletin.com | http://www.vbulletin.com/license.html # ||
@@ -22,7 +22,7 @@ define('CSRF_PROTECTION', true);
 $phrasegroups = array('fronthelp');
 
 // get special data templates from the datastore
-$specialtemplates = array();
+$specialtemplates = array('products');
 
 // pre-cache templates used by all actions
 $globaltemplates = array(
@@ -66,9 +66,9 @@ $navbits[''] = $vbphrase['faq'];
 if ($_REQUEST['do'] == 'search')
 {
 	$vbulletin->input->clean_array_gpc('r', array(
-		'q' => TYPE_STR,
-		'match' => TYPE_STR,
-		'titlesonly' => TYPE_BOOL
+		'q'            => TYPE_STR,
+		'match'        => TYPE_STR,
+		'titleandtext' => TYPE_BOOL
 	));
 
 	if ($vbulletin->GPC['q'] == '')
@@ -81,7 +81,7 @@ if ($_REQUEST['do'] == 'search')
 	$faqnames = array();		// array to store FAQ shortnames that match the search query
 	$find = array();			// array to store all find words
 
-	$phrasetypeSql = ($vbulletin->GPC['titlesonly']) ? "= 'faqtitle'" : "IN('faqtitle', 'faqtext')";
+	$phrasetypeSql = (!$vbulletin->GPC['titleandtext']) ? "= 'faqtitle'" : "IN('faqtitle', 'faqtext')";
 
 	// get a list of phrase ids to search in
 	$query = "
@@ -132,12 +132,24 @@ if ($_REQUEST['do'] == 'search')
 		$whereText[] = "text LIKE('%" . $db->escape_string_like($word) . "%')";
 	}
 
+	$activeproducts = array(
+		'', 'vbulletin'
+	);
+	foreach ($vbulletin->products AS $product => $active)
+	{
+		if ($active)
+		{
+			$activeproducts[] = $product;
+		}
+	}
+
 	if (!empty($whereText))
 	{
 		$phrases = $db->query_read_slave("
 			SELECT varname AS faqname, fieldname
 			FROM " . TABLE_PREFIX . "phrase AS phrase
 			WHERE phraseid IN(" . implode(', ', $phraseIds) . ")
+				AND product IN ('" . implode('\', \'', $activeproducts) . "')
 				AND (" . implode($matchSql, $whereText) . ")
 		");
 		if (!$db->num_rows($phrases))
@@ -239,7 +251,7 @@ if ($_REQUEST['do'] == 'main')
 		$navbits['faq.php' . $vbulletin->session->vars['sessionurl_q']] = $vbphrase['faq'];
 	}
 
-	cache_ordered_faq();
+	cache_ordered_faq(false, true);
 
 	// get bits for faq text cache
 	$faqtext = array();
@@ -289,24 +301,19 @@ if ($_REQUEST['do'] == 'main')
 // #############################################################################
 
 // parse search <select> options
-$titleselect = array();
-$matchselect = array();
+$checked = array();
 if ($_REQUEST['do'] == 'search')
 {
-	if ($vbulletin->GPC['titlesonly'])
+	if ($vbulletin->GPC['titleandtext'])
 	{
-		$titleselect[1] = 'selected="selected"';
+		$checked['titleandtext'] = 'checked="checked"';
 	}
-	else
-	{
-		$titleselect[0] = 'selected="selected"';
-	}
-	$matchselect["$match"] = 'selected="selected"';
+	$checked["$match"] = 'checked="checked"';
 }
 else
 {
-	$titleselect[0] = 'selected="selected"';
-	$matchselect['all'] = 'selected="selected"';
+	$checked['titleandtext'] = 'checked="checked"';
+	$checked['all'] = 'checked="checked"';
 }
 
 if ($_REQUEST['do'] != 'search' AND $_REQUEST['do'] != 'main')
@@ -317,13 +324,20 @@ if ($_REQUEST['do'] != 'search' AND $_REQUEST['do'] != 'main')
 ($hook = vBulletinHook::fetch_hook('faq_complete')) ? eval($hook) : false;
 
 $navbits = construct_navbits($navbits);
-eval('$navbar = "' . fetch_template('navbar') . '";');
-eval('print_output("' . fetch_template('FAQ') . '");');
+$navbar = render_navbar_template($navbits);
+$templater = vB_Template::create('FAQ');
+	$templater->register_page_templates();
+	$templater->register('faqbits', $faqbits);
+	$templater->register('faqtitle', $faqtitle);
+	$templater->register('navbar', $navbar);
+	$templater->register('q', $q);
+	$templater->register('checked', $checked);
+print_output($templater->render());
 
 /*======================================================================*\
 || ####################################################################
-|| # Downloaded: 16:21, Sat Apr 6th 2013
-|| # CVS: $RCSfile$ - $Revision: 26523 $
+|| # Downloaded: 14:57, Sun Aug 11th 2013
+|| # CVS: $RCSfile$ - $Revision: 32878 $
 || ####################################################################
 \*======================================================================*/
 ?>

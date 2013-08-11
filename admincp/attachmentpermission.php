@@ -1,9 +1,9 @@
 <?php
 /*======================================================================*\
 || #################################################################### ||
-|| # vBulletin 3.7.2 Patch Level 2 - Licence Number VBF2470E4F
+|| # vBulletin 4.2.1 - Licence Number VBC2DDE4FB
 || # ---------------------------------------------------------------- # ||
-|| # Copyright ©2000-2013 Jelsoft Enterprises Ltd. All Rights Reserved. ||
+|| # Copyright ©2000-2013 vBulletin Solutions Inc. All Rights Reserved. ||
 || # This file may not be redistributed in whole or significant part. # ||
 || # ---------------- VBULLETIN IS NOT FREE SOFTWARE ---------------- # ||
 || # http://www.vbulletin.com | http://www.vbulletin.com/license.html # ||
@@ -14,7 +14,7 @@
 error_reporting(E_ALL & ~E_NOTICE);
 
 // ##################### DEFINE IMPORTANT CONSTANTS #######################
-define('CVS_REVISION', '$RCSfile$ - $Revision: 15050 $');
+define('CVS_REVISION', '$RCSfile$ - $Revision: 32878 $');
 
 // #################### PRE-CACHE TEMPLATES AND DATA ######################
 $phrasegroups = array('cppermission', 'attachment_image');
@@ -100,7 +100,7 @@ if ($_REQUEST['do'] == 'edit')
 		$getperms = $db->query_first("
 			SELECT size, width, height
 			FROM " . TABLE_PREFIX . "attachmenttype
-			WHERE extension = '" . $vbulletin->GPC['extension'] . "'
+			WHERE extension = '" . $db->escape_string($vbulletin->GPC['extension']) . "'
 		");
 		$getperms['attachmentpermissions'] = 1;
 		$usergroup = $vbulletin->usergroupcache[$vbulletin->GPC['usergroupid']];
@@ -214,7 +214,7 @@ if ($_REQUEST['do'] == 'modify')
 
 	echo '<center><div class="tborder" style="width: 89%">';
 	echo '<div class="alt1" style="padding: 8px">';
-	echo '<div class="darkbg" style="padding: 4px; border: 2px inset; text-align: ' . $stylevar['left'] . '">';
+	echo '<div class="darkbg" style="padding: 4px; border: 2px inset; text-align: ' . vB_Template_Runtime::fetchStyleVar('left') . '">';
 
 	$ident = '   ';
 	echo "$indent<ul class=\"lsq\">\n";
@@ -265,7 +265,13 @@ if ($_REQUEST['do'] == 'quickset')
 
 	verify_cp_sessionhash();
 
-	if (!$vbulletin->GPC['extension'])
+	$attachment_type = $db->query_first("
+		SELECT *
+		FROM " . TABLE_PREFIX . "attachmenttype
+		WHERE extension = '" . $db->escape_string($vbulletin->GPC['extension']) . "'
+	");
+
+	if (!$attachment_type)
 	{
 		print_stop_message('invalid_extension_specified');
 	}
@@ -273,7 +279,7 @@ if ($_REQUEST['do'] == 'quickset')
 	switch ($vbulletin->GPC['type'])
 	{
 		case 'reset':
-			$db->query_write("DELETE FROM " . TABLE_PREFIX . "attachmentpermission WHERE extension = '" . $vbulletin->GPC['extension'] . "'");
+			$db->query_write("DELETE FROM " . TABLE_PREFIX . "attachmentpermission WHERE extension = '" . $db->escape_string($vbulletin->GPC['extension']) . "'");
 			break;
 
 		case 'deny':
@@ -281,7 +287,10 @@ if ($_REQUEST['do'] == 'quickset')
 			$insert = array();
 			while ($group = $db->fetch_array($groups))
 			{
-				$insert[] = "'" . $db->escape_string($vbulletin->GPC['extension']) . "', $group[usergroupid], 0";
+				$insert[] = "
+					('" . $db->escape_string($vbulletin->GPC['extension']) . "', $group[usergroupid],
+					$attachment_type[size], $attachment_type[width], $attachment_type[height], 0)
+				";
 			}
 
 			if (!empty($insert))
@@ -289,11 +298,9 @@ if ($_REQUEST['do'] == 'quickset')
 				/*insert query*/
 				$db->query_write("
 					REPLACE INTO " . TABLE_PREFIX . "attachmentpermission
-					(
-						extension, usergroupid,	attachmentpermissions
-					)
+						(extension, usergroupid, size, width, height, attachmentpermissions)
 					VALUES
-					(" . implode('), (', $insert) . ")
+						" . implode(',', $insert) . "
 				");
 			}
 			break;
@@ -312,8 +319,8 @@ print_cp_footer();
 
 /*======================================================================*\
 || ####################################################################
-|| # Downloaded: 16:21, Sat Apr 6th 2013
-|| # CVS: $RCSfile$ - $Revision: 15050 $
+|| # Downloaded: 14:57, Sun Aug 11th 2013
+|| # CVS: $RCSfile$ - $Revision: 32878 $
 || ####################################################################
 \*======================================================================*/
 ?>

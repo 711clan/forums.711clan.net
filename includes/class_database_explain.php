@@ -1,16 +1,16 @@
 <?php
 /*======================================================================*\
 || #################################################################### ||
-|| # vBulletin 3.7.2 Patch Level 2 - Licence Number VBF2470E4F
+|| # vBulletin 4.2.1 - Licence Number VBC2DDE4FB
 || # ---------------------------------------------------------------- # ||
-|| # Copyright ©2000-2013 Jelsoft Enterprises Ltd. All Rights Reserved. ||
+|| # Copyright ©2000-2013 vBulletin Solutions Inc. All Rights Reserved. ||
 || # This file may not be redistributed in whole or significant part. # ||
 || # ---------------- VBULLETIN IS NOT FREE SOFTWARE ---------------- # ||
 || # http://www.vbulletin.com | http://www.vbulletin.com/license.html # ||
 || #################################################################### ||
 \*======================================================================*/
 
-if (!class_exists('vB_Database'))
+if (!class_exists('vB_Database', false))
 {
 	exit;
 }
@@ -70,7 +70,7 @@ class vB_Database_Explain extends vB_Database
 
 	function &execute_query($buffered = true, &$link)
 	{
-		if ($link == $this->connection_slave AND preg_match('#(^|\s)SELECT\s#s', $this->sql))
+		if ($link == $this->connection_slave AND preg_match('#^\s*SELECT\s#s', $this->sql))
 		{
 			$this->explain_query();
 		}
@@ -125,7 +125,7 @@ class vB_Database_Explain extends vB_Database
 	{
 		$time_after = microtime();
 
-		$pagestart = explode(' ', TIMESTART); $pagestart = $pagestart[0] + $pagestart[1];
+		$pagestart = TIMESTART;
 
 		$time_before = explode(' ', array_pop($this->time_before));
 		$time_before = $time_before[0] + $time_before[1] - $pagestart;
@@ -287,7 +287,7 @@ class vB_Database_MySQLi_Explain extends vB_Database_MySQLi
 	{
 		$time_after = microtime();
 
-		$pagestart = explode(' ', TIMESTART); $pagestart = $pagestart[0] + $pagestart[1];
+		$pagestart = TIMESTART;
 
 		$time_before = explode(' ', array_pop($this->time_before));
 		$time_before = $time_before[0] + $time_before[1] - $pagestart;
@@ -342,8 +342,8 @@ class vB_Database_MySQLi_Explain extends vB_Database_MySQLi
 
 /*======================================================================*\
 || ####################################################################
-|| # Downloaded: 16:21, Sat Apr 6th 2013
-|| # CVS: $RCSfile$ - $Revision: 24797 $
+|| # Downloaded: 14:57, Sun Aug 11th 2013
+|| # CVS: $RCSfile$ - $Revision: 33560 $
 || ####################################################################
 \*======================================================================*/
 ?>

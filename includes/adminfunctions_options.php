@@ -1,9 +1,9 @@
 <?php
 /*======================================================================*\
 || #################################################################### ||
-|| # vBulletin 3.7.2 Patch Level 2 - Licence Number VBF2470E4F
+|| # vBulletin 4.2.1 - Licence Number VBC2DDE4FB
 || # ---------------------------------------------------------------- # ||
-|| # Copyright ©2000-2013 Jelsoft Enterprises Ltd. All Rights Reserved. ||
+|| # Copyright ©2000-2013 vBulletin Solutions Inc. All Rights Reserved. ||
 || # This file may not be redistributed in whole or significant part. # ||
 || # ---------------- VBULLETIN IS NOT FREE SOFTWARE ---------------- # ||
 || # http://www.vbulletin.com | http://www.vbulletin.com/license.html # ||
@@ -20,7 +20,7 @@ error_reporting(E_ALL & ~E_NOTICE);
 */
 function print_setting_group($dogroup, $advanced = 0)
 {
-	global $settingscache, $grouptitlecache, $vbulletin, $vbphrase, $bgcounter, $settingphrase, $stylevar;
+	global $settingscache, $grouptitlecache, $vbulletin, $vbphrase, $bgcounter, $settingphrase;
 
 	if (!is_array($settingscache["$dogroup"]))
 	{
@@ -61,15 +61,16 @@ function print_setting_group($dogroup, $advanced = 0)
 * @param	array	Settings array
 * @param	array	Phrases
 */
-function print_setting_row($setting, $settingphrase)
+function print_setting_row($setting, $settingphrase, $option_config = true)
 {
-	global $vbulletin, $vbphrase, $bgcounter, $settingphrase, $stylevar;
+	global $vbulletin, $vbphrase, $bgcounter, $settingphrase;
 
 	$settingid = $setting['varname'];
 
 	echo '<tbody>';
+
 	print_description_row(
-		iif($vbulletin->debug, '<div class="smallfont" style="float:' . $stylevar['right'] . '">' . construct_link_code($vbphrase['edit'], "options.php?" . $vbulletin->session->vars['sessionurl'] . "do=editsetting&amp;varname=$setting[varname]") . construct_link_code($vbphrase['delete'], "options.php?" . $vbulletin->session->vars['sessionurl'] . "do=removesetting&amp;varname=$setting[varname]") . '</div>') .
+		iif(($vbulletin->debug AND $option_config), '<div class="smallfont" style="float:' . vB_Template_Runtime::fetchStyleVar('right') . '">' . construct_link_code($vbphrase['edit'], "options.php?" . $vbulletin->session->vars['sessionurl'] . "do=editsetting&amp;varname=$setting[varname]") . construct_link_code($vbphrase['delete'], "options.php?" . $vbulletin->session->vars['sessionurl'] . "do=removesetting&amp;varname=$setting[varname]") . '</div>') .
 		'<div>' . $settingphrase["setting_$setting[varname]_title"] . "<a name=\"$setting[varname]\"></a></div>",
 		0, 2, 'optiontitle' . ($vbulletin->debug ? "\" title=\"\$vbulletin->options['" . $setting['varname'] . "']" : '')
 	);
@@ -103,7 +104,7 @@ function print_setting_row($setting, $settingphrase)
 		$setting['optioncode'] = 'bitfield';
 		$setting['bitfield'] =& fetch_bitfield_definitions($matches[1]);
 	}
-	else if (preg_match('#^(select|radio):(piped|eval)(\r\n|\n|\r)(.*)$#siU', $setting['optioncode'], $matches))
+	else if (preg_match('#^(select|selectmulti|radio):(piped|eval)(\r\n|\n|\r)(.*)$#siU', $setting['optioncode'], $matches))
 	{
 		$setting['optioncode'] = "$matches[1]:$matches[2]";
 		$setting['optiondata'] = trim($matches[4]);
@@ -117,6 +118,19 @@ function print_setting_row($setting, $settingphrase)
 	{
 		$setting['optioncode'] = 'usergroupextra';
 		$setting['optiondata'] = trim($matches[3]);
+	}
+	else if (preg_match('#^profilefield:?([a-z0-9,;=]*)(?:\r\n|\n|\r)(.*)$#siU', $setting['optioncode'], $matches))
+	{
+		$setting['optioncode'] = 'profilefield';
+		$setting['optiondata'] = array(
+			'constraints'  => trim($matches[1]),
+			'extraoptions' => trim($matches[2]),
+		);
+	}
+	else if (preg_match('#^apipostidmanage(?:\r\n|\n|\r)(.*)$#siU', $setting['optioncode'], $matches))
+	{
+		$setting['optioncode'] = 'apipostidmanage';
+		$setting['optiondata'] = preg_split("#(\r\n|\n|\r)#s", $matches[1], -1, PREG_SPLIT_NO_EMPTY);
 	}
 
 	switch ($setting['optioncode'])
@@ -160,7 +174,7 @@ function print_setting_row($setting, $settingphrase)
 				foreach ($setting['bitfield'] AS $key => $value)
 				{
 					$value = intval($value);
-					$setting['html'] .= "<table style=\"width:175px; float:$stylevar[left]\" cellpadding=\"0\" cellspacing=\"0\" border=\"0\"><tr valign=\"top\">
+					$setting['html'] .= "<table style=\"width:175px; float:" . vB_Template_Runtime::fetchStyleVar('left') . "\" cellpadding=\"0\" cellspacing=\"0\" border=\"0\"><tr valign=\"top\">
 					<td><input type=\"checkbox\" name=\"setting[$setting[varname]][$value]\" id=\"setting[$setting[varname]]_$key\" value=\"$value\"" . (($setting['value'] & $value) ? ' checked="checked"' : '') . " /></td>
 					<td width=\"100%\" style=\"padding-top:4px\"><label for=\"setting[$setting[varname]]_$key\" class=\"smallfont\">" . fetch_phrase_from_key($key) . "</label></td>\r\n</tr></table>\r\n";
 				}
@@ -196,6 +210,24 @@ function print_setting_row($setting, $settingphrase)
 			if (is_array($options) AND !empty($options))
 			{
 				print_select_row($description, $name, $options, $setting['value']);
+			}
+			else
+			{
+				print_input_row($description, $name, $setting['value']);
+			}
+		}
+		break;
+
+		// select:eval
+		case 'selectmulti:eval':
+		{
+			$options = null;
+
+			eval($setting['optiondata']);
+
+			if (is_array($options) AND !empty($options))
+			{
+				print_select_row($description, $name . '[]', $options, $setting['value'], false, 5, true);
 			}
 			else
 			{
@@ -266,6 +298,56 @@ function print_setting_row($setting, $settingphrase)
 			break;
 		}
 
+		case 'profilefield':
+		{
+			static $profilefieldlistcache = array();
+			$profilefieldlisthash = md5(serialize($setting['optiondata']));
+
+			if (!isset($profilefieldlistcache[$profilefieldlisthash]))
+			{
+				$profilefieldlist = fetch_piped_options($setting['optiondata']['extraoptions']);
+
+				$constraints = preg_split('#;#', $setting['optiondata']['constraints'], -1, PREG_SPLIT_NO_EMPTY);
+				$where = array();
+				foreach ($constraints AS $constraint)
+				{
+					$constraint = explode('=', $constraint);
+					switch ($constraint[0])
+					{
+						case 'editablegt':
+							$where[] = 'editable > ' . intval($constraint[1]);
+							break;
+						case 'types':
+							$constraint[1] = preg_split('#,#', $constraint[1], -1, PREG_SPLIT_NO_EMPTY);
+							if (!empty($constraint[1]))
+							{
+								$where[] = "type IN('" . implode("', '", array_map(array($vbulletin->db, 'escape_string'), $constraint[1])) . "')";
+							}
+							break;
+					}
+				}
+
+				$profilefields = $vbulletin->db->query_read_slave("
+					SELECT *
+					FROM " . TABLE_PREFIX . "profilefield
+					" . (!empty($where) ? 'WHERE ' . implode(' AND ', $where) : '') . "
+					ORDER BY displayorder
+				");
+
+				while ($profilefield = $vbulletin->db->fetch_array($profilefields))
+				{
+					$fieldname = "field$profilefield[profilefieldid]";
+					$profilefieldlist[$fieldname] = construct_phrase($vbphrase['profilefield_x_fieldid_y'], fetch_phrase_from_key("{$fieldname}_title"), $fieldname);
+				}
+
+				$profilefieldlistcache[$profilefieldlisthash] = $profilefieldlist;
+				unset($profilefieldlist, $constraints, $constraint, $where, $profilefields, $profilefield, $fieldname);
+			}
+
+			print_select_row($description, $name, $profilefieldlistcache[$profilefieldlisthash], $setting['value']);
+			break;
+		}
+
 		// arbitrary number of <input type="text" />
 		case 'multiinput':
 		{
@@ -300,6 +382,35 @@ function print_setting_row($setting, $settingphrase)
 			break;
 		}
 
+		// activity stream options
+		case 'activitystream':
+		{
+			$options = array();
+			$activities = $vbulletin->db->query_read("
+				SELECT
+					typeid, section, type, enabled
+				FROM " . TABLE_PREFIX . "activitystreamtype AS a
+				INNER JOIN " . TABLE_PREFIX . "package AS p ON (p.packageid = a.packageid)
+				ORDER BY section, type
+			");
+			while ($activity = $vbulletin->db->fetch_array($activities))
+			{
+				$options["{$activity['section']}_{$activity['type']}"] = $activity;
+			}
+
+			$setting['html'] = '';
+			$setting['html'] .= "<div id=\"ctrl_setting[$setting[varname]]\" class=\"smallfont\">\r\n";
+			$setting['html'] .= "<input type=\"hidden\" name=\"setting[$setting[varname]][0]\" value=\"0\" />\r\n";
+			foreach ($options AS $key => $activity)
+			{
+				$setting['html'] .= "<table style=\"width:175px; float:" . vB_Template_Runtime::fetchStyleVar('left') . "\" cellpadding=\"0\" cellspacing=\"0\" border=\"0\"><tr valign=\"top\">
+				<td><input type=\"checkbox\" name=\"setting[$setting[varname]][$activity[typeid]]\" id=\"setting[$setting[varname]]_$key\" value=\"1\"" . ($activity['enabled'] ? ' checked="checked"' : '') . " /></td>
+				<td width=\"100%\" style=\"padding-top:4px\"><label for=\"setting[$setting[varname]]_$key\" class=\"smallfont\">" . fetch_phrase_from_key($key) . "</label></td>\r\n</tr></table>\r\n";
+			}
+			print_label_row($description, $setting['html'], '', 'top', $name, 40);
+		}
+		break;
+
 		// default registration options
 		case 'defaultregoptions':
 		{
@@ -329,7 +440,7 @@ function print_setting_row($setting, $settingphrase)
 			{
 				$value = $vbulletin->bf_misc_regoptions["$key"];
 
-				$setting['html'] .= "<table style=\"width:175px; float:$stylevar[left]\" cellpadding=\"0\" cellspacing=\"0\" border=\"0\"><tr valign=\"top\">
+				$setting['html'] .= "<table style=\"width:175px; float:" . vB_Template_Runtime::fetchStyleVar('left') . "\" cellpadding=\"0\" cellspacing=\"0\" border=\"0\"><tr valign=\"top\">
 				<td><input type=\"checkbox\" name=\"setting[$setting[varname]][$value]\" id=\"setting[$setting[varname]]_$key\" value=\"$value\"" . (($setting['value'] & $value) ? ' checked="checked"' : '') . " /></td>
 				<td width=\"100%\" style=\"padding-top:4px\"><label for=\"setting[$setting[varname]]_$key\" class=\"smallfont\">" . fetch_phrase_from_key($phrase) . "</label></td>\r\n</tr></table>\r\n";
 			}
@@ -349,6 +460,46 @@ function print_setting_row($setting, $settingphrase)
 			{
 				print_input_row($description, $name, $setting['value'], 1, 40);
 			}
+		}
+		break;
+
+		case 'apipostidmanage':
+		{
+			$setting['html'] = "<div id=\"ctrl_apipostidmanage\"><fieldset id=\"multi_input_fieldset_apipostidmanage}\" style=\"padding:4px\">";
+
+			$setting['values'] = unserialize($setting['value']);
+			$setting['values'] = (is_array($setting['values']) ? $setting['values'] : array());
+
+			$setting['html'] .= "
+				<div style=\"padding:4px\">
+					<span style=\"display:block\">{$vbphrase['apipostidmanage_enable']}</span>
+					<label for=\"multi_input_apipostidmanage_enable1\" />
+						<input type=\"radio\"" . ($setting['values']['enable'] ? ' checked="checked" ' : '') . "class=\"bginput\" name=\"setting[apipostidmanage][enable]\" id=\"multi_input_apipostidmanage_enable1\"  value=\"1\" tabindex=\"1\" />
+						$vbphrase[yes]
+					</label>
+					<label for=\"multi_input_{$setting['varname']}_enable2\" />
+						<input type=\"radio\"" . (!$setting['values']['enable'] ? ' checked="checked" ' : '') . "class=\"bginput\" name=\"setting[apipostidmanage][enable]\" id=\"multi_input_apipostidmanage_enable2\"  value=\"0\" tabindex=\"1\" />
+						$vbphrase[no]
+					</label>
+				</div>";
+
+			foreach ($setting['optiondata'] AS $device)
+			{
+				if (!$vbphrase['apipostidmanage_' . $device])
+				{
+					continue;
+				}
+
+				$setting['html'] .= "<div style=\"padding:4px\">
+					<span style=\"display:block\">" . $vbphrase['apipostidmanage_' . $device] . "</span>
+					<input type=\"text\" class=\"bginput\" name=\"setting[apipostidmanage][{$device}]\" id=\"multi_input_apipostidmanage_{$device}\" size=\"50\" value=\"" . htmlspecialchars_uni($setting['values'][$device]) . "\" tabindex=\"1\" />
+				</div>";
+			}
+
+			$setting['html'] .= "</fieldset></div>";
+
+			print_label_row($description, $setting['html'], '', 'top', 'apipostidmanage');
+			break;
 		}
 		break;
 
@@ -387,6 +538,54 @@ function print_setting_row($setting, $settingphrase)
 		}
 		break;
 
+		case 'facebooksslcheck':
+		{
+			require_once(DIR . '/includes/class_vurl.php');
+			$vurl = new vB_vURL($vbulletin);
+			$result = $vurl->test_ssl();
+
+			print_label_row($description, $result ? $vbphrase['supported'] : $vbphrase['not_supported']);
+		}
+		break;
+
+		case 'usergroups:none':
+		{
+			$array = build_usergroup_list($vbphrase['none'], 0);
+			$size = sizeof($array);
+
+			print_select_row($description, $name.'[]', $array, unserialize($setting['value']), false, ($size > 10 ? 10 : $size), true);
+		}
+		break;
+
+		case 'usergroups:all':
+		{
+			$array = build_usergroup_list($vbphrase['all'], -1);
+			$size = sizeof($array);
+
+			print_select_row($description, $name.'[]', $array, unserialize($setting['value']), false, ($size > 10 ? 10 : $size), true);
+		}
+		break;
+
+		case 'forums:all':
+		{
+			$array = construct_forum_chooser_options(-1,$vbphrase['all']);
+			$size = sizeof($array);
+
+			$vbphrase[forum_is_closed_for_posting] = $vbphrase[closed];
+			print_select_row($description, $name.'[]', $array, unserialize($setting['value']), false, ($size > 10 ? 10 : $size), true);
+		}
+		break;
+
+		case 'forums:none':
+		{
+			$array = construct_forum_chooser_options(0,$vbphrase['none']);
+			$size = sizeof($array);
+
+			$vbphrase[forum_is_closed_for_posting] = $vbphrase[closed];
+			print_select_row($description, $name.'[]', $array, unserialize($setting['value']), false, ($size > 10 ? 10 : $size), true);
+		}
+		break;
+
 		// just a label
 		default:
 		{
@@ -409,6 +608,32 @@ function print_setting_row($setting, $settingphrase)
 }
 
 /**
+* Returns a list of usergroups for selection
+*
+* @param	string	The text for option 0.
+*/
+function build_usergroup_list($option = '', $value = 0)
+{
+	global $vbulletin;
+
+	if ($option)
+	{
+		$usergrouplist = array($value => $option);
+	}
+	else
+	{
+		$usergrouplist = array();
+	}
+
+	foreach ($vbulletin->usergroupcache AS $usergroup)
+	{
+		$usergrouplist["$usergroup[usergroupid]"] = $usergroup['title'];
+	}
+
+	return $usergrouplist;
+}
+
+/**
 * Updates the setting table based on data passed in then rebuilds the datastore.
 * Only entries in the array are updated (allows partial updates).
 *
@@ -416,7 +641,7 @@ function print_setting_row($setting, $settingphrase)
 */
 function save_settings($settings)
 {
-	global $vbulletin, $vbphrase, $stylevar;
+	global $vbulletin, $vbphrase;
 
 	$varnames = array();
 	foreach(array_keys($settings) AS $varname)
@@ -424,6 +649,7 @@ function save_settings($settings)
 		$varnames[] = $vbulletin->db->escape_string($varname);
 	}
 
+	$rebuildstyle = false;
 	$oldsettings = $vbulletin->db->query_read("
 		SELECT value, varname, datatype, optioncode
 		FROM " . TABLE_PREFIX . "setting
@@ -449,6 +675,22 @@ function save_settings($settings)
 					SET userselect = 1
 					WHERE styleid = " . $settings['styleid'] . "
 				");
+			}
+			break;
+
+			case 'as_content':
+			{
+				$vbulletin->db->query_write("
+					UPDATE " . TABLE_PREFIX . "activitystreamtype
+					SET enabled = 0;
+				");
+				$vbulletin->db->query_write("
+					UPDATE " . TABLE_PREFIX . "activitystreamtype
+					SET enabled = 1
+					WHERE typeid IN (" . implode(",", array_keys($vbulletin->GPC['setting']['as_content'])) . ")
+				");
+				build_activitystream_datastore();
+				$settings['as_content'] = '';
 			}
 			break;
 
@@ -484,6 +726,18 @@ function save_settings($settings)
 			}
 			break;
 
+			case 'apipostidmanage':
+			{
+				$store = array(
+					'enable'  => $settings['apipostidmanage']['enable'],
+					'iphone'  => $settings['apipostidmanage']['iphone'],
+					'android' => $settings['apipostidmanage']['android'],
+					'facebook'=> $settings['apipostidmanage']['facebook'],
+				);
+				$settings["$oldsetting[varname]"] = serialize($store);
+			}
+			break;
+
 			// **************************************************
 			default:
 			{
@@ -501,7 +755,7 @@ function save_settings($settings)
 					}
 					$settings["$oldsetting[varname]"] = serialize($store);
 				}
-				else if (preg_match('#^usergroup:[0-9]+$#', $oldsetting['optioncode']))
+				else if (preg_match('#^(usergroup|forum)s?:([0-9]+|all|none)$#', $oldsetting['optioncode']))
 				{
 					// serialize the array of usergroup inputs
 					if (!is_array($settings["$oldsetting[varname]"]))
@@ -526,6 +780,8 @@ function save_settings($settings)
 				case 'activememberoptions':
 					if ($oldsetting['value'] != $newvalue)
 					{
+						$vbulletin->options["$oldsetting[varname]"] = $newvalue;
+
 						require_once(DIR . '/includes/functions_databuild.php');
 						build_birthdays();
 					}
@@ -535,6 +791,8 @@ function save_settings($settings)
 				case 'showholidays':
 					if ($oldsetting['value'] != $newvalue)
 					{
+						$vbulletin->options["$oldsetting[varname]"] = $newvalue;
+
 						require_once(DIR . '/includes/functions_calendar.php');
 						build_events();
 					}
@@ -561,13 +819,21 @@ function save_settings($settings)
 				}
 				break;
 
+				case 'smcolumns':
+				case 'attachthumbssize':
+				{
+					if ($oldsetting['value'] != $newvalue)
+					{
+						$rebuildstyle = true;
+					}
+				}
+
 				case 'storecssasfile':
 				{
 					if (!is_demo_mode() AND $oldsetting['value'] != $newvalue)
 					{
 						$vbulletin->options['storecssasfile'] = $newvalue;
-						require_once(DIR . '/includes/adminfunctions_template.php');
-						print_rebuild_style(-1, '', 1, 0, 0, 0);
+						$rebuildstyle = true;
 					}
 				}
 				break;
@@ -578,7 +844,7 @@ function save_settings($settings)
 				}
 				break;
 
-				case 'view_tagcloud_as_usergroup':
+				case 'tagcloud_usergroup':
 				{
 					build_datastore('tagcloud', serialize(''), 1);
 				}
@@ -586,11 +852,13 @@ function save_settings($settings)
 
 				case 'censorwords':
 				case 'codemaxlines':
+				case 'url_nofollow':
+				case 'url_nofollow_whitelist':
 				{
 					if ($oldsetting['value'] != $newvalue)
 					{
 						$vbulletin->db->query_write("TRUNCATE TABLE " . TABLE_PREFIX . "postparsed");
-						if ($vbulletin->options['templateversion'] >= '3.6')
+						if (is_newer_version($vbulletin->options['templateversion'], '3.6',true))
 						{
 							$vbulletin->db->query_write("TRUNCATE TABLE " . TABLE_PREFIX . "sigparsed");
 						}
@@ -600,6 +868,14 @@ function save_settings($settings)
 				}
 				break;
 
+				case 'album_recentalbumdays':
+				{
+					if ($oldsetting['value'] > $newvalue)
+					{
+						require_once(DIR . '/includes/functions_album.php');
+						exec_rebuild_album_updates();
+					}
+				}
 				default:
 				{
 					($hook = vBulletinHook::fetch_hook('admin_options_processing_build')) ? eval($hook) : false;
@@ -619,6 +895,13 @@ function save_settings($settings)
 		}
 	}
 	build_options();
+
+	if ($rebuildstyle)
+	{
+		require_once(DIR . '/includes/adminfunctions_template.php');
+		print_rebuild_style(-1, '', 1, 0, 0, 0);
+		print_rebuild_style(-2, '', 1, 0, 0, 0);
+	}
 }
 
 /**
@@ -684,6 +967,24 @@ function validate_setting_value(&$value, $datatype, $bool_as_int = true, $userna
 			$value = intval($value);
 			break;
 
+		case 'arrayinteger':
+			$key = array_keys($value);
+			$size = sizeOf($key);
+			for ($i = 0; $i < $size; $i++)
+			{
+				$value[$key[$i]] = intval($value[$key[$i]]);
+			}
+			break;
+
+		case 'arrayfree':
+			$key = array_keys($value);
+			$size = sizeOf($key);
+			for ($i = 0; $i < $size; $i++)
+			{
+				$value[$key[$i]] = trim($value[$key[$i]]);
+			}
+			break;
+
 		case 'posint':
 			$value = max(1, intval($value));
 			break;
@@ -716,7 +1017,7 @@ function validate_setting_value(&$value, $datatype, $bool_as_int = true, $userna
 				{
 					$value =  0;
 				}
-				else if ($userinfo = $vbulletin->db->query_first("SELECT userid FROM " . TABLE_PREFIX . "user WHERE username = '" . $vbulletin->db->escape_string(htmlspecialchars($value)) . "'"))
+				else if ($userinfo = $vbulletin->db->query_first("SELECT userid FROM " . TABLE_PREFIX . "user WHERE username = '" . $vbulletin->db->escape_string(htmlspecialchars_uni($value)) . "'"))
 				{
 					$value = $userinfo['userid'];
 				}
@@ -779,6 +1080,97 @@ function fetch_valid_cookiepaths($script)
 	}
 
 	return $cookiepaths;
+}
+
+
+function get_settings_export_xml($product)
+{
+	global $vbulletin;
+	$setting = array();
+	$settinggroup = array();
+
+	$groups = $vbulletin->db->query_read("
+		SELECT * FROM " . TABLE_PREFIX . "settinggroup
+		WHERE volatile = 1
+		ORDER BY displayorder, grouptitle
+	");
+	while ($group = $vbulletin->db->fetch_array($groups))
+	{
+		$settinggroup["$group[grouptitle]"] = $group;
+	}
+
+	$sets = $vbulletin->db->query_read("
+		SELECT * FROM " . TABLE_PREFIX . "setting
+		WHERE volatile = 1
+		AND (product = '" . $vbulletin->db->escape_string($product) . "'" .
+			iif($product == 'vbulletin', " OR product = ''") . ")
+		ORDER BY displayorder, varname
+	");
+	while ($set = $vbulletin->db->fetch_array($sets))
+	{
+		$setting["$set[grouptitle]"][] = $set;
+	}
+	unset($set);
+	$vbulletin->db->free_result($sets);
+
+	require_once(DIR . '/includes/class_xml.php');
+	$xml = new vB_XML_Builder($vbulletin);
+	$xml->add_group('settinggroups', array('product' => $product));
+
+	foreach($settinggroup AS $grouptitle => $group)
+	{
+		if (!empty($setting["$grouptitle"]))
+		{
+			$group = $settinggroup["$grouptitle"];
+			$xml->add_group('settinggroup',
+				array(
+					'name' => htmlspecialchars($group['grouptitle']),
+					'displayorder' => $group['displayorder'],
+					'product' => $group['product']
+				)
+			);
+			foreach($setting["$grouptitle"] AS $set)
+			{
+				$arr = array('varname' => $set['varname'], 'displayorder' => $set['displayorder']);
+				if ($set['advanced'])
+				{
+					$arr['advanced'] = 1;
+				}
+
+				$xml->add_group('setting', $arr);
+				if ($set['datatype'])
+				{
+					$xml->add_tag('datatype', $set['datatype']);
+				}
+				if ($set['optioncode'] != '')
+				{
+					$xml->add_tag('optioncode', $set['optioncode']);
+				}
+				if ($set['validationcode'])
+				{
+					$xml->add_tag('validationcode', $set['validationcode']);
+				}
+				if ($set['defaultvalue'] != '')
+				{
+					$xml->add_tag('defaultvalue', iif($set['varname'] == 'templateversion', $vbulletin->options['templateversion'], $set['defaultvalue']));
+				}
+				if ($set['blacklist'])
+				{
+					$xml->add_tag('blacklist', 1);
+				}
+				$xml->close_group();
+			}
+			$xml->close_group();
+		}
+	}
+
+	$xml->close_group();
+
+	$doc = "<?xml version=\"1.0\" encoding=\"ISO-8859-1\"?>\r\n\r\n";
+
+	$doc .= $xml->output();
+	$xml = null;
+	return $doc;
 }
 
 /**
@@ -881,7 +1273,7 @@ function xml_import_settings($xml = false)
 		// run settings insert query
 		/*insert query*/
 		$vbulletin->db->query_write("
-			INSERT INTO " . TABLE_PREFIX . "setting
+			INSERT IGNORE INTO " . TABLE_PREFIX . "setting
 			(varname, grouptitle, value, defaultvalue, datatype, optioncode, displayorder,
 			advanced, volatile" . (!defined('UPGRADE_COMPAT') ? ', validationcode, blacklist, product' : '') . ")
 			VALUES
@@ -969,23 +1361,38 @@ function xml_restore_settings($xml = false, $blacklist = true)
 *
 * @param	string	Prefix for titles
 * @param	boolean	Display top level style?
+* @param	string	'both', display both master styles, 'standard', the standard styles, 'mobile', the mobile styles
 *
 * @return	array
 */
-function fetch_style_title_options_array($titleprefix = '', $displaytop = false)
+function fetch_style_title_options_array($titleprefix = '', $displaytop = false, $type = 'both')
 {
 	require_once(DIR . '/includes/adminfunctions_template.php');
-	global $stylecache;
+	global $stylecache, $vbphrase;
 
 	cache_styles();
-	$out = array();
+	$styles = array();
 
 	foreach($stylecache AS $style)
 	{
-		$out["$style[styleid]"] = $titleprefix . construct_depth_mark($style['depth'], '--', iif($displaytop, '--', '')) . " $style[title]";
+		$styles[$style['type']]["$style[styleid]"] = $titleprefix . construct_depth_mark($style['depth'], '--', iif($displaytop, '--', '')) . " $style[title]";
 	}
 
-	return $out;
+	if ($type == 'both')
+	{
+		$out = array(
+			$vbphrase['standard_styles'] => $styles['standard'],
+			$vbphrase['mobile_styles']   => $styles['mobile'],
+		);
+		return $out;
+	}
+	else
+	{
+		$out = array(
+			$vbphrase[$type . '_styles'] => $styles[$type],
+		);
+		return $out;
+	}
 }
 
 /**
@@ -1104,8 +1511,7 @@ function fetch_piped_options($piped_data)
 
 /*======================================================================*\
 || ####################################################################
-|| # Downloaded: 16:21, Sat Apr 6th 2013
-|| # CVS: $RCSfile$ - $Revision: 26800 $
+|| # Downloaded: 14:57, Sun Aug 11th 2013
+|| # CVS: $RCSfile$ - $Revision: 63231 $
 || ####################################################################
 \*======================================================================*/
-?>

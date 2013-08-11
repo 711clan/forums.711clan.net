@@ -1,9 +1,9 @@
 <?php
 /*======================================================================*\
 || #################################################################### ||
-|| # vBulletin 3.7.2 Patch Level 2 - Licence Number VBF2470E4F
+|| # vBulletin 4.2.1 - Licence Number VBC2DDE4FB
 || # ---------------------------------------------------------------- # ||
-|| # Copyright ©2000-2013 Jelsoft Enterprises Ltd. All Rights Reserved. ||
+|| # Copyright ©2000-2013 vBulletin Solutions Inc. All Rights Reserved. ||
 || # This file may not be redistributed in whole or significant part. # ||
 || # ---------------- VBULLETIN IS NOT FREE SOFTWARE ---------------- # ||
 || # http://www.vbulletin.com | http://www.vbulletin.com/license.html # ||
@@ -14,7 +14,7 @@
 error_reporting(E_ALL & ~E_NOTICE);
 
 // ##################### DEFINE IMPORTANT CONSTANTS #######################
-define('CVS_REVISION', '$RCSfile$ - $Revision: 24797 $');
+define('CVS_REVISION', '$RCSfile$ - $Revision: 53302 $');
 
 // #################### PRE-CACHE TEMPLATES AND DATA ######################
 $phrasegroups = array();
@@ -35,12 +35,14 @@ $vbulletin->input->clean_array_gpc('r', array(
 $vbulletin->GPC['name'] = preg_replace('#[^a-z0-9_-]#', '', $vbulletin->GPC['name']);
 
 ?><!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Transitional//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-transitional.dtd">
-<html xmlns="http://www.w3.org/1999/xhtml" dir="<?php echo $stylevar['textdirection']; ?>" lang="<?php echo $stylevar['languagecode']; ?>">
+<html xmlns="http://www.w3.org/1999/xhtml" dir="<?php echo vB_Template_Runtime::fetchStyleVar('textdirection'); ?>" lang="<?php echo vB_Template_Runtime::fetchStyleVar('languagecode'); ?>">
 <head>
 	<title><?php echo $vbulletin->options['bbtitle'] . " - vBulletin $vbphrase[control_panel]"; ?></title>
-	<meta http-equiv="Content-Type" content="text/html; charset=<?php echo $stylevar['charset']; ?>" />
+	<meta http-equiv="Content-Type" content="text/html; charset=<?php echo vB_Template_Runtime::fetchStyleVar('charset'); ?>" />
 	<link rel="stylesheet" type="text/css" href="../cpstyles/<?php echo $vbulletin->options['cpstylefolder']; ?>/controlpanel.css" />
-	<script type="text/javascript" src="../clientscript/vbulletin_global.js"></script>
+	<script type="text/javascript" src="../clientscript/yui/yahoo-dom-event/yahoo-dom-event.js?v=<?php echo SIMPLE_VERSION; ?>"></script>
+	<script type="text/javascript" src="../clientscript/yui/connection/connection-min.js?v=<?php echo SIMPLE_VERSION; ?>"></script>
+	<script type="text/javascript" src="../clientscript/vbulletin-core.js?v=<?php echo SIMPLE_VERSION; ?>"></script>
 	<script type="text/javascript">
 	<!--
 	function js_textarea_send(textarea,doclose)
@@ -77,8 +79,8 @@ $vbulletin->GPC['name'] = preg_replace('#[^a-z0-9_-]#', '', $vbulletin->GPC['nam
 <?php
 /*======================================================================*\
 || ####################################################################
-|| # Downloaded: 16:21, Sat Apr 6th 2013
-|| # CVS: $RCSfile$ - $Revision: 24797 $
+|| # Downloaded: 14:57, Sun Aug 11th 2013
+|| # CVS: $RCSfile$ - $Revision: 53302 $
 || ####################################################################
 \*======================================================================*/
 ?>

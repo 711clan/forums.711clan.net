@@ -1,9 +1,9 @@
 <?php
 /*======================================================================*\
 || #################################################################### ||
-|| # vBulletin 3.7.2 Patch Level 2 - Licence Number VBF2470E4F
+|| # vBulletin 4.2.1 - Licence Number VBC2DDE4FB
 || # ---------------------------------------------------------------- # ||
-|| # Copyright ©2000-2013 Jelsoft Enterprises Ltd. All Rights Reserved. ||
+|| # Copyright ©2000-2013 vBulletin Solutions Inc. All Rights Reserved. ||
 || # This file may not be redistributed in whole or significant part. # ||
 || # ---------------- VBULLETIN IS NOT FREE SOFTWARE ---------------- # ||
 || # http://www.vbulletin.com | http://www.vbulletin.com/license.html # ||
@@ -63,7 +63,7 @@ function fetch_language_titles_array($titleprefix = '', $getall = true)
 }
 
 // ###################### Start makefolderjump #######################
-function construct_folder_jump($foldertype = 0, $selectedid = false, $exclusions = false, $sentfolders = '')
+function construct_folder_jump($foldertype = 0, $selectedid = false, $exclusions = false, $sentfolders = '', $data_only = false)
 {
 	global $vbphrase, $folderid, $folderselect, $foldernames, $messagecounters, $subscribecounters, $folder;
 	global $vbulletin;
@@ -139,7 +139,7 @@ function construct_folder_jump($foldertype = 0, $selectedid = false, $exclusions
 
 	if (is_array($folders))
 	{
-		foreach($folders AS $_folderid => $_foldername)
+		foreach($folders AS $_folderid => &$_foldername)
 		{
 			if (is_array($exclusions) AND in_array($_folderid, $exclusions))
 			{
@@ -147,14 +147,31 @@ function construct_folder_jump($foldertype = 0, $selectedid = false, $exclusions
 			}
 			else
 			{
-				$foldernames["$_folderid"] = $_foldername;
-				$folderjump .= "<option value=\"$_folderid\" " . iif($_folderid == $selectedid, 'selected="selected"') . ">$_foldername" . iif(is_array($counters), ' (' . intval($counters["$_folderid"]) . iif($foldertype == 1, " $vbphrase[threads])", " $vbphrase[messages])")) . "</option>\n";
 				if ($_folderid == $selectedid AND $selectedid !== false)
 				{
 					$folder = $_foldername;
 				}
+
+				if ($data_only)
+				{
+					$_foldername = array(
+							'name' => $_foldername,
+							'id' => $_folderid,
+							'selected' => ($_folderid == $selectedid),
+							'count' => (is_array($counters) ? intval($counters[$_folderid]) : 0),
+							'type' => (($foldertype == 1) ? $vbphrase['threads'] : $vbphrase['messages'])
+					);
+				}
+
+				$foldernames["$_folderid"] = $_foldername;
+				$folderjump .= "<option value=\"$_folderid\" " . iif($_folderid == $selectedid, 'selected="selected"') . ">$_foldername" . iif(is_array($counters), ' (' . intval($counters["$_folderid"]) . iif($foldertype == 1, " $vbphrase[threads])", " $vbphrase[messages])")) . "</option>\n";
 			}
 		}
+	}
+
+	if ($data_only OR (defined('VB_API') AND VB_API === true))
+	{
+		return sizeof($folders) ? $folders : false;
 	}
 
 	return $folderjump;
@@ -231,6 +248,85 @@ function fetch_period_group($itemtime)
 	}
 
 	return 'older';
+}
+
+/**
+ * Fetches a character group id for a string
+ *
+ * @param string $str
+ * @return string
+ */
+function fetch_char_group($str)
+{
+	$str = trim($str);
+	$chr = strtolower(fetch_try_to_ascii($str[0]));
+
+	if (is_numeric($chr))
+	{
+		return '0_to_9';
+	}
+	else if($chr >= 'a' AND $chr <= 'h')
+	{
+		return 'a_to_h';
+	}
+	else if($chr >= 'i' AND $chr <= 'p')
+	{
+		return 'i_to_p';
+	}
+	else if($chr >= 'q' AND $chr <= 'z')
+	{
+		return 'q_to_z';
+	}
+	else
+	{
+		return 'other';
+	}
+}
+
+
+/**
+ * Tries to convert a character to it's closest non extended ascii equivelant
+ *
+ * @param string $chr							- The character to convert
+ * @returns string								- The result
+ */
+function fetch_try_to_ascii($chr)
+{
+	$conv = array(
+		'À' => 'a', 'Á' => 'a', 'Â' => 'a', 'Ã' => 'a', 'Ä' => 'a', 'Å' => 'a', 'Æ' => 'e', 'Ç' => 'c',
+		'È' => 'e', 'É' => 'e', 'Ê' => 'e', 'Ë' => 'e', 'Ì' => 'i', 'Í' => 'i', 'Î' => 'i', 'Ï' => 'i',
+		'Ð' => 'd', 'Ñ' => 'n', 'Ò' => 'o', 'Ó' => 'o', 'Ô' => 'o', 'Õ' => 'o', 'Ö' => 'o', 'Ø' => 'o',
+		'Ù' => 'u', 'Ú' => 'u', 'Û' => 'u', 'Ü' => 'u', 'Ý' => 'y', 'à' => 'a', 'á' => 'a', 'â' => 'a',
+		'ã' => 'a', 'ä' => 'a', 'å' => 'a', 'ç' => 'c', 'è' => 'e', 'é' => 'e', 'ê' => 'e', 'ë' => 'e',
+		'ì' => 'i', 'í' => 'i', 'î' => 'i', 'ï' => 'i', 'ñ' => 'n', 'ò' => 'o', 'ó' => 'o', 'ô' => 'o',
+		'õ' => 'o', 'ö' => 'o', 'ù' => 'u', 'ú' => 'u', 'û' => 'u', 'ü' => 'u', 'ý' => 'y', 'ÿ' => 'y'
+	);
+
+	return (isset($conv[$chr]) ? $conv[$chr] : $chr);
+}
+
+/**
+ * Converts a timestamp into an array of dmY
+ *
+ * @param integer $timestamp
+ * @returns array | boolean false
+ */
+function fetch_datearray_from_timestamp($timestamp = TIMENOW)
+{
+	global $vbulletin;
+
+	if ($timestamp = $vbulletin->input->clean($timestamp, TYPE_UNIXTIME))
+	{
+		$datearray = array(
+			'day' => date('d', $timestamp),
+			'month' => date('n', $timestamp),
+			'year' => date('Y', $timestamp)
+		);
+
+		return $datearray;
+	}
+
+	return false;
 }
 
 // ###################### Start array2bits #######################
@@ -348,7 +444,7 @@ function mark_forums_read($forumid = false)
 
 	$db =& $vbulletin->db;
 
-	$return_url = $vbulletin->options['forumhome'] . '.php' . $vbulletin->session->vars['sessionurl_q'];
+	$return_url = fetch_seo_url('forumhome', array());
 	$return_phrase = 'markread';
 	$return_forumids = array();
 
@@ -395,7 +491,8 @@ function mark_forums_read($forumid = false)
 	{
 		// temp work around code, I need to find another way to mass set some values to the cookie
 		$vbulletin->input->clean_gpc('c', COOKIE_PREFIX . 'forum_view', TYPE_STR);
-		$bb_cache_forum_view = unserialize(convert_bbarray_cookie($vbulletin->GPC[COOKIE_PREFIX . 'forum_view']));
+		global $bb_cache_forum_view;
+		$bb_cache_forum_view = @unserialize(convert_bbarray_cookie($vbulletin->GPC[COOKIE_PREFIX . 'forum_view']));
 
 		require_once(DIR . '/includes/functions_misc.php');
 		$childforums = fetch_child_forums($forumid, 'ARRAY');
@@ -440,19 +537,21 @@ function mark_forums_read($forumid = false)
 
 		if ($vbulletin->forumcache["$forumid"]['parentid'] == -1)
 		{
-			$return_url = $vbulletin->options['forumhome'] . '.php' . $vbulletin->session->vars['sessionurl_q'];
+			$return_url = fetch_seo_url('forumhome', array());
 		}
 		else
 		{
-			$return_url = 'forumdisplay.php?' . $vbulletin->session->vars['sessionurl'] . 'f=' . $vbulletin->forumcache["$forumid"]['parentid'];
+			$forumid = $vbulletin->forumcache["$forumid"]['parentid'];
+			$return_url = fetch_seo_url('forum', array('forumid' => $forumid, 
+				'title' => $vbulletin->forumcache["$forumid"]['title']));
 		}
 
 		$return_phrase = 'markread_single';
 	}
 
 	return array(
-		'url' => $return_url,
-		'phrase' => $return_phrase,
+		'url'      => $return_url,
+		'phrase'   => $return_phrase,
 		'forumids' => $return_forumids
 	);
 }
@@ -527,23 +626,33 @@ function replace_template_variables($template, $do_outside_regex = false)
 
 	// include the $, but escape it in the key
 	static $variables = array(
-		'\$vboptions' => '$GLOBALS[\'vbulletin\']->options',
+		'\$vboptions'  => '$GLOBALS[\'vbulletin\']->options',
 		'\$bbuserinfo' => '$GLOBALS[\'vbulletin\']->userinfo',
-		'\$session' => '$GLOBALS[\'vbulletin\']->session->vars',
+		'\$session'    => '$GLOBALS[\'vbulletin\']->session->vars',
+		'\$stylevar'   => 'vB_Template_Runtime::fetchStylevar',
 	);
 
 	// regexes to do the replacements; __FINDVAR__ and __REPLACEVAR__ are replaced before execution
 	static $basic_find = array(
+		'#\' \. __FINDVAR__\[(\'|)(\w+)\\1\] \. \'#',
 		'#\{__FINDVAR__\[(\\\\?\'|"|)([\w$[\]]+)\\1\]\}#',
 		'#__FINDVAR__\[\$(\w+)\]#',
 		'#__FINDVAR__\[(\w+)\]#',
 	);
-	static $basic_replace = array(
+	static $basic_replace1 = array(
+		'\' . __REPLACEVAR__[$1$2$1] . \'',
 		'" . __REPLACEVAR__[$1$2$1] . "',
 		'" . __REPLACEVAR__[$$1] . "',
 		'" . __REPLACEVAR__[\'$1\'] . "',
 	);
+	static $basic_replace2 = array(
+		'\' . __REPLACEVAR__($1$2$1) . \'',
+		'" . __REPLACEVAR__($1$2$1) . "',
+		'" . __REPLACEVAR__($$1) . "',
+		'" . __REPLACEVAR__(\'$1\') . "',
+	);
 
+	global $replacevar, $findvar;
 	foreach ($variables AS $findvar => $replacevar)
 	{
 		if ($do_outside_regex)
@@ -551,17 +660,19 @@ function replace_template_variables($template, $do_outside_regex = false)
 			// this is handles replacing of vars outside of quotes
 			do
 			{
-				// not in quotes = variable preceeded by an even number of ", does not count " escaped with an odd amount of \
-				// ... this was a toughie!
-				$new_template = preg_replace(
+				$new_template = preg_replace_callback(
 					array(
 						'#^([^"]*?("(?>(?>(\\\\{2})+?)|\\\\"|[^"])*"([^"]*?))*)' . $findvar . '\[(\\\\?\'|"|)([\w$[\]]+)\\5\]#sU',
 						'#^([^"]*?("(?>(?>(\\\\{2})+?)|\\\\"|[^"])*"([^"]*?))*)' . $findvar . '([^[]|$)#sU',
 					),
+/*
 					array(
-						'$1' . $replacevar . '[$5$6$5]',
+						$_replacevar,
 						'$1' . $replacevar . '$5',
 					),
+*/
+					'replace_replacevar'
+					,
 					$template
 				);
 				if ($new_template == $template)
@@ -571,6 +682,15 @@ function replace_template_variables($template, $do_outside_regex = false)
 				$template = $new_template;
 			}
 			while (true);
+		}
+
+		if ($replacevar[0] == '$')
+		{
+			$basic_replace =& $basic_replace1;
+		}
+		else
+		{
+			$basic_replace =& $basic_replace2;
 		}
 
 		// these regular expressions handle replacement of vars inside quotes
@@ -588,6 +708,36 @@ function replace_template_variables($template, $do_outside_regex = false)
 	$template = str_replace(array_keys($str_replace), $str_replace, $template);
 
 	return $template;
+}
+
+function replace_replacevar($matches)
+{
+	global $replacevar, $findvar;
+
+	if ($replacevar[0] == '$')
+	{
+		if (count($matches) == 6)
+		{
+			return $matches[1] . $replacevar . $matches[5];
+		}
+		else
+		{
+			return $matches[1] . $replacevar . '[' . $matches[5] . $matches[6] . $matches[5] . ']';
+		}
+	}
+	else
+	{
+		if (count($matches) == 6 AND $findvar == '\$stylevar')
+		{
+			// This doesn't really work since $stylevar doesn't exist .. but it stops a parse error
+			return $matches[1] . '$stylevar' . $matches[5];
+		}
+		if (!$matches[5])
+		{
+			$matches[5] = "'";
+		}
+		return $matches[1] . $replacevar . '(' . $matches[5] . $matches[6] . $matches[5] . ')';
+	}
 }
 
 /**
@@ -704,7 +854,7 @@ function fetch_phrase($phrasename, $fieldname, $strreplace = '', $doquotes = tru
 
 	$languageid = intval($languageid);
 
-	if (!isset($phrase_cache["{$fieldname}-{$phrasename}"]))
+	if (VB_AREA != 'Upgrade' AND VB_AREA != 'Install' AND !isset($phrase_cache["{$fieldname}-{$phrasename}"]))
 	{
 		$getphrases = $vbulletin->db->query_read_slave("
 			SELECT text, languageid, special
@@ -832,10 +982,186 @@ function fetch_timezone($offset = 'all')
 	}
 }
 
+/**
+ * Checks if a user has currently exceeded their private message quota
+ *
+ * @param integer $userid						Id of the user to check
+ * @return boolean								Whether they have exceeded their quota
+ */
+function fetch_privatemessage_throttle_reached($userid)
+{
+	global $vbulletin;
+
+	if (!$vbulletin->options['pmthrottleperiod'])
+	{
+		return false;
+	}
+
+	if (!$vbulletin->userinfo['permissions']['pmthrottlequantity'])
+	{
+		return false;
+	}
+
+	$count = $vbulletin->db->query_first("
+		SELECT COUNT(userid) AS total
+		FROM " . TABLE_PREFIX . "pmthrottle
+		WHERE userid = " . intval($vbulletin->userinfo['userid']) . "
+		AND dateline > " . (TIMENOW - ($vbulletin->options['pmthrottleperiod'] * 60))
+	);
+
+	return ($count['total'] >= $vbulletin->userinfo['permissions']['pmthrottlequantity']);
+}
+
+function validate_string_for_interpolation($string)
+{
+	$start = '{$';
+	$end = '}';
+
+	$pos = 0;
+	$start_count = 0;
+	$content_start = 0;
+
+	while ($pos < strlen($string))
+	{
+		if($start_count == 0)
+		{
+			$pos = strpos($string, $start, $pos);
+
+			//no curlies
+			if ($pos === false)
+			{
+				break;
+			}
+
+			$pos += strlen($start);
+
+			$start_count = 1;
+			$content_start = $pos;
+		}
+		else
+		{
+			$start_pos = strpos($string, $start, $pos);
+			$end_pos = strpos($string, $end, $pos);
+
+			//nothing more to find.
+			if ($start_pos === false AND $end_pos === false)
+			{
+				break;
+			}
+
+			//end_pos is the next position found
+			else if ($start_pos === false OR ($end_pos < $start_pos))
+			{
+				$start_count--;
+				$pos = $end_pos + strlen($end);
+			}
+
+			//otherwise start_pos must've been next
+			else
+			{
+				$start_count++;
+				$pos = $end_pos + strlen($end);
+			}
+
+			if ($start_count == 0)
+			{
+				//this is the string from contentstart to the place before the last brace
+				$curly_content = substr($string, $content_start, $pos-$content_start-1);
+				if (!preg_match('#^[A-Za-z0-9-_>\\[\\]"\'\\s]*$#', $curly_content))
+				{
+					return false;
+				}
+			}
+		}
+	}
+
+	return true;
+}
+
+/*
+	This will escape any dangerous interpolation expressions so they they display literally
+	instead of being replaced (and executing potentially dangerious code).
+	This is used were attempting to validate the string and/or displaying an error is problematic.
+	This allows us to have *somthing* to display.
+*/
+function make_string_interpolation_safe($string)
+{
+	$start = '{$';
+	$end = '}';
+
+	$pos = 0;
+	$start_count = 0;
+	$content_start = 0;
+
+	while ($pos < strlen($string))
+	{
+		if($start_count == 0)
+		{
+			$pos = strpos($string, $start, $pos);
+
+			//no curlies
+			if ($pos === false)
+			{
+				break;
+			}
+
+			$pos += strlen($start);
+
+			$start_count = 1;
+			$content_start = $pos;
+		}
+		else
+		{
+			$start_pos = strpos($string, $start, $pos);
+			$end_pos = strpos($string, $end, $pos);
+
+			//nothing more to find.
+			if ($start_pos === false AND $end_pos === false)
+			{
+				break;
+			}
+
+			//end_pos is the next position found
+			else if ($start_pos === false OR ($end_pos < $start_pos))
+			{
+				$start_count--;
+				$pos = $end_pos + strlen($end);
+			}
+
+			//otherwise start_pos must've been next
+			else
+			{
+				$start_count++;
+				$pos = $end_pos + strlen($end);
+			}
+
+			if ($start_count == 0)
+			{
+				//this is the string from contentstart to the place before the last brace
+				$curly_content = substr($string, $content_start, $pos-$content_start-1);
+				if (!preg_match('#^[A-Za-z0-9-_>\\[\\]"\'\\s]*$#', $curly_content))
+				{
+					$count = 0;
+					$curly_content = '{\\$' . str_replace('{$', '{\\$', $curly_content, $count) . '}';
+
+					$string = substr_replace($string, $curly_content, $content_start - strlen($start),
+						$pos-$content_start-1+strlen($start)+strlen($end));
+
+					//adjust the pos to account for the fact that we've added characters to the string.  After this, pos
+					//should still be on the closing brace of the curly expression.
+					$pos += ($count + 1);
+				}
+			}
+		}
+	}
+
+	return $string;
+}
+
 /*======================================================================*\
 || ####################################################################
-|| # Downloaded: 16:21, Sat Apr 6th 2013
-|| # CVS: $RCSfile$ - $Revision: 26021 $
+|| # Downloaded: 14:57, Sun Aug 11th 2013
+|| # CVS: $RCSfile$ - $Revision: 60418 $
 || ####################################################################
 \*======================================================================*/
 ?>

@@ -1,9 +1,9 @@
 <?php
 /*======================================================================*\
 || #################################################################### ||
-|| # vBulletin 3.7.2 Patch Level 2 - Licence Number VBF2470E4F
+|| # vBulletin 4.2.1 - Licence Number VBC2DDE4FB
 || # ---------------------------------------------------------------- # ||
-|| # Copyright ©2000-2013 Jelsoft Enterprises Ltd. All Rights Reserved. ||
+|| # Copyright ©2000-2013 vBulletin Solutions Inc. All Rights Reserved. ||
 || # This file may not be redistributed in whole or significant part. # ||
 || # ---------------- VBULLETIN IS NOT FREE SOFTWARE ---------------- # ||
 || # http://www.vbulletin.com | http://www.vbulletin.com/license.html # ||
@@ -19,8 +19,8 @@ if (!isset($GLOBALS['vbulletin']->db))
 * Human Verification class for Question & Answer Verification
 *
 * @package 		vBulletin
-* @version		$Revision: 26641 $
-* @date 		$Date: 2008-05-19 07:15:44 -0500 (Mon, 19 May 2008) $
+* @version		$Revision: 32878 $
+* @date 		$Date: 2009-10-28 11:38:49 -0700 (Wed, 28 Oct 2009) $
 *
 */
 class vB_HumanVerify_Question extends vB_HumanVerify_Abstract
@@ -45,7 +45,7 @@ class vB_HumanVerify_Question extends vB_HumanVerify_Abstract
 	 */
 	function output_token($var_prefix = 'humanverify')
 	{
-		global $vbphrase, $stylevar, $show;
+		global $vbphrase, $show;
 		$vbulletin =& $this->registry;
 
 		$humanverify = $this->generate_token();
@@ -53,7 +53,10 @@ class vB_HumanVerify_Question extends vB_HumanVerify_Abstract
 		require_once(DIR . '/includes/functions_misc.php');
 		$humanverify['question'] = fetch_phrase('question' . $humanverify['answer'], 'hvquestion', '', false, true, $this->registry->userinfo['languageid'], false);
 
-		eval('$output = "' . fetch_template('humanverify_question') . '";');
+		$templater = vB_Template::create('humanverify_question');
+			$templater->register('humanverify', $humanverify);
+			$templater->register('var_prefix', $var_prefix);
+		$output = $templater->render();
 
 		return $output;
 	}
@@ -157,8 +160,8 @@ class vB_HumanVerify_Question extends vB_HumanVerify_Abstract
 
 /*======================================================================*\
 || ####################################################################
-|| # Downloaded: 16:21, Sat Apr 6th 2013
-|| # CVS: $RCSfile$ - $Revision: 26641 $
+|| # Downloaded: 14:57, Sun Aug 11th 2013
+|| # CVS: $RCSfile$ - $Revision: 32878 $
 || ####################################################################
 \*======================================================================*/
 ?>

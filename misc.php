@@ -1,9 +1,9 @@
 <?php
 /*======================================================================*\
 || #################################################################### ||
-|| # vBulletin 3.7.2 Patch Level 2 - Licence Number VBF2470E4F
+|| # vBulletin 4.2.1 - Licence Number VBC2DDE4FB
 || # ---------------------------------------------------------------- # ||
-|| # Copyright ©2000-2013 Jelsoft Enterprises Ltd. All Rights Reserved. ||
+|| # Copyright ©2000-2013 vBulletin Solutions Inc. All Rights Reserved. ||
 || # This file may not be redistributed in whole or significant part. # ||
 || # ---------------- VBULLETIN IS NOT FREE SOFTWARE ---------------- # ||
 || # http://www.vbulletin.com | http://www.vbulletin.com/license.html # ||
@@ -23,7 +23,7 @@ if (in_array($_GET['do'], array('whoposted', 'buddylist', 'getsmilies')))
 
 // ################### PRE-CACHE TEMPLATES AND DATA ######################
 // get special phrase groups
-$phrasegroups = array('fronthelp');
+$phrasegroups = array('fronthelp', 'register');
 
 // get special data templates from the datastore
 $specialtemplates = array();
@@ -45,12 +45,6 @@ $actiontemplates = array(
 		'ATTACHMENTS',
 		'attachmentbit',
 	),
-	'showavatars' => array(
-		'help_avatars',
-		'help_avatars_avatar',
-		'help_avatars_category',
-		'help_avatars_row',
-	),
 	'bbcode' => array(
 		'help_bbcodes',
 		'help_bbcodes_bbcode',
@@ -59,6 +53,7 @@ $actiontemplates = array(
 		'bbcode_html',
 		'bbcode_php',
 		'bbcode_quote',
+		'bbcode_video',
 	),
 	'getsmilies' => array(
 		'smiliepopup',
@@ -71,6 +66,9 @@ $actiontemplates = array(
 		'help_smilies',
 		'help_smilies_smilie',
 		'help_smilies_category',
+	),
+	'showrules' => array(
+		'help_rules',
 	)
 );
 $actiontemplates['none'] =& $actiontemplates['showsmilies'];
@@ -83,12 +81,6 @@ if (!empty($_REQUEST['do']) AND !isset($actiontemplates["$_REQUEST[do]"]))
 
 // ######################### REQUIRE BACK-END ############################
 require_once('./global.php');
-
-// redirect in case anyone has linked to it
-if ($_REQUEST['do'] == 'attachments')
-{
-	exec_header_redirect('profile.php?' . $vbulletin->session->vars['sessionurl_js'] . 'do=editattachments');
-}
 
 // #######################################################################
 // ######################## START MAIN SCRIPT ############################
@@ -122,6 +114,7 @@ if ($_REQUEST['do'] == 'buddylist')
 
 	$onlineusers = '';
 	$offlineusers = '';
+	$newonlineusers = '';
 	$newusersound = '';
 	$lastonline = array();
 
@@ -171,24 +164,37 @@ if ($_REQUEST['do'] == 'buddylist')
 				$show['playsound'] = true;
 				$show['highlightuser'] = true;
 				// add name to top of list
-				eval('$onlineusers = "' . fetch_template('buddylistbit') . '" . $onlineusers;');
+				$templater = vB_Template::create('buddylistbit');
+					$templater->register('buddy', $buddy);
+				$newonlineusers .= $templater->render();
 			}
 			else
 			{
-				eval('$onlineusers .= "' . fetch_template('buddylistbit') . '";');
+				$templater = vB_Template::create('buddylistbit');
+					$templater->register('buddy', $buddy);
+				$onlineusers .= $templater->render();
 			}
 		}
 		else
 		{
-			eval('$offlineusers .= "' . fetch_template('buddylistbit') . '";');
+			$templater = vB_Template::create('buddylistbit');
+				$templater->register('buddy', $buddy);
+			$offlineusers .= $templater->render();
 		}
 	}
+
+	$onlineusers = $newonlineusers . $onlineusers;
 
 	$buddies = urlencode(trim($buddies));
 
 	($hook = vBulletinHook::fetch_hook('misc_buddylist_complete')) ? eval($hook) : false;
 
-	eval('print_output("' . fetch_template('BUDDYLIST') . '");');
+	$templater = vB_Template::create('BUDDYLIST');
+		$templater->register_page_templates();
+		$templater->register('buddies', $buddies);
+		$templater->register('offlineusers', $offlineusers);
+		$templater->register('onlineusers', $onlineusers);
+	print_output($templater->render());
 }
 
 // ############################### start who posted ###############################
@@ -212,13 +218,13 @@ if ($_REQUEST['do'] == 'whoposted')
 	}
 
 	$posts = $db->query_read_slave("
-		SELECT COUNT(postid) AS posts,
-		post.username AS postuser,user.userid,user.username
+		SELECT COUNT(postid) AS posts, IF(post.userid = 0, post.username, user.userid) as memberid, user.userid,
+			post.username AS postuser, user.username
 		FROM " . TABLE_PREFIX . "post AS post
 		LEFT JOIN " . TABLE_PREFIX . "user AS user USING(userid)
 		WHERE threadid = $threadinfo[threadid]
 			AND visible = 1
-		GROUP BY userid
+		GROUP BY memberid
 		ORDER BY posts DESC
 	");
 
@@ -245,13 +251,22 @@ if ($_REQUEST['do'] == 'whoposted')
 			$totalposts += $post['posts'];
 			$post['posts'] = vb_number_format($post['posts']);
 			$show['memberlink'] = iif ($post['userid'], true, false);
-			eval('$posters .= "' . fetch_template('whopostedbit') . '";');
+			$templater = vB_Template::create('whopostedbit');
+				$templater->register('bgclass', $bgclass);
+				$templater->register('post', $post);
+				$templater->register('threadinfo', $threadinfo);
+			$posters .= $templater->render();
 		}
 		$totalposts = vb_number_format($totalposts);
 
 		($hook = vBulletinHook::fetch_hook('misc_whoposted_complete')) ? eval($hook) : false;
 
-		eval('print_output("' . fetch_template('WHOPOSTED') . '");');
+		$templater = vB_Template::create('WHOPOSTED');
+			$templater->register_page_templates();
+			$templater->register('posters', $posters);
+			$templater->register('threadinfo', $threadinfo);
+			$templater->register('totalposts', $totalposts);
+		print_output($templater->render());
 	}
 	else
 	{
@@ -279,13 +294,21 @@ if ($_REQUEST['do'] == 'showattachments')
 		print_no_permission();
 	}
 
+	$types = vB_Types::instance();
+	$contenttypeid = $types->getContentTypeID('vBForum_Post');
+
 	$attachs = $db->query_read_slave("
-		SELECT attachment.*
+		SELECT a.*, fd.filesize
 		FROM " . TABLE_PREFIX . "post AS post
-		INNER JOIN " . TABLE_PREFIX . "attachment AS attachment ON (attachment.postid=post.postid AND attachment.visible=1)
-		WHERE threadid = $threadinfo[threadid]
-			AND post.visible = 1
-		ORDER BY filename DESC
+		INNER JOIN " . TABLE_PREFIX . "attachment AS a ON (a.contentid = post.postid AND a.state = 'visible')
+		INNER JOIN " . TABLE_PREFIX . "filedata AS fd ON (a.filedataid = fd.filedataid)
+		WHERE
+			threadid = $threadinfo[threadid]
+				AND
+			post.visible = 1
+				AND
+			a.contenttypeid = $contenttypeid
+		ORDER BY a.filename DESC
 	");
 
 	if ($db->num_rows($attachs))
@@ -306,132 +329,25 @@ if ($_REQUEST['do'] == 'showattachments')
 
 			exec_switch_bg();
 
-			eval('$attachments .= "' . fetch_template('attachmentbit') . '";');
+			$templater = vB_Template::create('attachmentbit');
+				$templater->register('attachment', $attachment);
+				$templater->register('bgclass', $bgclass);
+			$attachments .= $templater->render();
 		}
 
 		($hook = vBulletinHook::fetch_hook('misc_showattachments_complete')) ? eval($hook) : false;
 
-		eval('print_output("' . fetch_template('ATTACHMENTS') . '");');
+		$templater = vB_Template::create('ATTACHMENTS');
+			$templater->register_page_templates();
+			$templater->register('attachments', $attachments);
+			$templater->register('threadinfo', $threadinfo);
+			$templater->register('totalattachments', $db->num_rows($attachs));
+		print_output($templater->render());
 	}
 	else
 	{
 		eval(standard_error(fetch_error('noattachments')));
 	}
-}
-
-// ############################### start show avatars ###############################
-if ($_REQUEST['do'] == 'showavatars')
-{
-	$vbulletin->input->clean_array_gpc('r', array(
-		'pagenumber' => TYPE_UINT,
-	));
-
-	($hook = vBulletinHook::fetch_hook('misc_avatars_start')) ? eval($hook) : false;
-
-	$perpage = $vbulletin->options['numavatarsperpage'];
-
-	$totalavatars = $db->query_first_slave("
-		SELECT COUNT(*) AS count
-		FROM " . TABLE_PREFIX . "avatar AS avatar
-		LEFT JOIN " . TABLE_PREFIX . "imagecategorypermission AS perm ON (perm.imagecategoryid=avatar.imagecategoryid AND perm.usergroupid=" . $vbulletin->userinfo['usergroupid'] . ")
-		WHERE ISNULL(perm.imagecategoryid)
-	");
-	$totalavatars = intval($totalavatars['count']);
-
-	sanitize_pageresults($totalavatars, $vbulletin->GPC['pagenumber'], $perpage, 100, 25);
-	$startat = ($vbulletin->GPC['pagenumber'] - 1) * $perpage;
-
-	$first = $startat + 1;
-	$last = $startat + $perpage;
-	if ($last > $totalavatars)
-	{
-		$last = $totalavatars;
-	}
-
-	$minposts = 0;
-	$avatarbits = '';
-
-	$avatars = $db->query_read_slave("
-		SELECT avatar.title,minimumposts,avatarpath,imagecategory.title AS category
-		FROM " . TABLE_PREFIX . "avatar AS avatar
-		LEFT JOIN " . TABLE_PREFIX . "imagecategory AS imagecategory ON (imagecategory.imagecategoryid=avatar.imagecategoryid)
-		LEFT JOIN " . TABLE_PREFIX . "imagecategorypermission AS perm ON (perm.imagecategoryid=avatar.imagecategoryid AND perm.usergroupid=" . $vbulletin->userinfo['usergroupid'] . ")
-		WHERE ISNULL(perm.imagecategoryid)
-		ORDER BY minimumposts,imagecategory.displayorder,avatar.displayorder
-		LIMIT $startat, $perpage
-	");
-	$avatarsonthispage = $db->num_rows($avatars);
-
-	// check to see that there are some avatars to display
-	if ($db->num_rows($avatars))
-	{
-		$pagenav = construct_page_nav($vbulletin->GPC['pagenumber'], $perpage, $totalavatars, 'misc.php?' . $vbulletin->session->vars['sessionurl'] . 'do=showavatars');
-
-		exec_switch_bg();
-		while ($avatar = $db->fetch_array($avatars))
-		{
-			// initialise the remaining columns number
-			$remainingcolumns = 0;
-
-			// display the category bar if required
-			if ($avatar['category'] != $lastcat OR $avatar['minimumposts'] != $minposts)
-			{
-				// echo out any straggler avatars still waiting to be displayed
-				$remaining = sizeof($bits);
-				if ($remaining > 0)
-				{
-					$remainingcolumns = $vbulletin->options['numavatarswide'] - $remaining;
-					$avatarcells = implode('', $bits);
-					eval('$avatarbits .= "' . fetch_template('help_avatars_row') . '";');
-					$bits = array();
-				}
-				// get the category bar
-				eval('$avatarbits .= "' . fetch_template('help_avatars_category') . '";');
-
-				$bgclass = 'alt1';
-			}
-			// make an array entry containing the current avatar
-			eval('$bits[] = "' . fetch_template('help_avatars_avatar') . '";');
-
-			// display a row of avatars if the counter is high enough
-			if (sizeof($bits) == $vbulletin->options['numavatarswide'])
-			{
-				exec_switch_bg();
-				$avatarcells = implode('', $bits);
-				eval('$avatarbits .= "' . fetch_template('help_avatars_row') . '";');
-				$bits = array();
-			}
-
-			// set the last category and last minposts
-			$lastcat = $avatar['category'];
-			$minposts = $avatar['minimumposts'];
-		}
-
-		// initialize the remaining columns number
-		$remainingcolumns = 0;
-
-		// echo out any straggler avatars still waiting to be displayed
-		$remaining = sizeof($bits);
-		if ($remaining > 0)
-		{
-			$remainingcolumns = $vbulletin->options['numavatarswide'] - $remaining;
-			$avatarcells = implode('', $bits);
-			eval('$avatarbits .= "' . fetch_template('help_avatars_row') . '";');
-		}
-
-	} // end if num_rows($avatars)
-
-	$navbits = construct_navbits(array(
-		'faq.php' . $vbulletin->session->vars['sessionurl_q'] => $vbphrase['faq'],
-		'' => $vbphrase['avatar_list']
-	));
-
-	eval('$navbar = "' . fetch_template('navbar') . '";');
-
-	($hook = vBulletinHook::fetch_hook('misc_avatars_complete')) ? eval($hook) : false;
-
-	eval('print_output("' . fetch_template('help_avatars') . '");');
-
 }
 
 // ############################### start bbcode ###############################
@@ -457,7 +373,7 @@ if ($_REQUEST['do'] == 'bbcode')
 
 	$specialbbcode[] = array();
 
-	$bbcode_parser =& new vB_BbCodeParser($vbulletin, fetch_tag_list());
+	$bbcode_parser = new vB_BbCodeParser($vbulletin, fetch_tag_list());
 
 	$bbcodes = $db->query_read_slave("SELECT * FROM " . TABLE_PREFIX . "bbcode ORDER BY bbcodetag, twoparams");
 	while ($bbcode = $db->fetch_array($bbcodes))
@@ -476,8 +392,12 @@ if ($_REQUEST['do'] == 'bbcode')
 
 		($hook = vBulletinHook::fetch_hook('misc_bbcode_bit')) ? eval($hook) : false;
 
-		eval('$template[\'bbcodebits\'] .= "' . fetch_template('help_bbcodes_bbcode') . '";');
-		eval('$template[\'bbcodelinks\'] .= "' . fetch_template('help_bbcodes_link') . '";');
+		$templater = vB_Template::create('help_bbcodes_bbcode');
+			$templater->register('bbcode', $bbcode);
+		$template['bbcodebits'] .= $templater->render();
+		$templater = vB_Template::create('help_bbcodes_link');
+			$templater->register('bbcode', $bbcode);
+		$template['bbcodelinks'] .= $templater->render();
 	}
 
 	$navbits = construct_navbits(array(
@@ -486,7 +406,6 @@ if ($_REQUEST['do'] == 'bbcode')
 	));
 
 	$show['iewidthfix'] = (is_browser('ie') AND !(is_browser('ie', 6)));
-	$stylevar['codeblockwidth'] = 'auto';
 
 	$vbulletin->options['allowhtml'] = false;
 	$vbulletin->options['allowbbcode'] = true;
@@ -509,30 +428,40 @@ if ($_REQUEST['do'] == 'bbcode')
 	$specialbbcode['quote3'] = $bbcode_parser->parse("[quote=John Doe;$max_post[maxpostid]]Lorem ipsum dolor sit amet[/quote]", 0, false);
 
 	// ### Special URL for Image
-	if (preg_match('#^[a-z0-9]+://#si', $stylevar['imgdir_statusicon']))
+	if (preg_match('#^[a-z0-9]+://#si', vB_Template_Runtime::fetchStyleVar('imgdir_statusicon')))
 	{
-		$statusicon_dir = $stylevar['imgdir_statusicon'];
+		$statusicon_dir = vB_Template_Runtime::fetchStyleVar('imgdir_statusicon');
 	}
 	else
 	{
-		$statusicon_dir = $vbulletin->options['bburl'] . '/' . $stylevar['imgdir_statusicon'];
+		$statusicon_dir = $vbulletin->options['bburl'] . '/' . vB_Template_Runtime::fetchStyleVar('imgdir_statusicon');
 	}
 
-	eval('$navbar = "' . fetch_template('navbar') . '";');
+	$navbar = render_navbar_template($navbits);
 
 	($hook = vBulletinHook::fetch_hook('misc_bbcode_complete')) ? eval($hook) : false;
 
-	eval('print_output("' . fetch_template('help_bbcodes') . '");');
+	$templater = vB_Template::create('help_bbcodes');
+		$templater->register_page_templates();
+		$templater->register('i', $i);
+		$templater->register('max_post', $max_post);
+		$templater->register('myvar', $myvar);
+		$templater->register('navbar', $navbar);
+		$templater->register('specialbbcode', $specialbbcode);
+		$templater->register('statusicon_dir', $statusicon_dir);
+		$templater->register('template', $template);
+	print_output($templater->render());
 }
 
 // ############################### Popup Smilies for vbCode ################
 if ($_REQUEST['do'] == 'getsmilies')
 {
 	$editorid = $vbulletin->input->clean_gpc('r', 'editorid', TYPE_NOHTML);
+	$editorid = preg_replace('#[^a-z0-9_]#i', '', $editorid);
 
 	($hook = vBulletinHook::fetch_hook('misc_smiliespopup_start')) ? eval($hook) : false;
 
-	$smilies = $db->query_read_slave("
+	$result = $db->query_read_slave("
 		SELECT smilietext AS text, smiliepath AS path, smilie.title, smilieid,
 			imagecategory.title AS category
 		FROM " . TABLE_PREFIX . "smilie AS smilie
@@ -540,52 +469,43 @@ if ($_REQUEST['do'] == 'getsmilies')
 		ORDER BY imagecategory.displayorder, imagecategory.title, smilie.displayorder
 	");
 
-	$smcache = array();
-	while ($smilie = $db->fetch_array($smilies))
+	$categories = array();
+	while ($smilie = $db->fetch_array($result))
 	{
-		$smcache["{$smilie['category']}"][] = $smilie;
+		$categories[$smilie['category']][] = $smilie;
 	}
 
-	$popup_smiliesbits = '';
-	$bits = array();
-	exec_switch_bg();
-	foreach ($smcache AS $category => $smilies)
+	$categorybits = '';
+	foreach ($categories AS $category => $smilies)
 	{
-		if (sizeof($bits) == 1)
-		{
-			eval('$smiliecells = "' . fetch_template('smiliepopup_straggler') . '";');
-			eval('$smiliebits .= "' . fetch_template('smiliepopup_row') . '";');
-		}
-
 		($hook = vBulletinHook::fetch_hook('misc_smiliespopup_category')) ? eval($hook) : false;
 
-		eval('$smiliebits .= "' . fetch_template('smiliepopup_category') . '";');
-		$bits = array();
+		$smiliebits = '';
 		foreach ($smilies AS $smilie)
 		{
 			($hook = vBulletinHook::fetch_hook('misc_smiliespopup_smilie')) ? eval($hook) : false;
 
 			$smilie['js'] = addslashes_js($smilie['text']);
-			$smiliehtml = "<img src=\"$smilie[path]\" id=\"smilie_$smilie[smilieid]\" alt=\"" . htmlspecialchars_uni($smilie['text']) . "\" title=\"$smilie[title]\" />";
-			eval('$bits[] = "' . fetch_template('smiliepopup_smilie') . '";');
-			if (sizeof($bits) == 2)
-			{
-				exec_switch_bg();
-				$smiliecells = implode('', $bits);
-				eval('$smiliebits .= "' . fetch_template('smiliepopup_row') . '";');
-				$bits = array();
-			}
+
+			$templater = vB_Template::create('smiliepopup_smilie');
+				$templater->quickRegister($smilie);
+			$smiliebits .= $templater->render();
 		}
-	}
-	if (sizeof($bits) == 1)
-	{
-		eval('$smiliecells = "' . fetch_template('smiliepopup_straggler') . '";');
-		eval('$smiliebits .= "' . fetch_template('smiliepopup_row') . '";');
+
+		$templater = vB_Template::create('smiliepopup_category');
+			$templater->register('title', $category);
+			$templater->register('smiliebits', $smiliebits);
+		$categorybits .= $templater->render();
 	}
 
 	($hook = vBulletinHook::fetch_hook('misc_smiliespopup_complete')) ? eval($hook) : false;
 
-	eval('print_output("' . fetch_template('smiliepopup') . '");');
+	$templater = vB_Template::create('smiliepopup');
+		$templater->register_page_templates();
+		$templater->register('editorid', $editorid);
+		$templater->register('categorybits', $categorybits);
+		$templater->register('wysiwyg', $wysiwyg);
+	print_output($templater->render());
 
 }
 
@@ -602,8 +522,12 @@ if ($_REQUEST['do'] == 'debug_page' AND $vbulletin->GPC['template'] != '')
 	$template_name = preg_replace('#[^a-z0-9_]#i', '', $vbulletin->GPC['template']);
 
 	$navbits = construct_navbits(array('' => $template_name));
-	eval('$navbar = "' . fetch_template('navbar') . '";');
-	eval('print_output("' . fetch_template($template_name) . '");');
+	$navbar = render_navbar_template($navbits);
+
+	$templater = vB_Template::create($template_name);
+		$templater->register_page_templates();
+		$templater->register('navbar', $navbar);
+	print_output($templater->render());
 }
 
 if ($_REQUEST['do'] == 'page' AND $vbulletin->GPC['template'] != '')
@@ -611,8 +535,40 @@ if ($_REQUEST['do'] == 'page' AND $vbulletin->GPC['template'] != '')
 	$template_name = preg_replace('#[^a-z0-9_]#i', '', $vbulletin->GPC['template']);
 
 	$navbits = construct_navbits(array('' => $template_name));
-	eval('$navbar = "' . fetch_template('navbar') . '";');
-	eval('print_output("' . fetch_template('custom_' . $template_name) . '");');
+	$navbar = render_navbar_template($navbits);
+
+	$templater = vB_Template::create('custom_' . $template_name);
+		$templater->register_page_templates();
+		$templater->register('navbar', $navbar);
+		$templater->register('pagetitle', $pagetitle);
+	print_output($templater->render());
+}
+
+if ($_REQUEST['do'] == 'generic')
+{
+
+	$navbits = construct_navbits(array('' => 'Generic Shell'));
+	$navbar = render_navbar_template($navbits);
+
+	$templater = vB_Template::create('GENERIC_SHELL');
+		$templater->register_page_templates();
+		$templater->register('navbar', $navbar);
+		$templater->register('pagetitle', 'Generic Shell');
+	print_output($templater->render());
+}
+
+// ############################### start show rules ###############################
+if ($_REQUEST['do'] == 'showrules')
+{
+	$navbits = construct_navbits(array(
+		'' => $vbphrase['forum_rules']
+	));
+
+	$navbar = render_navbar_template($navbits);
+	$templater = vB_Template::create('help_rules');
+		$templater->register_page_templates();
+		$templater->register('navbar', $navbar);
+	print_output($templater->render());
 }
 
 $_REQUEST['do'] = 'showsmilies';
@@ -633,17 +589,24 @@ if ($_REQUEST['do'] == 'showsmilies')
 
 	while ($smilie = $db->fetch_array($smilies))
 	{
+		$smilie['title'] = htmlspecialchars_uni($smilie['title']);
+
 		if ($smilie['category'] != $lastcat)
 		{
 			($hook = vBulletinHook::fetch_hook('misc_smilieslist_category')) ? eval($hook) : false;
 
-			eval('$smiliebits .= "' . fetch_template('help_smilies_category') . '";');
+			$templater = vB_Template::create('help_smilies_category');
+				$templater->register('smilie', $smilie);
+			$smiliebits .= $templater->render();
 		}
 		exec_switch_bg();
 
 		($hook = vBulletinHook::fetch_hook('misc_smilieslist_smilie')) ? eval($hook) : false;
 
-		eval('$smiliebits .= "' . fetch_template('help_smilies_smilie') . '";');
+		$templater = vB_Template::create('help_smilies_smilie');
+			$templater->register('bgclass', $bgclass);
+			$templater->register('smilie', $smilie);
+		$smiliebits .= $templater->render();
 		$lastcat = $smilie['category'];
 	}
 
@@ -652,17 +615,20 @@ if ($_REQUEST['do'] == 'showsmilies')
 		'' => $vbphrase['smilie_list']
 	));
 
-	eval('$navbar = "' . fetch_template('navbar') . '";');
+	$navbar = render_navbar_template($navbits);
 
 	($hook = vBulletinHook::fetch_hook('misc_smilieslist_complete')) ? eval($hook) : false;
 
-	eval('print_output("' . fetch_template('help_smilies') . '");');
+	$templater = vB_Template::create('help_smilies');
+		$templater->register_page_templates();
+		$templater->register('navbar', $navbar);
+		$templater->register('smiliebits', $smiliebits);
+	print_output($templater->render());
 }
 
 /*======================================================================*\
 || ####################################################################
-|| # Downloaded: 16:21, Sat Apr 6th 2013
-|| # CVS: $RCSfile$ - $Revision: 26399 $
+|| # Downloaded: 14:57, Sun Aug 11th 2013
+|| # CVS: $RCSfile$ - $Revision: 63184 $
 || ####################################################################
 \*======================================================================*/
-?>

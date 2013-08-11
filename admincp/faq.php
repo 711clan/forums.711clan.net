@@ -1,9 +1,9 @@
 <?php
 /*======================================================================*\
 || #################################################################### ||
-|| # vBulletin 3.7.2 Patch Level 2 - Licence Number VBF2470E4F
+|| # vBulletin 4.2.1 - Licence Number VBC2DDE4FB
 || # ---------------------------------------------------------------- # ||
-|| # Copyright ©2000-2013 Jelsoft Enterprises Ltd. All Rights Reserved. ||
+|| # Copyright ©2000-2013 vBulletin Solutions Inc. All Rights Reserved. ||
 || # This file may not be redistributed in whole or significant part. # ||
 || # ---------------- VBULLETIN IS NOT FREE SOFTWARE ---------------- # ||
 || # http://www.vbulletin.com | http://www.vbulletin.com/license.html # ||
@@ -14,7 +14,7 @@
 error_reporting(E_ALL & ~E_NOTICE);
 
 // ##################### DEFINE IMPORTANT CONSTANTS #######################
-define('CVS_REVISION', '$RCSfile$ - $Revision: 26229 $');
+define('CVS_REVISION', '$RCSfile$ - $Revision: 40651 $');
 
 // #################### PRE-CACHE TEMPLATES AND DATA ######################
 $phrasegroups = array('cphome', 'help_faq', 'fronthelp');
@@ -23,6 +23,7 @@ $specialtemplates = array();
 // ########################## REQUIRE BACK-END ############################
 require_once('./global.php');
 require_once(DIR . '/includes/functions_faq.php');
+require_once(DIR . '/includes/functions_misc.php');
 
 // ######################## CHECK ADMIN PERMISSIONS #######################
 if (!can_administer('canadminfaq'))
@@ -48,6 +49,180 @@ if (empty($_REQUEST['do']))
 
 // #############################################################################
 
+if ($_POST['do'] == 'doupdatefaq')
+{
+	$vbulletin->input->clean_array_gpc('p', array(
+		'faq'       => TYPE_ARRAY_STR,
+		'faqexists' => TYPE_ARRAY_STR
+	));
+
+	// create an array of entries that are NOT to be deleted
+	$retain_faq_items = array_diff($vbulletin->GPC['faqexists'], $vbulletin->GPC['faq']);
+
+	// if there are items to delete...
+	if (!empty($vbulletin->GPC['faq']))
+	{
+		$delete_faq_items = "'" . implode("', '", array_map(array($db, 'escape_string'), $vbulletin->GPC['faq'])) . "'";
+
+		// delete all items selected on previous form
+		$db->query_write("DELETE FROM " . TABLE_PREFIX . "faq WHERE faqname IN($delete_faq_items)");
+
+		// search for any remaining items with faqparent = one of the deleted items
+		$orphans_result = $db->query_read("SELECT faqname FROM " . TABLE_PREFIX . "faq WHERE faqparent IN($delete_faq_items) AND faqname NOT IN($delete_faq_items)");
+		if ($db->num_rows($orphans_result))
+		{
+			$orphans = array();
+			while ($orphan = $db->fetch_array($orphans_result))
+			{
+				$orphans[] = $orphan['faqname'];
+			}
+
+			// update orphans to have vb_faq as their parent
+			$db->query_write("UPDATE " . TABLE_PREFIX . "faq SET faqparent = 'vb_faq' WHERE faqname IN('" . implode("', '", array_map(array($db, 'escape_string'), $orphans)) . "')");
+
+			$retain_faq_items[] = 'vb_faq';
+		}
+		else
+		{
+			// check to see if there are any remaining children of vb_faq
+			if ($db->query_first("SELECT faqname FROM " . TABLE_PREFIX . "faq WHERE faqparent = 'vb_faq' AND faqname NOT IN($delete_faq_items)"))
+			{
+				$retain_faq_items[] = 'vb_faq';
+			}
+			else
+			{
+				// no remaining children, delete vb_faq
+				$db->query_write("DELETE FROM " . TABLE_PREFIX . "faq WHERE faqname = 'vb_faq'");
+			}
+		}
+	}
+
+	// set remaining old default FAQ items to volatile=0 - decouple from vBulletin default
+	$db->query_write("
+		UPDATE " . TABLE_PREFIX . "faq
+		SET volatile = 0
+		WHERE volatile = 1
+		AND faqname LIKE('vb\\_%')
+	");
+
+	// set remaining old default FAQ phrases to languageid=0 - decouple from vBulletin master language
+	$db->query_write("
+		UPDATE IGNORE " . TABLE_PREFIX . "phrase
+		SET languageid = 0
+		WHERE languageid = -1
+		AND fieldname IN('faqtitle', 'faqtext')
+		AND varname LIKE('vb\\_%')
+	");
+
+
+	define('CP_REDIRECT', 'index.php');
+	print_stop_message('deleted_faq_item_successfully');
+}
+
+if ($_REQUEST['do'] == 'updatefaq')
+{
+	function fetch_faq_checkbox_tree($parent = 0)
+	{
+		global $ifaqcache, $faqcache, $faqjumpbits, $faqparent, $vbphrase, $vbulletin;
+		static $output = '';
+
+		if ($parentlist === null)
+		{
+			$parentlist = $parent;
+		}
+
+		if (!is_array($ifaqcache))
+		{
+			cache_ordered_faq(true, false, -1);
+		}
+
+		if (!is_array($ifaqcache["$parent"]))
+		{
+			return;
+		}
+
+		$output .= "<ul id=\"li_$parent\">";
+
+		foreach($ifaqcache["$parent"] AS $key1 => $faq)
+		{
+			if ($faq['volatile'])
+			{
+				$checked = ' checked="checked"';
+				$class = '';
+			}
+			else
+			{
+				$checked = '';
+				$class = ' class="customfaq"';
+			}
+
+			$output .= "<li>
+				<label for=\"$faq[faqname]\"$class>" .
+				"<input type=\"checkbox\" name=\"faq[$faq[faqname]]\" value=\"$faq[faqname]\"$checked id=\"$faq[faqname]\" title=\"$parentlist\" />"
+				. ($faq['title'] ? $faq['title'] : $faq['faqname']) . "</label>";
+
+			construct_hidden_code("faqexists[$faq[faqname]]", $faq['faqname']);
+
+			if (is_array($ifaqcache["$faq[faqname]"]))
+			{
+				fetch_faq_checkbox_tree($faq['faqname']);
+			}
+			$output .= "</li>";
+		}
+
+		$output .= '</ul>';
+
+		return $output;
+	}
+
+	?>
+	<style type="text/css">
+	#faqlist_checkboxes ul { list-style:none; }
+	#faqlist_checkboxes li { margin-top:3px; }
+	#faqlist_checkboxes label.customfaq { font-style:italic; }
+	</style>
+	<script type="text/javascript" src="../clientscript/yui/yahoo-dom-event/yahoo-dom-event.js?v=<?php echo SIMPLE_VERSION; ?>"></script>
+	<script type="text/javascript">
+	<!--
+
+	function is_checkbox(element)
+	{
+		return (element.type == "checkbox");
+	}
+
+	function toggle_children()
+	{
+		var checkboxes, i;
+
+		checkboxes = YAHOO.util.Dom.getElementsBy(is_checkbox, "input", "li_" + this.id);
+		for (i = 0; i < checkboxes.length; i++)
+		{
+			checkboxes[i].checked = this.checked;
+		}
+	}
+
+	var checkboxes = YAHOO.util.Dom.getElementsBy(is_checkbox, "input", "faqlist_checkboxes");
+	for (var i = 0; i < checkboxes.length; i++)
+	{
+		YAHOO.util.Event.on(checkboxes[i], "click", toggle_children);
+	}
+
+	//-->
+	</script>
+	<?php
+
+	$data = '<div id="faqlist_checkboxes">';
+	$data .= fetch_faq_checkbox_tree('vb_faq');
+	$data .= '</div>';
+
+	print_form_header('faq', 'doupdatefaq');
+	print_table_header($vbphrase['delete_old_faq']);
+	print_description_row($vbphrase['delete_old_faq_desc']);
+	print_description_row($data);
+	print_submit_row($vbphrase['delete'], $vbphrase['reset']);
+
+}
+
 if ($_POST['do'] == 'kill')
 {
 	$vbulletin->input->clean_array_gpc('p', array(
@@ -63,12 +238,38 @@ if ($_POST['do'] == 'kill')
 		WHERE faqname IN($faqDeleteNames)
 	");
 
+	if (defined('DEV_AUTOEXPORT') AND DEV_AUTOEXPORT)
+	{
+		// get phrases to delete
+		$set = $db->query_read("
+			SELECT DISTINCT product
+			FROM " . TABLE_PREFIX . "phrase
+			WHERE varname IN ($faqDeleteNames)
+				AND fieldname IN ('faqtitle', 'faqtext')
+		");
+
+		$products_to_export = array();
+		while ($row = $db->fetch_array($set))
+		{
+			$products_to_export[$row['product']] = 1;
+		}
+	}
+
 	// delete phrases
 	 $db->query_write("
 		DELETE FROM " . TABLE_PREFIX . "phrase
 		WHERE varname IN ($faqDeleteNames)
 			AND fieldname IN ('faqtitle', 'faqtext')
 	");
+
+	if (defined('DEV_AUTOEXPORT') AND DEV_AUTOEXPORT)
+	{
+		require_once(DIR . '/includes/functions_filesystemxml.php');
+		foreach(array_keys($products_to_export) as $product)
+		{
+			autoexport_write_faq_and_language(-1, $product);
+		}
+	}
 
 	// get parent item
 	$parent = $faqcache[$vbulletin->GPC['faqname']]['faqparent'];
@@ -95,16 +296,32 @@ if ($_POST['do'] == 'update')
 	$vbulletin->input->clean_array_gpc('p', array(
 		'faq' 			=> TYPE_STR,
 		'faqparent' 	=> TYPE_STR,
-		'deftitle'		=> TYPE_STR
+		'deftitle'		=> TYPE_STR,
+		'deftext'		=> TYPE_STR,
+		'text'			=> TYPE_ARRAY_STR,	// Originally NULL though not type checking incode, used as an array
 	));
 
 	if ($vbulletin->GPC['deftitle'] == '')
 	{
 		print_stop_message('invalid_title_specified');
 	}
+
 	if (!preg_match('#^[a-z0-9_]+$#i', $vbulletin->GPC['faq']))
 	{
 		print_stop_message('invalid_faq_varname');
+	}
+
+	if (!validate_string_for_interpolation($vbulletin->GPC['deftext']))
+	{
+		print_stop_message('faq_text_not_safe');
+	}
+
+	foreach ($vbulletin->GPC['text'] AS $text)
+	{
+		if (!validate_string_for_interpolation($text))
+		{
+			print_stop_message('faq_text_not_safe');
+		}
 	}
 
 	if ($vbulletin->GPC['faqparent'] == $vbulletin->GPC['faq'])
@@ -139,6 +356,14 @@ if ($_POST['do'] == 'update')
 			AND fieldname IN('faqtitle', 'faqtext')
 			" . (!$vbulletin->debug ? 'AND languageid <> -1' : '') . "
 	");
+
+	if (defined('DEV_AUTOEXPORT') AND DEV_AUTOEXPORT)
+	{
+		$old_product = $db->query_first($q = "
+			SELECT product FROM " . TABLE_PREFIX . "faq
+			WHERE faqname = '" . $db->escape_string($vbulletin->GPC['faq']) . "'
+		");
+	}
 
 	$db->query_write("
 		DELETE FROM " . TABLE_PREFIX . "faq
@@ -176,6 +401,20 @@ if ($_POST['do'] == 'insert')
 		print_stop_message('invalid_faq_varname');
 	}
 
+
+	if (!validate_string_for_interpolation($vbulletin->GPC['deftext']))
+	{
+		print_stop_message('faq_text_not_safe');
+	}
+
+	foreach ($vbulletin->GPC['text'] AS $text)
+	{
+		if (!validate_string_for_interpolation($text))
+		{
+			print_stop_message('faq_text_not_safe');
+		}
+	}
+
 	// ensure that the faq name is in 'word_word_word' format
 	$fixedfaq = strtolower(preg_replace('#\s+#s', '_', $vbulletin->GPC['faq']));
 	if ($fixedfaq !== $vbulletin->GPC['faq'])
@@ -209,7 +448,10 @@ if ($_POST['do'] == 'insert')
 		exit;
 	}
 
-	if ($check = $db->query_first("SELECT faqname FROM " . TABLE_PREFIX . "faq WHERE faqname = '" . $db->escape_string($vbulletin->GPC['faq']) . "'"))
+	if (
+		$check = $db->query_first("SELECT faqname FROM " . TABLE_PREFIX . "faq WHERE faqname = '" .
+			$db->escape_string($vbulletin->GPC['faq']) . "'")
+	)
 	{
 		print_stop_message('there_is_already_faq_item_named_x', $check['faqname']);
 	}
@@ -294,6 +536,18 @@ if ($_POST['do'] == 'insert')
 			" . $vbulletin->GPC['volatile'] . ",
 			'" . $db->escape_string($vbulletin->GPC['product']) . "')
 	");
+
+
+	if (defined('DEV_AUTOEXPORT') AND DEV_AUTOEXPORT)
+	{
+		require_once(DIR . '/includes/functions_filesystemxml.php');
+		$products_to_export = array($vbulletin->GPC['product']);
+		if (isset($old_product['product']))
+		{
+			$products_to_export[] = $old_product['product'];
+		}
+		autoexport_write_faq_and_language($baselang, $products_to_export);
+	}
 
 	define('CP_REDIRECT', "faq.php?faq= " . $vbulletin->GPC['faqparent']);
 	print_stop_message('saved_faq_x_successfully', $vbulletin->GPC['deftitle']);
@@ -478,6 +732,21 @@ if ($_POST['do'] == 'updateorder')
 		}
 	}
 
+	if (defined('DEV_AUTOEXPORT') AND DEV_AUTOEXPORT)
+	{
+		require_once(DIR . '/includes/functions_filesystemxml.php');
+		$products = $db->query_read("
+			SELECT DISTINCT product
+			FROM " . TABLE_PREFIX . "faq AS faq
+			WHERE faqname IN (" . implode(', ', $faqnames) . ")
+		");
+
+		while ($product = $db->fetch_array($products))
+		{
+			autoexport_write_faq($product['product']);
+		}
+	}
+
 	define('CP_REDIRECT', "faq.php?faq=" . $vbulletin->GPC['faqparent']);
 	print_stop_message('saved_display_order_successfully');
 }
@@ -550,8 +819,8 @@ print_cp_footer();
 
 /*======================================================================*\
 || ####################################################################
-|| # Downloaded: 16:21, Sat Apr 6th 2013
-|| # CVS: $RCSfile$ - $Revision: 26229 $
+|| # Downloaded: 14:57, Sun Aug 11th 2013
+|| # CVS: $RCSfile$ - $Revision: 40651 $
 || ####################################################################
 \*======================================================================*/
 ?>

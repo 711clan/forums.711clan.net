@@ -1,9 +1,9 @@
 <?php
 /*======================================================================*\
 || #################################################################### ||
-|| # vBulletin 3.7.2 Patch Level 2 - Licence Number VBF2470E4F
+|| # vBulletin 4.2.1 - Licence Number VBC2DDE4FB
 || # ---------------------------------------------------------------- # ||
-|| # Copyright ©2000-2013 Jelsoft Enterprises Ltd. All Rights Reserved. ||
+|| # Copyright ©2000-2013 vBulletin Solutions Inc. All Rights Reserved. ||
 || # This file may not be redistributed in whole or significant part. # ||
 || # ---------------- VBULLETIN IS NOT FREE SOFTWARE ---------------- # ||
 || # http://www.vbulletin.com | http://www.vbulletin.com/license.html # ||
@@ -21,8 +21,8 @@ require_once(DIR . '/includes/class_vurl.php');
 * Human Verification class for reCAPTCHA Verification (http://recaptcha.net)
 *
 * @package 		vBulletin
-* @version		$Revision: 26106 $
-* @date 		$Date: 2008-03-14 12:54:08 -0500 (Fri, 14 Mar 2008) $
+* @version		$Revision: 39366 $
+* @date 		$Date: 2010-09-30 14:41:47 -0700 (Thu, 30 Sep 2010) $
 *
 */
 class vB_HumanVerify_Recaptcha extends vB_HumanVerify_Abstract
@@ -53,8 +53,9 @@ class vB_HumanVerify_Recaptcha extends vB_HumanVerify_Abstract
 
 		if ($this->delete_token($input['hash']) AND $this->registry->GPC['recaptcha_response_field'] AND $this->registry->GPC['recaptcha_challenge_field'])
 		{	// Contact recaptcha.net
+			$private_key = ($this->registry->options['hv_recaptcha_privatekey'] ? $this->registry->options['hv_recaptcha_privatekey'] : '6LfHsgMAAAAAACYsFwZz6cqcG-WWnfay7NIrciyU');
 			$query = array(
-				'privatekey=' . urlencode($this->registry->options['hv_recaptcha_privatekey']),
+				'privatekey=' . urlencode($private_key),
 				'remoteip=' . urlencode(IPADDRESS),
 				'challenge=' . urlencode($this->registry->GPC['recaptcha_challenge_field']),
 				'response=' . urlencode($this->registry->GPC['recaptcha_response_field']),
@@ -122,7 +123,7 @@ class vB_HumanVerify_Recaptcha extends vB_HumanVerify_Abstract
 	 */
 	function output_token($var_prefix = 'humanverify')
 	{
-		global $vbphrase, $stylevar, $show;
+		global $vbphrase, $show;
 		$vbulletin =& $this->registry;
 
 		$humanverify = $this->generate_token();
@@ -132,15 +133,26 @@ class vB_HumanVerify_Recaptcha extends vB_HumanVerify_Abstract
 			$show['recaptcha_ssl'] = true;
 		}
 
-		$humanverify['publickey'] = $this->registry->options['hv_recaptcha_publickey'];
+		$humanverify['publickey'] = ($this->registry->options['hv_recaptcha_publickey'] ? $this->registry->options['hv_recaptcha_publickey'] : '6LfHsgMAAAAAAMVjkB1nC_nI5qfAjVk0qxz4VtPV');
 		$humanverify['theme'] = $this->registry->options['hv_recaptcha_theme'];
 
-		if (preg_match('#^([a-z]{2})-?#i', $stylevar['languagecode'], $matches))
+		if (preg_match('#^([a-z]{2})-?#i', vB_Template_Runtime::fetchStyleVar('languagecode'), $matches))
 		{
 			$humanverify['langcode'] = strtolower($matches[1]);
 		}
-
-		eval('$output = "' . fetch_template('humanverify_recaptcha') . '";');
+		
+		if(THIS_SCRIPT === 'ajax')
+		{
+			$humanverify['load_js'] = false;
+		}
+		else 
+		{
+			$humanverify['load_js'] = true;
+		}
+		$templater = vB_Template::create('humanverify_recaptcha');
+			$templater->register('humanverify', $humanverify);
+			$templater->register('var_prefix', $var_prefix);
+		$output = $templater->render();
 
 		return $output;
 	}
@@ -158,8 +170,8 @@ class vB_HumanVerify_Recaptcha extends vB_HumanVerify_Abstract
 
 /*======================================================================*\
 || ####################################################################
-|| # Downloaded: 16:21, Sat Apr 6th 2013
-|| # CVS: $RCSfile$ - $Revision: 26106 $
+|| # Downloaded: 14:57, Sun Aug 11th 2013
+|| # CVS: $RCSfile$ - $Revision: 39366 $
 || ####################################################################
 \*======================================================================*/
 ?>

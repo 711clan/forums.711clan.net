@@ -1,9 +1,9 @@
 <?php
 /*======================================================================*\
 || #################################################################### ||
-|| # vBulletin 3.7.2 Patch Level 2 - Licence Number VBF2470E4F
+|| # vBulletin 4.2.1 - Licence Number VBC2DDE4FB
 || # ---------------------------------------------------------------- # ||
-|| # Copyright ©2000-2013 Jelsoft Enterprises Ltd. All Rights Reserved. ||
+|| # Copyright ©2000-2013 vBulletin Solutions Inc. All Rights Reserved. ||
 || # This file may not be redistributed in whole or significant part. # ||
 || # ---------------- VBULLETIN IS NOT FREE SOFTWARE ---------------- # ||
 || # http://www.vbulletin.com | http://www.vbulletin.com/license.html # ||
@@ -14,7 +14,7 @@
 error_reporting(E_ALL & ~E_NOTICE);
 
 // ##################### DEFINE IMPORTANT CONSTANTS #######################
-define('CVS_REVISION', '$RCSfile$ - $Revision: 26326 $');
+define('CVS_REVISION', '$RCSfile$ - $Revision: 40911 $');
 
 // #################### PRE-CACHE TEMPLATES AND DATA ######################
 $phrasegroups = array('cphome');
@@ -70,11 +70,11 @@ if ($_REQUEST['do'] == 'frames')
 
 	$navframe = '<frame src="index.php?' . $vbulletin->session->vars['sessionurl'] . "do=nav" . iif($cpnavjs, '&amp;cpnavjs=1') . "\" name=\"nav\" scrolling=\"yes\" frameborder=\"0\" marginwidth=\"0\" marginheight=\"0\" border=\"no\" />\n";
 	$headframe = '<frame src="index.php?' . $vbulletin->session->vars['sessionurl'] . "do=head\" name=\"head\" scrolling=\"no\" noresize=\"noresize\" frameborder=\"0\" marginwidth=\"10\" marginheight=\"0\" border=\"no\" />\n";
-	$mainframe = '<frame src="' . iif(!empty($vbulletin->GPC['loc']), $vbulletin->GPC['loc'], 'index.php?' . $vbulletin->session->vars['sessionurl'] . 'do=home') . "\" name=\"main\" scrolling=\"yes\" frameborder=\"0\" marginwidth=\"10\" marginheight=\"10\" border=\"no\" />\n";
+	$mainframe = '<frame src="' . iif(!empty($vbulletin->GPC['loc']) AND !preg_match('#^[a-z]+:#i', $vbulletin->GPC['loc']), create_full_url($vbulletin->GPC['loc']), 'index.php?' . $vbulletin->session->vars['sessionurl'] . 'do=home') . "\" name=\"main\" scrolling=\"yes\" frameborder=\"0\" marginwidth=\"10\" marginheight=\"10\" border=\"no\" />\n";
 
 ?>
 <!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Frameset//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-frameset.dtd">
-<html xmlns="http://www.w3.org/1999/xhtml" dir="<?php echo $stylevar['textdirection']; ?>" lang="<?php echo $stylevar['languagecode']; ?>">
+<html xmlns="http://www.w3.org/1999/xhtml" dir="<?php echo vB_Template_Runtime::fetchStyleVar('textdirection'); ?>" lang="<?php echo vB_Template_Runtime::fetchStyleVar('languagecode'); ?>">
 <head>
 <script type="text/javascript">
 <!-- // get out of any containing frameset
@@ -90,7 +90,7 @@ if (self.parent.frames.length != 0)
 
 <?php
 
-if ($stylevar['textdirection'] == 'ltr')
+if (vB_Template_Runtime::fetchStyleVar('textdirection') == 'ltr')
 {
 // left-to-right frameset
 ?>
@@ -133,12 +133,14 @@ if ($_REQUEST['do'] == 'head')
 {
 	define('IS_NAV_PANEL', true);
 	print_cp_header();
+
+	$forumhomelink = fetch_seo_url('forumhome|bburl', array());
 ?>
 <table border="0" width="100%" height="100%">
 <tr valign="middle">
 	<td><a href="http://www.vbulletin.com/" target="_blank"><b><?php echo $vbphrase['moderator_control_panel']; ?></b> (vBulletin <?php echo $vbulletin->versionnumber; ?>)</a></td>
-	<td style="white-space:nowrap; text-align:<?php echo $stylevar['right']; ?>; font-weight:bold">
-			<a href="../<?php echo $vbulletin->options['forumhome']; ?>.php<?php echo $vbulletin->session->vars['sessionurl_q']; ?>" target="_blank"><?php echo $vbphrase['forum_home_page']; ?></a>
+	<td style="white-space:nowrap; text-align:<?php echo vB_Template_Runtime::fetchStyleVar('right'); ?>; font-weight:bold">
+			<a href="<?php echo $forumhomelink; ?>" target="_blank"><?php echo $vbphrase['forum_home_page']; ?></a>
 			|
 			<a href="index.php?<?php echo $vbulletin->session->vars['sessionurl']; ?>do=cplogout" onclick="return confirm('<?php echo $vbphrase['sure_you_want_to_log_out_of_cp']; ?>');"  target="_top"><?php echo $vbphrase['log_out']; ?></a>
 </td>
@@ -171,15 +173,16 @@ $membersarry = $db->query_read("SELECT DISTINCT userid FROM " . TABLE_PREFIX . "
 $guests = intval($guestsarry['sessions']);
 $members = intval($db->num_rows($membersarry));
 
+$is_windows = (strtoupper(substr(PHP_OS, 0, 3)) == 'WIN');
 $loadavg = array();
 
-if (PHP_OS == 'Linux' AND $stats = @exec('uptime 2>&1') AND trim($stats) != '' AND preg_match('#: ([\d.,]+),?\s+([\d.,]+),?\s+([\d.,]+)$#', $stats, $regs))
+if (!$is_windows AND function_exists('exec') AND $stats = @exec('uptime 2>&1') AND trim($stats) != '' AND preg_match('#: ([\d.,]+),?\s+([\d.,]+),?\s+([\d.,]+)$#', $stats, $regs))
 {
 	$loadavg[0] = vb_number_format($regs[1], 2);
 	$loadavg[1] = vb_number_format($regs[2], 2);
 	$loadavg[2] = vb_number_format($regs[3], 2);
 }
-else if (PHP_OS == 'Linux' AND @file_exists('/proc/loadavg') AND $stats = @file_get_contents('/proc/loadavg') AND trim($stats) != '')
+else if (!$is_windows AND @file_exists('/proc/loadavg') AND $stats = @file_get_contents('/proc/loadavg') AND trim($stats) != '')
 {
 	$loadavg = explode(' ', $stats);
 	$loadavg[0] = vb_number_format($loadavg[0], 2);
@@ -262,19 +265,6 @@ if ($_REQUEST['do'] == 'nav')
 	require_once(DIR . '/includes/adminfunctions_navpanel.php');
 	print_cp_header();
 	?>
-	<script type="text/javascript">
-	<!--
-	function nobub()
-	{
-		window.event.cancelBubble = true;
-	}
-
-	function nav_goto(targeturl)
-	{
-		parent.frames.main.location = targeturl;
-	}
-	-->
-	</script>
 <div>
 <img src="../cpstyles/<?php echo $vbulletin->options['cpstylefolder']; ?>/cp_logo.gif" alt="" border="0" hspace="4" vspace="4" /><?php
 	echo "</div>\n\n<div style=\"width:168px; padding: 4px\">\n";
@@ -385,8 +375,8 @@ if ($_REQUEST['do'] == 'nav')
 
 /*======================================================================*\
 || ####################################################################
-|| # Downloaded: 16:21, Sat Apr 6th 2013
-|| # CVS: $RCSfile$ - $Revision: 26326 $
+|| # Downloaded: 14:57, Sun Aug 11th 2013
+|| # CVS: $RCSfile$ - $Revision: 40911 $
 || ####################################################################
 \*======================================================================*/
 ?>

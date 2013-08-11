@@ -1,9 +1,9 @@
 <?php
 /*======================================================================*\
 || #################################################################### ||
-|| # vBulletin 3.7.2 Patch Level 2 - Licence Number VBF2470E4F
+|| # vBulletin 4.2.1 - Licence Number VBC2DDE4FB
 || # ---------------------------------------------------------------- # ||
-|| # Copyright ©2000-2013 Jelsoft Enterprises Ltd. All Rights Reserved. ||
+|| # Copyright ©2000-2013 vBulletin Solutions Inc. All Rights Reserved. ||
 || # This file may not be redistributed in whole or significant part. # ||
 || # ---------------- VBULLETIN IS NOT FREE SOFTWARE ---------------- # ||
 || # http://www.vbulletin.com | http://www.vbulletin.com/license.html # ||
@@ -32,12 +32,19 @@ require_once(DIR . '/includes/functions_misc.php');
 */
 function print_moderator_forum_chooser($name = 'forumid', $selectedid = -1, $topname = NULL, $title = NULL, $displaytop = true, $multiple = false, $displayselectforum = false, $permcheck = '')
 {
+	global $vbphrase;
+	
 	if ($title === NULL)
 	{
 		$title = $vbphrase['parent_forum'];
 	}
 
 	$select_options = fetch_moderator_forum_options($topname, $displaytop, $displayselectforum, $permcheck);
+
+	if ($displayselectforum AND $selectedid < 0)
+	{
+		$selectedid = 0;
+	}
 
 	print_select_row($title, $name, $select_options, $selectedid, 0, iif($multiple, 10, 0), $multiple);
 }
@@ -63,8 +70,7 @@ function fetch_moderator_forum_options($topname = NULL, $displaytop = true, $dis
 
 	if ($displayselectforum)
 	{
-		$selectoptions[0] = $vbphrase['select_forum'];
-		$selectedid = 0;
+		$select_options[0] = $vbphrase['select_forum'];
 	}
 
 	if ($displaytop)
@@ -88,7 +94,7 @@ function fetch_moderator_forum_options($topname = NULL, $displaytop = true, $dis
 		{
 			if ($permcheck == 'none' OR can_moderate($forum['forumid'], $permcheck))
 			{
-				$select_options["$forum[forumid]"] = str_repeat($depthmark, $forum['depth']) . "$startdepth $forum[title]";
+				$select_options["$forum[forumid]"] = str_repeat($depthmark, $forum['depth']) . "$startdepth $forum[title_clean]";
 				if ($show_no_posting)
 				{
 					$select_options["$forum[forumid]"] .= ' ' . ($forum['options'] & $vbulletin->bf_misc_forumoptions['allowposting'] ? '' : " ($vbphrase[no_posting])") . " $forum[allowposting]";
@@ -186,23 +192,38 @@ function inlinemod_authenticated($updatetimeout = true)
 /**
 * Shows the form for inline mod authentication.
 */
-function show_inline_mod_login()
+function show_inline_mod_login($showerror = false, $forumcontext = false)
 {
-	global $vbulletin, $stylevar, $vbphrase, $show;
+	global $vbulletin, $vbphrase, $show;
 
-	$formvars['url'] = $vbulletin->scriptpath;
-	$formvars['username'] = $vbulletin->userinfo['username'];
-	$postvars = construct_post_vars_html();
+	$show['inlinemod_form'] = true;
+	$show['passworderror'] = $showerror;
 
-	eval('$html = "' . fetch_template("threadadmin_authenticate") . '";');
+	if (!$showerror)
+	{
+		if ($forumcontext AND $vbulletin->options['vbforum_url'] AND !preg_match('/^https?/si', SCRIPTPATH))
+		{
+			$vbulletin->url = rtrim($vbulletin->options['vbforum_url'], '/') . '/' . ltrim(SCRIPTPATH, '/');
+		}
+		else
+		{
+			$vbulletin->url = SCRIPTPATH;
+		}
+	}
+	eval(standard_error(fetch_error('nopermission_loggedin',
+		$vbulletin->userinfo['username'],
+		vB_Template_Runtime::fetchStyleVar('right'),
+		$vbulletin->session->vars['sessionurl'],
+		$vbulletin->userinfo['securitytoken'],
+		fetch_seo_url('forumhome', array())
+	)));
 
-	standard_error($html);
 }
 
 /*======================================================================*\
 || ####################################################################
-|| # Downloaded: 16:21, Sat Apr 6th 2013
-|| # CVS: $RCSfile$ - $Revision: 26994 $
+|| # Downloaded: 14:57, Sun Aug 11th 2013
+|| # CVS: $RCSfile$ - $Revision: 55275 $
 || ####################################################################
 \*======================================================================*/
 ?>

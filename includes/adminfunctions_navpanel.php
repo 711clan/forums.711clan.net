@@ -1,9 +1,9 @@
 <?php
 /*======================================================================*\
 || #################################################################### ||
-|| # vBulletin 3.7.2 Patch Level 2 - Licence Number VBF2470E4F
+|| # vBulletin 4.2.1 - Licence Number VBC2DDE4FB
 || # ---------------------------------------------------------------- # ||
-|| # Copyright ©2000-2013 Jelsoft Enterprises Ltd. All Rights Reserved. ||
+|| # Copyright ©2000-2013 vBulletin Solutions Inc. All Rights Reserved. ||
 || # This file may not be redistributed in whole or significant part. # ||
 || # ---------------- VBULLETIN IS NOT FREE SOFTWARE ---------------- # ||
 || # http://www.vbulletin.com | http://www.vbulletin.com/license.html # ||
@@ -45,25 +45,15 @@ function construct_nav_option($title, $url)
 		{
 			$sessionlink = "&amp;s=" . $vbulletin->session->vars['sessionhash'];
 		}
-
-		// only include the bubble-fix for IE - ignore when encountering the Konqueror/Safari event model
-		if (is_browser('ie'))
-		{
-			$bubblefix = ' onclick="nobub()"';
-		}
-		else
-		{
-			$bubblefix = '';
-		}
 	}
 
-	$options[] = "\t\t<div class=\"navlink-normal\" onclick=\"nav_goto('$url$sessionlink');\" onmouseover=\"this.className='navlink-hover';\" onmouseout=\"this.className='navlink-normal'\"><a href=\"$url$sessionlink\"$bubblefix>$title</a></div>\n";
+	$options[] = "\t\t<a class=\"navlink\" href=\"$url$sessionlink\">$title</a>\n";
 }
 
 function fetch_nav_text($navoption)
 {
 	global $vbphrase;
-	
+
 	if (isset($navoption['phrase']) AND isset($vbphrase["$navoption[phrase]"]))
 	{
 		return $vbphrase["$navoption[phrase]"];
@@ -86,7 +76,7 @@ function construct_nav_group($title, $nav_file = 'vbulletin')
 // creates a <select> or <table> for the left panel of index.php
 // (depending on value of $cpnavjs)
 
-	global $_NAV, $_NAVPREFS, $vbulletin, $vbphrase, $stylevar, $options, $groupid;
+	global $_NAV, $_NAVPREFS, $vbulletin, $vbphrase, $options, $groupid;
 	static $localphrase, $navlinks;
 
 	if (VB_AREA == 'AdminCP')
@@ -123,11 +113,11 @@ function construct_nav_group($title, $nav_file = 'vbulletin')
 		<table cellpadding=\"0\" cellspacing=\"0\" border=\"0\" width=\"100%\" class=\"navtitle\" ondblclick=\"toggle_group('{$nav_file}_$groupid[$nav_file]'); return false;\">
 		<tr>
 			<td><strong>$title</strong></td>
-			<td align=\"$stylevar[right]\">
+			<td align=\"" . vB_Template_Runtime::fetchStyleVar('right') . "\">
 				<a href=\"index.php?" . $vbulletin->session->vars['sessionurl'] . "do=buildnavprefs&amp;nojs=" . $vbulletin->GPC['nojs'] . "&amp;prefs=$navlinks&amp;dowhat=$dowhat&amp;id={$nav_file}_$groupid[$nav_file]#grp{$nav_file}_$groupid[$nav_file]\" target=\"_self\"
 					onclick=\"toggle_group('{$nav_file}_$groupid[$nav_file]'); return false;\"
 					oncontextmenu=\"toggle_group('{$nav_file}_$groupid[$nav_file]'); save_group_prefs('{$nav_file}_$groupid[$nav_file]'); return false\"
-				><img src=\"../cpstyles/" . $vbulletin->options['cpstylefolder'] . "/cp_$dowhat.gif\" title=\"$tooltip\" id=\"button_{$nav_file}_$groupid[$nav_file]\" alt=\"\" border=\"0\" /></a>
+				><img src=\"../cpstyles/" . $vbulletin->options['cpstylefolder'] . "/cp_$dowhat.gif\" title=\"$tooltip\" id=\"button_{$nav_file}_$groupid[$nav_file]\" alt=\"+\" border=\"0\" /></a>
 			</td>
 		</tr>
 		</table>";
@@ -221,16 +211,6 @@ function print_nav_panel()
 ?>
 	var files = new Array('<?php echo implode("','", $navs); ?>');
 
-	function nobub()
-	{
-		window.event.cancelBubble = true;
-	}
-
-	function nav_goto(targeturl)
-	{
-		parent.frames.main.location = targeturl;
-	}
-
 	function open_close_group(group, doOpen)
 	{
 		var curdiv = fetch_object("group_" + group);
@@ -240,13 +220,13 @@ function print_nav_panel()
 		{
 			curdiv.style.display = "";
 			curbtn.src = "../cpstyles/<?php echo $vbulletin->options['cpstylefolder']; ?>/cp_collapse.gif";
-			curbtn.title = "<?php echo $localphrase['collapse_group']; ?>";
+			curbtn.title = "<?php echo $vbphrase['collapse_group']; ?>";
 		}
 		else
 		{
 			curdiv.style.display = "none";
 			curbtn.src = "../cpstyles/<?php echo $vbulletin->options['cpstylefolder']; ?>/cp_expand.gif";
-			curbtn.title = "<?php echo $localphrase['expand_group']; ?>";
+			curbtn.title = "<?php echo $vbphrase['expand_group']; ?>";
 		}
 
 	}
@@ -326,13 +306,13 @@ function print_nav_panel()
 	</script>
 	<?php
 
-	echo $controls . $_NAV . $_controls;
+	echo $controls . $_NAV;
 }
 
 /*======================================================================*\
 || ####################################################################
-|| # Downloaded: 16:21, Sat Apr 6th 2013
-|| # CVS: $RCSfile$ - $Revision: 14805 $
+|| # Downloaded: 14:57, Sun Aug 11th 2013
+|| # CVS: $RCSfile$ - $Revision: 61069 $
 || ####################################################################
 \*======================================================================*/
 ?>

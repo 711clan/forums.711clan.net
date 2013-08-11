@@ -1,9 +1,9 @@
 <?php
 /*======================================================================*\
 || #################################################################### ||
-|| # vBulletin 3.7.2 Patch Level 2 - Licence Number VBF2470E4F
+|| # vBulletin 4.2.1 - Licence Number VBC2DDE4FB
 || # ---------------------------------------------------------------- # ||
-|| # Copyright ©2000-2013 Jelsoft Enterprises Ltd. All Rights Reserved. ||
+|| # Copyright ©2000-2013 vBulletin Solutions Inc. All Rights Reserved. ||
 || # This file may not be redistributed in whole or significant part. # ||
 || # ---------------- VBULLETIN IS NOT FREE SOFTWARE ---------------- # ||
 || # http://www.vbulletin.com | http://www.vbulletin.com/license.html # ||
@@ -27,7 +27,6 @@ $specialtemplates = array();
 // pre-cache templates used by all actions
 $globaltemplates = array(
 	'SHOWGROUPS',
-	'showgroups_forumbit',
 	'showgroups_usergroup',
 	'showgroups_usergroupbit',
 	'postbit_onlinestatus'
@@ -38,6 +37,8 @@ $actiontemplates = array();
 
 // ######################### REQUIRE BACK-END ############################
 require_once('./global.php');
+require_once(DIR . '/includes/functions_bigthree.php');
+require_once(DIR . '/includes/functions_user.php');
 
 // #######################################################################
 // ######################## START MAIN SCRIPT ############################
@@ -48,16 +49,24 @@ if (!$vbulletin->options['forumleaders'])
 	print_no_permission();
 }
 
-$show['locationfield'] = true;
+// 2 is the default location field and the one we always use in the template
+$show['locationfield'] = $db->query_first("
+	SELECT profilefieldid
+	FROM " . TABLE_PREFIX . "profilefield
+	WHERE profilefieldid = 2
+");
+
+$show['contactinfo'] = (bool)$vbulletin->userinfo['userid'];
+
 function process_showgroups_userinfo($user)
 {
-	global $vbulletin, $permissions, $stylevar, $show;
+	global $vbulletin, $permissions, $show;
 
-	$post =& $user;
-	$datecut = TIMENOW - $vbulletin->options['cookietimeout'];
+	$user = array_merge($user, convert_bits_to_array($user['options'], $vbulletin->bf_misc_useroptions));
+	$user = array_merge($user, convert_bits_to_array($user['adminoptions'], $vbulletin->bf_misc_adminoptions));
+	cache_permissions($user, false);
 
-	require_once(DIR . '/includes/functions_bigthree.php');
-	fetch_online_status($user, true);
+	fetch_online_status($user);
 
 	if ((!$user['invisible'] OR $permissions['genericpermissions'] & $vbulletin->bf_ugp_genericpermissions['canseehidden']))
 	{
@@ -69,22 +78,9 @@ function process_showgroups_userinfo($user)
 	}
 
 	fetch_musername($user);
+	fetch_avatar_from_userinfo($user, true);
 
 	return $user;
-}
-
-function print_users($usergroupid, $userarray)
-{
-	global $bgclass, $vbphrase;
-	$out = '';
-	uksort($userarray, 'strnatcasecmp'); // alphabetically sort usernames
-	foreach ($userarray AS $user)
-	{
-		exec_switch_bg();
-		$user = process_showgroups_userinfo($user);
-		eval('$out .= "' . fetch_template('showgroups_adminbit') . '";');
-	}
-	return $out;
 }
 
 if (!($permissions & $vbulletin->bf_ugp_forumpermissions['canview']))
@@ -92,37 +88,52 @@ if (!($permissions & $vbulletin->bf_ugp_forumpermissions['canview']))
 	print_no_permission();
 }
 
+$hook_query_fields = $hook_query_joins = $hook_query_where = '';
 ($hook = vBulletinHook::fetch_hook('showgroups_start')) ? eval($hook) : false;
-
-//require_once(DIR . '/includes/functions_databuild.php');
-//cache_forums();
-
-construct_forum_jump();
 
 // get usergroups who should be displayed on showgroups
 // Scans too many rows. Usergroup Rows * User Rows
-$users = $db->query_read_slave("
-	SELECT user.*, usergroup.usergroupid, usergroup.title, user.options, usertextfield.*, userfield.*,
-	IF(displaygroupid=0, user.usergroupid, displaygroupid) AS displaygroupid, infractiongroupid
-	FROM " . TABLE_PREFIX . "user AS user
-	LEFT JOIN " . TABLE_PREFIX . "usergroup AS usergroup ON(usergroup.usergroupid = user.usergroupid OR FIND_IN_SET(usergroup.usergroupid, user.membergroupids))
-	LEFT JOIN " . TABLE_PREFIX . "userfield AS userfield ON(userfield.userid = user.userid)
-	LEFT JOIN " . TABLE_PREFIX . "usertextfield AS usertextfield ON(usertextfield.userid=user.userid)
-	WHERE (usergroup.genericoptions & " . $vbulletin->bf_ugp_genericoptions['showgroup'] . ")
-");
 
+// VBIV-6689 Caching.
 $groupcache = array();
-while ($user = $db->fetch_array($users))
+if ($vbulletin->options['flcache']) 
 {
-	$user = array_merge($user , convert_bits_to_array($user['options'], $vbulletin->bf_misc_useroptions));
-	$user = array_merge($user , convert_bits_to_array($user['adminoptions'] , $vbulletin->bf_misc_adminoptions));
-	cache_permissions($user, false);
+	$groupcache = vB_Cache::instance()->read('showgroups.groupcache');
+}
 
-	if ($user['userid'])
+if (empty($groupcache)) 
+{
+	$users = $db->query_read_slave("
+		SELECT user.*,
+			usergroup.title,
+			user.options, usertextfield.buddylist,
+			" . ($show['locationfield'] ? 'userfield.field2,' : '') . "
+			IF(user.displaygroupid = 0, user.usergroupid, user.displaygroupid) AS displaygroupid
+			" . ($vbulletin->options['avatarenabled'] ? ",avatar.avatarpath, NOT ISNULL(customavatar.userid) AS hascustomavatar, customavatar.dateline AS avatardateline,
+			customavatar.width AS avwidth,customavatar.height AS avheight, customavatar.width_thumb AS avwidth_thumb, customavatar.height_thumb AS avheight_thumb, 
+			filedata_thumb, NOT ISNULL(customavatar.userid) AS hascustom" : "") . "
+		$hook_query_fields
+		FROM " . TABLE_PREFIX . "user AS user
+		LEFT JOIN " . TABLE_PREFIX . "usergroup AS usergroup ON(usergroup.usergroupid = user.usergroupid OR FIND_IN_SET(usergroup.usergroupid, user.membergroupids))
+		LEFT JOIN " . TABLE_PREFIX . "userfield AS userfield ON(userfield.userid = user.userid)
+		LEFT JOIN " . TABLE_PREFIX . "usertextfield AS usertextfield ON(usertextfield.userid=user.userid)
+		" . ($vbulletin->options['avatarenabled'] ? "LEFT JOIN " . TABLE_PREFIX . "avatar AS avatar ON(avatar.avatarid = user.avatarid) 
+			LEFT JOIN " . TABLE_PREFIX . "customavatar AS customavatar ON(customavatar.userid = user.userid)" : "") . "
+		$hook_query_joins
+		WHERE (usergroup.genericoptions & " . $vbulletin->bf_ugp_genericoptions['showgroup'] . ")
+		$hook_query_where
+	");
+
+	while ($user = $db->fetch_array($users))
 	{
 		$t = strtoupper($user['title']);
 		$u = strtoupper($user['username']);
 		$groupcache["$t"]["$u"] = $user;
+	}
+
+	if ($vbulletin->options['flcache']) 
+	{
+		vB_Cache::instance()->write('showgroups.groupcache', $groupcache, $vbulletin->options['flcache']); 
 	}
 }
 
@@ -151,7 +162,7 @@ if (sizeof($groupcache) >= 1)
 				$show['pmlink'] = false;
 			}
 
-			if ($user['showemail'] AND $vbulletin->options['displayemails'] AND (!$vbulletin->options['secureemail'] OR ($vbulletin->options['secureemail'] AND $vbulletin->options['enableemail'])) AND $vbulletin->userinfo['permissions']['genericpermissions'] & $vbulletin->bf_ugp_genericpermissions['canemailmember'])
+			if ($user['showemail'] AND $vbulletin->options['displayemails'] AND (!$vbulletin->options['secureemail'] OR ($vbulletin->options['secureemail'] AND $vbulletin->options['enableemail'])) AND $vbulletin->userinfo['permissions']['genericpermissions'] & $vbulletin->bf_ugp_genericpermissions['canemailmember'] AND $vbulletin->userinfo['userid'])
 			{
 				$show['emaillink'] = true;
 			}
@@ -161,25 +172,47 @@ if (sizeof($groupcache) >= 1)
 			}
 
 			($hook = vBulletinHook::fetch_hook('showgroups_user')) ? eval($hook) : false;
-			eval('$usergroupbits .= "' . fetch_template('showgroups_usergroupbit') . '";');
+			$templater = vB_Template::create('showgroups_usergroupbit');
+				$templater->register('bgclass', $bgclass);
+				$templater->register('showforums', $showforums);
+				$templater->register('user', $user);
+				$templater->register('xhtml_id', ++$xhtmlid2);
+			$usergroupbits .= $templater->render();
 		}
 
 		($hook = vBulletinHook::fetch_hook('showgroups_usergroup')) ? eval($hook) : false;
-		eval('$usergroups .= "' . fetch_template('showgroups_usergroup') . '";');
+		$templater = vB_Template::create('showgroups_usergroup');
+			$templater->register('user', $user);
+			$templater->register('usergroupbits', $usergroupbits);
+			$templater->register('xhtml_id', ++$xhtmlid);
+		$usergroups .= $templater->render();
 	}
 }
+
+unset($groupcache);
+
+$hook_query_fields = $hook_query_joins = $hook_query_where = '';
+($hook = vBulletinHook::fetch_hook('showgroups_forumleaders')) ? eval($hook) : false;
 
 if ($vbulletin->options['forumleaders'] == 1)
 {
 	// get moderators **********************************************************
 	$moderators = $db->query_read_slave("
-		SELECT user.*, moderator.forumid, usertextfield.*, userfield.*,
-		IF(displaygroupid=0, user.usergroupid, displaygroupid) AS displaygroupid, infractiongroupid
+		SELECT user.*,
+			moderator.forumid,
+			usertextfield.buddylist,
+			" . ($show['locationfield'] ? 'userfield.field2,' : '') . "
+			IF(user.displaygroupid = 0, user.usergroupid, user.displaygroupid) AS displaygroupid
+			" . ($vbulletin->options['avatarenabled'] ? ",avatar.avatarpath, NOT ISNULL(customavatar.userid) AS hascustomavatar, customavatar.dateline AS avatardateline,customavatar.width AS avwidth,customavatar.height AS avheight, customavatar.width_thumb AS avwidth_thumb, customavatar.height_thumb AS avheight_thumb, filedata_thumb, NOT ISNULL(customavatar.userid) AS hascustom" : "") . "
+		$hook_query_fields
 		FROM " . TABLE_PREFIX . "moderator AS moderator
 		INNER JOIN " . TABLE_PREFIX . "user AS user USING(userid)
 		INNER JOIN " . TABLE_PREFIX . "userfield AS userfield ON(userfield.userid = user.userid)
 		INNER JOIN " . TABLE_PREFIX . "usertextfield AS usertextfield ON(usertextfield.userid=user.userid)
+		" . ($vbulletin->options['avatarenabled'] ? "LEFT JOIN " . TABLE_PREFIX . "avatar AS avatar ON(avatar.avatarid = user.avatarid) LEFT JOIN " . TABLE_PREFIX . "customavatar AS customavatar ON(customavatar.userid = user.userid)" : "") . "
+		$hook_query_joins
 		WHERE moderator.forumid <> -1
+		$hook_query_where
 	");
 	$modcache = array();
 	while ($moderator = $db->fetch_array($moderators))
@@ -212,24 +245,35 @@ if ($vbulletin->options['forumleaders'] == 1)
 			{
 				continue;
 			}
+
+			$clc = 0;
 			$modforums = array();
 			uasort($premodforums, 'strnatcasecmp'); // alphabetically sort moderator usernames
 			foreach($premodforums AS $forumid => $forumtitle)
 			{
-				($hook = vBulletinHook::fetch_hook('showgroups_forum')) ? eval($hook) : false;
-				eval('$modforums[] = "' . fetch_template('showgroups_forumbit') . '";');
-			}
-			$user = $moderator;
-			$user = array_merge($user , convert_bits_to_array($user['options'], $vbulletin->bf_misc_useroptions));
-			$user = array_merge($user , convert_bits_to_array($user['adminoptions'] , $vbulletin->bf_misc_adminoptions));
-			cache_permissions($user, false);
+				$foruminfo = array(
+					'forumid' => $forumid,
+					'title'   => $forumtitle,
+				);
 
-			$user = process_showgroups_userinfo($user);
-			$user['forumbits'] = implode(",\n", $modforums);
+				($hook = vBulletinHook::fetch_hook('showgroups_forum')) ? eval($hook) : false;
+
+				$clc++;
+				$foruminfo['comma'] = $vbphrase['comma_space'];
+				$modforums[$clc] = $foruminfo;
+			}
+
+			// Last element
+			if ($clc) 
+			{
+				$modforums[$clc]['comma'] = '';
+			}
+
+			$moderator = process_showgroups_userinfo($moderator);
 
 			if ($vbulletin->options['enablepms'] AND $vbulletin->userinfo['permissions']['pmquota'] AND ($vbulletin->userinfo['permissions']['adminpermissions'] & $vbulletin->bf_ugp_adminpermissions['cancontrolpanel']
-	 				OR ($user['receivepm'] AND $user['permissions']['pmquota']
-	 				AND (!$user['receivepmbuddies'] OR can_moderate() OR strpos(" $user[buddylist] ", ' ' . $vbulletin->userinfo['userid'] . ' ') !== false))
+	 				OR ($moderator['receivepm'] AND $moderator['permissions']['pmquota']
+	 				AND (!$moderator['receivepmbuddies'] OR can_moderate() OR strpos(" $moderator[buddylist] ", ' ' . $vbulletin->userinfo['userid'] . ' ') !== false))
 	 		))
 			{
 				$show['pmlink'] = true;
@@ -239,7 +283,7 @@ if ($vbulletin->options['forumleaders'] == 1)
 				$show['pmlink'] = false;
 			}
 
-			if ($user['showemail'] AND $vbulletin->options['displayemails'] AND (!$vbulletin->options['secureemail'] OR ($vbulletin->options['secureemail'] AND $vbulletin->options['enableemail'])) AND $vbulletin->userinfo['permissions']['genericpermissions'] & $vbulletin->bf_ugp_genericpermissions['canemailmember'])
+			if ($moderator['showemail'] AND $vbulletin->options['displayemails'] AND (!$vbulletin->options['secureemail'] OR ($vbulletin->options['secureemail'] AND $vbulletin->options['enableemail'])) AND $vbulletin->userinfo['permissions']['genericpermissions'] & $vbulletin->bf_ugp_genericpermissions['canemailmember'] AND $vbulletin->userinfo['userid'])
 			{
 				$show['emaillink'] = true;
 			}
@@ -248,27 +292,44 @@ if ($vbulletin->options['forumleaders'] == 1)
 				$show['emaillink'] = false;
 			}
 
-			exec_switch_bg();
-
 			($hook = vBulletinHook::fetch_hook('showgroups_usergroup')) ? eval($hook) : false;
-			eval('$moderatorbits .= "' . fetch_template('showgroups_usergroupbit') . '";');
+
+			$templater = vB_Template::create('showgroups_usergroupbit');
+				$templater->register('modforums', $modforums);
+				$templater->register('showforums', $showforums);
+				$templater->register('user', $moderator); // Needs to be 'user' because we are using the same template as above.
+				$templater->register('xhtml_id', ++$xhtmlid2);
+			$moderatorbits .= $templater->render();
 		}
 	}
 }
 
 // *******************************************************
 
+$navpopup = array(
+	'id'    => 'showgroups_navpopup',
+	'title' => $vbphrase['show_groups'],
+	'link'  => 'showgroups.php' . $vbulletin->session->vars['sessionurl_q'],
+);
+construct_quick_nav($navpopup);
+
 $navbits = construct_navbits(array('' => $vbphrase['show_groups']));
-eval('$navbar = "' . fetch_template('navbar') . '";');
+$navbar = render_navbar_template($navbits);
 
 ($hook = vBulletinHook::fetch_hook('showgroups_complete')) ? eval($hook) : false;
 
-eval('print_output("' . fetch_template('SHOWGROUPS') . '");');
+$templater = vB_Template::create('SHOWGROUPS');
+	$templater->register_page_templates();
+	$templater->register('forumjump', $forumjump);
+	$templater->register('moderatorbits', $moderatorbits);
+	$templater->register('navbar', $navbar);
+	$templater->register('usergroups', $usergroups);
+print_output($templater->render());
 
 /*======================================================================*\
 || ####################################################################
-|| # Downloaded: 16:21, Sat Apr 6th 2013
-|| # CVS: $RCSfile$ - $Revision: 26399 $
+|| # Downloaded: 14:57, Sun Aug 11th 2013
+|| # CVS: $RCSfile$ - $Revision: 62098 $
 || ####################################################################
 \*======================================================================*/
 ?>

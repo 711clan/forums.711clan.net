@@ -1,9 +1,9 @@
 <?php
 /*======================================================================*\
 || #################################################################### ||
-|| # vBulletin 3.7.2 Patch Level 2 - Licence Number VBF2470E4F
+|| # vBulletin 4.2.1 - Licence Number VBC2DDE4FB
 || # ---------------------------------------------------------------- # ||
-|| # Copyright ©2000-2013 Jelsoft Enterprises Ltd. All Rights Reserved. ||
+|| # Copyright ©2000-2013 vBulletin Solutions Inc. All Rights Reserved. ||
 || # This file may not be redistributed in whole or significant part. # ||
 || # ---------------- VBULLETIN IS NOT FREE SOFTWARE ---------------- # ||
 || # http://www.vbulletin.com | http://www.vbulletin.com/license.html # ||
@@ -24,9 +24,14 @@ if (isset($_REQUEST['GLOBALS']) OR isset($_FILES['GLOBALS']))
 
 @ini_set('pcre.backtrack_limit', -1);
 
+// Force PHP 5.3.0+ to take time zone information from OS
+if (version_compare(phpversion(), '5.3.0', '>='))
+{
+	@date_default_timezone_set(date_default_timezone_get());
+}
+
 // start the page generation timer
-$pagestarttime = microtime();
-define('TIMESTART', microtime());
+define('TIMESTART', microtime(true));
 
 // set the current unix timestamp
 define('TIMENOW', time());
@@ -42,6 +47,12 @@ if (!defined('CWD'))
 
 // #############################################################################
 // fetch the core includes
+
+if (!defined('VB_API'))
+{
+	define('VB_API', false);
+}
+
 require_once(CWD . '/includes/class_core.php');
 set_error_handler('vb_error_handler');
 
@@ -50,6 +61,10 @@ $vbulletin = new vB_Registry();
 
 // parse the configuration ini file
 $vbulletin->fetch_config();
+
+// Add AdSense if present
+$vbulletin->adsense_pub_id = '';
+$vbulletin->adsense_host_id = '';
 
 if (CWD == '.')
 {
@@ -170,9 +185,20 @@ $db->connect(
 	$vbulletin->config['SlaveServer']['password'],
 	$vbulletin->config['SlaveServer']['usepconnect'],
 	$vbulletin->config['Mysqli']['ini_file'],
-	$vbulletin->config['Mysqli']['charset']
+	(isset($vbulletin->config['Mysqli']['charset']) ? $vbulletin->config['Mysqli']['charset'] : '')
 );
-if (!empty($vbulletin->config['Database']['force_sql_mode']))
+
+//30443 Right now the product doesn't work in strict mode at all.  Its silly to make people have to edit their
+//config to handle what appears to be a very common case (though the mysql docs say that no mode is the default)
+//we no longer use the force_sql_mode parameter, though if the app is fixed to handle strict mode then we
+//may wish to change the default again, in which case we should honor the force_sql_mode option.
+//added the force parameter
+
+if (
+	empty($vbulletin->config['Database']['no_force_sql_mode'])
+	OR
+	!empty($vbulletin->config['Database']['force_sql_mode'])
+)
 {
 	$db->force_sql_mode('');
 }
@@ -199,19 +225,36 @@ if ($datastore_class != 'vB_Datastore')
 	require_once(DIR . '/includes/class_datastore.php');
 }
 $vbulletin->datastore = new $datastore_class($vbulletin, $db);
-$vbulletin->datastore->fetch($specialtemplates);
+if (!$vbulletin->datastore->fetch($specialtemplates))
+{
+	switch(VB_AREA)
+	{
+		case 'AdminCP':
+		case 'Archive':
+			exec_header_redirect('../install/install.php');
+			break;
+		case 'Forum':
+		default:
+			exec_header_redirect('install/install.php');
+	}
+}
 
 if ($vbulletin->bf_ugp === null)
 {
 	echo '<div>vBulletin datastore error caused by one or more of the following:
 		<ol>
 			' . (function_exists('mmcache_get') ? '<li>Turck MMCache has been detected on your server, first try disabling Turck MMCache or replacing it with eAccelerator</li>' : '') . '
-			<li>You may have uploaded vBulletin 3.6 files without also running the vBulletin upgrade script. If you have not run the upgrade script, do so now.</li>
+			<li>You may have uploaded vBulletin files without also running the vBulletin upgrade script. If you have not run the upgrade script, do so now.</li>
 			<li>The datastore cache may have been corrupted. Run <em>Rebuild Bitfields</em> from <em>tools.php</em>, which you can upload from the <em>do_not_upload</em> folder of the vBulletin package.</li>
 		</ol>
 	</div>';
 
 	trigger_error('vBulletin datastore cache incomplete or corrupt', E_USER_ERROR);
+}
+
+if (defined('VB_PRODUCT') AND (!isset($vbulletin->products[VB_PRODUCT]) OR !($vbulletin->products[VB_PRODUCT])))
+{
+	exec_header_redirect(fetch_seo_url('forumhome|bburl', array()), 303);
 }
 
 if (!empty($db->explain))
@@ -235,7 +278,7 @@ define('SAPI_NAME', php_sapi_name());
 /*
 if (!defined('NOSHUTDOWNFUNC'))
 {
-	if (PHP_VERSION < '5' OR ((SAPI_NAME == 'cgi' OR SAPI_NAME == 'cgi-fcgi') AND $vbulletin->options['gzipoutput'] AND strpos($_SERVER['SERVER_SOFTWARE'], 'Microsoft-IIS') !== false))
+	if ((SAPI_NAME == 'cgi' OR SAPI_NAME == 'cgi-fcgi') AND $vbulletin->options['gzipoutput'] AND strpos($_SERVER['SERVER_SOFTWARE'], 'Microsoft-IIS') !== false)
 	{
 		define('NOSHUTDOWNFUNC', true);
 	}
@@ -248,7 +291,7 @@ if (!defined('NOSHUTDOWNFUNC'))
 define('NOSHUTDOWNFUNC', true);
 
 // fetch url of referring page after we have access to vboptions['forumhome']
-$vbulletin->url =& $vbulletin->input->fetch_url();
+$vbulletin->url = $vbulletin->input->fetch_url();
 define('REFERRER_PASSTHRU', $vbulletin->url);
 
 // #############################################################################
@@ -263,7 +306,6 @@ if (defined('DEMO_MODE') AND DEMO_MODE AND function_exists('vbulletin_demo_init_
 if ($vbulletin->options['enablehooks'] OR defined('FORCE_HOOKS'))
 {
 	require_once(DIR . '/includes/class_hook.php');
-	$hookobj =& vBulletinHook::init();
 	if ($vbulletin->options['enablehooks'] AND !defined('DISABLE_HOOKS'))
 	{
 		if (!empty($vbulletin->pluginlistadmin) AND is_array($vbulletin->pluginlistadmin))
@@ -271,7 +313,7 @@ if ($vbulletin->options['enablehooks'] OR defined('FORCE_HOOKS'))
 			$vbulletin->pluginlist = array_merge($vbulletin->pluginlist, $vbulletin->pluginlistadmin);
 			unset($vbulletin->pluginlistadmin);
 		}
-		$hookobj->set_pluginlist($vbulletin->pluginlist);
+		vBulletinHook::set_pluginlist($vbulletin->pluginlist);
 	}
 }
 else
@@ -281,22 +323,44 @@ else
 	* @ignore
 	*/
 	class vBulletinHook {
-		function fetch_hook() { return false; }
-		function fetch_hookusage() { return array(); }
+		public static function fetch_hook() { return false; }
+		public static function fetch_hookusage() { return array(); }
 	}
 	$vbulletin->pluginlist = '';
 }
+$template_hook = array();
 
-// if you push things onto this, you need to include the single quotes!
-$datastore_fetch = array();
+// $new_datastore_fetch does not require single quotes
+$new_datastore_fetch = $datastore_fetch = array();
 
 ($hook = vBulletinHook::fetch_hook('init_startup')) ? eval($hook) : false;
 
 if (!empty($datastore_fetch))
 {
-	$vbulletin->datastore->do_db_fetch(implode(',', $datastore_fetch));
+	// Remove the single quotes that $datastore_fetch required
+	foreach ($datastore_fetch AS $value)
+	{
+		$new_datastore_fetch[] = substr($value, 1, -1);
+	}
 }
-unset($datastore_fetch);
+
+$vbulletin->datastore->fetch($new_datastore_fetch);
+unset($datastore_fetch, $new_datastore_fetch);
+
+// #############################################################################
+// Parse the friendly uri for the current request
+if (defined('FRIENDLY_URL_LINK'))
+{
+	require_once(DIR . '/includes/class_friendly_url.php');
+
+	$friendly = vB_Friendly_Url::fetchLibrary($vbulletin, FRIENDLY_URL_LINK . '|nosession');
+
+	if ($vbulletin->input->friendly_uri = $friendly->get_uri())
+	{
+		// don't resolve the wolpath
+		define('SKIP_WOLPATH', 1);
+	}
+}
 
 // #############################################################################
 // do a callback to modify any variables that might need modifying based on HTTP input
@@ -313,17 +377,126 @@ $show = array();
 // #############################################################################
 // Clean Cookie Vars
 $vbulletin->input->clean_array_gpc('c', array(
-	'vbulletin_collapse'           => TYPE_STR,
-	COOKIE_PREFIX . 'referrerid'   => TYPE_UINT,
-	COOKIE_PREFIX . 'userid'       => TYPE_UINT,
-	COOKIE_PREFIX . 'password'     => TYPE_STR,
-	COOKIE_PREFIX . 'lastvisit'    => TYPE_UINT,
-	COOKIE_PREFIX . 'lastactivity' => TYPE_UINT,
-	COOKIE_PREFIX . 'threadedmode' => TYPE_STR,
-	COOKIE_PREFIX . 'sessionhash'  => TYPE_STR,
-	COOKIE_PREFIX . 'styleid'      => TYPE_UINT,
-	COOKIE_PREFIX . 'languageid'   => TYPE_UINT,
+	'vbulletin_collapse'              => TYPE_STR,
+	COOKIE_PREFIX . 'referrerid'      => TYPE_UINT,
+	COOKIE_PREFIX . 'userid'          => TYPE_UINT,
+	COOKIE_PREFIX . 'password'        => TYPE_STR,
+	COOKIE_PREFIX . 'lastvisit'       => TYPE_UINT,
+	COOKIE_PREFIX . 'lastactivity'    => TYPE_UINT,
+	COOKIE_PREFIX . 'threadedmode'    => TYPE_NOHTML,
+	COOKIE_PREFIX . 'sessionhash'     => TYPE_NOHTML,
+	COOKIE_PREFIX . 'userstyleid'     => TYPE_INT,
+	COOKIE_PREFIX . 'languageid'      => TYPE_UINT,
+	COOKIE_PREFIX . 'skipmobilestyle' => TYPE_BOOL,
 ));
+
+
+// #############################################################################
+// VB API Request Signature Verification
+if (defined('VB_API') AND VB_API === true)
+{
+	// API disabled
+	if (!$vbulletin->options['enableapi'] OR !$vbulletin->options['apikey'])
+	{
+		print_apierror('api_disabled', 'API is disabled');
+	}
+
+	global $VB_API_PARAMS_TO_VERIFY, $VB_API_REQUESTS;
+
+	$vbulletin->input->clean_array_gpc('r', array(
+		'debug'         => TYPE_BOOL,
+		'showall'       => TYPE_BOOL,
+	));
+
+	if ($VB_API_REQUESTS['api_c'])
+	{
+		// Get client information from api_c. api_c has been intvaled in api.php
+		$client = $db->query_first("SELECT *
+			FROM " . TABLE_PREFIX . "apiclient
+			WHERE apiclientid = $VB_API_REQUESTS[api_c]");
+
+		if (!$client)
+		{
+			print_apierror('invalid_clientid', 'Invalid Client ID');
+		}
+
+		// An accesstoken is passed but invalid
+		if ($VB_API_REQUESTS['api_s'] AND $VB_API_REQUESTS['api_s'] != $client['apiaccesstoken'])
+		{
+			print_apierror('invalid_accesstoken', 'Invalid Access Token');
+		}
+
+		$signtoverify = md5(http_build_query($VB_API_PARAMS_TO_VERIFY, '', '&') . $VB_API_REQUESTS['api_s'] . $client['apiclientid'] . $client['secret'] . $vbulletin->options['apikey']);
+		$vbulletin->input->clean_array_gpc('r', array(
+			'debug' => TYPE_BOOL,
+		));
+		if ($VB_API_REQUESTS['api_sig'] !== $signtoverify AND !($vbulletin->debug AND $vbulletin->GPC['debug']))
+		{
+			//echo ' Should be: ' . $signtoverify . ' md5("' . http_build_query($VB_API_PARAMS_TO_VERIFY, '', '&') . $VB_API_REQUESTS['api_s'] . $client['apiclientid'] . $client['secret'] . '")';
+			print_apierror('invalid_api_signature', 'Invalid API Signature');
+		}
+		else
+		{
+			$vbulletin->apiclient = $client;
+		}
+
+		if ($vbulletin->options['enableapilog'])
+		{
+			$hide = array(
+				'vb_login_password',
+				'vb_login_md5password',
+				'vb_login_md5password_utf',
+				'password',
+				'password_md5',
+				'passwordconfirm',
+				'passwordconfirm_md5',
+				/* Not currently used by mapi
+				but might be in the future */
+				'currentpassword',
+				'currentpassword_md5',
+				'newpassword',
+				'newpasswordconfirm',
+				'newpassword_md5',
+				'newpasswordconfirm_md5',
+			);
+
+			$post_copy = $_POST;
+
+			foreach ($hide AS $param)
+			{
+				if ($post_copy[$param])
+				{
+					$post_copy[$param] = '*****';
+				}
+			}
+
+			$db->query_write("
+				INSERT INTO " . TABLE_PREFIX . "apilog (apiclientid, method, paramget, parampost, ipaddress, dateline)
+				VALUES (
+					$VB_API_REQUESTS[api_c],
+					'" . $db->escape_string($VB_API_REQUESTS['api_m']) . "',
+					'" . $db->escape_string(serialize($_GET)) . "',
+					'" . (($vbulletin->options['apilogpostparam'])?$db->escape_string(serialize($post_copy)):'') . "',
+					'" . $db->escape_string(IPADDRESS) . "',
+					'" . TIMENOW . "'
+				)
+			");
+
+			unset($hide, $post_copy);
+		}
+
+		// TODO: Disable human verification in this release. enabled it when release API to public
+		$vbulletin->options['hvcheck'] = 0;
+		$vbulletin->options['vbforum_url'] = '';
+		$vbulletin->options['vbcms_url'] = '';
+		$vbulletin->options['vbblog_url'] = '';
+	}
+	// api_init is a special method that is able to generate new client info.
+	elseif ($VB_API_REQUESTS['api_m'] != 'api_init' AND !($vbulletin->debug AND $vbulletin->GPC['debug']))
+	{
+		print_apierror('missing_api_signature', 'Missing API Signature');
+	}
+}
 
 // #############################################################################
 // Setup session
@@ -333,16 +506,23 @@ if (!empty($db->explain))
 }
 
 $vbulletin->input->clean_array_gpc('r', array(
-	's'       => TYPE_STR,
+	's'       => TYPE_NOHTML,
 	'styleid' => TYPE_INT,
 	'langid'  => TYPE_INT,
 ));
 
 // conditional used in templates to hide things from search engines.
-$show['search_engine'] = ($vbulletin->superglobal_size['_COOKIE'] == 0 AND preg_match("#(google|msnbot|yahoo! slurp)#si", $_SERVER['HTTP_USER_AGENT']));
+$show['search_engine'] = ($vbulletin->superglobal_size['_COOKIE'] == 0 AND preg_match("#(google|bingbot|yahoo! slurp|facebookexternalhit)#si", $_SERVER['HTTP_USER_AGENT']));
 
 // handle session input
-$sessionhash = (!empty($vbulletin->GPC['s']) ? $vbulletin->GPC['s'] : $vbulletin->GPC[COOKIE_PREFIX . 'sessionhash']); // override cookie
+if (!VB_API)
+{
+	$sessionhash = (!empty($vbulletin->GPC['s']) ? $vbulletin->GPC['s'] : $vbulletin->GPC[COOKIE_PREFIX . 'sessionhash']); // override cookie
+}
+else
+{
+	$sessionhash = '';
+}
 
 // Set up user's chosen language
 if ($vbulletin->GPC['langid'] AND !empty($vbulletin->languagecache["{$vbulletin->GPC['langid']}"]['userselect']))
@@ -359,28 +539,103 @@ else
 	$languageid = 0;
 }
 
+// Test mobile browser
+$mobile_browser = false;
+$mobile_browser_advanced = false;
+if ($vbulletin->options['mobilestyleid_advanced'] OR $vbulletin->options['mobilestyleid_basic'])
+{
+	if (stripos($_SERVER['HTTP_USER_AGENT'], 'windows') === false OR preg_match('/(Windows Phone OS|htc)/i', strtolower($_SERVER['HTTP_USER_AGENT'])))
+	{
+		if (
+			preg_match('/(up.browser|up.link|mmp|symbian|smartphone|midp|wap|phone|android|Windows Phone OS|htc)/i', strtolower($_SERVER['HTTP_USER_AGENT']))
+			OR
+			stripos($_SERVER['HTTP_ACCEPT'],'application/vnd.wap.xhtml+xml') !== false
+			OR
+			((isset($_SERVER['HTTP_X_WAP_PROFILE']) OR isset($_SERVER['HTTP_PROFILE'])))
+			OR
+			stripos($_SERVER['ALL_HTTP'],'OperaMini') !== false
+		)
+		{
+			$mobile_browser = true;
+		}
+		// This array is big and may be bigger later on. So we move it to a second if.
+		else if (in_array(
+					strtolower(substr($_SERVER['HTTP_USER_AGENT'], 0, 4)),
+					array(
+					'w3c ','acs-','alav','alca','amoi','audi','avan','benq','bird','blac',
+					'blaz','brew','cell','cldc','cmd-','dang','doco','eric','hipt','inno',
+					'ipaq','java','jigs','kddi','keji','leno','lg-c','lg-d','lg-g','lge-',
+					'maui','maxo','midp','mits','mmef','mobi','mot-','moto','mwbp','nec-',
+					'newt','noki','oper','palm','pana','pant','phil','play','port','prox',
+					'qwap','sage','sams','sany','sch-','sec-','send','seri','sgh-','shar',
+					'sie-','siem','smal','smar','sony','sph-','symb','t-mo','teli','tim-',
+					'tosh','tsm-','upg1','upsi','vk-v','voda','wap-','wapa','wapi','wapp',
+					'wapr','webc','winw','winw','xda ','xda-')
+				)
+			)
+		{
+			$mobile_browser = true;
+			if(strtolower(substr($_SERVER['HTTP_USER_AGENT'], 0, 4)) == 'oper' AND  preg_match('/(linux|mac)/i', $_SERVER['HTTP_USER_AGENT']))
+			{
+				$mobile_browser = false;
+			}
+		}
+	}
+
+	if (
+		$mobile_browser
+			AND
+		preg_match('/(ipad|ipod|iphone|blackberry|android|pre\/|palm os|palm|hiptop|avantgo|plucker|xiino|blazer|elaine|Windows Phone OS|htc)/i', strtolower($_SERVER['HTTP_USER_AGENT']))
+	)
+	{
+		$mobile_browser_advanced = true;
+	}
+}
+
 // Set up user's chosen style
 if ($vbulletin->GPC['styleid'])
 {
 	$styleid =& $vbulletin->GPC['styleid'];
-	vbsetcookie('styleid', $styleid);
+	vbsetcookie('userstyleid', $styleid);
+	if ($styleid == -1)
+	{
+		vbsetcookie('skipmobilestyle', 1);
+		$vbulletin->GPC[COOKIE_PREFIX . 'skipmobilestyle'] = 1;
+	}
+	else if ($styleid == $vbulletin->options['mobilestyleid_advanced'] OR $styleid == $vbulletin->options['mobilestyleid_basic'])
+	{
+		vbsetcookie('skipmobilestyle', 0);
+		$vbulletin->GPC[COOKIE_PREFIX . 'skipmobilestyle'] = 0;
+	}
 }
-else if ($vbulletin->GPC[COOKIE_PREFIX . 'styleid'])
+else if ($mobile_browser_advanced AND $vbulletin->options['mobilestyleid_advanced'] AND !$vbulletin->GPC[COOKIE_PREFIX . 'skipmobilestyle'] AND !$vbulletin->GPC[COOKIE_PREFIX . 'userstyleid'])
 {
-	$styleid = $vbulletin->GPC[COOKIE_PREFIX . 'styleid'];
+	$styleid = $vbulletin->options['mobilestyleid_advanced'];
+}
+else if ($mobile_browser AND $vbulletin->options['mobilestyleid_basic'] AND !$vbulletin->GPC[COOKIE_PREFIX . 'skipmobilestyle'] AND !$vbulletin->GPC[COOKIE_PREFIX . 'userstyleid'])
+{
+	$styleid = $vbulletin->options['mobilestyleid_basic'];
+}
+else if ($vbulletin->GPC[COOKIE_PREFIX . 'userstyleid'])
+{
+	$styleid = $vbulletin->GPC[COOKIE_PREFIX . 'userstyleid'];
 }
 else
 {
 	$styleid = 0;
 }
 
+$vbulletin->styleid = $styleid;
+$vbulletin->mobile_browser = $mobile_browser;
+$vbulletin->mobile_browser_advanced = $mobile_browser_advanced;
 // build the session and setup the environment
 $vbulletin->session = new vB_Session($vbulletin, $sessionhash, $vbulletin->GPC[COOKIE_PREFIX . 'userid'], $vbulletin->GPC[COOKIE_PREFIX . 'password'], $styleid, $languageid);
 
 // Hide sessionid in url if we are a search engine or if we have a cookie
-$vbulletin->session->set_session_visibility($show['search_engine'] OR $vbulletin->superglobal_size['_COOKIE'] > 0);
+$vbulletin->session->set_session_visibility(($show['search_engine'] OR $vbulletin->superglobal_size['_COOKIE'] > 0) AND !VB_API);
 $vbulletin->userinfo =& $vbulletin->session->fetch_userinfo();
 $vbulletin->session->do_lastvisit_update($vbulletin->GPC[COOKIE_PREFIX . 'lastvisit'], $vbulletin->GPC[COOKIE_PREFIX . 'lastactivity']);
+define('USER_DEFAULT_STYLE_TYPE', isset($vbulletin->stylecache['mobile'][$vbulletin->userinfo['realstyleid']]) ? 'mobile' : 'standard');
 
 // put the sessionhash into contact-us links automatically if required (issueid 21522)
 if ($vbulletin->session->visible AND $vbulletin->options['contactuslink'] != '' AND substr(strtolower($vbulletin->options['contactuslink']), 0, 7) != 'mailto:')
@@ -395,9 +650,15 @@ if ($vbulletin->session->visible AND $vbulletin->options['contactuslink'] != '' 
 	}
 }
 
+// Because of Signature Verification, VB API won't need to verify securitytoken
 // CSRF Protection for POST requests
-if (strtoupper($_SERVER['REQUEST_METHOD']) == 'POST')
+if (strtoupper($_SERVER['REQUEST_METHOD']) == 'POST' AND !VB_API)
 {
+
+	if (empty($_POST) AND isset($_SERVER['CONTENT_LENGTH']) AND $_SERVER['CONTENT_LENGTH'] > 0)
+	{
+		die('The file(s) uploaded were too large to process.');
+	}
 
 	if ($vbulletin->userinfo['userid'] > 0 AND defined('CSRF_PROTECTION') AND CSRF_PROTECTION === true)
 	{
@@ -417,6 +678,9 @@ if (strtoupper($_SERVER['REQUEST_METHOD']) == 'POST')
 					case 'guest':
 						define('CSRF_ERROR', 'guest');
 						break;
+					case 'timeout':
+						define('CSRF_ERROR', 'timeout');
+						break;
 					default:
 						define('CSRF_ERROR', 'invalid');
 				}
@@ -425,40 +689,45 @@ if (strtoupper($_SERVER['REQUEST_METHOD']) == 'POST')
 	}
 	else if (!defined('CSRF_PROTECTION') AND !defined('SKIP_REFERRER_CHECK'))
 	{
-		if ($_SERVER['HTTP_HOST'] OR $_ENV['HTTP_HOST'])
+		if (VB_HTTP_HOST AND $_SERVER['HTTP_REFERER'])
 		{
-			$http_host = ($_SERVER['HTTP_HOST'] ? $_SERVER['HTTP_HOST'] : $_ENV['HTTP_HOST']);
-		}
-		else if ($_SERVER['SERVER_NAME'] OR $_ENV['SERVER_NAME'])
-		{
-			$http_host = ($_SERVER['SERVER_NAME'] ? $_SERVER['SERVER_NAME'] : $_ENV['SERVER_NAME']);
-		}
+			$host_parts = $vbulletin->input->parse_url($_SERVER['HTTP_HOST']);
+			$http_host_port = intval($host_parts['port']);
+			$http_host = strtolower(VB_HTTP_HOST . ((!empty($http_host_port) AND $http_host_port != '80') ? ":$http_host_port" : ''));
 
-		if ($http_host AND $_SERVER['HTTP_REFERER'])
-		{
-			$http_host = preg_replace('#:80$#', '', trim($http_host));
-			$referrer_parts = @parse_url($_SERVER['HTTP_REFERER']);
+			$referrer_parts = $vbulletin->input->parse_url($_SERVER['HTTP_REFERER']);
 			$ref_port = intval($referrer_parts['port']);
-			$ref_host = $referrer_parts['host'] . ((!empty($ref_port) AND $ref_port != '80') ? ":$ref_port" : '');
+			$ref_host = strtolower($referrer_parts['host'] . ((!empty($ref_port) AND $ref_port != '80') ? ":$ref_port" : ''));
 
-			$allowed = preg_split('#\s+#', $vbulletin->options['allowedreferrers'], -1, PREG_SPLIT_NO_EMPTY);
-			$allowed[] = preg_replace('#^www\.#i', '', $http_host);
-			$allowed[] = '.paypal.com';
-
-			$pass_ref_check = false;
-			foreach ($allowed AS $host)
-			{
-				if (preg_match('#' . preg_quote($host, '#') . '$#siU', $ref_host))
-				{
-					$pass_ref_check = true;
-					break;
-				}
+			if ($http_host == $ref_host)
+			{	/* Instant match is good enough
+				no need to check anything further. */
+				$pass_ref_check = true;
 			}
-			unset($allowed);
+			else
+			{
+				$pass_ref_check = false;
+				$allowed = array('.paypal.com');
+				$allowed[] = '.'.preg_replace('#^www\.#i', '', $http_host);
+				$whitelist = preg_split('#\s+#', $vbulletin->options['allowedreferrers'], -1, PREG_SPLIT_NO_EMPTY); // Get whitelist
+				$allowed = array_unique(is_array($whitelist) ? array_merge($allowed,$whitelist) : $allowed); // Merge and de-duplicate.
+
+				foreach ($allowed AS $host)
+				{
+					$host = strtolower($host);
+					if (substr($host,0,1) == '.' AND
+					(preg_match('#' . preg_quote($host, '#') . '$#siU', $ref_host) OR substr($host,1) == $ref_host))
+					{
+						$pass_ref_check = true;
+						break;
+					}
+				}
+				unset($allowed, $whitelist);
+			}
 
 			if ($pass_ref_check == false)
 			{
-				die('In order to accept POST request originating from this domain, the admin must add this domain to the whitelist.');
+				die('In order to accept POST requests originating from this domain, the admin must add the domain to the whitelist.');
 			}
 		}
 	}
@@ -467,7 +736,7 @@ if (strtoupper($_SERVER['REQUEST_METHOD']) == 'POST')
 
 // Google Web Accelerator can display sensitive data ignoring any headers regarding caching
 // it's a good thing for guests but not for anyone else
-if ($vbulletin->userinfo['userid'] > 0 AND strpos($_SERVER['HTTP_X_MOZ'], 'prefetch') !== false)
+if ($vbulletin->userinfo['userid'] > 0 AND isset($_SERVER['HTTP_X_MOZ']) AND strpos($_SERVER['HTTP_X_MOZ'], 'prefetch') !== false)
 {
 	if (SAPI_NAME == 'cgi' OR SAPI_NAME == 'cgi-fcgi')
 	{
@@ -475,7 +744,7 @@ if ($vbulletin->userinfo['userid'] > 0 AND strpos($_SERVER['HTTP_X_MOZ'], 'prefe
 	}
 	else
 	{
-		header('HTTP/1.1 403 Forbidden');
+		header($_SERVER['SERVER_PROTOCOL'] . ' 403 Forbidden');
 	}
 	die('Prefetching is not allowed due to the various privacy issues that arise.');
 }
@@ -491,10 +760,12 @@ if (!empty($db->explain))
 	$db->timer_stop(false);
 }
 
+bootstrap_framework(); // load the vB Framework.
+
 /*======================================================================*\
 || ####################################################################
-|| # Downloaded: 16:21, Sat Apr 6th 2013
-|| # CVS: $RCSfile$ - $Revision: 26768 $
+|| # Downloaded: 14:57, Sun Aug 11th 2013
+|| # CVS: $RCSfile$ - $Revision: 64477 $
 || ####################################################################
 \*======================================================================*/
 ?>

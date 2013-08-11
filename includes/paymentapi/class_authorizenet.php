@@ -1,9 +1,9 @@
 <?php
 /*======================================================================*\
 || #################################################################### ||
-|| # vBulletin 3.7.2 Patch Level 2 - Licence Number VBF2470E4F
+|| # vBulletin 4.2.1 - Licence Number VBC2DDE4FB
 || # ---------------------------------------------------------------- # ||
-|| # Copyright ©2000-2013 Jelsoft Enterprises Ltd. All Rights Reserved. ||
+|| # Copyright ©2000-2013 vBulletin Solutions Inc. All Rights Reserved. ||
 || # This file may not be redistributed in whole or significant part. # ||
 || # ---------------- VBULLETIN IS NOT FREE SOFTWARE ---------------- # ||
 || # http://www.vbulletin.com | http://www.vbulletin.com/license.html # ||
@@ -19,8 +19,8 @@ if (!isset($GLOBALS['vbulletin']->db))
 * Class that provides payment verification and form generation functions
 *
 * @package	vBulletin
-* @version	$Revision: 25833 $
-* @date		$Date: 2008-02-22 08:10:39 -0600 (Fri, 22 Feb 2008) $
+* @version	$Revision: 36023 $
+* @date		$Date: 2010-03-30 13:16:08 -0700 (Tue, 30 Mar 2010) $
 */
 class vB_PaidSubscriptionMethod_authorizenet extends vB_PaidSubscriptionMethod
 {
@@ -55,6 +55,12 @@ class vB_PaidSubscriptionMethod_authorizenet extends vB_PaidSubscriptionMethod
 			'x_response_reason_text' => TYPE_NOHTML,
 			'x_response_reason_code' => TYPE_NOHTML,
 		));
+
+		if (!$this->test())
+		{
+			$this->error = 'Payment processor not configured';
+			return false;
+		}
 
 		$this->transaction_id = $this->registry->GPC['x_trans_id'];
 		if (!preg_match('#([a-f0-9]{32})#i', $this->registry->GPC['x_description'], $matches))
@@ -112,7 +118,7 @@ class vB_PaidSubscriptionMethod_authorizenet extends vB_PaidSubscriptionMethod
 	*/
 	function test()
 	{
-		return (!empty($this->settings['worldpay_instid']) AND !empty($this->settings['worldpay_password']));
+		return (!empty($this->settings['authorize_loginid']) AND !empty($this->settings['txnkey']));
 	}
 
 	/**
@@ -129,7 +135,7 @@ class vB_PaidSubscriptionMethod_authorizenet extends vB_PaidSubscriptionMethod
 	*/
 	function generate_form_html($hash, $cost, $currency, $subinfo, $userinfo, $timeinfo)
 	{
-		global $vbphrase, $vbulletin, $stylevar, $show;
+		global $vbphrase, $vbulletin, $show;
 
 		$item = $hash;
 		$currency = strtoupper($currency);
@@ -144,7 +150,16 @@ class vB_PaidSubscriptionMethod_authorizenet extends vB_PaidSubscriptionMethod
 		// load settings into array so the template system can access them
 		$settings =& $this->settings;
 
-		eval('$form[\'hiddenfields\'] .= "' . fetch_template('subscription_payment_authorizenet') . '";');
+		$templater = vB_Template::create('subscription_payment_authorizenet');
+			$templater->register('cost', $cost);
+			$templater->register('currency', $currency);
+			$templater->register('fingerprint', $fingerprint);
+			$templater->register('item', $item);
+			$templater->register('sequence', $sequence);
+			$templater->register('settings', $settings);
+			$templater->register('timenow', $timenow);
+			$templater->register('userinfo', $userinfo);
+		$form['hiddenfields'] .= $templater->render();
 		return $form;
 	}
 
@@ -175,8 +190,8 @@ class vB_PaidSubscriptionMethod_authorizenet extends vB_PaidSubscriptionMethod
 
 /*======================================================================*\
 || ####################################################################
-|| # Downloaded: 16:21, Sat Apr 6th 2013
-|| # CVS: $RCSfile$ - $Revision: 25833 $
+|| # Downloaded: 14:57, Sun Aug 11th 2013
+|| # CVS: $RCSfile$ - $Revision: 36023 $
 || ####################################################################
 \*======================================================================*/
 ?>

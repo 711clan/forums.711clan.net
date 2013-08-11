@@ -1,9 +1,9 @@
 <?php
 /*======================================================================*\
 || #################################################################### ||
-|| # vBulletin 3.7.2 Patch Level 2 - Licence Number VBF2470E4F
+|| # vBulletin 4.2.1 - Licence Number VBC2DDE4FB
 || # ---------------------------------------------------------------- # ||
-|| # Copyright ©2000-2013 Jelsoft Enterprises Ltd. All Rights Reserved. ||
+|| # Copyright ©2000-2013 vBulletin Solutions Inc. All Rights Reserved. ||
 || # This file may not be redistributed in whole or significant part. # ||
 || # ---------------- VBULLETIN IS NOT FREE SOFTWARE ---------------- # ||
 || # http://www.vbulletin.com | http://www.vbulletin.com/license.html # ||
@@ -32,10 +32,10 @@ $globaltemplates = array(
 	'reputation',
 	'reputation_adjust',
 	'reputation_ajax',
+	'reputation_ajaxdisplay',
 	'reputation_reasonbits',
 	'reputation_yourpost',
 	'reputationbit',
-	'postbit_reputation',
 );
 
 // pre-cache templates used by specific actions
@@ -109,13 +109,23 @@ if ($_POST['do'] == 'addreputation')
 		$vbulletin->GPC['reason'] = convert_urlencoded_unicode($vbulletin->GPC['reason']);
 	}
 
+	if (!($foruminfo['options'] & $vbulletin->bf_misc_forumoptions['canreputation']))
+	{
+		print_no_permission();
+	}
+
 	if ($userid == $vbulletin->userinfo['userid'])
 	{
 		eval(standard_error(fetch_error('reputationownpost')));
 	}
 
 	$score = fetch_reppower($vbulletin->userinfo, $permissions, $vbulletin->GPC['reputation']);
-	if ($score < 0 AND empty($vbulletin->GPC['reason']))
+
+	if ($score < 0 AND $vbulletin->options['neednegreason'] AND empty($vbulletin->GPC['reason']))
+	{
+		eval(standard_error(fetch_error('reputationreason')));
+	}
+	else if ($score >= 0 AND $vbulletin->options['needposreason'] AND empty($vbulletin->GPC['reason']))
 	{
 		eval(standard_error(fetch_error('reputationreason')));
 	}
@@ -166,6 +176,7 @@ if ($_POST['do'] == 'addreputation')
 		}
 	}
 
+	$userinfo['newrepcount'] += 1;
 	$userinfo['reputation'] += $score;
 
 	// Determine this user's reputationlevelid.
@@ -181,6 +192,7 @@ if ($_POST['do'] == 'addreputation')
 	$userdata =& datamanager_init('User', $vbulletin, ERRTYPE_STANDARD);
 	$userdata->set_existing($userinfo);
 	$userdata->set('reputation', $userinfo['reputation']);
+	$userdata->set('newrepcount', $userinfo['newrepcount']);
 	$userdata->set('reputationlevelid', intval($reputationlevel['reputationlevelid']));
 
 	($hook = vBulletinHook::fetch_hook('reputation_add_process')) ? eval($hook) : false;
@@ -202,10 +214,19 @@ if ($_POST['do'] == 'addreputation')
 
 	($hook = vBulletinHook::fetch_hook('reputation_add_complete')) ? eval($hook) : false;
 
+	if ($score < 0)
+	{
+		$redirect_phrase = 'redirect_reputationminus';
+	}
+	else
+	{
+		$redirect_phrase = 'redirect_reputationadd';
+	}
+
 	if (!$vbulletin->GPC['ajax'])
 	{
-		$vbulletin->url = 'showthread.php?' . $vbulletin->session->vars['sessionurl'] . "&amp;p=$postid#post$postid";
-		eval(print_standard_redirect('redirect_reputationadd'));
+		$vbulletin->url = fetch_seo_url('thread', $threadinfo, array('p' => $postid)) . "#post$postid";
+		print_standard_redirect($redirect_phrase);  
 		// redirect or close window here
 	}
 	else
@@ -214,13 +235,18 @@ if ($_POST['do'] == 'addreputation')
 		$post = $userinfo;
 		$repdisplay = fetch_reputation_image($post, $userinfo['permissions']);
 
+		$templater = vB_Template::create('reputation_ajaxdisplay');
+			$templater->register('reputationdisplay', $post['reputationdisplay']);
+		$reputationdisplay = $templater->render();
+
 		require_once(DIR . '/includes/class_xml.php');
 		require_once(DIR . '/includes/functions_misc.php');
 		$xml = new vB_AJAX_XML_Builder($vbulletin, 'text/xml');
-		$xml->add_tag('reputation', process_replacement_vars(fetch_phrase('redirect_reputationadd', 'frontredirect', 'redirect_')), array(
+		$xml->add_tag('reputation', process_replacement_vars(fetch_phrase($redirect_phrase, 'frontredirect', 'redirect_')), array(
 			'reppower'   => fetch_reppower($userinfo, $userinfo['permissions']),
-			'repdisplay' => process_replacement_vars($post['reputationdisplay']),
+			'repdisplay' => process_replacement_vars($reputationdisplay),
 			'userid'     => $userinfo['userid'],
+			'level'     => $post['level'],
 		));
 		$xml->print_xml();
 	}
@@ -247,7 +273,7 @@ else
 		{
 
 			require_once(DIR . '/includes/class_bbcode.php');
-			$bbcode_parser =& new vB_BbCodeParser($vbulletin, fetch_tag_list());
+			$bbcode_parser = new vB_BbCodeParser($vbulletin, fetch_tag_list());
 
 			while ($postreputation = $db->fetch_array($postreputations))
 			{
@@ -277,7 +303,10 @@ else
 
 				($hook = vBulletinHook::fetch_hook('reputation_viewown_bit')) ? eval($hook) : false;
 
-				eval('$reputation_reasonbits .= "' . fetch_template('reputation_reasonbits') . '";');
+				$templater = vB_Template::create('reputation_reasonbits');
+					$templater->register('posneg', $posneg);
+					$templater->register('reason', $reason);
+				$reputation_reasonbits .= $templater->render();
 			}
 
 			if ($total == 0)
@@ -325,8 +354,16 @@ else
 		}
 
 		$show['ajax'] = ($vbulletin->GPC['ajax']);
-		eval('$reputationbit = "' . fetch_template('reputation_yourpost') . '";');
-
+		$pageinfo = array(
+			'p' => $postinfo['postid'],
+		);
+		$templater = vB_Template::create('reputation_yourpost');
+			$templater->register('pageinfo', $pageinfo);
+			$templater->register('postinfo', $postinfo);
+			$templater->register('reputation', $reputation);
+			$templater->register('reputation_reasonbits', $reputation_reasonbits);
+			$templater->register('threadinfo', $threadinfo);
+		$reputationbit = $templater->render();
 	}
 	else
 	{  // Not Your Post
@@ -380,12 +417,18 @@ else
 		($hook = vBulletinHook::fetch_hook('reputation_form')) ? eval($hook) : false;
 
 		$url = $vbulletin->url;
-		eval('$reputationbit = "' . fetch_template('reputationbit') . '";');
+		$templater = vB_Template::create('reputationbit');
+			$templater->register('postid', $postid);
+			$templater->register('url', $url);
+			$templater->register('userinfo', $userinfo);
+		$reputationbit = $templater->render();
 	}
 
 	if ($vbulletin->GPC['ajax'])
 	{
-		eval('$reputation = "' . fetch_template('reputation_ajax') . '";');
+		$templater = vB_Template::create('reputation_ajax');
+			$templater->register('reputationbit', $reputationbit);
+		$reputation = $templater->render();
 
 		require_once(DIR . '/includes/class_xml.php');
 		$xml = new vB_AJAX_XML_Builder($vbulletin, 'text/xml');
@@ -399,21 +442,28 @@ else
 	foreach ($parentlist AS $forumID)
 	{
 		$forumTitle = $vbulletin->forumcache["$forumID"]['title'];
-		$navbits['forumdisplay.php?' . $vbulletin->session->vars['sessionurl'] . "f=$forumID"] = $forumTitle;
+		$navbits[fetch_seo_url('forum', array('forumid' => $forumID, 'title' => $forumTitle))] = $forumTitle;
 	}
-	$navbits['showthread.php?' . $vbulletin->session->vars['sessionurl'] . "p=$postid"] = $threadinfo['prefix_plain_html'] . ' ' . $threadinfo['title'];
+	$navbits[fetch_seo_url('thread', $threadinfo, array('p' => $postid)) . "#post$postid"] = $threadinfo['prefix_plain_html'] . ' ' . $threadinfo['title'];
 	$navbits[''] = $vbphrase['reputation'];
 	$navbits = construct_navbits($navbits);
 
-	eval('$navbar = "' . fetch_template('navbar') . '";');
+	$navbar = render_navbar_template($navbits);
 
-	eval('print_output("' . fetch_template('reputation') . '");');
+	$pagetitle = ($vbulletin->userinfo['userid'] == $userid) ? $vbphrase['your_reputation'] : $vbphrase['add_reputation'];
+
+	$templater = vB_Template::create('reputation');
+		$templater->register_page_templates();
+		$templater->register('navbar', $navbar);
+		$templater->register('postid', $postid);
+		$templater->register('pagetitle', $pagetitle);
+		$templater->register('reputationbit', $reputationbit);
+	print_output($templater->render());
 }
 
 /*======================================================================*\
 || ####################################################################
-|| # Downloaded: 16:21, Sat Apr 6th 2013
-|| # CVS: $RCSfile$ - $Revision: 26399 $
+|| # Downloaded: 14:57, Sun Aug 11th 2013
+|| # CVS: $RCSfile$ - $Revision: 62096 $
 || ####################################################################
 \*======================================================================*/
-?>

@@ -1,9 +1,9 @@
 <?php
 /*======================================================================*\
 || #################################################################### ||
-|| # vBulletin 3.7.2 Patch Level 2 - Licence Number VBF2470E4F
+|| # vBulletin 4.2.1 - Licence Number VBC2DDE4FB
 || # ---------------------------------------------------------------- # ||
-|| # Copyright ©2000-2013 Jelsoft Enterprises Ltd. All Rights Reserved. ||
+|| # Copyright ©2000-2013 vBulletin Solutions Inc. All Rights Reserved. ||
 || # This file may not be redistributed in whole or significant part. # ||
 || # ---------------- VBULLETIN IS NOT FREE SOFTWARE ---------------- # ||
 || # http://www.vbulletin.com | http://www.vbulletin.com/license.html # ||
@@ -101,9 +101,16 @@ if ($_REQUEST['do'] == 'resolveip')
 			'online.php' . $vbulletin->session->vars['sessionurl_q'] => $vbphrase['whos_online'],
 			'' => $vbphrase['resolve_ip_address']
 		));
-		eval('$navbar = "' . fetch_template('navbar') . '";');
+		$navbar = render_navbar_template($navbits);
 
-		eval('print_output("' . fetch_template('whosonline_resolveip') . '");');
+		$templater = vB_Template::create('whosonline_resolveip');
+			$templater->register_page_templates();
+			$templater->register('forumjump', $forumjump);
+			$templater->register('ipaddress', $ipaddress);
+			$templater->register('metarefresh', $metarefresh);
+			$templater->register('navbar', $navbar);
+			$templater->register('resolved_host', $resolved_host);
+		print_output($templater->render());
 	}
 
 	exit;
@@ -135,7 +142,6 @@ $vbulletin->input->clean_array_gpc('r', array(
 
 ($hook = vBulletinHook::fetch_hook('online_start')) ? eval($hook) : false;
 
-// We can support multi page but we still have to grab every record and just throw away what we don't use.
 // set defaults
 $perpage = sanitize_perpage($perpage, 200, $vbulletin->options['maxthreads']);
 
@@ -144,39 +150,54 @@ if (!$pagenumber)
 	$pagenumber = 1;
 }
 
-$limitlower = ($pagenumber - 1) * $perpage + 1;
-$limitupper = $pagenumber * $perpage;
-
-if ($sortorder != 'desc')
-{
-	$sortorder = 'asc';
-	$oppositesort = 'desc';
-}
-else
-{ // $sortorder = 'desc'
-	$sortorder = 'desc';
-	$oppositesort = 'asc';
-}
+$limitlower = ($pagenumber - 1) * $perpage;
 
 switch ($sortfield)
 {
 	case 'location':
 		$sqlsort = 'session.location';
 		break;
-	case 'time':
-		$sqlsort = 'session.lastactivity';
+	case 'username':
+		$sqlsort = 'user.username';
 		break;
 	case 'host':
 		$sqlsort = 'session.host';
 		break;
+	case 'time':
+		$sqlsort = 'session.lastactivity';
+		break;
 	default:
-		$sqlsort = 'user.username';
 		$sortfield = 'username';
+		$sqlsort = 'user.username';
+}
+
+switch ($sortorder)
+{
+	case 'asc':
+		$oppositesort = 'desc';
+		break;
+	case 'desc':
+		$oppositesort = 'asc';
+		break;
+	default:
+		switch ($sortfield)
+		{
+			case 'host':
+			case 'location':
+			case 'username':
+				$sortorder = 'asc';
+				$oppositesort = 'desc';
+				break;
+			case 'time':
+				$sortorder = 'desc';
+				$oppositesort = 'asc';
+				break;
+		}
 }
 
 $allonly = $vbphrase['all'];
 $membersonly = $vbphrase['members'];
-$spidersonly = $vbphrase['spiders'];
+$spidersonly = $vbphrase['search_bots'];
 $guestsonly = $vbphrase['guests'];
 $whoselected = array();
 $uaselected = array();
@@ -184,23 +205,37 @@ $uaselected = array();
 switch ($vbulletin->GPC['who'])
 {
 	case 'members':
+		$showguests = false;
 		$showmembers = true;
+		$showspiders = false;
 		$whoselected[1] = 'selected="selected"';
 		break;
 	case 'guests':
 		$showguests = true;
+		$showmembers = false;
+		$showspiders = false;
 		$whoselected[2] = 'selected="selected"';
 		break;
 	case 'spiders':
+		$showguests = true;
+		$showmembers = false;
 		$showspiders = true;
 		$whoselected[3] = 'selected="selected"';
 		break;
 	default:
-		$showmembers = true;
 		$showguests = true;
+		$showmembers = true;
 		$showspiders = true;
 		$vbulletin->GPC['who'] = '';
 		$whoselected[0] = 'selected="selected"';
+}
+
+// No Guest display allowed.
+if (!$vbulletin->options['WOLguests'])
+{
+	$showguests = false;
+	$showmembers = true;
+	$showspiders = false;
 }
 
 if ($vbulletin->GPC['ua'])
@@ -212,24 +247,6 @@ else
 	$uaselected[0] = 'selected="selected"';
 }
 
-$reloadurl = ($perpage != 20 ? "pp=$perpage&amp;" : '') .
-	($pagenumber != 1 ? "page=$pagenumber&amp;" : '') .
-	($sortfield != 'username' ? "sort=$sortfield&amp;" : '') .
-	($sortorder == 'desc' ? 'order=desc&amp;' : '') .
-	($vbulletin->GPC['who'] != '' ? 'who=' . $vbulletin->GPC['who'] . '&amp;' : '') .
-	($vbulletin->GPC['ua'] ? 'ua=1&amp;' : '');
-
-$reloadurl = preg_replace('#&amp;$#s', '', $reloadurl);
-
-if (!empty($reloadurl))
-{
-	$reloadurl = 'online.php?' . $vbulletin->session->vars['sessionurl'] . $reloadurl;
-}
-else
-{
-	$reloadurl = 'online.php' . $vbulletin->session->vars['sessionurl_q'];
-}
-
 $sorturl = 'online.php?' . $vbulletin->session->vars['sessionurl'] .
 	($vbulletin->GPC['who'] != '' ? 'who=' . $vbulletin->GPC['who'] . '&amp;' : '') . ($vbulletin->GPC['ua'] ? 'ua=1&amp;' : '');
 
@@ -237,25 +254,201 @@ $sorturl = preg_replace('#&amp;$#s', '', $sorturl);
 
 $show['sorturlnoargs'] = ($sorturl == 'online.php?' . $vbulletin->session->vars['sessionurl']);
 
-eval("\$sortarrow[$sortfield] = \"" . fetch_template('forumdisplay_sortarrow') . '";');
+$templater = vB_Template::create('forumdisplay_sortarrow');
+$templater->register('oppositesort', $oppositesort);
+$sortarrow[$sortfield] = $templater->render();
+$sortarrow['oppositesort'] = $oppositesort;
+
+$seehidden = $vbulletin->userinfo['permissions']['genericpermissions'] & $vbulletin->bf_ugp_genericpermissions['canseehidden'];
 
 $hook_query_fields = $hook_query_joins = $hook_query_where = '';
 ($hook = vBulletinHook::fetch_hook('online_query')) ? eval($hook) : false;
 
-$allusers = $db->query_read_slave("
-	SELECT user.username, session.useragent, session.location, session.lastactivity, user.userid, user.options, session.host, session.badlocation, session.incalendar, user.aim, user.icq, user.msn, user.yahoo, user.skype,
-	IF(displaygroupid=0, user.usergroupid, displaygroupid) AS displaygroupid, infractiongroupid
+$sql = "
+	SELECT user.username, session.useragent, session.location, session.lastactivity, 
+	user.userid, user.options, session.host, session.badlocation, session.incalendar, 
+	session.inthread, user.aim, user.icq, user.msn, user.yahoo, user.skype
+	$hook_query_fields
+	";
+
+if ($showmembers AND $showguests)
+{
+	$order = 'isguest,';
+	$sql .= ",IF(ISNULL(user.username), 1, 0) as isguest
+	";
+}
+else
+{
+	$order = '';
+}
+
+if ($showmembers)
+{
+	$sql .= ",IF(user.displaygroupid = 0, user.usergroupid, user.displaygroupid) AS displaygroupid, user.infractiongroupid, user.usergroupid
+	";
+}
+
+$join = $showguests ? 'LEFT' : 'INNER';
+
+$sql .= "FROM " . TABLE_PREFIX . "session As session 
+	$join JOIN " . TABLE_PREFIX . "user AS user USING (userid)
+	$hook_query_joins
+	";
+
+$temp = array();
+
+if ($showguests)
+{
+	$temp[] = "
+		(
+			session.userid = 0
+		)
+	";
+}
+
+if ($showmembers)
+{
+	$temp[] = "
+		(
+			session.userid > 0
+			AND session.sessionhash = 
+			(
+				SELECT sessionhash
+				FROM " . TABLE_PREFIX . "session AS latest 
+				WHERE latest.userid = session.userid
+				ORDER BY latest.lastactivity DESC
+				LIMIT 1
+			)
+		)
+	";
+}
+
+if ($temp)
+{
+	$sqlwhere = implode(' OR ', $temp);
+}
+else
+{
+	$sqlwhere = '1=1'; // In case someone does something really dumb.
+}
+
+$where = $wherevisible = '';
+$uid = $vbulletin->userinfo['userid'] ? $vbulletin->userinfo['userid'] : -1 ;
+
+if (!$showguests)
+{
+	$where = "AND session.userid > 0
+	";
+}
+else
+{
+	if (!$showmembers)
+	{
+		if ($showspiders)
+		{
+			$where = "AND session.isbot = 1
+			";
+		}
+		else
+		{
+			$where = "AND session.isbot = 0 AND session.userid = 0
+			";
+		}
+	}
+}
+
+if ($showmembers AND !$seehidden)
+{
+	// Include only visible users, but still include self (if not a guest).
+	$wherevisible = "AND (NOT IF(session.userid > 0, (user.options & " . $vbulletin->bf_misc_useroptions['invisible'] . "), 0) OR session.userid = $uid)
+	";
+}
+
+$sql .= "
+	WHERE session.lastactivity > $datecut
+	AND 
+	(
+		$sqlwhere
+	)
+	$where
+	$wherevisible
+	$hook_query_where
+	ORDER BY $order $sqlsort $sortorder
+	LIMIT $limitlower, $perpage
+";
+
+// Get the online data
+$allusers = $db->query_read_slave($sql);
+
+$countjoin = $countinvisible = '';
+if ($showmembers AND !$seehidden)
+{
+	$countjoin = "$join JOIN " . TABLE_PREFIX . "user AS user USING (userid)
+	";
+	$countinvisible = ", IF(user.options & " . $vbulletin->bf_misc_useroptions['invisible'] . ", 1, 0) AS invisible
+	";
+}
+
+$hook_query_fields = $hook_query_joins = $hook_query_where = '';
+($hook = vBulletinHook::fetch_hook('online_user_count')) ? eval($hook) : false;
+
+/* VBIV-12365 
+Get the count of members and guests online.
+Exclude self as we will add that later (we may not be in the session table yet) */
+$userscount = $db->query_read_slave("
+	SELECT session.userid
+	$countinvisible
 	$hook_query_fields
 	FROM " . TABLE_PREFIX . "session AS session
-	". iif($vbulletin->options['WOLguests'], " LEFT JOIN " . TABLE_PREFIX . "user AS user USING (userid) ", ", " . TABLE_PREFIX . "user AS user") ."
+	$countjoin
 	$hook_query_joins
 	WHERE session.lastactivity > $datecut
-		". iif(!$vbulletin->options['WOLguests'], " AND session.userid = user.userid", "") ."
-		$hook_query_where
-	ORDER BY $sqlsort $sortorder
+	$hook_query_where
+	$where
 ");
 
-$moderators = $db->query_read_slave("SELECT DISTINCT userid FROM " . TABLE_PREFIX . "moderator WHERE forumid <> -1");
+$count = array();
+$numberinvisible = 0;
+
+while ($user = $db->fetch_array($userscount))
+{
+	if (!$user['userid'])
+	{
+		$count['guests'][] = true;
+	}
+	else
+	{
+		$count['members'][$user['userid']] = true;
+
+		if ($user['invisible'] AND $user['userid'] != $uid)
+		{
+			$numberinvisible++;
+		}
+	}
+}
+
+// Count self as a member if necessary.
+if ($vbulletin->userinfo['userid'] AND $showmembers)
+{
+	$count['members'][$vbulletin->userinfo['userid']] = true;
+}
+
+$numberguests = sizeof($count['guests']);
+$numbermembers = sizeof($count['members']);
+
+// Add self as guest if necessary.
+if (!$vbulletin->userinfo['userid'] AND !$numberguests 
+AND (($showguests AND !$showspiders) OR ($showguests AND $showmembers)))
+{
+	$numberguests++;
+}
+
+$moderators = $db->query_read_slave("
+	SELECT DISTINCT userid 
+	FROM " . TABLE_PREFIX . "moderator 
+	WHERE forumid <> -1
+");
+
 while ($mods = $db->fetch_array($moderators))
 {
 	$mod["{$mods[userid]}"] = 1;
@@ -371,6 +564,11 @@ if ($vbulletin->options['enablespiders'] AND $lastupdate = @filemtime(DIR . '/in
 	unset($spiderdata, $xmlobj);
 }
 
+if ($threadinfo['threadid'])
+{
+	$foundviewer = true;
+}
+
 require_once(DIR . '/includes/class_postbit.php');
 while ($users = $db->fetch_array($allusers))
 {
@@ -381,13 +579,14 @@ while ($users = $db->fetch_array($allusers))
 			continue;
 		}
 
+		if ($threadinfo['threadid'] AND (($users['userid'] == $vbulletin->userinfo['userid']) OR ($users['inthread'] != $threadinfo['threadid'])))
+		{
+			continue;
+		}
+
 		$users = array_merge($users, convert_bits_to_array($users['options'] , $vbulletin->bf_misc_useroptions));
 
 		$key = $users['userid'];
-		if ($key == $vbulletin->userinfo['userid'])
-		{ // in case this is the first view for the user, fake it that show up to themself
-			$foundviewer = true;
-		}
 		if (empty($userinfo["$key"]['lastactivity']) OR ($userinfo["$key"]['lastactivity'] < $users['lastactivity']))
 		{
 			unset($userinfo["$key"]); // need this to sort by lastactivity
@@ -415,6 +614,11 @@ while ($users = $db->fetch_array($allusers))
 	{ // Guest or Spider..
 		$spider = '';
 
+		if ($threadinfo['threadid'] AND ($users['inthread'] != $threadinfo['threadid']))
+		{
+			continue;
+		}
+		
 		if ($vbulletin->options['enablespiders'] AND !empty($vbulletin->wol_spiders))
 		{
 			if (preg_match('#(' . $vbulletin->wol_spiders['spiderstring'] . ')#si', $users['useragent'], $agent))
@@ -484,23 +688,6 @@ while ($users = $db->fetch_array($allusers))
 	}
 }
 
-if (!$foundviewer AND $vbulletin->userinfo['userid'] AND ($vbulletin->GPC['who'] == '' OR $vbulletin->GPC['who'] == 'members'))
-{ // Viewing user did not show up so fake him
-	construct_im_icons($vbulletin->userinfo);
-	$userinfo["{$vbulletin->userinfo['userid']}"] = $vbulletin->userinfo;
-	$userinfo["{$vbulletin->userinfo['userid']}"]['location'] = '/online.php';
-	$userinfo["{$vbulletin->userinfo['userid']}"]['host'] = IPADDRESS;
-	$userinfo["{$vbulletin->userinfo['userid']}"]['lastactivity'] = TIMENOW;
-	fetch_musername($userinfo["{$vbulletin->userinfo['userid']}"]);
-	$userinfo["{$vbulletin->userinfo['userid']}"]['hidden'] = iif($vbulletin->userinfo['invisible'], '*');
-	$userinfo["{$vbulletin->userinfo['userid']}"]['invisible'] = 0;
-
-	if ($vbulletin->options['WOLresolve'] AND ($permissions['wolpermissions'] & $vbulletin->bf_ugp_wolpermissions['canwhosonlineip']))
-	{
-		$userinfo["{$vbulletin->userinfo['userid']}"]['host'] = @gethostbyaddr($userinfo["{$vbulletin->userinfo['userid']}"]['host']);
-	}
-}
-
 $show['ip'] = iif($permissions['wolpermissions'] & $vbulletin->bf_ugp_wolpermissions['canwhosonlineip'], true, false);
 $show['ajax_resolve'] = ($show['ip'] AND !$vbulletin->options['WOLresolve']);
 $show['useragent'] = iif($vbulletin->GPC['ua'], true, false);
@@ -528,57 +715,17 @@ if (is_array($guests))
 
 convert_ids_to_titles();
 
-$onlinecolspan = 4;
-
-$bgclass = 'alt1';
-
-if ($vbulletin->options['enablepms'])
-{
-	$onlinecolspan++;
-}
-
-if ($vbulletin->options['displayemails'] OR $vbulletin->options['enablepms'])
-{
-	$onlinecolspan++;
-	exec_switch_bg();
-	$contactclass = $bgclass;
-}
-
-if ($permissions['wolpermissions'] & $vbulletin->bf_ugp_wolpermissions['canwhosonlineip'])
-{
-	$onlinecolspan++;
-	exec_switch_bg();
-	$ipclass = $bgclass;
-}
-
-if ($vbulletin->options['showimicons'])
-{
-	$onlinecolspan += 4;
-	exec_switch_bg();
-	exec_switch_bg();
-	exec_switch_bg();
-	exec_switch_bg();
-}
-
-$numbervisible = 0;
-$numberinvisible = 0;
 if (is_array($userinfo))
 {
 	foreach ($userinfo AS $key => $val)
 	{
 		if (!$val['invisible'])
 		{
-			$onlinebits .= construct_online_bit($val, 1);
-			$numbervisible++;
-		}
-		else
-		{
-			$numberinvisible++;
+			$onlinebits[] = construct_online_bit($val, 1);
 		}
 	}
 }
 
-$numberguests = 0;
 if (is_array($guests))
 {
 	foreach ($guests AS $key => $val)
@@ -587,12 +734,13 @@ if (is_array($guests))
 		{
 			continue;
 		}
-		$numberguests++;
-		$onlinebits .= construct_online_bit($val, 1);
+		$onlinebits[] = construct_online_bit($val, 1);
 	}
 }
 
-$totalonline = $numbervisible + $numberguests;
+$totalonline = $numbermembers + $numberguests;
+$numbervisible = $numbermembers - $numberinvisible;
+$displaytotal = $numberguests + $numbervisible;
 
 // ### MAX LOGGEDIN USERS ################################
 if (intval($vbulletin->maxloggedin['maxonline']) <= $totalonline)
@@ -617,26 +765,53 @@ if ($vbulletin->options['WOLrefresh'])
 	$refreshtime = $vbulletin->options['WOLrefresh'] * 10;
 }
 
-$frmjmpsel['wol'] = ' selected="selected" class="fjsel"';
-construct_forum_jump();
+$navpopup = array(
+	'id'    => 'wol_navpopup',
+	'title' => $vbphrase['whos_online'],
+	'link'  => 'online.php' . $vbulletin->session->vars['sessionurl_q'],
+);
+construct_quick_nav($navpopup);
 
-$pagenav = construct_page_nav($pagenumber, $perpage, $totalonline, 'online.php?' . $vbulletin->session->vars['sessionurl'] . "sort=$sortfield&amp;order=$sortorder&amp;pp=$perpage" . iif($vbulletin->GPC['who'], '&amp;who=' . $vbulletin->GPC['who']) . iif($vbulletin->GPC['ua'], '&amp;ua=1'));
-$numbervisible += $numberinvisible;
-
-$colspan = 2;
-$colspan = iif($show['ip'], $colspan + 1, $colspan);
-$colspan = iif($vbulletin->options['showimicons'], $colspan + 1, $colspan);
+$pagenav = construct_page_nav($pagenumber, $perpage, $displaytotal, 'online.php?' . $vbulletin->session->vars['sessionurl'] . "sort=$sortfield&amp;order=$sortorder&amp;pp=$perpage" . iif($vbulletin->GPC['who'], '&amp;who=' . $vbulletin->GPC['who']) . iif($vbulletin->GPC['ua'], '&amp;ua=1'));
 
 ($hook = vBulletinHook::fetch_hook('online_complete')) ? eval($hook) : false;
 
 $navbits = construct_navbits(array('' => $vbphrase['whos_online']));
-eval('$navbar = "' . fetch_template('navbar') . '";');
-eval('print_output("' . fetch_template('WHOSONLINE') . '");');
+$navbar = render_navbar_template($navbits);
+$templater = vB_Template::create('WHOSONLINE');
+	$templater->register_page_templates();
+	$templater->register('forumjump', $forumjump);
+	$templater->register('navbar', $navbar);
+	$templater->register('numberguests', $numberguests);
+	$templater->register('numbermembers', $numbermembers);
+	$templater->register('onlinebits', $onlinebits);
+	$templater->register('pagenav', $pagenav);
+	$templater->register('pagenumber', $pagenumber);
+	$templater->register('perpage', $perpage);
+	$templater->register('recorddate', $recorddate);
+	$templater->register('recordtime', $recordtime);
+	$templater->register('recordusers', $recordusers);
+	$templater->register('refreshargs', $refreshargs);
+	$templater->register('refreshargs_js', $refreshargs_js);
+	$templater->register('refreshtime', $refreshtime);
+	$templater->register('sortarrow', $sortarrow);
+	$templater->register('sortfield', $sortfield);
+	$templater->register('sortorder', $sortorder);
+	$templater->register('sorturl', $sorturl);
+	$templater->register('uaselected', $uaselected);
+	$templater->register('whoselected', $whoselected);
+	
+	if ($threadinfo['threadid'])
+	{
+		$templater->register('threadinfo', $threadinfo);
+	}
+	
+print_output($templater->render());
 
 /*======================================================================*\
 || ####################################################################
-|| # Downloaded: 16:21, Sat Apr 6th 2013
-|| # CVS: $RCSfile$ - $Revision: 26760 $
+|| # Downloaded: 14:57, Sun Aug 11th 2013
+|| # CVS: $RCSfile$ - $Revision: 61394 $
 || ####################################################################
 \*======================================================================*/
 ?>

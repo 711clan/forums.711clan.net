@@ -1,9 +1,9 @@
 <?php
 /*======================================================================*\
 || #################################################################### ||
-|| # vBulletin 3.7.2 Patch Level 2 - Licence Number VBF2470E4F
+|| # vBulletin 4.2.1 - Licence Number VBC2DDE4FB
 || # ---------------------------------------------------------------- # ||
-|| # Copyright ©2000-2013 Jelsoft Enterprises Ltd. All Rights Reserved. ||
+|| # Copyright ©2000-2013 vBulletin Solutions Inc. All Rights Reserved. ||
 || # This file may not be redistributed in whole or significant part. # ||
 || # ---------------- VBULLETIN IS NOT FREE SOFTWARE ---------------- # ||
 || # http://www.vbulletin.com | http://www.vbulletin.com/license.html # ||
@@ -15,7 +15,7 @@ error_reporting(E_ALL & ~E_NOTICE);
 @set_time_limit(0);
 
 // ##################### DEFINE IMPORTANT CONSTANTS #######################
-define('CVS_REVISION', '$RCSfile$ - $Revision: 26563 $');
+define('CVS_REVISION', '$RCSfile$ - $Revision: 62098 $');
 @ini_set('display_errors', 'On');
 
 // #################### PRE-CACHE TEMPLATES AND DATA ######################
@@ -26,6 +26,9 @@ $specialtemplates = array();
 require_once('./global.php');
 require_once(DIR . '/includes/adminfunctions_attachment.php');
 require_once(DIR . '/includes/functions_file.php');
+require_once(DIR . '/packages/vbattach/attach.php');
+
+vB_Router::setRelativePath('../');
 
 // ######################## CHECK ADMIN PERMISSIONS #######################
 if (!can_administer('canadminthreads'))
@@ -116,7 +119,7 @@ if ($_REQUEST['do'] == 'switchtype')
 			// show a form to allow user to specify file path
 			print_form_header('attachment', 'doswitchtype');
 			construct_hidden_code('dowhat', $vbulletin->GPC['dowhat']);
-			print_table_header($vbphrase['move_attachments_to_a_different_directory']);
+			print_table_header($vbphrase['move_items_to_a_different_directory']);
 			print_description_row(construct_phrase($vbphrase['attachments_are_currently_being_stored_in_the_filesystem_at_x'], '<b>' . $vbulletin->options['attachpath'] . '</b>'));
 		}
 		else
@@ -226,7 +229,6 @@ if ($_REQUEST['do'] == 'domoveattachment')
 		'count'            => TYPE_UINT
 	));
 
-
 	if (is_demo_mode())
 	{
 		print_cp_message('This function is disabled within demo mode');
@@ -239,7 +241,7 @@ if ($_REQUEST['do'] == 'domoveattachment')
 
 	if (empty($vbulletin->GPC['startat'])) // Grab the first attachmentid so that we don't process a bunch of nonexistent ids to begin with.
 	{
-		$start = $db->query_first("SELECT MIN(attachmentid) AS min FROM " . TABLE_PREFIX . "attachment");
+		$start = $db->query_first("SELECT MIN(filedataid) AS min FROM " . TABLE_PREFIX . "filedata");
 		$vbulletin->GPC['startat'] = intval($start['min']);
 	}
 	$finishat = $vbulletin->GPC['startat'] + $vbulletin->GPC['perpage'];
@@ -247,17 +249,17 @@ if ($_REQUEST['do'] == 'domoveattachment')
 	// echo '<p>' . $vbphrase['attachments'] . '</p>';
 
 	$attachments = $db->query_read("
-		SELECT attachmentid, filename, filedata, filesize, userid, thumbnail
-		FROM " . TABLE_PREFIX . "attachment
-		WHERE attachmentid >= " . $vbulletin->GPC['startat'] . " AND attachmentid < $finishat
-		ORDER BY attachmentid ASC
+		SELECT filedataid, filedata, filesize, userid, thumbnail
+		FROM " . TABLE_PREFIX . "filedata
+		WHERE filedataid >= " . $vbulletin->GPC['startat'] . " AND filedataid < $finishat
+		ORDER BY filedataid ASC
 	");
 
 	if ($vbulletin->debug)
 	{
 		echo '<table width="100%" border="1" cellspacing="0" cellpadding="1">
 				<tr>
-				<td><b>Attachment ID</b></td><td><b>Filename</b></td><td><b>Size in Database</b></td><td><b>Size in Filesystem</b></td>
+				<td><b>Filedata ID</b></td><td><b>Size in Database</b></td><td><b>Size in Filesystem</b></td>
 				</tr>
 			';
 	}
@@ -269,7 +271,7 @@ if ($_REQUEST['do'] == 'domoveattachment')
 		{ // Converting FROM mysql TO fs
 			$vbulletin->options['attachfile'] = ATTACH_AS_FILES_NEW;
 
-			$attachdata =& datamanager_init('Attachment', $vbulletin, ERRTYPE_SILENT);
+			$attachdata =& datamanager_init('Filedata', $vbulletin, ERRTYPE_SILENT, 'attachment');
 			$attachdata->set_existing($attachment);
 			if (!($result = $attachdata->save()))
 			{
@@ -283,7 +285,7 @@ if ($_REQUEST['do'] == 'domoveattachment')
 				}
 			}
 			unset($attachdata);
-			$filepath = fetch_attachment_path($attachment['userid'], $attachment['attachmentid']);
+			$filepath = fetch_attachment_path($attachment['userid'], $attachment['filedataid']);
 			if (!is_readable($filepath) OR @filesize($filepath) == 0)
 			{
 				$vbulletin->GPC['attacherrorcount']++;
@@ -293,8 +295,8 @@ if ($_REQUEST['do'] == 'domoveattachment')
 		}
 		else
 		{ // Converting FROM fs TO mysql
-			$path = fetch_attachment_path($attachment['userid'], $attachment['attachmentid']);
-			$thumbnail_path = fetch_attachment_path($attachment['userid'], $attachment['attachmentid'], true);
+			$path = fetch_attachment_path($attachment['userid'], $attachment['filedataid']);
+			$thumbnail_path = fetch_attachment_path($attachment['userid'], $attachment['filedataid'], true);
 
 			$temp = $vbulletin->options['attachfile'];
 			$vbulletin->options['attachfile'] = ATTACH_AS_DB;
@@ -303,7 +305,7 @@ if ($_REQUEST['do'] == 'domoveattachment')
 			{
 				$thumbnail_filedata = @file_get_contents($thumbnail_path);
 
-				$attachdata =& datamanager_init('Attachment', $vbulletin, ERRTYPE_SILENT);
+				$attachdata =& datamanager_init('Filedata', $vbulletin, ERRTYPE_SILENT, 'attachment');
 				$attachdata->set_existing($attachment);
 				$attachdata->setr('filedata', $filedata);
 				$attachdata->setr('thumbnail', $thumbnail_filedata);
@@ -333,8 +335,7 @@ if ($_REQUEST['do'] == 'domoveattachment')
 		if ($vbulletin->debug)
 		{
 			echo "	<tr>
-					<td>$attachment[attachmentid]</td>
-					<td>" . htmlspecialchars_uni($attachment['filename']) . iif($attacherror, "<br />$attacherror") . "</td>
+					<td>$attachment[filedataid]" . iif($attacherror, "<br />$attacherror") . "</td>
 					<td>$attachment[filesize]</td>
 					<td>$filesize / $thumbnail_filesize</td>
 					</tr>
@@ -342,10 +343,10 @@ if ($_REQUEST['do'] == 'domoveattachment')
 		}
 		else
 		{
-			echo "$vbphrase[attachment] : <b>$attachment[attachmentid]</b> $vbphrase[filename] : <b>$attachment[filename]</b><br />";
+			echo "$vbphrase[attachment] : <b>$attachment[filedataid]</b><br />";
 			if ($attacherror)
 			{
-				echo "$vbphrase[attachment] : <b>$attachment[attachmentid] $vbphrase[error]</b> $attacherror<br />";
+				echo "$vbphrase[attachment] : <b>$attachment[filedataid] $vbphrase[error]</b> $attacherror<br />";
 			}
 			vbflush();
 		}
@@ -356,7 +357,7 @@ if ($_REQUEST['do'] == 'domoveattachment')
 		echo '</table>';
 		vbflush();
 	}
-	if ($checkmore = $db->query_first("SELECT attachmentid FROM " . TABLE_PREFIX . "attachment WHERE attachmentid >= $finishat LIMIT 1"))
+	if ($checkmore = $db->query_first("SELECT filedataid FROM " . TABLE_PREFIX . "filedata WHERE filedataid >= $finishat LIMIT 1"))
 	{
 		print_cp_redirect("attachment.php?" . $vbulletin->session->vars['sessionurl'] . "do=domoveattachment&startat=$finishat" .
 												"&pp=" . $vbulletin->GPC['perpage'] .
@@ -385,7 +386,7 @@ if ($_REQUEST['do'] == 'domoveattachment')
 													$vbphrase['click_here_to_continue_processing'] . "</a></p>";
 		}
 
-		$totalattach = $db->query_first("SELECT COUNT(*) AS count FROM " . TABLE_PREFIX . "attachment");
+		$totalattach = $db->query_first("SELECT COUNT(*) AS count FROM " . TABLE_PREFIX . "filedata");
 		if ($vbulletin->options['attachfile'] == ATTACH_AS_DB)
 		{
 			// Here we get a form that the user must continue on to delete the filedata column so that they are really sure to complete this step!
@@ -439,9 +440,9 @@ if ($_REQUEST['do'] == 'confirmfileremove')
 	}
 
 	$attachments = $db->query_read("
-		SELECT attachmentid, userid
-		FROM " . TABLE_PREFIX . "attachment
-		ORDER BY userid DESC, attachmentid ASC
+		SELECT filedataid, userid
+		FROM " . TABLE_PREFIX . "filedata
+		ORDER BY userid DESC, filedataid ASC
 		LIMIT " . $vbulletin->GPC['startat'] . ", " . $vbulletin->GPC['perpage'] . "
 	");
 	if ($records = $db->num_rows($attachments))
@@ -464,8 +465,8 @@ if ($_REQUEST['do'] == 'confirmfileremove')
 				$path = $vbulletin->options['attachpath'] . '/' . $attachment['userid'];
 			}
 
-			@unlink($path . '/' . $attachment['attachmentid'] . '.attach');
-			@unlink($path . '/' . $attachment['attachmentid'] . '.thumb');
+			@unlink($path . '/' . $attachment['filedataid'] . '.attach');
+			@unlink($path . '/' . $attachment['filedataid'] . '.thumb');
 
 			if ($userid != $attachment['userid'])
 			{
@@ -550,9 +551,9 @@ if ($_REQUEST['do'] == 'confirmattachmentremove')
 		}
 
 		$attachments = $db->query_read("
-			SELECT attachmentid
-			FROM " . TABLE_PREFIX . "attachment
-			ORDER BY attachmentid
+			SELECT filedataid
+			FROM " . TABLE_PREFIX . "filedata
+			ORDER BY filedataid
 			LIMIT " . $vbulletin->GPC['startat'] . ", " . $vbulletin->GPC['perpage'] . "
 		");
 		if ($records = $db->num_rows($attachments))
@@ -560,17 +561,17 @@ if ($_REQUEST['do'] == 'confirmattachmentremove')
 			echo '<p>' . construct_phrase($vbphrase['removing_x_attachments'], $records) . '</p>';
 			vbflush();
 
-			$attachmentids = '';
+			$attachmentids = array();
 			while ($attachment = $db->fetch_array($attachments))
 			{
-				$attachmentids .= ",$attachment[attachmentid]";
+				$attachmentids[] = $attachment['filedataid'];
 			}
 
 			$db->query_write("
-				UPDATE " . TABLE_PREFIX . "attachment SET
-					filedata = '',
-					thumbnail = ''
-				WHERE attachmentid IN (0$attachmentids)
+				UPDATE " . TABLE_PREFIX . "filedata
+					SET filedata = '',
+						thumbnail = ''
+				WHERE filedataid IN (" . implode(",", $attachmentids) . ")
 			");
 
 			$finishat = $vbulletin->GPC['startat'] + $vbulletin->GPC['perpage'];
@@ -627,12 +628,12 @@ if ($_REQUEST['do'] == 'search' AND $vbulletin->GPC['massdelete'])
 if ($_REQUEST['do'] == 'search')
 {
 	$vbulletin->input->clean_array_gpc('r', array(
-		'search'		=> TYPE_ARRAY,
-		'prevsearch'	=> TYPE_STR,
-		'prunedate'		=> TYPE_INT,
-		'pagenum'		=> TYPE_INT,
-		'next_page'		=> TYPE_STR,
-		'prev_page'		=> TYPE_STR,
+		'search'     => TYPE_ARRAY,
+		'prevsearch' => TYPE_STR,
+		'prunedate'  => TYPE_INT,
+		'pagenum'    => TYPE_INT,
+		'next_page'  => TYPE_STR,
+		'prev_page'  => TYPE_STR,
 	));
 
 	// for additional pages of results
@@ -650,7 +651,7 @@ if ($_REQUEST['do'] == 'search')
 	$vbulletin->GPC['search']['sizemore'] = intval($vbulletin->GPC['search']['sizemore']);
 	$vbulletin->GPC['search']['sizeless'] = intval($vbulletin->GPC['search']['sizeless']);
 	$vbulletin->GPC['search']['visible'] = (isset($vbulletin->GPC['search']['visible']) ? intval($vbulletin->GPC['search']['visible']) : -1);
-	$vbulletin->GPC['search']['orderby'] = in_array($vbulletin->GPC['search']['orderby'], array('user.username', 'counter', 'filename', 'filesize', 'post.dateline', 'attachment.visible')) ? $vbulletin->GPC['search']['orderby'] : 'filename';
+	$vbulletin->GPC['search']['orderby'] = in_array($vbulletin->GPC['search']['orderby'], array('username', 'counter', 'filename', 'filesize', 'dateline', 'state')) ? $vbulletin->GPC['search']['orderby'] : 'filename';
 	$vbulletin->GPC['search']['ordering'] = in_array($vbulletin->GPC['search']['ordering'], array('ASC', 'DESC')) ? $vbulletin->GPC['search']['ordering'] : 'DESC';
 	$vbulletin->GPC['search']['results'] = intval($vbulletin->GPC['search']['results']);
 
@@ -690,18 +691,13 @@ if ($_REQUEST['do'] == 'search')
 		--$vbulletin->GPC['pagenum'];
 	}
 
-	$query = "
-		SELECT attachment.attachmentid, attachment.postid, attachment.dateline, attachment.userid, attachment.visible, filename, counter,
-		filesize, IF(user.userid<>0, user.username, post.username) AS username
-		FROM " . TABLE_PREFIX . "attachment AS attachment
-		LEFT JOIN " . TABLE_PREFIX . "user AS user ON (attachment.userid=user.userid)
-		LEFT JOIN " . TABLE_PREFIX . "post AS post ON (attachment.postid=post.postid)
-		WHERE 1=1
-	";
+	$query = array(
+		"a.contentid <> 0"
+	);
 
 	if ($vbulletin->GPC['search']['filename'])
 	{
-		$query .= "AND filename LIKE '%" . $db->escape_string_like($vbulletin->GPC['search']['filename']) . "%' ";
+		$query[] = "a.filename LIKE '%" . $db->escape_string_like($vbulletin->GPC['search']['filename']) . "%' ";
 	}
 
 	if ($vbulletin->GPC['search']['attachedby'])
@@ -717,63 +713,58 @@ if ($_REQUEST['do'] == 'search')
 		}
 		else
 		{
-			$query .= "AND attachment.userid=$user[userid] ";
+			$query[] = "a.userid=$user[userid] ";
 		}
 	}
 
 	if ($vbulletin->GPC['search']['datelinebefore'] AND $vbulletin->GPC['search']['datelineafter'])
 	{
-		$query .= "AND (attachment.dateline BETWEEN UNIX_TIMESTAMP('" . $db->escape_string($vbulletin->GPC['search']['datelineafter']) . "') AND UNIX_TIMESTAMP('" . $db->escape_string($vbulletin->GPC['search']['datelinebefore']) . "')) ";
+		$query[] = "(a.dateline BETWEEN UNIX_TIMESTAMP('" . $db->escape_string($vbulletin->GPC['search']['datelineafter']) . "') AND UNIX_TIMESTAMP('" . $db->escape_string($vbulletin->GPC['search']['datelinebefore']) . "')) ";
 	}
 	else if ($vbulletin->GPC['search']['datelinebefore'])
 	{
-		$query .= "AND attachment.dateline < UNIX_TIMESTAMP('" . $db->escape_string($vbulletin->GPC['search']['datelinebefore']) . "') ";
+		$query[] = "a.dateline < UNIX_TIMESTAMP('" . $db->escape_string($vbulletin->GPC['search']['datelinebefore']) . "') ";
 	}
 	else if ($vbulletin->GPC['search']['datelineafter'])
 	{
-		$query .= "AND attachment.dateline > UNIX_TIMESTAMP('" . $db->escape_string($vbulletin->GPC['search']['datelineafter']) . "') ";
+		$query[] = "a.dateline > UNIX_TIMESTAMP('" . $db->escape_string($vbulletin->GPC['search']['datelineafter']) . "') ";
 	}
 
 	if ($vbulletin->GPC['search']['downloadsmore'] AND $vbulletin->GPC['search']['downloadsless'])
 	{
-		$query .= "AND (counter BETWEEN " . $vbulletin->GPC['search']['downloadsmore'] ." AND " . $vbulletin->GPC['search']['downloadsless'] . ") ";
+		$query[] = "(a.counter BETWEEN " . $vbulletin->GPC['search']['downloadsmore'] ." AND " . $vbulletin->GPC['search']['downloadsless'] . ") ";
 	}
 	else if ($vbulletin->GPC['search']['downloadsless'])
 	{
-		$query .= "AND counter < " . $vbulletin->GPC['search']['downloadsless'] . " ";
+		$query[] = "a.counter < " . $vbulletin->GPC['search']['downloadsless'] . " ";
 	}
 	else if ($vbulletin->GPC['search']['downloadsmore'])
 	{
-		$query .= "AND counter > " . $vbulletin->GPC['search']['downloadsmore']. " ";
+		$query[] = "a.counter > " . $vbulletin->GPC['search']['downloadsmore']. " ";
 	}
 
 	if ($vbulletin->GPC['search']['sizemore'] AND $vbulletin->GPC['search']['sizeless'])
 	{
-		$query .= "AND (filesize BETWEEN " . $vbulletin->GPC['search']['sizemore'] . " AND " . $vbulletin->GPC['search']['sizeless'] . ") ";
+		$query[] = "(fd.filesize BETWEEN " . $vbulletin->GPC['search']['sizemore'] . " AND " . $vbulletin->GPC['search']['sizeless'] . ") ";
 	}
 	else if ($vbulletin->GPC['search']['sizeless'])
 	{
-		$query .= "AND filesize < " . $vbulletin->GPC['search']['sizeless'] . " ";
+		$query[] = "fd.filesize < " . $vbulletin->GPC['search']['sizeless'] . " ";
 	}
 	else if ($vbulletin->GPC['search']['sizemore'])
 	{
-		$query .= "AND filesize > " . $vbulletin->GPC['search']['sizemore'] . " ";
+		$query[] = "fd.filesize > " . $vbulletin->GPC['search']['sizemore'] . " ";
 	}
 
 	if ($vbulletin->GPC['search']['visible'] != -1)
 	{
-		$query .= "AND attachment.visible = " . $vbulletin->GPC['search']['visible'] . " ";
+		$query[] = "a.state = '" . ($vbulletin->GPC['search']['visible'] ? 'visible' : 'moderation') . "' ";
 	}
 
-	$query .= "\nORDER BY " . $vbulletin->GPC['search']['orderby'] . " " . $vbulletin->GPC['search']['ordering'];
+	$attachmultiple = new vB_Attachment_Display_Multiple($vbulletin);
+	$attachments = $attachmultiple->fetch_results(implode(" AND ", $query), true);
 
-	$results = $db->query_read($query);
-	$count = $db->num_rows($results);
-	if (!$count)
-	{
-		print_stop_message('no_matches_found');
-	}
-	$pages = ceil($count / $vbulletin->GPC['search']['results']);
+	$pages = ceil($attachments['count'] / $vbulletin->GPC['search']['results']);
 	if (!$pages)
 	{
 		$pages = 1;
@@ -783,7 +774,7 @@ if ($_REQUEST['do'] == 'search')
 	construct_hidden_code('prevsearch', $vbulletin->GPC['prevsearch']);
 	construct_hidden_code('prunedate', $vbulletin->GPC['prunedate']);
 	construct_hidden_code('pagenum', $vbulletin->GPC['pagenum']);
-	print_table_header(construct_phrase($vbphrase['showing_attachments_x_to_y_of_z'], ($vbulletin->GPC['pagenum'] - 1) * $vbulletin->GPC['search']['results'] + 1,  iif($vbulletin->GPC['search']['results'] * $vbulletin->GPC['pagenum'] > $count, $count, $vbulletin->GPC['search']['results'] * $vbulletin->GPC['pagenum']), $count), 7);
+	print_table_header(construct_phrase($vbphrase['showing_attachments_x_to_y_of_z'], ($vbulletin->GPC['pagenum'] - 1) * $vbulletin->GPC['search']['results'] + 1,  iif($vbulletin->GPC['search']['results'] * $vbulletin->GPC['pagenum'] > $attachments['count'], $attachments['count'], $vbulletin->GPC['search']['results'] * $vbulletin->GPC['pagenum']), $attachments['count']), 7);
 
 	print_cells_row(array(
 		'<input type="checkbox" name="allbox" title="' . $vbphrase['check_all'] . '" onclick="js_check_all(this.form);" />',
@@ -795,20 +786,22 @@ if ($_REQUEST['do'] == 'search')
 		$vbphrase['controls']
 	), 1);
 
-	$db->data_seek($results, ($vbulletin->GPC['pagenum'] - 1) * $vbulletin->GPC['search']['results']);
 	$currentrow = 1;
-	while ($row = $db->fetch_array($results))
+
+	$attachmultiple = new vB_Attachment_Display_Multiple($vbulletin);
+	$attachments = $attachmultiple->fetch_results(implode(" AND ", $query), false, ($vbulletin->GPC['pagenum'] - 1) * $vbulletin->GPC['search']['results'], $vbulletin->GPC['search']['results'], $vbulletin->GPC['search']['orderby'], $vbulletin->GPC['search']['ordering']);
+	foreach ($attachments AS $attachment)
 	{
 		$cell = array();
-		$cell[] = "<input type=\"checkbox\" name=\"a_delete[]\" value=\"$row[attachmentid]\" tabindex=\"1\" />";
-		$cell[] = "<p align=\"$stylevar[left]\"><a href=\"../attachment.php?" . $vbulletin->session->vars['sessionurl'] . "attachmentid=$row[attachmentid]&amp;d=$row[dateline]\">" . htmlspecialchars_uni($row['filename']) . '</a></p>';
-		$cell[] = iif($row['userid'], "<a href=\"user.php?" . $vbulletin->session->vars['sessionurl'] . "do=edit&amp;u=$row[userid]\">$row[username]</a>", $row['username']);
-		$cell[] = vbdate($vbulletin->options['dateformat'], $row['dateline']) . construct_link_code($vbphrase['view_post'], "../showthread.php?" . $vbulletin->session->vars['sessionurl'] . "p=$row[postid]#post$row[postid]", true);
-		$cell[] = vb_number_format($row['filesize'], 1, true);
-		$cell[] = $row['counter'];
+		$cell[] = "<input type=\"checkbox\" name=\"a_delete[]\" value=\"$attachment[attachmentid]\" tabindex=\"1\" />";
+		$cell[] = "<p align=\"" . vB_Template_Runtime::fetchStyleVar('left') . "\"><a href=\"../attachment.php?" . $vbulletin->session->vars['sessionurl'] . "attachmentid=$attachment[attachmentid]&amp;d=$attachment[dateline]\">" . fetch_censored_text(htmlspecialchars_uni($attachment['filename'], false)) . '</a></p>';
+		$cell[] = iif($attachment['userid'], "<a href=\"user.php?" . $vbulletin->session->vars['sessionurl'] . "do=edit&amp;u=$attachment[userid]\">$attachment[username]</a>", $attachment['username']);
+		$cell[] = vbdate($vbulletin->options['dateformat'], $attachment['dateline']) . construct_link_code($vbphrase['view_content'], $attachmultiple->fetch_content_url($attachment, '../'), true);
+		$cell[] = vb_number_format($attachment['filesize'], 1, true);
+		$cell[] = $attachment['counter'];
 		$cell[] = '<span class="smallfont">' .
-			construct_link_code($vbphrase['edit'], "attachment.php?" . $vbulletin->session->vars['sessionurl'] . "do=edit&amp;attachmentid=$row[attachmentid]") .
-			construct_link_code($vbphrase['delete'], "attachment.php?" . $vbulletin->session->vars['sessionurl'] . "do=delete&amp;attachmentid=$row[attachmentid]") .
+			construct_link_code($vbphrase['edit'], "attachment.php?" . $vbulletin->session->vars['sessionurl'] . "do=edit&amp;attachmentid=$attachment[attachmentid]") .
+			construct_link_code($vbphrase['delete'], "attachment.php?" . $vbulletin->session->vars['sessionurl'] . "do=delete&amp;attachmentid=$attachment[attachmentid]") .
 			'</span>';
 		print_cells_row($cell);
 		$currentrow++;
@@ -844,9 +837,11 @@ if ($_REQUEST['do'] == 'edit')
 	));
 
 	if (!$attachment = $db->query_first("
-		SELECT attachmentid, filename, visible, counter
+		SELECT
+			attachmentid, filename, state, counter
 		FROM " . TABLE_PREFIX . "attachment AS attachment
-		WHERE attachment.attachmentid = " . $vbulletin->GPC['attachmentid'] . "
+		WHERE
+			attachment.attachmentid = " . $vbulletin->GPC['attachmentid'] . "
 	"))
 	{
 		print_stop_message('no_matches_found');
@@ -855,16 +850,19 @@ if ($_REQUEST['do'] == 'edit')
 	print_form_header('attachment', 'doedit', true);
 	construct_hidden_code('attachmentid', $vbulletin->GPC['attachmentid']);
 	print_table_header($vbphrase['edit_attachment']);
-	print_input_row($vbphrase['filename'], 'a_filename', $attachment['filename']);
+	print_input_row($vbphrase['filename'], 'a_filename', htmlspecialchars_uni($attachment['filename'], false), false);
 	print_input_row($vbphrase['views'], 'a_counter', $attachment['counter']);
-	print_yes_no_row($vbphrase['visible'], 'a_visible', $attachment['visible']);
+	print_yes_no_row($vbphrase['visible'], 'a_visible', $attachment['state'] == 'visible' ? 1 : 0);
+	print_submit_row($vbphrase['save']);
 
+/*
 	print_table_break();
 	print_table_header($vbphrase['replace_attachment']);
 	print_upload_row($vbphrase['please_select_a_file_to_attach'], 'upload', 99999999);
 	print_input_row($vbphrase['or_enter_a_full_url_to_a_file'], 'url');
 	print_yes_no_row($vbphrase['visible'], 'newvisible', true);
 	print_submit_row($vbphrase['save']);
+*/
 }
 
 // ###################### Edit an attachment ####################
@@ -880,15 +878,20 @@ if ($_POST['do'] == 'doedit')
 	));
 
 	if (!$attachment = $db->query_first("
-		SELECT attachmentid, post.postid, attachment.userid
+		SELECT
+			attachmentid, attachment.userid
 		FROM " . TABLE_PREFIX . "attachment AS attachment
-		LEFT JOIN " . TABLE_PREFIX . "post AS post ON (post.postid = attachment.postid)
-		WHERE attachment.attachmentid = " . $vbulletin->GPC['attachmentid'] . "
+		WHERE
+			attachment.attachmentid = " . $vbulletin->GPC['attachmentid'] . "
 	"))
 	{
 		print_stop_message('no_matches_found');
 	}
 
+	$attachdata =& datamanager_init('Attachment', $vbulletin, ERRTYPE_CP);
+	$attachdata->set_existing($attachment);
+
+/*
 	$vbulletin->input->clean_gpc('f', 'upload', TYPE_FILE);
 
 	$attachdata =& datamanager_init('Attachment', $vbulletin, ERRTYPE_CP);
@@ -900,7 +903,7 @@ if ($_POST['do'] == 'doedit')
 		require_once(DIR . '/includes/class_upload.php');
 		require_once(DIR . '/includes/class_image.php');
 
-		$upload =& new vB_Upload_Attachment($vbulletin);
+		$upload = new vB_Upload_Attachment($vbulletin);
 		$image =& vB_Image::fetch_library($vbulletin);
 
 		$upload->data =& $attachdata;
@@ -923,10 +926,10 @@ if ($_POST['do'] == 'doedit')
 		else
 		{
 			$attachment_input = array(
-				'name' =>& $vbulletin->GPC['upload']['name'],
-				'tmp_name' =>& $vbulletin->GPC['upload']['tmp_name'],
-				'error' =>&	$vbulletin->GPC['upload']['error'],
-				'size' =>& $vbulletin->GPC['upload']['size'],
+				'name'     => $vbulletin->GPC['upload']['name'],
+				'tmp_name' => $vbulletin->GPC['upload']['tmp_name'],
+				'error'    =>	$vbulletin->GPC['upload']['error'],
+				'size'     => $vbulletin->GPC['upload']['size'],
 			);
 		}
 
@@ -936,13 +939,14 @@ if ($_POST['do'] == 'doedit')
 			print_stop_message('generic_error_x', $upload->fetch_error());
 		}
 	}
-	else # Update Attachment
-	{
-		$attachdata->set('filename', $vbulletin->GPC['a_filename']);
-		$attachdata->set('visible', intval($vbulletin->GPC['a_visible']));
-		$attachdata->set('counter', $vbulletin->GPC['a_counter']);
-		$attachdata->save();
-	}
+
+*/
+	# Update Attachment
+
+	$attachdata->set('filename', $vbulletin->GPC['a_filename']);
+	$attachdata->set('state', $vbulletin->GPC['a_visible'] ? 'visible' : 'moderation');
+	$attachdata->set('counter', $vbulletin->GPC['a_counter']);
+	$attachdata->save();
 
 	define('CP_REDIRECT', 'attachment.php?do=stats');
 	print_stop_message('updated_attachment_successfully');
@@ -955,12 +959,16 @@ if ($_REQUEST['do'] == 'delete')
 		'attachmentid' => TYPE_INT
 	));
 
-	$attachment = $db->query_first("SELECT filename FROM " . TABLE_PREFIX . "attachment WHERE attachmentid=" . $vbulletin->GPC['attachmentid']);
+	$attachment = $db->query_first("
+		SELECT filename
+		FROM " . TABLE_PREFIX . "attachment AS a
+		WHERE attachmentid=" . $vbulletin->GPC['attachmentid']
+	);
 
 	print_form_header('attachment', 'dodelete');
 	construct_hidden_code('attachmentid', $vbulletin->GPC['attachmentid']);
 	print_table_header($vbphrase['confirm_deletion']);
-	print_description_row(construct_phrase($vbphrase['are_you_sure_you_want_to_delete_the_attachment_x'], $attachment['filename'], $vbulletin->GPC['attachmentid']));
+	print_description_row(construct_phrase($vbphrase['are_you_sure_you_want_to_delete_the_attachment_x'], htmlspecialchars_uni($attachment['filename'], false), $vbulletin->GPC['attachmentid']));
 	print_submit_row($vbphrase['yes'], '', 2, $vbphrase['no']);
 }
 
@@ -971,10 +979,10 @@ if ($_POST['do'] == 'dodelete')
 		'attachmentid' => TYPE_UINT
 	));
 
-	$attachdata =& datamanager_init('Attachment', $vbulletin, ERRTYPE_CP);
+	$attachdata =& datamanager_init('Attachment', $vbulletin, ERRTYPE_CP, 'attachment');
 	$attachdata->condition = "attachmentid = " . $vbulletin->GPC['attachmentid'];
 	$attachdata->log = false;
-	$attachdata->delete();
+	$attachdata->delete(true, false);
 
 	define('CP_REDIRECT', 'attachment.php?do=intro');
 	print_stop_message('deleted_attachment_successfully');
@@ -1007,10 +1015,10 @@ if ($_POST['do'] == 'domassdelete')
 	{
 		$ids = implode(',', $delete);
 
-		$attachdata =& datamanager_init('Attachment', $vbulletin, ERRTYPE_CP);
+		$attachdata =& datamanager_init('Attachment', $vbulletin, ERRTYPE_CP, 'attachment');
 		$attachdata->condition = "attachmentid IN (-1," . $db->escape_string($ids) . ")";
 		$attachdata->log = false;
-		$attachdata->delete();
+		$attachdata->delete(true, false);
 	}
 
 	define('CP_REDIRECT', 'attachment.php?do=intro');
@@ -1020,24 +1028,31 @@ if ($_POST['do'] == 'domassdelete')
 // ###################### Statistics ####################
 if ($_REQUEST['do'] == 'stats')
 {
-	$stats = $db->query_first("
+	$astats = $db->query_first("
 		SELECT COUNT(*) AS count, SUM(filesize) AS totalsize, SUM(counter) AS downloads
-		FROM " . TABLE_PREFIX . "attachment
+		FROM " . TABLE_PREFIX . "attachment AS a
+		INNER JOIN " . TABLE_PREFIX . "filedata AS fd ON (a.filedataid = fd.filedataid);
 	");
 
-	if ($stats['count'])
+	$fstats = $db->query_first("
+		SELECT COUNT(*) AS count, SUM(filesize) AS totalsize
+		FROM " . TABLE_PREFIX . "filedata AS fd
+	");
+
+	if ($astats['count'])
 	{
-		$stats['average'] = vb_number_format(($stats['totalsize'] / $stats['count']), 1, true);
+		$astats['average'] = vb_number_format(($astats['totalsize'] / $astats['count']), 1, true);
 	}
 	else
 	{
-		$stats['average'] = '0.00';
+		$astats['average'] = '0.00';
 	}
 
 	print_form_header('', '');
 	print_table_header($vbphrase['statistics']);
-	print_label_row($vbphrase['total_attachments'], vb_number_format($stats['count']));
-	print_label_row($vbphrase['disk_space_used'], vb_number_format(iif(!$stats['totalsize'], 0, $stats['totalsize']), 1, true));
+	print_label_row($vbphrase['unique_total_attachments'], vb_number_format($astats['count']) . ' / ' . vb_number_format($fstats['count']));
+	print_label_row($vbphrase['attachment_filesize_sum'], vb_number_format(iif(!$astats['totalsize'], 0, $astats['totalsize']), 1, true));
+	print_label_row($vbphrase['disk_space_used'], vb_number_format(iif(!$fstats['totalsize'], 0, $fstats['totalsize']), 1, true));
 
 	if ($vbulletin->options['attachfile'])
 	{
@@ -1048,75 +1063,76 @@ if ($_REQUEST['do'] == 'stats')
 		print_label_row($vbphrase['storage_type'], $vbphrase['attachments_are_currently_being_stored_in_the_database']);
 	}
 
-	print_label_row($vbphrase['average_attachment_filesize'], $stats['average']);
-	print_label_row($vbphrase['total_downloads'], vb_number_format($stats['downloads']));
+	print_label_row($vbphrase['average_attachment_filesize'], $astats['average']);
+	print_label_row($vbphrase['total_downloads'], vb_number_format($astats['downloads']));
 	print_table_break();
 
-	$popular = $db->query_read("
-		SELECT attachment.attachmentid, attachment.dateline, attachment.postid, attachment.filename, attachment.counter,
-		user.userid, IF(user.userid<>0, user.username, post.username) AS username
-		FROM " . TABLE_PREFIX . "attachment AS attachment
-		LEFT JOIN " . TABLE_PREFIX . "user AS user ON (attachment.userid=user.userid)
-		LEFT JOIN " . TABLE_PREFIX . "post AS post ON (attachment.postid=post.postid)
-		ORDER BY attachment.counter DESC
-		LIMIT 5
-	");
 	$position = 0;
 
 	print_table_header($vbphrase['five_most_popular_attachments'], 5);
 	print_cells_row(array('', $vbphrase['filename'], $vbphrase['username'], $vbphrase['downloads'], '&nbsp;'), 1);
-	while($thispop = $db->fetch_array($popular))
+
+	$attachmultiple = new vB_Attachment_Display_Multiple($vbulletin);
+	$attachments = $attachmultiple->fetch_results("a.contentid <> 0", false, 0, 5, 'counter');
+	foreach ($attachments AS $attachment)
 	{
 		$position++;
 		$cell = array();
 		$cell[] = $position . '.';
-		$cell[] = "<a href=\"../attachment.php?" . $vbulletin->session->vars['sessionurl'] . "attachmentid=$thispop[attachmentid]&amp;d=$thispop[dateline]\">$thispop[filename]</a>";
-		$cell[] = iif($thispop['userid'], "<a href=\"user.php?" . $vbulletin->session->vars['sessionurl'] . "do=edit&amp;u=$thispop[userid]\">$thispop[username]</a>", $thispop['username']);
-		$cell[] = vb_number_format($thispop['counter']);
+		$cell[] = "<a href=\"../attachment.php?" . $vbulletin->session->vars['sessionurl'] . "attachmentid=$attachment[attachmentid]&amp;d=$attachment[dateline]\">" . htmlspecialchars_uni($attachment['filename'], false) . "</a>";
+		$cell[] = iif($attachment['userid'], "<a href=\"user.php?" . $vbulletin->session->vars['sessionurl'] . "do=edit&amp;u=$attachment[userid]\">$attachment[username]</a>", $attachment['username']);
+		$cell[] = vb_number_format($attachment['counter']);
 		$cell[] = '<span class="smallfont">' .
-			construct_link_code($vbphrase['view_post'], "../showthread.php?" . $vbulletin->session->vars['sessionurl'] . "p=$thispop[postid]#post$thispop[postid]", true) .
-			construct_link_code($vbphrase['edit'], "attachment.php?" . $vbulletin->session->vars['sessionurl'] . "do=edit&amp;attachmentid=$thispop[attachmentid]") .
-			construct_link_code($vbphrase['delete'], "attachment.php?" . $vbulletin->session->vars['sessionurl'] . "do=delete&amp;attachmentid=$thispop[attachmentid]") .
+			construct_link_code($vbphrase['view_content'], $attachmultiple->fetch_content_url($attachment, '../'), true) .
+			construct_link_code($vbphrase['edit'], "attachment.php?" . $vbulletin->session->vars['sessionurl'] . "do=edit&amp;attachmentid=$attachment[attachmentid]") .
+			construct_link_code($vbphrase['delete'], "attachment.php?" . $vbulletin->session->vars['sessionurl'] . "do=delete&amp;attachmentid=$attachment[attachmentid]") .
 			'</span>';
 		print_cells_row($cell);
 	}
 	print_table_break();
 
 	$largest = $db->query_read("
-		SELECT attachmentid, attachment.dateline, attachment.postid, filename, filesize,
-		user.userid, IF(user.userid<>0, user.username, post.username) AS username
-		FROM " . TABLE_PREFIX . "attachment AS attachment
-		LEFT JOIN " . TABLE_PREFIX . "user AS user ON (attachment.userid=user.userid)
-		LEFT JOIN " . TABLE_PREFIX . "post AS post ON (attachment.postid=post.postid)
-		ORDER BY filesize DESC
+		SELECT
+			a.attachmentid, a.dateline, a.contentid, a.counter, a.userid, a.filename, user.username
+		FROM " . TABLE_PREFIX . "attachment AS a
+		INNER JOIN " . TABLE_PREFIX . "filedata AS fd ON (a.filedataid = fd.filedataid)
+		LEFT JOIN " . TABLE_PREFIX . "user AS user ON (a.userid = user.userid)
+		WHERE a.contentid <> 0
+		ORDER BY fd.filesize DESC
 		LIMIT 5
 	");
+
 	$position = 0;
 
 	print_table_header($vbphrase['five_largest_attachments'], 5);
 	print_cells_row(array('&nbsp;', $vbphrase['filename'], $vbphrase['username'], $vbphrase['filesize'], '&nbsp;'), 1);
-	while($thispop = $db->fetch_array($largest))
+
+	$attachmultiple = new vB_Attachment_Display_Multiple($vbulletin);
+	$attachments = $attachmultiple->fetch_results("a.contentid <> 0", false, 0, 5, 'filesize');
+	foreach ($attachments AS $attachment)
 	{
 		$position++;
 		$cell = array();
 		$cell[] = $position . '.';
-		$cell[] = "<a href=\"../attachment.php?" . $vbulletin->session->vars['sessionurl'] . "attachmentid=$thispop[attachmentid]&amp;d=$thispop[dateline]\">$thispop[filename]</a>";
-		$cell[] = iif($thispop['userid'], "<a href=\"user.php?" . $vbulletin->session->vars['sessionurl'] . "do=edit&amp;u=$thispop[userid]\">$thispop[username]</a>", $thispop['username']);
-		$cell[] = vb_number_format($thispop['filesize'], 1, true);
+		$cell[] = "<a href=\"../attachment.php?" . $vbulletin->session->vars['sessionurl'] . "attachmentid=$attachment[attachmentid]&amp;d=$attachment[dateline]\">" . htmlspecialchars_uni($attachment['filename'], false) . "</a>";
+		$cell[] = iif($attachment['userid'], "<a href=\"user.php?" . $vbulletin->session->vars['sessionurl'] . "do=edit&amp;u=$attachment[userid]\">$attachment[username]</a>", $attachment['username']);
+		$cell[] = vb_number_format($attachment['filesize'], 1, true);
 		$cell[] = '<span class="smallfont">' .
-			construct_link_code($vbphrase['view_post'], "../showthread.php?" . $vbulletin->session->vars['sessionurl'] . "p=$thispop[postid]#post$thispop[postid]", true) .
-			construct_link_code($vbphrase['edit'], "attachment.php?" . $vbulletin->session->vars['sessionurl'] . "do=edit&amp;attachmentid=$thispop[attachmentid]") .
-			construct_link_code($vbphrase['delete'], "attachment.php?" . $vbulletin->session->vars['sessionurl'] . "do=delete&amp;attachmentid=$thispop[attachmentid]") .
+			construct_link_code($vbphrase['view_content'], $attachmultiple->fetch_content_url($attachment, '../'), true) .
+			construct_link_code($vbphrase['edit'], "attachment.php?" . $vbulletin->session->vars['sessionurl'] . "do=edit&amp;attachmentid=$attachment[attachmentid]") .
+			construct_link_code($vbphrase['delete'], "attachment.php?" . $vbulletin->session->vars['sessionurl'] . "do=delete&amp;attachmentid=$attachment[attachmentid]") .
 			'</span>';
 		print_cells_row($cell);
 	}
 	print_table_break();
 
+	$content = array();
 	$largestuser = $db->query_read("
-		SELECT COUNT(postid) AS count, SUM(filesize) AS totalsize, user.userid, username
-		FROM " . TABLE_PREFIX . "attachment AS attachment, " . TABLE_PREFIX . "user AS user
-		WHERE user.userid= attachment.userid
-		GROUP BY attachment.userid
+		SELECT COUNT(*) AS count, SUM(filesize) AS totalsize, user.userid, username
+		FROM " . TABLE_PREFIX . "attachment AS a
+		INNER JOIN " . TABLE_PREFIX . "filedata AS fd ON (a.filedataid = fd.filedataid)
+		LEFT JOIN " . TABLE_PREFIX . "user AS user ON (a.userid = user.userid)
+		GROUP BY a.userid
 		HAVING totalsize > 0
 		ORDER BY totalsize DESC
 		LIMIT 5
@@ -1125,7 +1141,7 @@ if ($_REQUEST['do'] == 'stats')
 
 	print_table_header($vbphrase['five_users_most_attachment_space'], 5);
 	print_cells_row(array('&nbsp;', $vbphrase['username'], $vbphrase['attachments'], $vbphrase['total_size'], '&nbsp;'), 1);
-	while($thispop=$db->fetch_array($largestuser))
+	while($thispop = $db->fetch_array($largestuser))
 	{
 		$position++;
 		$cell = array();
@@ -1148,8 +1164,8 @@ if ($_REQUEST['do'] == 'intro')
 	<ul style=\"margin:0px; padding:0px; list-style:none\">
 		<li><a href=\"attachment.php?" . $vbulletin->session->vars['sessionurl'] . "do=search&amp;search[orderby]=filesize&amp;search[ordering]=DESC\">" . $vbphrase['view_largest_attachments'] . "</a></li>
 		<li><a href=\"attachment.php?" . $vbulletin->session->vars['sessionurl'] . "do=search&amp;search[orderby]=counter&amp;search[ordering]=DESC\">" . $vbphrase['view_most_popular_attachments'] . "</a></li>
-		<li><a href=\"attachment.php?" . $vbulletin->session->vars['sessionurl'] . "do=search&amp;search[orderby]=post.dateline&amp;search[ordering]=DESC\">" . $vbphrase['view_newest_attachments'] . "</a></li>
-		<li><a href=\"attachment.php?" . $vbulletin->session->vars['sessionurl'] . "do=search&amp;search[orderby]=post.dateline&amp;search[ordering]=ASC\">" . $vbphrase['view_oldest_attachments'] . "</a></li>
+		<li><a href=\"attachment.php?" . $vbulletin->session->vars['sessionurl'] . "do=search&amp;search[orderby]=dateline&amp;search[ordering]=DESC\">" . $vbphrase['view_newest_attachments'] . "</a></li>
+		<li><a href=\"attachment.php?" . $vbulletin->session->vars['sessionurl'] . "do=search&amp;search[orderby]=dateline&amp;search[ordering]=ASC\">" . $vbphrase['view_oldest_attachments'] . "</a></li>
 	</ul>
 	");
 	print_table_break();
@@ -1172,12 +1188,12 @@ if ($_REQUEST['do'] == 'intro')
 
 	print_label_row($vbphrase['order_by'],'
 		<select name="search[orderby]" tabindex="1" class="bginput">
-			<option value="user.username">' . $vbphrase['attached_by'] . '</option>
+			<option value="username">' . $vbphrase['attached_by'] . '</option>
 			<option value="counter">' . $vbphrase['downloads'] . '</option>
 			<option value="filename" selected="selected">' . $vbphrase['filename'] . '</option>
 			<option value="filesize">' . $vbphrase['filesize'] . '</option>
-			<option value="post.dateline">' . $vbphrase['time'] . '</option>
-			<option value="attachment.visible">' . $vbphrase['visible'] . '</option>
+			<option value="dateline">' . $vbphrase['time'] . '</option>
+			<option value="state">' . $vbphrase['visible'] . '</option>
 		</select>
 		<select name="search[ordering]" tabindex="1" class="bginput">
 			<option value="DESC">' . $vbphrase['descending'] . '</option>
@@ -1240,15 +1256,12 @@ if ($_REQUEST['do'] == 'types')
 	<?php
 
 	print_form_header('attachment', 'updatetype');
-	print_table_header($vbphrase['attachment_manager'], 8);
+	print_table_header($vbphrase['attachment_manager'], 5);
 	print_cells_row(array(
 		$vbphrase['extension'],
 		$vbphrase['maximum_filesize'],
 		$vbphrase['maximum_width'],
 		$vbphrase['maximum_height'],
-		$vbphrase['enabled'],
-		$vbphrase['thumb'],
-		$vbphrase['new_window'],
 		$vbphrase['controls']
 	), 1, 'tcat');
 
@@ -1260,6 +1273,7 @@ if ($_REQUEST['do'] == 'types')
 
 	while ($type = $db->fetch_array($types))
 	{
+		$contenttype = unserialize($type['contenttypes']);
 		$type['size'] = iif($type['size'], $type['size'], $vbphrase['none']);
 		switch($type['extension'])
 		{
@@ -1284,41 +1298,44 @@ if ($_REQUEST['do'] == 'types')
 		$cell[] = $type['size'];
 		$cell[] = $type['width'];
 		$cell[] = $type['height'];
-		$cell[] = iif($type['enabled'], $vbphrase['yes'], $vbphrase['no']);
-		$cell[] = iif($type['thumbnail'], $vbphrase['yes'], $vbphrase['no']);
-		$cell[] = iif($type['newwindow'], $vbphrase['yes'], $vbphrase['no']);
 
 		$cell[] = "\n\t<select name=\"a$type[extension]\" onchange=\"js_attachment_jump('$type[extension]');\" class=\"bginput\">\n" . construct_select_options($attachoptions) . "\t</select><input type=\"button\" class=\"button\" value=\"" . $vbphrase['go'] . "\" onclick=\"js_attachment_jump('$type[extension]');\" />\n\t";
-
-#		$cell[] = construct_link_code($vbphrase['edit'], "attachment.php?" . $vbulletin->session->vars['sessionurl'] . "do=updatetype&extension=$type[extension]") .
-#				  construct_link_code($vbphrase['delete'], "attachment.php?" . $vbulletin->session->vars['sessionurl'] . "do=removetype&extension=$type[extension]");
 		print_cells_row($cell);
 	}
-	print_submit_row($vbphrase['add_new_extension'], 0, 8);
+	print_submit_row($vbphrase['add_new_extension'], 0, 5);
 }
 
 // ###################### File Types ####################
 if ($_REQUEST['do'] == 'updatetype')
 {
 	$vbulletin->input->clean_array_gpc('r', array(
-		'extension' => TYPE_INT
+		'extension' => TYPE_STR
 	));
 
 	print_form_header('attachment', 'doupdatetype');
+
 	if ($vbulletin->GPC['extension'])
 	{ // This is an edit
 		$type = $db->query_first("
 			SELECT * FROM " . TABLE_PREFIX . "attachmenttype
-			WHERE extension = '" . $vbulletin->GPC['extension'] . "'
+			WHERE extension = '" . $db->escape_string($vbulletin->GPC['extension']) . "'
 		");
-		if ($type['mimetype'])
+		if ($type)
 		{
-			$type['mimetype'] = implode("\n", unserialize($type['mimetype']));
+			if ($type['mimetype'])
+			{
+				$type['mimetype'] = implode("\n", unserialize($type['mimetype']));
+			}
+			construct_hidden_code('extension', $type['extension']);
+			print_table_header(construct_phrase($vbphrase['x_y_id_z'], $vbphrase['attachment_type'], $type['extension'], $type['extension']));
 		}
-		construct_hidden_code('extension', $vbulletin->GPC['extension']);
-		print_table_header(construct_phrase($vbphrase['x_y_id_z'], $vbphrase['attachment_type'], $vbulletin->GPC['extension'], $vbulletin->GPC['extension']));
 	}
 	else
+	{
+		$type = null;
+	}
+
+	if (!$type)
 	{
 		$type = array('enabled' => 1);
 		print_table_header($vbphrase['add_new_extension']);
@@ -1329,21 +1346,59 @@ if ($_REQUEST['do'] == 'updatetype')
 	print_input_row($vbphrase['max_width_dfn'], 'type[width]', $type['width']);
 	print_input_row($vbphrase['max_height_dfn'], 'type[height]', $type['height']);
 	print_textarea_row($vbphrase['mime_type_dfn'], 'type[mimetype]', $type['mimetype']);
-	print_yes_no_row($vbphrase['thumbnail_image'], 'type[thumbnail]', $type['thumbnail']);
-	print_yes_no_row($vbphrase['open_in_new_window'], 'type[newwindow]', $type['newwindow']);
-	print_yes_no_row($vbphrase['enabled'], 'type[enabled]', $type['enabled']);
 
 	($hook = vBulletinHook::fetch_hook('admin_attachmenttype')) ? eval($hook) : false;
 
-	print_submit_row(iif($vbulletin->GPC['extension'], $vbphrase['update'], $vbphrase['save']));
+	$existing = @unserialize($type['contenttypes']);
+
+	print_table_break();
+	print_table_header($vbphrase['content_type'], 4);
+	print_cells_row(array(
+		$vbphrase['product'],
+		$vbphrase['location'],
+		$vbphrase['new_window'],
+		$vbphrase['enabled'],
+	), 1, 'tcat');
+
+	$indexed_types = array();
+	$collection = new vB_Collection_ContentType();
+	$collection->filterAttachable(true);
+	foreach ($collection AS $type)
+	{
+		$value['package'] = $type->getPackageClass();
+		$value['class'] = $type->getClass();
+		$indexed_types[$type->getID()] = $value;
+	}
+
+	foreach ($indexed_types AS $contenttypeid => $content)
+	{
+		if (!isset($existing["$contenttypeid"]['e']))
+		{
+			$existing["$contenttypeid"]['e'] = true;
+		}
+
+		print_cells_row(array(
+			$content['package'],
+			$vbphrase['contenttype_' . strtolower($content['package']) . '_' . strtolower($content['class'])],
+			"<input type=\"hidden\" name=\"default[$contenttypeid][n]\" value=\"1\" />" .
+			"<input type=\"checkbox\" tabindex=\"1\" name=\"contenttype[$contenttypeid][n]\" value=\"1\"" . ($existing["$contenttypeid"]['n'] ? 'checked="checked"' : '') . ' />',
+			"<input type=\"hidden\" name=\"default[$contenttypeid][e]\" value=\"1\" />" .
+			"<input type=\"checkbox\" tabindex=\"1\" name=\"contenttype[$contenttypeid][e]\" value=\"1\"" . ($existing["$contenttypeid"]['e'] ? 'checked="checked"' : '') . ' />',
+		));
+
+	}
+
+	print_submit_row($vbulletin->GPC['extension'] ? $vbphrase['update'] : $vbphrase['save'], '_default_', 4);
 }
 
 // ###################### Update File Type ####################
 if ($_POST['do'] == 'doupdatetype')
 {
 	$vbulletin->input->clean_array_gpc('p', array(
-		'extension'	=> TYPE_STR,
-		'type'		=> TYPE_ARRAY
+		'extension'	  => TYPE_STR,
+		'type'        => TYPE_ARRAY,
+		'contenttype' => TYPE_ARRAY,
+		'default'     => TYPE_ARRAY,
 	));
 
 	$vbulletin->GPC['type']['extension'] = preg_replace('#[^a-z0-9_]#i', '', $vbulletin->GPC['type']['extension']);
@@ -1373,6 +1428,17 @@ if ($_POST['do'] == 'doupdatetype')
 	}
 	$vbulletin->GPC['type']['mimetype'] = serialize($mimetype);
 
+	$contenttypes = array();
+
+	foreach ($vbulletin->GPC['default'] AS $contenttypeid => $contenttype)
+	{
+		foreach ($contenttype AS $key => $value)
+		{
+			$contenttypes["$contenttypeid"]["$key"] = intval($vbulletin->GPC['contenttype']["$contenttypeid"]["$key"]);
+		}
+	}
+	$vbulletin->GPC['type']['contenttypes'] = serialize($contenttypes);
+
 	define('CP_REDIRECT', 'attachment.php?do=types');
 	if ($vbulletin->GPC['extension'])
 	{
@@ -1390,19 +1456,16 @@ if ($_POST['do'] == 'doupdatetype')
 				height,
 				width,
 				mimetype,
-				enabled,
-				thumbnail,
-				newwindow
+				contenttypes
 			)
 			VALUES
-			('" . $db->escape_string($vbulletin->GPC['type']['extension']) . "', " .
-				intval($vbulletin->GPC['type']['size']) . ", " .
-				intval($vbulletin->GPC['type']['height']) . ", " .
-				intval($vbulletin->GPC['type']['width']) . ", '" .
-				$db->escape_string($vbulletin->GPC['type']['mimetype']) . "', " .
-				intval($vbulletin->GPC['type']['enabled']) . ", " .
-				intval($vbulletin->GPC['type']['thumbnail']) . ", " .
-				intval($vbulletin->GPC['type']['newwindow']) . "
+			(
+				'" . $db->escape_string($vbulletin->GPC['type']['extension']) . "',
+				" . intval($vbulletin->GPC['type']['size']) . ",
+				" . intval($vbulletin->GPC['type']['height']) . ",
+				" . intval($vbulletin->GPC['type']['width']) . ",
+				'" . $db->escape_string($vbulletin->GPC['type']['mimetype']) . "',
+				'" . $db->escape_string($vbulletin->GPC['type']['contenttype']) . "'
 			)
 		");
 
@@ -1456,8 +1519,8 @@ print_cp_footer();
 
 /*======================================================================*\
 || ####################################################################
-|| # Downloaded: 16:21, Sat Apr 6th 2013
-|| # CVS: $RCSfile$ - $Revision: 26563 $
+|| # Downloaded: 14:57, Sun Aug 11th 2013
+|| # CVS: $RCSfile$ - $Revision: 62098 $
 || ####################################################################
 \*======================================================================*/
 ?>

@@ -1,9 +1,9 @@
 <?php
 /*======================================================================*\
 || #################################################################### ||
-|| # vBulletin 3.7.2 Patch Level 2 - Licence Number VBF2470E4F
+|| # vBulletin 4.2.1 - Licence Number VBC2DDE4FB
 || # ---------------------------------------------------------------- # ||
-|| # Copyright ©2000-2013 Jelsoft Enterprises Ltd. All Rights Reserved. ||
+|| # Copyright ©2000-2013 vBulletin Solutions Inc. All Rights Reserved. ||
 || # This file may not be redistributed in whole or significant part. # ||
 || # ---------------- VBULLETIN IS NOT FREE SOFTWARE ---------------- # ||
 || # http://www.vbulletin.com | http://www.vbulletin.com/license.html # ||
@@ -44,12 +44,12 @@ $actiontemplates = array(
 		'postbit',
 		'postbit_wrapper',
 		'postbit_onlinestatus',
-		'postbit_reputation',
 		'usernote_nonotes',
 		'bbcode_code',
 		'bbcode_html',
 		'bbcode_php',
 		'bbcode_quote',
+		'bbcode_video',
 		'usernote',
 	),
 	'newnote' => array(
@@ -72,7 +72,7 @@ function parse_usernote_bbcode($bbcode, $smilies = true)
 	global $vbulletin;
 
 	require_once(DIR . '/includes/class_bbcode.php');
-	$bbcode_parser =& new vB_BbCodeParser($vbulletin, fetch_tag_list());
+	$bbcode_parser = new vB_BbCodeParser($vbulletin, fetch_tag_list());
 	return $bbcode_parser->parse($bbcode, 'usernote', $smilies);
 }
 
@@ -120,28 +120,39 @@ if (empty($_REQUEST['do']))
 	$_REQUEST['do'] = 'viewuser';
 }
 
-// get decent textarea size for user's browser
-$textareacols = fetch_textarea_width();
-construct_forum_jump();
+$navpopup = array(
+	'id'    => 'postlist_navpopup',
+	'title' => construct_phrase($vbphrase['user_notes_for_x'], $userinfo['username']),
+	'link'  => 'usernote.php?' . $vbulletin->session->vars['sessionurl'] . "u=$userinfo[userid]",
+);
 
-$bbcodeon = iif($vbulletin->options['unallowvbcode'], $vbphrase['on'], $vbphrase['off']);
-$imgcodeon = iif($vbulletin->options['unallowimg'], $vbphrase['on'], $vbphrase['off']);
-$htmlcodeon = iif($vbulletin->options['unallowhtml'], $vbphrase['on'], $vbphrase['off']);
-$smilieson = iif($vbulletin->options['unallowsmilies'], $vbphrase['on'], $vbphrase['off']);
+construct_quick_nav($navpopup);
+
+$bbcodeon = ($vbulletin->options['unallowvbcode'] ? $vbphrase['on'] : $vbphrase['off']);
+$imgcodeon = ($vbulletin->options['unallowimg'] ? $vbphrase['on'] : $vbphrase['off']);
+$videocodeon = ($vbulletin->options['unallowvideo'] ? $vbphrase['on'] : $vbphrase['off']);
+$htmlcodeon = ($vbulletin->options['unallowhtml'] ? $vbphrase['on'] : $vbphrase['off']);
+$smilieson = ($vbulletin->options['unallowsmilies'] ? $vbphrase['on'] : $vbphrase['off']);
 
 // only show posting code allowances in forum rules template
 $show['codeonly'] = true;
 
 ($hook = vBulletinHook::fetch_hook('usernote_start')) ? eval($hook) : false;
 
-eval('$forumrules = "' . fetch_template('forumrules') . '";');
+$templater = vB_Template::create('forumrules');
+	$templater->register('bbcodeon', $bbcodeon);
+	$templater->register('can', $can);
+	$templater->register('htmlcodeon', $htmlcodeon);
+	$templater->register('imgcodeon', $imgcodeon);
+	$templater->register('videocodeon', $videocodeon);
+	$templater->register('smilieson', $smilieson);
+$forumrules = $templater->render();
 
-eval('$usernamecode = "' . fetch_template('newpost_usernamecode') . '";');
+$usernamecode = vB_Template::create('newpost_usernamecode')->render();
 
 // ########################### Delete Note #######################################
 if ($_POST['do'] == 'deletenote')
 {
-
 	if (!$canview)
 	{
 		print_no_permission();
@@ -176,19 +187,18 @@ if ($_POST['do'] == 'deletenote')
 			WHERE usernoteid = $noteinfo[usernoteid]
 		");
 		$vbulletin->url = 'usernote.php?' . $vbulletin->session->vars['sessionurl'] . "u=$userinfo[userid]";
-		eval(print_standard_redirect('redirect_deleteusernote'));
+		print_standard_redirect(array('redirect_deleteusernote',$userinfo['username']));  
 	}
 	else
 	{
 		$vbulletin->url = 'usernote.php?' . $vbulletin->session->vars['sessionurl'] . "u=$userinfo[userid]";
-		eval(print_standard_redirect('redirect_nodeletenote'));
+		print_standard_redirect(array('redirect_nodeletenote',$userinfo['username']));  
 	}
 }
 
 // ############################### Start Edit User Note ##########################
 if ($_REQUEST['do'] == 'editnote')
 {
-
 	if (!$canview)
 	{
 		print_no_permission();
@@ -216,43 +226,75 @@ if ($_REQUEST['do'] == 'editnote')
 	$checked['disablesmilies'] = iif($noteinfo['allowsmilies'], '', 'checked="checked"');
 	if ($vbulletin->options['unallowsmilies'] == 1)
 	{
-		eval('$disablesmiliesoption = "' . fetch_template('newpost_disablesmiliesoption') . '";');
+		$templater = vB_Template::create('newpost_disablesmiliesoption');
+			$templater->register('checked', $checked);
+		$disablesmiliesoption = $templater->render();
 	}
 
 	// include useful functions
 	require_once(DIR . '/includes/functions_newpost.php');
-	$editorid = construct_edit_toolbar($noteinfo['message'], 0, 'usernote');
+	$editorid = construct_edit_toolbar(
+		htmlspecialchars_uni($noteinfo['message']),
+		0,
+		'usernote',
+		true,
+		true,
+		false,
+		'fe',
+		'',
+		array(),
+		'content',
+		'vBForum_UserNote',
+		$noteinfo['usernoteid'],
+		0,
+		false,
+		true,
+		'titlefield'
+	);
 
 	$show['editnote'] = true;
 
 	// generate navbar
 	$navbits = array(
-		'member.php?' . $vbulletin->session->vars['sessionurl'] . "u=$userinfo[userid]" => $vbphrase['view_profile'],
+		fetch_seo_url('member', $userinfo) => $vbphrase['view_profile'],
 		'usernote.php?' . $vbulletin->session->vars['sessionurl'] . "u=$userinfo[userid]" => construct_phrase($vbphrase['user_notes_for_x'], $userinfo['username']),
 		$vbphrase['edit_user_note']
 	);
 
 	$navbits = construct_navbits($navbits);
-	eval('$navbar = "' . fetch_template('navbar') . '";');
+	$navbar = render_navbar_template($navbits);
 
 	$show['parseurl'] = $vbulletin->options['unallowvbcode'];
 	$show['misc_options'] = ($show['parseurl'] OR !empty($disablesmiliesoption));
 
 	($hook = vBulletinHook::fetch_hook('usernote_edit')) ? eval($hook) : false;
 
-	eval('print_output("' . fetch_template('usernote_note') . '");');
+	$templater = vB_Template::create('usernote_note');
+		$templater->register_page_templates();
+		$templater->register('checked', $checked);
+		$templater->register('disablesmiliesoption', $disablesmiliesoption);
+		$templater->register('editorid', $editorid);
+		$templater->register('forumjump', $forumjump);
+		$templater->register('forumrules', $forumrules);
+		$templater->register('messagearea', $messagearea);
+		$templater->register('navbar', $navbar);
+		$templater->register('noteinfo', $noteinfo);
+		$templater->register('onload', $onload);
+		$templater->register('userinfo', $userinfo);
+		$templater->register('usernamecode', $usernamecode);
+	print_output($templater->render());
 }
 
 // ############################### Add/Update User Note ################################
 if ($_POST['do'] == 'donote')
 {
 	$vbulletin->input->clean_array_gpc('p', array(
-		'disablesmilies'=> TYPE_BOOL,
-		'title'			=> TYPE_NOHTML,
-		'message'		=> TYPE_STR,
-		'preview'		=> TYPE_STR,
-		'parseurl' 		=> TYPE_BOOL,
-		'wysiwyg'		=> TYPE_BOOL,
+		'disablesmilies' => TYPE_BOOL,
+		'title'          => TYPE_NOHTML,
+		'message'        => TYPE_STR,
+		'preview'        => TYPE_STR,
+		'parseurl'       => TYPE_BOOL,
+		'wysiwyg'        => TYPE_BOOL,
 	));
 
 	if ($noteinfo['usernoteid']) // existing note => edit
@@ -295,8 +337,9 @@ if ($_POST['do'] == 'donote')
 	// unwysiwygify the incoming data
 	if ($vbulletin->GPC['wysiwyg'])
 	{
-		require_once(DIR . '/includes/functions_wysiwyg.php');
-		$vbulletin->GPC['message'] = convert_wysiwyg_html_to_bbcode($vbulletin->GPC['message'], $vbulletin->options['unallowhtml']);
+		require_once(DIR . '/includes/class_wysiwygparser.php');
+		$html_parser = new vB_WysiwygHtmlParser($vbulletin);
+		$vbulletin->GPC['message'] = $html_parser->parse_wysiwyg_html_to_bbcode($vbulletin->GPC['message'], $vbulletin->options['unallowhtml']);
 	}
 
 	if (empty($vbulletin->GPC['message']))
@@ -342,6 +385,7 @@ if ($_POST['do'] == 'donote')
 				allowsmilies = $allowsmilies
 			WHERE usernoteid = " . $vbulletin->GPC['usernoteid'] . "
 		");
+		clear_autosave_text('vBForum_UserNote', $noteinfo['usernoteid'], 0, $vbulletin->userinfo['userid']);
 	}
 	else
 	{
@@ -350,17 +394,18 @@ if ($_POST['do'] == 'donote')
 			INSERT INTO " . TABLE_PREFIX . "usernote (message, dateline, userid, posterid, title, allowsmilies)
 			VALUES ('" . $db->escape_string($vbulletin->GPC['message']) . "', " . TIMENOW . ", $userinfo[userid], " . $vbulletin->userinfo['userid'] . ", '" . $db->escape_string($vbulletin->GPC['title']) . "', $allowsmilies)
 		");
+		clear_autosave_text('vBForum_UserNote', 0, $userinfo['userid'], $vbulletin->userinfo['userid']);
 	}
 
 	if (!$canview)
 	{
-		$vbulletin->url = 'member.php?' . $vbulletin->session->vars['sessionurl'] . "u=$userinfo[userid]";
+		$vbulletin->url = fetch_seo_url('member', $userinfo);
 	}
 	else
 	{
 		$vbulletin->url = 'usernote.php?' . $vbulletin->session->vars['sessionurl'] . "do=viewuser&amp;u=$userinfo[userid]";
 	}
-	eval(print_standard_redirect('redirect_usernoteaddevent'));
+	print_standard_redirect(array('redirect_usernoteaddevent',$userinfo['username']));  
 
 }
 
@@ -379,31 +424,63 @@ if ($_REQUEST['do'] == 'newnote')
 
 	if ($vbulletin->options['unallowsmilies'] == 1)
 	{
-		eval('$disablesmiliesoption = "' . fetch_template('newpost_disablesmiliesoption') . '";');
+		$templater = vB_Template::create('newpost_disablesmiliesoption');
+			$templater->register('checked', $checked);
+		$disablesmiliesoption = $templater->render();
 	}
 
 	$show['editnote'] = false;
 
 	// include useful functions
 	require_once(DIR . '/includes/functions_newpost.php');
-	$editorid = construct_edit_toolbar($eventinfo['event'], 0, 'usernote');
+	$editorid = construct_edit_toolbar(
+		'',
+		0,
+		'usernote',
+		true,
+		true,
+		false,
+		'fe',
+		'',
+		array(),
+		'content',
+		'vBForum_UserNote',
+		0,
+		$userinfo['userid'],
+		false,
+		true,
+		'titlefield'
+	);
 
 	// generate navbar
 	$navbits = array(
-		'member.php?' . $vbulletin->session->vars['sessionurl'] . "u=$userinfo[userid]" => $vbphrase['view_profile'],
+		fetch_seo_url('member', $userinfo) => $vbphrase['view_profile'],
 		'usernote.php?' . $vbulletin->session->vars['sessionurl'] . "u=$userinfo[userid]" => construct_phrase($vbphrase['user_notes_for_x'], $userinfo['username']),
 		$vbphrase['post_user_note']
 	);
 
 	$navbits = construct_navbits($navbits);
-	eval('$navbar = "' . fetch_template('navbar') . '";');
+	$navbar = render_navbar_template($navbits);
 
 	$show['parseurl'] = $vbulletin->options['unallowvbcode'];
 	$show['misc_options'] = ($show['parseurl'] OR !empty($disablesmiliesoption));
 
 	($hook = vBulletinHook::fetch_hook('usernote_newnote')) ? eval($hook) : false;
 
-	eval('print_output("' . fetch_template('usernote_note') . '");');
+	$templater = vB_Template::create('usernote_note');
+		$templater->register_page_templates();
+		$templater->register('checked', $checked);
+		$templater->register('disablesmiliesoption', $disablesmiliesoption);
+		$templater->register('editorid', $editorid);
+		$templater->register('forumjump', $forumjump);
+		$templater->register('forumrules', $forumrules);
+		$templater->register('messagearea', $messagearea);
+		$templater->register('navbar', $navbar);
+		$templater->register('noteinfo', $noteinfo);
+		$templater->register('onload', $onload);
+		$templater->register('userinfo', $userinfo);
+		$templater->register('usernamecode', $usernamecode);
+	print_output($templater->render());
 }
 
 // ############################### Start Get User Notes##########################
@@ -493,51 +570,61 @@ if ($_REQUEST['do'] == 'viewuser')
 		ORDER BY usernote.dateline LIMIT " . ($limitlower - 1) . ", " . $vbulletin->GPC['perpage'] . "
 	");
 
-	$postbit_factory =& new vB_Postbit_Factory();
+	$postbit_factory = new vB_Postbit_Factory();
 	$postbit_factory->registry =& $vbulletin;
 	$postbit_factory->cache = array();
-	$postbit_factory->bbcode_parser =& new vB_BbCodeParser($vbulletin, fetch_tag_list());
+	$postbit_factory->bbcode_parser = new vB_BbCodeParser($vbulletin, fetch_tag_list());
 
 	while ($post = $db->fetch_array($notes))
 	{
 		$postbit_obj =& $postbit_factory->fetch_postbit('usernote');
 		$post['postcount'] = ++$postcount;
 		$post['postid'] = $post['usernoteid'];
-
+		$post['viewself'] = $viewself;
 		$notebits .= $postbit_obj->construct_postbit($post);
 	}
 
-	$show['notes'] = iif($notebits != '', true, false);
+	$show['notes'] = ($notebits != '');
 
 	$db->free_result($notes);
 	unset($note);
 
-	$pagenav = construct_page_nav($vbulletin->GPC['pagenumber'], $vbulletin->GPC['perpage'], $totalnotes, 'usernote.php?' . $vbulletin->session->vars['sessionurl'] . "u=$userinfo[userid]&pp=" . $vbulletin->GPC['perpage']);
+	$pagenav = construct_page_nav($vbulletin->GPC['pagenumber'], $vbulletin->GPC['perpage'], $totalnotes, 'usernote.php?' . $vbulletin->session->vars['sessionurl'] . "u=$userinfo[userid]&amp;pp=" . $vbulletin->GPC['perpage']);
 
 	// generate navbar
 	$navbits = array(
-		'member.php?' . $vbulletin->session->vars['sessionurl'] . "u=$userinfo[userid]" => $vbphrase['view_profile'],
+		fetch_seo_url('member', $userinfo) => $vbphrase['view_profile'],
 		construct_phrase($vbphrase['user_notes_for_x'], $userinfo['username'])
 	);
 
 	$show['addnote'] = $canpost;
 
-	// deals with this: http://www.vbulletin.com/forum/project.php?issueid=22750 - don't apply for IE < 7
-	$stylevar['margin_3px_fix'] = ((!is_browser('ie') OR is_browser('ie', 7)) ? 3 - $stylevar['cellpadding'] : 0);
-
 	$navbits = construct_navbits($navbits);
-	eval('$navbar = "' . fetch_template('navbar') . '";');
+	$navbar = render_navbar_template($navbits);
 
 	($hook = vBulletinHook::fetch_hook('usernote_viewuser_complete')) ? eval($hook) : false;
 
-	eval('print_output("' . fetch_template('usernote') . '");');
+	$templater = vB_Template::create('usernote');
+		$templater->register_page_templates();
+		$templater->register('forumjump', $forumjump);
+		$templater->register('forumrules', $forumrules);
+		$templater->register('navbar', $navbar);
+		$templater->register('notebits', $notebits);
+		$templater->register('pagenav', $pagenav);
+		$templater->register('spacer_close', $spacer_close);
+		$templater->register('spacer_open', $spacer_open);
+		$templater->register('userinfo', $userinfo);
+		$templater->register('totalnotes', $totalnotes);
+		$templater->register('limitlower', $limitlower);
+		$templater->register('limitupper', $limitupper);
+	print_output($templater->render());
 
 }
 
 /*======================================================================*\
 || ####################################################################
-|| # Downloaded: 16:21, Sat Apr 6th 2013
-|| # CVS: $RCSfile$ - $Revision: 26399 $
+|| # Downloaded: 14:57, Sun Aug 11th 2013
+|| # CVS: $RCSfile$ - $Revision: 62098 $
 || ####################################################################
 \*======================================================================*/
 ?>

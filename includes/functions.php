@@ -1,17 +1,14 @@
 <?php
 /*======================================================================*\
 || #################################################################### ||
-|| # vBulletin 3.7.2 Patch Level 2 - Licence Number VBF2470E4F
+|| # vBulletin 4.2.1 - Licence Number VBC2DDE4FB
 || # ---------------------------------------------------------------- # ||
-|| # Copyright ©2000-2013 Jelsoft Enterprises Ltd. All Rights Reserved. ||
+|| # Copyright ©2000-2013 vBulletin Solutions Inc. All Rights Reserved. ||
 || # This file may not be redistributed in whole or significant part. # ||
 || # ---------------- VBULLETIN IS NOT FREE SOFTWARE ---------------- # ||
 || # http://www.vbulletin.com | http://www.vbulletin.com/license.html # ||
 || #################################################################### ||
 \*======================================================================*/
-
-// this defines what adds the indent to forums in the forumjump menu
-define('FORUM_PREPEND', '&nbsp; &nbsp; ');
 
 // defines for the datamanagers
 define('ERRTYPE_ARRAY',    0);
@@ -34,7 +31,12 @@ define('REQ_INCR', 3);
 /**
 * @ignore
 */
-define('COOKIE_SALT', 'VBF2470E4F');
+define('COOKIE_SALT', '5sksA8T1JCEtAVUCPAb6MyiK4ZVR6zkVIvd7mO');
+define('EDITOR_INDENT', 40);
+
+/* Navbar stuff
+Dont use DIR here, the Dev scripts dont like it */
+require_once('./includes/functions_navigation.php');
 
 // #############################################################################
 /**
@@ -51,6 +53,383 @@ define('COOKIE_SALT', 'VBF2470E4F');
 function iif($expression, $returntrue, $returnfalse = '')
 {
 	return ($expression ? $returntrue : $returnfalse);
+}
+
+/*
+VBIV-11070
+Wrapper for Base64 operations due to some hosts
+now disabling these functions. vBulletin needs them.
+*/
+function vb_base64_encode($string)
+{
+	if (function_exists('base64_encode'))
+	{
+		// Run PHP Version
+		return base64_encode($string);
+	}
+	else
+	{
+		// Run Custom Version
+		$enc1 = $enc2 = $enc3 = $enc4 = $chr1 = $chr2 = $chr3 = $return = '';
+		$i = 0;
+		$base64 = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/=";
+
+		while($i < strlen($string))
+		{
+			$chr1 = ord(substr($string, $i++, 1));
+			$chr2 = ord(substr($string, $i++, 1));
+			$chr3 = ord(substr($string, $i++, 1));
+
+			$enc1 = $chr1 >> 2;
+			$enc2 = (($chr1 & 3) << 4) | ($chr2 >> 4);
+			$enc3 = (($chr2 & 15) << 2) | ($chr3 >> 6);
+			$enc4 = $chr3 & 63;
+
+			$return[] = substr($base64, $enc1, 1) . substr($base64, $enc2, 1) . substr($base64, $enc3, 1) . substr($base64, $enc4, 1);
+		}
+
+		$return = join('', $return);
+
+		switch(strlen($string) % 3)
+		{
+	        case 1:
+	            $return = substr($return, 0, -2) . '==';
+	        break;
+	        case 2:
+	            $return = substr($return, 0, -1) . '=';
+	        break;
+	    }
+
+		return $return;
+	}
+}
+
+function vb_base64_decode($string)
+{
+	if (function_exists('base64_decode'))
+	{
+		// Run PHP Version
+		return base64_decode($string);
+	}
+	else
+	{
+		// Run Custom Version
+		$enc1 = $enc2 = $enc3 = $enc4 = $chr1 = $chr2 = $chr3 = $return = '';
+		$i = 0;
+		$base64 = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/=";
+		$return = array();
+
+		while($i < strlen($string))
+		{
+			$enc1 = strrpos($base64, substr($string, $i++, 1));
+			$enc2 = strrpos($base64, substr($string, $i++, 1));
+			$enc3 = strrpos($base64, substr($string, $i++, 1));
+			$enc4 = strrpos($base64, substr($string, $i++, 1));
+			$chr1 = ($enc1 << 2) | ($enc2 >> 4);
+			$chr2 = (($enc2 & 15) << 4) | ($enc3 >> 2);
+			$chr3 = (($enc3 & 3) << 6) | $enc4;
+
+			if ($enc3 == 64)
+			{
+				$return[] = chr($chr1);
+			}
+			else if ($enc4 == 64)
+			{
+				$return[] = chr($chr1) . chr($chr2);
+			}
+			else
+			{
+				$return[] = chr($chr1) . chr($chr2) . chr($chr3);
+			}
+		}
+
+		$return = join('', $return);
+
+		return $return;
+	}
+}
+
+/**
+* Mark content as read.
+*
+* @param	string	Content type, used if contenttypeid is 0
+* @param	int	The content id (such as threadid)
+* @param	string	Read type, read, view, other etc.
+* @param	int	The content type id, overrides Content type if given
+* @param	int	timestamp, 0 = use TIMENOW (via DM).
+* @param	int	user id, if 0 the logged in user is used
+*
+* @return	int	id of the read record, or 0 if none created
+*/
+function mark_content_read($contenttype, $contentid, $type = 'read', $contenttypeid = 0, $time = 0, $userid = 0)
+{
+	global $vbulletin;
+
+	if (!$userid)
+	{
+		$userid = $vbulletin->userinfo['userid'];
+	}
+
+	if (!$contenttypeid)
+	{
+		$contenttypeid = vB_Types::instance()->getContentTypeID($contenttype);
+	}
+
+	if (!$userid OR !$contenttypeid OR !$contentid)
+	{
+		return 0;
+	}
+
+	$ipman =& datamanager_init('IP_Data', $vbulletin, ERRTYPE_STANDARD);
+	$crman =& datamanager_init('Content_Read', $vbulletin, ERRTYPE_STANDARD);
+
+	if ($time)
+	{
+		$ipman->set('dateline', $time);
+	}
+	$ipman->set('rectype', $type);
+	$ipman->set('userid', $userid);
+	$ipman->set('contentid', $contentid);
+	$ipman->set('contenttypeid', $contenttypeid);
+	$ipman->save();
+
+	$crman->set_from_dataman($ipman);
+	$retval = $crman->save();
+
+	($hook = vBulletinHook::fetch_hook('mark_content_read')) ? eval($hook) : false;
+
+	unset($crman, $ipman);
+
+	return $retval;
+}
+
+/**
+* Validate the ip is v4
+*
+* @param	string	IP Address
+*
+* @return 	boolean	Returns true if the address is valid
+*/
+function validate_ip4($ip)
+{
+	return filter_var($ip, FILTER_VALIDATE_IP, FILTER_FLAG_IPV4);
+}
+
+/**
+* Validate the ip is v6
+*
+* @param	string	IP Address
+*
+* @return 	boolean	Returns true if the address is valid
+*/
+function validate_ip6($ip)
+{
+	return filter_var($ip, FILTER_VALIDATE_IP, FILTER_FLAG_IPV6);
+}
+
+/**
+* Get the ip type (4 or 6)
+*
+* @param	string	IP Address
+*
+* @return 	int	Returns 4, 6 or 0
+*/
+function get_iptype($ip)
+{
+	if (validate_ip4($ip))
+	{
+		return 4;
+	}
+	else if (validate_ip6($ip))
+	{
+		return 6;
+	}
+	else
+	{
+		return 0;
+	}
+}
+
+/**
+* This will compress a valid IPv6 address to its
+* shortest form. Anythng else will be returned untouched.
+*
+* @param	string	Input ip address
+*
+* @return 	string	Returned ip address.
+*/
+function compress_ip($ip)
+{
+	if (get_iptype($ip) != 6)
+	{
+		return $ip;
+	}
+
+	if (preg_match('#\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3}#s', $ip, $matches))
+	{
+		$split = array_map('dechex', explode('.', $matches[0]));
+		$iphex = $split[0].$split[1].':'.$split[2].$split[3];
+		$ip = str_replace($matches[0], $iphex, $ip);
+	}
+
+	$ip = expand_ip($ip);
+	$ipbits = explode(':',$ip);
+
+	if (sizeof($ipbits) != 8)
+	{
+		return $ip;
+	}
+
+	$zp = $zc = $flag = 0;
+	$zca = $bits = array();
+	foreach ($ipbits AS $key => $bit)
+	{
+		$result = strtoupper(trim(ltrim($bit,'0')));
+
+		if ($result)
+		{
+			if ($flag)
+			{
+				$flag = 0;
+				$zca[$zp] = $zc;
+			}
+			$bits[] = $result;
+		}
+		else
+		{
+			if (!$flag)
+			{
+				$zc = 1;
+				$flag = 1;
+				$zp = $key;
+			}
+			else
+			{
+				$zc += 1;
+			}
+			$bits[] = '0';
+		}
+	}
+
+	if ($flag)
+	{
+		$zca[$zp] = $zc;
+	}
+
+	arsort($zca);
+	reset($zca);
+	$ref = current($zca);
+
+	foreach($zca AS $key => $val)
+	{
+		if ($val != $ref)
+		{
+			unset ($zca[$key]);
+		}
+	}
+
+	if ($zca)
+	{
+		ksort($zca);
+		reset($zca);
+		$key = key($zca);
+		$ipbits[$key] = '';
+
+		for ($i = $key + 1; $i < ($key + $ref); $i++)
+		{
+			unset($ipbits[$i]);
+		}
+	}
+
+	$bits = array();
+	foreach ($ipbits AS $bit)
+	{
+		if (strlen($bit))
+		{
+			$xbit = strtoupper(trim(ltrim($bit,'0')));
+			if (!$xbit)
+			{
+				$xbit = '0';
+			}
+			$bits[] = $xbit;
+		}
+		else
+		{
+			$bits[] = $bit;
+		}
+	}
+
+	$result = $bits[0] ? '' : ( count($bits) < 8 ? ':' : '0' );
+	$result .= implode(':', $bits);
+
+	return $result;
+}
+
+/**
+* This will expand a valid IPv6 address to its
+* fullest form. Anythng else will be returned untouched.
+*
+* @param	string	Input ip address
+*
+* @return 	string	Returned ip address.
+*/
+function expand_ip($ip)
+{
+	if (get_iptype($ip) != 6)
+	{
+		return $ip;
+	}
+
+	if ($ip == '::')
+	{
+		$ip = '::0';
+	}
+
+	$ipbits = explode('::',$ip);
+	$size = sizeof($ipbits);
+
+	if ($size > 2)
+	{
+		return $ip;
+	}
+
+	if ($size == 1)
+	{
+		$allbits = explode(':',$ip);
+	}
+	else
+	{
+		$lbits = explode(':',$ipbits[0]);
+		$rbits = explode(':',$ipbits[1]);
+
+		if (!strlen($lbits[0]))
+		{
+			unset($lbits[0]);
+		}
+		else if (!strlen($rbits[0]))
+		{
+			unset($rbits[0]);
+		}
+
+		$size = sizeof($lbits) + sizeof($rbits);
+		$expand = 8 - $size;
+
+		$fill = array();
+		for ($i = 1; $i <= $expand; $i++)
+		{
+			$fill[] = '0';
+		}
+
+		$allbits = array_merge($lbits, $fill, $rbits);
+	}
+
+	$bits = array();
+	foreach ($allbits AS $bit)
+	{
+		$bits[] = strtoupper(trim(str_pad($bit, 4, '0', STR_PAD_LEFT)));
+	}
+
+	return implode(':', $bits);
 }
 
 // #############################################################################
@@ -119,13 +498,13 @@ function &datamanager_init($classtype, &$registry, $errtype = ERRTYPE_STANDARD, 
 
 		switch($classtype)
 		{
-			case 'attachment':
-				$object = vB_DataManager_Attachment::fetch_library($registry, $errtype);
-				break;
 			case 'userpic_avatar':
 			case 'userpic_profilepic':
 			case 'userpic_sigpic':
 				$object = vB_DataManager_Userpic::fetch_library($registry, $errtype, $classtype);
+				break;
+			case('socialgroupicon'):
+				$object = vB_DataManager_SocialGroupIcon::fetch_library($registry, $errtype, $classtype);
 				break;
 			default:
 				$classname = 'vB_DataManager_' . $classtype;
@@ -146,8 +525,7 @@ function &datamanager_init($classtype, &$registry, $errtype = ERRTYPE_STANDARD, 
 */
 function vbstrtolower($string)
 {
-	global $stylevar;
-	if (function_exists('mb_strtolower') AND $newstring = @mb_strtolower($string, $stylevar['charset']))
+	if (function_exists('mb_strtolower') AND $newstring = @mb_strtolower($string, vB_Template_Runtime::fetchStyleVar('charset')))
 	{
 		return $newstring;
 	}
@@ -170,9 +548,7 @@ function vbstrtolower($string)
 */
 function split_string($string)
 {
-	global $stylevar;
-
-	switch ($stylevar['charset'])
+	switch (vB_Template_Runtime::fetchStyleVar('charset'))
 	{
 		case 'big5':
 			preg_match_all('#((?:[A-Za-z]+)|(?:[\xa1-\xfe][\x40-\x7e]|[\xa1-\xfe]))#xs', $string, $matches);
@@ -207,8 +583,7 @@ function vbstrlen($string, $unhtmlspecialchars = false)
 		$string = unhtmlspecialchars($string, false);
 	}
 
-	global $stylevar;
-	if (function_exists('mb_strlen') AND $length = @mb_strlen($string, $stylevar['charset']))
+	if (function_exists('mb_strlen') AND $length = @mb_strlen($string, vB_Template_Runtime::fetchStyleVar('charset')))
 	{
 		return $length;
 	}
@@ -229,13 +604,23 @@ function vbstrlen($string, $unhtmlspecialchars = false)
 */
 function vbchop($string, $length)
 {
-	global $stylevar;
-
 	$length = intval($length);
 	if ($length <= 0)
 	{
 		return $string;
 	}
+
+	// Pretruncate the string to something shorter, so we don't run into memory problems with
+	// very very very long strings at the regular expression down below.
+	//
+	// UTF-32 allows 0x7FFFFFFF code space, meaning possibility of code point: &#2147483647;
+	// If we assume entire string we want to keep is in this butchered form, we need to keep
+	// 13 bytes per character we want to output. Strings actually encoded in UTF-32 takes 4
+	// bytes per character, so 13 is large enough to cover that without problem, too.
+	//
+	// ((Unlike the regex below, no memory problems here with very very very long comments.))
+	$pretruncate = 13 * $length;
+	$string = substr($string, 0, $pretruncate);
 
 	if (preg_match_all('/&(#[0-9]+|lt|gt|quot|amp);/', $string, $matches, PREG_OFFSET_CAPTURE))
 	{
@@ -259,7 +644,13 @@ function vbchop($string, $length)
 		}
 	}
 
-	if (function_exists('mb_substr') AND ($substr = @mb_substr($string, 0, $length, $stylevar['charset'])) != '')
+	if (function_exists('mb_substr'))
+	{
+		$charset = vB_Template_Runtime::fetchStyleVar('charset');
+		$substr = $charset ? @mb_substr($string, 0, $length, $charset) : @mb_substr($string, 0, $length);
+	}
+
+	if ($substr != '' )
 	{
 		return $substr;
 	}
@@ -267,6 +658,102 @@ function vbchop($string, $length)
 	{
 		return substr($string, 0, $length);
 	}
+}
+
+// #############################################################################
+/**
+ * Transliterates non ASCII chars to ASCII.
+ * This is an approximation.
+ *
+ * Note: Performance and accuracy is gained if the pecl translit extension is available.
+ * @see http://pecl.php.net/package/translit
+ *
+ * @param	string String to transliterate
+ * @return	string
+ */
+function to_ascii($str)
+{
+	if (!$str)
+    {
+    	return;
+    }
+
+    if (function_exists('transliterate'))
+    {
+    	return transliterate($str, array('normalize_ligature'), 'ISO-8859-1', 'ISO-8859-1');
+    }
+
+	static $lookup = array(
+		'&Agrave;' => 'A',
+		'&Aacute;' => 'A',
+		'&Acirc;' => 'A',
+		'&Atilde;' => 'A',
+		'&Auml;' => 'AE',
+		'&Aring;' => 'A',
+		'&AElig;' => 'AE',
+		'&Ccedil;' => 'C',
+		'&Egrave;' => 'E',
+		'&Eacute;' => 'E',
+		'&Ecirc;' => 'E',
+		'&Euml;' => 'E',
+		'&Igrave;' => 'I',
+		'&Iacute;' => 'I',
+		'&Icirc;' => 'I',
+		'&Iuml;' => 'I',
+		'&ETH;' => 'Dj',
+		'&Ntilde;' => 'N',
+		'&Ograve;' => 'O',
+		'&Oacute;' => 'O',
+		'&Ocirc;' => 'O',
+		'&Otilde;' => 'O',
+		'&Ouml;' => 'OE',
+		'&Oslash;' => 'U',
+		'&Ugrave;' => 'U',
+		'&Uacute;' => 'U',
+		'&Ucirc;' => 'U',
+		'&Uuml;' => 'UE',
+		'&Yacute;' => 'Y',
+		'&THORN;' => 'Th',
+		'&szlig;' => 'ss',
+		'&agrave;' => 'a',
+		'&aacute;' => 'a',
+		'&acirc;' => 'a',
+		'&atilde;' => 'a',
+		'&auml;' => 'ae',
+		'&aring;' => 'a',
+		'&aelig;' => 'ae',
+		'&ccedil;' => 'c',
+		'&egrave;' => 'e',
+		'&eacute;' => 'e',
+		'&ecirc;' => 'e',
+		'&euml;' => 'e',
+		'&igrave;' => 'i',
+		'&iacute;' => 'i',
+		'&icirc;' => 'i',
+		'&iuml;' => 'i',
+		'&eth;' => 'dj',
+		'&ntilde;' => 'n',
+		'&ograve;' => 'o',
+		'&oacute;' => 'o',
+		'&ocirc;' => 'o',
+		'&otilde;' => 'o',
+		'&ouml;' => 'oe',
+		'&oslash;' => 'o',
+		'&ugrave;' => 'u',
+		'&uacute;' => 'u',
+		'&ucirc;' => 'u',
+		'&uuml;' => 'ue',
+		'&yacute;' => 'y',
+		'&thorn;' => 'th',
+		'&yuml;' => 'y'
+	);
+
+    $str = htmlentities($str);
+    $str = str_replace(array_keys($lookup), array_values($lookup), $str);
+    $str = html_entity_decode($str);
+    $str = preg_replace('#[^a-z0-9]+#i', '-', $str);
+
+    return $str;
 }
 
 // #############################################################################
@@ -282,6 +769,13 @@ function vbchop($string, $length)
 function vb_number_format($number, $decimals = 0, $bytesize = false, $decimalsep = null, $thousandsep = null)
 {
 	global $vbulletin, $vbphrase;
+
+	if (defined('VB_API') AND VB_API === true)
+	{
+		// The number format of API should always be standard
+		$decimalsep = '.';
+		$thousandsep = '';
+	}
 
 	$type = '';
 
@@ -348,26 +842,68 @@ function vb_number_format($number, $decimals = 0, $bytesize = false, $decimalsep
 
 // #############################################################################
 /**
+* Generates a random password that is much stronger than what we currently use.
+*
+* @param	integer	Length of desired password
+*/
+function fetch_random_password($length = 8)
+{
+	$password_characters = 'ABCDEFGHJKLMNPQRSTUVWXYZabcdefghjkmnpqrstuvwxyz';
+	$total_password_characters = strlen($password_characters) - 1;
+
+	$digit = vbrand(0, $length - 1);
+
+	$newpassword = '';
+	for ($i = 0; $i < $length; $i++)
+	{
+		if ($i == $digit)
+		{
+			$newpassword .= chr(vbrand(48, 57));
+			continue;
+		}
+
+		$newpassword .= $password_characters{vbrand(0, $total_password_characters)};
+	}
+	return $newpassword;
+}
+
+// #############################################################################
+/**
+* vBulletin's hash fetcher, note this may change from a-f0-9 to a-z0-9 in future.
+*
+* @param	integer	Length of desired hash, limited to 40 characters at most
+*/
+function fetch_random_string($length = 32)
+{
+	$hash = sha1(TIMENOW . SESSION_HOST . microtime() . uniqid(mt_rand(), true) . @implode('', @fstat(@fopen( __FILE__, 'r'))));
+
+	return substr($hash, 0, $length);
+}
+
+// #############################################################################
+/**
 * vBulletin's own random number generator
 *
 * @param	integer	Minimum desired value
 * @param	integer	Maximum desired value
 * @param	mixed	Seed for the number generator (if not specified, a new seed will be generated)
 */
-function vbrand($min, $max, $seed = -1)
+function vbrand($min = 0, $max = 0, $seed = -1)
 {
-	if (!defined('RAND_SEEDED'))
+	mt_srand(crc32(microtime()));
+
+	if ($max AND $max <= mt_getrandmax())
 	{
-		if ($seed == -1)
-		{
-			$seed = (double) microtime() * 1000000;
-		}
-
-		mt_srand($seed);
-		define('RAND_SEEDED', true);
+		$number = mt_rand($min, $max);
 	}
+	else
+	{
+		$number = mt_rand();
+	}
+	// reseed so any calls outside this function don't get the second number
+	mt_srand();
 
-	return mt_rand($min, $max);
+	return $number;
 }
 
 // #############################################################################
@@ -381,7 +917,7 @@ function vbrand($min, $max, $seed = -1)
 */
 function fetch_membergroupids_array($user, $getprimary = true)
 {
-	if ($user['membergroupids'])
+	if (!empty($user['membergroupids']))
 	{
 		$membergroups = explode(',', str_replace(' ', '', $user['membergroupids']));
 	}
@@ -532,6 +1068,13 @@ function strip_blank_ascii($text, $replace)
 	{
 		$blanks = array();
 
+		if (!($charset = vB_Template_Runtime::fetchStyleVar('charset')))
+		{
+			$charset = $vbulletin->userinfo['lang_charset'];
+		}
+
+		$charset_unicode = (strtolower($charset) == 'utf-8');
+
 		$raw_blanks = preg_split('#\s+#', $vbulletin->options['blankasciistrip'], -1, PREG_SPLIT_NO_EMPTY);
 		foreach ($raw_blanks AS $code_point)
 		{
@@ -547,7 +1090,7 @@ function strip_blank_ascii($text, $replace)
 				$force_unicode = false;
 			}
 
-			if ($code_point > 255 OR $force_unicode)
+			if ($code_point > 255 OR $force_unicode OR $charset_unicode)
 			{
 				// outside ASCII range or forced Unicode, so the chr function wouldn't work anyway
 				$blanks[] = '&#' . $code_point . ';';
@@ -580,6 +1123,12 @@ function fetch_censored_text($text)
 {
 	global $vbulletin;
 	static $censorwords;
+
+	if (!$text)
+	{
+		// return $text rather than nothing, since this could be '' or 0
+		return $text;
+	}
 
 	if ($vbulletin->options['enablecensor'] AND !empty($vbulletin->options['censorwords']))
 	{
@@ -744,6 +1293,7 @@ function verify_ip_ban()
 	global $vbulletin;
 
 	$user_ipaddress = IPADDRESS . '.';
+	$user_alt_ipaddress = ALT_IP . '.';
 
 	if ($vbulletin->options['enablebanning'] == 1 AND $vbulletin->options['banip'] = trim($vbulletin->options['banip']))
 	{
@@ -756,7 +1306,9 @@ function verify_ip_ban()
 			}
 
 			$banned_ip_regex = str_replace('\*', '(.*)', preg_quote($banned_ip, '#'));
-			if (preg_match('#^' . $banned_ip_regex . '#U', $user_ipaddress))
+
+			// Check both IP addresses, it doesnt really matter if they are the same.
+			if (preg_match('#^' . $banned_ip_regex . '#U', $user_ipaddress) OR preg_match('#^' . $banned_ip_regex . '#U', $user_alt_ipaddress))
 			{
 				eval(standard_error(fetch_error('banip', $vbulletin->options['contactuslink'])));
 			}
@@ -788,7 +1340,7 @@ function file_extension($filename)
 function is_valid_email($email)
 {
 	// checks for a valid email format
-	return preg_match('#^[a-z0-9.!\#$%&\'*+-/=?^_`{|}~]+@([0-9.]+|([^\s\'"<>@,;]+\.+[a-z]{2,6}))$#si', $email);
+	return preg_match('#^[a-z0-9.!\#$%&\'*+\-/=?^_`{|}~]+@([0-9.]+|([^\s\'"<>@,;]+\.+[a-z]{2,6}))$#si', $email);
 }
 
 // #############################################################################
@@ -802,7 +1354,7 @@ function exec_mail_queue()
 	if ($vbulletin->mailqueue !== null AND $vbulletin->mailqueue > 0 AND $vbulletin->options['usemailqueue'])
 	{
 		// mailqueue template holds number of emails awaiting sending
-		if (!class_exists('vB_Mail'))
+		if (!class_exists('vB_Mail', false))
 		{
 			require_once(DIR . '/includes/class_mail.php');
 		}
@@ -818,7 +1370,7 @@ function exec_mail_queue()
 */
 function vbmail_start()
 {
-	if (!class_exists('vB_Mail'))
+	if (!class_exists('vB_Mail', false))
 	{
 		require_once(DIR . '/includes/class_mail.php');
 	}
@@ -838,49 +1390,31 @@ function vbmail_start()
 * @param	string	Additional headers
 * @param	string	Username of person sending the email
 */
-function vbmail($toemail, $subject, $message, $notsubscription = false, $from = '', $uheaders = '', $username = '')
+function vbmail($toemail, $subject, $message, $sendnow = false, $from = '', $uheaders = '', $username = '')
 {
-	if (defined('DISABLE_MAIL'))
+	if (empty($toemail))
 	{
-		// define this in config.php -- good for test boards,
-		// that you don't want people to stumble upon
-		if (is_string(DISABLE_MAIL) AND strpos(DISABLE_MAIL, '@') !== false)
-		{
-			// DISABLE_MAIL contains part of an email address,
-			// so only let emails matching that through
-			if (strpos($toemail, DISABLE_MAIL) === false)
-			{
-				return true; // email not matched
-			}
-		}
-		else
-		{
-			return true; // all mail disabled
-		}
+		return false;
 	}
 
 	global $vbulletin;
 
-	if (!class_exists('vB_Mail'))
+	if (!class_exists('vB_Mail', false))
 	{
 		require_once(DIR . '/includes/class_mail.php');
 	}
 
-	if ($vbulletin->options['usemailqueue'] AND !$notsubscription)
+	if (!($mail = vB_Mail::fetchLibrary($vbulletin, !$sendnow AND $vbulletin->options['usemailqueue'])))
 	{
-		$mail =& vB_QueueMail::fetch_instance();
-	}
-	else if ($vbulletin->options['use_smtp'])
-	{
-		$mail =& new vB_SmtpMail($vbulletin);
-	}
-	else
-	{
-		$mail =& new vB_Mail($vbulletin);
+		return false;
 	}
 
-	$mail->start($toemail, $subject, $message, $from, $uheaders, $username);
-	$mail->send();
+	if (!$mail->start($toemail, $subject, $message, $from, $uheaders, $username))
+	{
+		return false;
+	}
+
+	return $mail->send();
 }
 
 // #############################################################################
@@ -889,7 +1423,7 @@ function vbmail($toemail, $subject, $message, $notsubscription = false, $from = 
 */
 function vbmail_end()
 {
-	if (!class_exists('vB_Mail'))
+	if (!class_exists('vB_Mail', false))
 	{
 		require_once(DIR . '/includes/class_mail.php');
 	}
@@ -913,7 +1447,11 @@ function fetch_language_fields_sql($addtable = true)
 	{
 		$phrasegroups = array();
 	}
-	array_unshift($phrasegroups, 'global');
+
+	if (!defined('NOGLOBALPHRASE'))
+	{
+		array_unshift($phrasegroups, 'global');
+	}
 
 	if ($addtable)
 	{
@@ -938,6 +1476,7 @@ function fetch_language_fields_sql($addtable = true)
 	}
 
 	$sql .= ",
+			{$prefix}phrasegroupinfo AS lang_phrasegroupinfo,
 			{$prefix}options AS lang_options,
 			{$prefix}languagecode AS lang_code,
 			{$prefix}charset AS lang_charset,
@@ -1038,7 +1577,7 @@ function fetch_musername(&$user, $displaygroupfield = 'displaygroupid', $usernam
 		$displaygroupfield = 'infractiongroupid';
 	}
 
-	if (isset($vbulletin->usergroupcache["$user[$displaygroupfield]"]) AND $user["$displaygroupfield"] > 0)
+	if (isset($user["$displaygroupfield"], $vbulletin->usergroupcache["$user[$displaygroupfield]"]) AND $user["$displaygroupfield"] > 0)
 	{
 		// use $displaygroupid
 		$displaygroupid = $user["$displaygroupfield"];
@@ -1062,7 +1601,7 @@ function fetch_musername(&$user, $displaygroupfield = 'displaygroupid', $usernam
 	{
 		$user['usertitle'] = $usertitle;
 	}
-	else if ($user['customtitle'] == 2)
+	else if (isset($user['customtitle']) AND $user['customtitle'] == 2)
 	{
 		$user['usertitle'] = htmlspecialchars_uni($user['usertitle']);
 	}
@@ -1105,7 +1644,7 @@ function fetch_foruminfo(&$forumid, $usecache = true)
 			SELECT forum.*, NOT ISNULL(podcast.forumid) AS podcast
 			FROM " . TABLE_PREFIX . "forum AS forum
 			LEFT JOIN " . TABLE_PREFIX . "podcast AS podcast ON (forum.forumid = podcast.forumid AND podcast.enabled = 1)
-			WHERE forum.forumid = $forumid
+			WHERE forum.forumid = $forumid LIMIT 1
 		");
 	}
 
@@ -1125,6 +1664,9 @@ function fetch_foruminfo(&$forumid, $usecache = true)
 	{
 		$vbulletin->forumcache["$forumid"]["$optionname"] = (($vbulletin->forumcache["$forumid"]['options'] & $optionval) ? 1 : 0);
 	}
+
+	// depth == num of forums in parent list - 2 (itself, -1) == commas - 1
+	$vbulletin->forumcache["$forumid"]['depth'] = substr_count($vbulletin->forumcache["$forumid"]['parentlist'], ',') - 1;
 
 	($hook = vBulletinHook::fetch_hook('fetch_foruminfo')) ? eval($hook) : false;
 
@@ -1155,6 +1697,7 @@ function fetch_threadinfo(&$threadid, $usecache = true)
 		$tachyselect = "
 			,IF(tachythreadpost.userid IS NULL, thread.lastpost, tachythreadpost.lastpost) AS lastpost,
 			IF(tachythreadpost.userid IS NULL, thread.lastposter, tachythreadpost.lastposter) AS lastposter,
+			IF(tachythreadpost.userid IS NULL, thread.lastposterid, tachythreadpost.lastposterid) AS lastposterid,
 			IF(tachythreadpost.userid IS NULL, thread.lastpostid, tachythreadpost.lastpostid) AS lastpostid,
 			IF(tachythreadcounter.userid IS NULL, thread.replycount, thread.replycount + tachythreadcounter.replycount) AS replycount
 		";
@@ -1173,13 +1716,14 @@ function fetch_threadinfo(&$threadid, $usecache = true)
 
 		$marking = ($vbulletin->options['threadmarking'] AND $vbulletin->userinfo['userid']);
 		$threadcache["$threadid"] = $vbulletin->db->query_first("
-			SELECT IF(visible = 2, 1, 0) AS isdeleted,
+			SELECT IF(thread.visible = 2, 1, 0) AS isdeleted,
 			" . (THIS_SCRIPT == 'postings' ? " deletionlog.userid AS del_userid,
 			deletionlog.username AS del_username, deletionlog.reason AS del_reason, deletionlog.dateline AS del_dateline," : "") . "
 
 			" . iif($vbulletin->userinfo['userid'] AND ($vbulletin->options['threadsubscribed'] AND THIS_SCRIPT == 'showthread') OR THIS_SCRIPT == 'editpost' OR THIS_SCRIPT == 'newreply' OR THIS_SCRIPT == 'postings', 'NOT ISNULL(subscribethread.subscribethreadid) AS issubscribed, emailupdate, folderid,')
 			  . iif($vbulletin->options['threadvoted'] AND $vbulletin->userinfo['userid'], 'threadrate.vote,')
 			  . iif($marking, 'threadread.readtime AS threadread, forumread.readtime AS forumread,') . "
+			post.pagetext AS description,
 			thread.*
 			$tachyselect
 			$hook_query_fields
@@ -1191,9 +1735,10 @@ function fetch_threadinfo(&$threadid, $usecache = true)
 				LEFT JOIN " . TABLE_PREFIX . "threadread AS threadread ON (threadread.threadid = thread.threadid AND threadread.userid = " . $vbulletin->userinfo['userid'] . ")
 				LEFT JOIN " . TABLE_PREFIX . "forumread AS forumread ON (forumread.forumid = thread.forumid AND forumread.userid = " . $vbulletin->userinfo['userid'] . ")
 			") . "
+			LEFT JOIN " . TABLE_PREFIX . "post AS post ON(post.postid = thread.firstpostid)
 			$tachyjoin
 			$hook_query_joins
-			WHERE thread.threadid = $threadid
+			WHERE thread.threadid = $threadid LIMIT 1
 		");
 
 		$thread =& $threadcache["$threadid"];
@@ -1240,7 +1785,7 @@ function fetch_postinfo(&$postid)
 			" . (THIS_SCRIPT == 'postings' ? "LEFT JOIN " . TABLE_PREFIX . "deletionlog AS deletionlog ON (deletionlog.primaryid = post.postid AND deletionlog.type = 'post')" : "") . "
 			LEFT JOIN " . TABLE_PREFIX . "editlog AS editlog ON (editlog.postid = post.postid)
 			$hook_query_joins
-			WHERE post.postid = $postid
+			WHERE post.postid = $postid LIMIT 1
 		");
 	}
 
@@ -1278,17 +1823,23 @@ define('FETCH_USERINFO_ISFRIEND',   0x80);
 *
 * @return	array	The information for the requested user
 */
-function fetch_userinfo(&$userid, $option = 0, $languageid = 0)
+function fetch_userinfo(&$userid, $option = 0, $languageid = 0, $nocache = 0, $querymaster = false)
 {
-	global $vbulletin, $usercache, $vbphrase, $permissions, $phrasegroups;
+	global $vbulletin, $usercache, $vbphrase;
 
-	if ($userid == $vbulletin->userinfo['userid'] AND $option != 0 AND isset($usercache["$userid"]))
+	if ((($userid == $vbulletin->userinfo['userid'] AND $option != 0) OR $nocache) AND isset($usercache["$userid"]))
 	{
 		// clear the cache if we are looking at ourself and need to add one of the JOINS to our information.
 		unset($usercache["$userid"]);
 	}
 
 	$userid = intval($userid);
+
+	// Exit if a guest, otherwise we waste time running the query.
+	if (!$userid)
+	{
+		return false;
+	}
 
 	// return the cached result if it exists
 	if (isset($usercache["$userid"]))
@@ -1299,17 +1850,26 @@ function fetch_userinfo(&$userid, $option = 0, $languageid = 0)
 	$hook_query_fields = $hook_query_joins = '';
 	($hook = vBulletinHook::fetch_hook('fetch_userinfo_query')) ? eval($hook) : false;
 
-	// no cache available - query the user
-	$user = $vbulletin->db->query_first_slave("
+	// no cache available - query the user, run query on master or slave.
+	if ($querymaster)
+	{
+		$queryname = 'query_first';
+	}
+	else
+	{
+		$queryname = 'query_first_slave';
+	}
+
+	$user = $vbulletin->db->$queryname("
 		SELECT " .
 			iif(($option & FETCH_USERINFO_ADMIN), ' administrator.*, ') . "
-			userfield.*, usertextfield.*, user.*, UNIX_TIMESTAMP(passworddate) AS passworddate,
+			userfield.*, usertextfield.*, user.*, UNIX_TIMESTAMP(passworddate) AS passworddate, user.languageid AS saved_languageid,
 			IF(displaygroupid=0, user.usergroupid, displaygroupid) AS displaygroupid" .
 			iif(($option & FETCH_USERINFO_AVATAR) AND $vbulletin->options['avatarenabled'], ', avatar.avatarpath, NOT ISNULL(customavatar.userid) AS hascustomavatar, customavatar.dateline AS avatardateline, customavatar.width AS avwidth, customavatar.height AS avheight, customavatar.height_thumb AS avheight_thumb, customavatar.width_thumb AS avwidth_thumb, customavatar.filedata_thumb').
 			iif(($option & FETCH_USERINFO_PROFILEPIC), ', customprofilepic.userid AS profilepic, customprofilepic.dateline AS profilepicdateline, customprofilepic.width AS ppwidth, customprofilepic.height AS ppheight') .
 			iif(($option & FETCH_USERINFO_SIGPIC), ', sigpic.userid AS sigpic, sigpic.dateline AS sigpicdateline, sigpic.width AS sigpicwidth, sigpic.height AS sigpicheight') .
 			(($option & FETCH_USERINFO_USERCSS) ? ', usercsscache.cachedcss, IF(usercsscache.cachedcss IS NULL, 0, 1) AS hascachedcss, usercsscache.buildpermissions AS cssbuildpermissions' : '') .
-			iif(!isset($vbphrase), fetch_language_fields_sql(), '') .
+			(isset($vbphrase) ? '' : fetch_language_fields_sql()) .
 			(($vbulletin->userinfo['userid'] AND ($option & FETCH_USERINFO_ISFRIEND)) ?
 				", IF(userlist1.friend = 'yes', 1, 0) AS isfriend, IF (userlist1.friend = 'pending' OR userlist1.friend = 'denied', 1, 0) AS ispendingfriend" .
 				", IF(userlist1.userid IS NOT NULL, 1, 0) AS u_iscontact_of_bbuser, IF (userlist2.friend = 'pending', 1, 0) AS requestedfriend" .
@@ -1328,8 +1888,9 @@ function fetch_userinfo(&$userid, $option = 0, $languageid = 0)
 			"LEFT JOIN " . TABLE_PREFIX . "userlist AS userlist1 ON (userlist1.relationid = user.userid AND userlist1.type = 'buddy' AND userlist1.userid = " . $vbulletin->userinfo['userid'] . ")" .
 			"LEFT JOIN " . TABLE_PREFIX . "userlist AS userlist2 ON (userlist2.userid = user.userid AND userlist2.type = 'buddy' AND userlist2.relationid = " . $vbulletin->userinfo['userid'] . ")" : "") . "
 		$hook_query_joins
-		WHERE user.userid = $userid
+		WHERE user.userid = $userid LIMIT 1
 	");
+
 	if (!$user)
 	{
 		return false;
@@ -1454,7 +2015,7 @@ function fetch_forum_parent_list($forumid)
 			$foruminfo = $vbulletin->db->query_first_slave("
 				SELECT parentlist
 				FROM " . TABLE_PREFIX . "forum
-				WHERE forumid = $forumid
+				WHERE forumid = $forumid LIMIT 1
 			");
 			$forumarraycache["$forumid"] = $foruminfo['parentlist'];
 			return $foruminfo['parentlist'];
@@ -1559,6 +2120,34 @@ function verify_id($idname, &$id, $alert = true, $selall = false, $options = 0)
 				eval(standard_error(fetch_error('invalidid', $vbphrase["$idname"], $vbulletin->options['contactuslink'])));
 			}
 			return ($selall ? $tempcache : $tempcache[$idname . 'id']);
+
+		case 'poll':
+			if ($selall)
+			{
+				$check = $vbulletin->db->query_first("
+					SELECT poll.*, thread.threadid
+					FROM " . TABLE_PREFIX . "poll AS poll
+					INNER JOIN " . TABLE_PREFIX . "thread AS thread ON (thread.pollid = poll.pollid AND thread.open <> 10)
+					WHERE poll.pollid = $id
+				");
+			}
+			else
+			{
+				$check = $vbulletin->db->query_first("
+					SELECT poll.pollid
+					FROM " . TABLE_PREFIX . "poll AS poll
+					WHERE poll.pollid = $id
+				");
+			}
+			if ($alert AND !$check)
+			{
+				eval(standard_error(fetch_error('invalidid', $vbphrase["$idname"], $vbulletin->options['contactuslink'])));
+			}
+			else
+			{
+				return ($selall ? $check : $check['pollid']);
+			}
+			break;
 
 		default:
 			if (!$check = $vbulletin->db->query_first("SELECT $selid FROM " . TABLE_PREFIX . "$idname WHERE $idname" . "id = $id"))
@@ -1688,13 +2277,29 @@ function strip_quotes($text)
 * @param	string	Text to be stripped of bbcode tags
 * @param	boolean	If true, strip away quote tags AND their contents
 * @param	boolean	If true, use the fast-and-dirty method rather than the shiny and nice method
+* @param	boolean	If true, display the url of the link in parenthesis after the link text
+* @param	boolean	If true, strip away img/video tags and their contents
+* @param	boolean	If true, keep [quote] tags. Useful for API.
 *
 * @return	string
 */
-function strip_bbcode($message, $stripquotes = false, $fast_and_dirty = false, $showlinks = true)
+function strip_bbcode($message, $stripquotes = false, $fast_and_dirty = false, $showlinks = true, $stripimg = false, $keepquotetags = false)
 {
 	$find = array();
 	$replace = array();
+	$block_elements = array(
+		'code',
+		'php',
+		'html',
+		'quote',
+		'indent',
+		'center',
+		'left',
+		'right',
+		'video',
+	);
+
+	($hook = vBulletinHook::fetch_hook('strip_bbcode')) ? eval($hook) : false;
 
 	if ($stripquotes)
 	{
@@ -1702,9 +2307,16 @@ function strip_bbcode($message, $stripquotes = false, $fast_and_dirty = false, $
 		$message = strip_quotes($message);
 	}
 
+	if ($stripimg)
+	{
+		$find[] = '#\[(attach|img|video).*\].+\[\/\\1\]#siU';
+		$replace[] = '';
+	}
+
 	// a really quick and rather nasty way of removing vbcode
 	if ($fast_and_dirty)
 	{
+
 		// any old thing in square brackets
 		$find[] = '#\[.*/?\]#siU';
 		$replace[] = '';
@@ -1714,6 +2326,7 @@ function strip_bbcode($message, $stripquotes = false, $fast_and_dirty = false, $
 	// the preferable way to remove vbcode
 	else
 	{
+
 		// simple links
 		$find[] = '#\[(email|url)=("??)(.+)\\2\]\\3\[/\\1\]#siU';
 		$replace[] = '\3';
@@ -1725,12 +2338,21 @@ function strip_bbcode($message, $stripquotes = false, $fast_and_dirty = false, $
 		// replace links (and quotes if specified) from message
 		$message = preg_replace($find, $replace, $message);
 
+		if ($keepquotetags)
+		{
+			$regex = '#\[(?!quote)(\w+?)(?>[^\]]*?)\](.*)(\[/\1\])#siU';
+		}
+		else
+		{
+			$regex = '#\[(\w+?)(?>[^\]]*?)\](.*)(\[/\1\])#siU';
+		}
+
 		// strip out all other instances of [x]...[/x]
-		while(preg_match_all('#\[(\w+?)(?>[^\]]*?)\](.*)(\[/\1\])#siU', $message, $regs))
+		while(preg_match_all($regex, $message, $regs))
 		{
 			foreach($regs[0] AS $key => $val)
 			{
-				$message  = str_replace($val, $regs[2]["$key"], $message);
+				$message  = str_replace($val, (in_array(strtolower($regs[1]["$key"]), $block_elements) ? "\n" : '') . $regs[2]["$key"], $message);
 			}
 		}
 		$message = str_replace('[*]', ' ', $message);
@@ -1800,14 +2422,7 @@ function fetch_gzipped_text($text, $level = 1)
 */
 function vbheaders_sent(&$filename, &$linenum)
 {
-	if (PHP_VERSION > '4.3.0')
-	{
-		return headers_sent($filename, $linenum);
-	}
-	else
-	{
-		return headers_sent();
-	}
+	return headers_sent($filename, $linenum);
 }
 
 // #############################################################################
@@ -1919,20 +2534,18 @@ function vbsetcookie($name, $value = '', $permanent = true, $allowsecure = true,
 			exec_vbsetcookie($name, $value, $expire, $vbulletin->options['cookiepath'], $vbulletin->options['cookiedomain'], $secure, $httponly);
 		}
 	}
-	else if (empty($vbulletin->db->explain))
-	{ //show some sort of error message
-		global $templateassoc, $vbulletin;
-		if (empty($templateassoc))
+	else if (empty($vbulletin->db->explain) AND !VB_API)
+	{ // VBIV-12815 Pre-set error message for later
+		if (!defined('VB_ERROR_LITE'))
 		{
-			// this is being called before templates have been cached, so just get the default one
-			$template = $vbulletin->db->query_first_slave("
-				SELECT templateid
-				FROM " . TABLE_PREFIX . "template
-				WHERE title = 'STANDARD_ERROR' AND styleid = -1
-			");
-			$templateassoc = array('STANDARD_ERROR' => $template['templateid']);
+			define('VB_ERROR_LITE', true);
+			define('VB_ERROR_LITE_ERROR', fetch_error('cant_set_cookies', $filename, $linenum));
 		}
-		eval(standard_error(fetch_error('cant_set_cookies', $filename, $linenum)));
+		else
+		{ // If we cannot pre-set, at least display an error.
+			echo fetch_error('cant_set_cookies', $filename, $linenum);
+			exit;
+		}
 	}
 }
 
@@ -2017,7 +2630,7 @@ function fetch_bbarray_cookie($cookiename, $id)
 
 	if (isset($cache))
 	{
-		return $cache["$id"];
+		return empty($cache["$id"]) ? null : $cache["$id"];
 	}
 
 }
@@ -2096,7 +2709,7 @@ function sign_client_string($string, $extra_entropy = '')
 {
 	if (preg_match('#[\x00-\x1F\x80-\xFF]#s', $string))
 	{
-		$string = base64_encode($string);
+		$string = vb_base64_encode($string);
 		$prefix = 'B64:';
 	}
 	else
@@ -2132,7 +2745,7 @@ function verify_client_string($string, $extra_entropy = '')
 
 	if (sha1($return . sha1(COOKIE_SALT) . $extra_entropy) === $firstpart)
 	{
-		return ($decode ? base64_decode($return) : $return);
+		return ($decode ? vb_base64_decode($return) : $return);
 	}
 
 	return false;
@@ -2149,6 +2762,8 @@ function verify_client_string($string, $extra_entropy = '')
 */
 function verify_security_token($request_token, $user_token)
 {
+	global $vbulletin;
+
 	// This is for backwards compatability before tokens had TIMENOW prefixed
 	if (strpos($request_token, '-') === false)
 	{
@@ -2165,6 +2780,7 @@ function verify_security_token($request_token, $user_token)
 	// A token is only valid for 3 hours
 	if ($time <= TIMENOW - 10800)
 	{
+		$vbulletin->GPC['securitytoken'] = 'timeout';
 		return false;
 	}
 
@@ -2273,16 +2889,7 @@ function sanitize_maxposts($perpage = 0)
 */
 function sanitize_pageresults($numresults, &$page, &$perpage, $maxperpage = 20, $defaultperpage = 20)
 {
-	$perpage = intval($perpage);
-	if ($perpage < 1)
-	{
-		$perpage = $defaultperpage;
-	}
-	else if ($perpage > $maxperpage)
-	{
-		$perpage = $maxperpage;
-	}
-
+	$perpage = fetch_perpage($perpage, $maxperpage, $defaultperpage);
 	$numpages = ceil($numresults / $perpage);
 	if ($numpages == 0)
 	{
@@ -2299,6 +2906,33 @@ function sanitize_pageresults($numresults, &$page, &$perpage, $maxperpage = 20, 
 	}
 }
 
+/**
+* Returns the number of items to display on a page based on a desired value and
+* constraints.
+*
+* If the desired value is not given use the default.  Under no circumstances allow
+* a value greater than maxperpage.
+*
+* @param	integer	Desired number of results to show per-page
+* @param	integer	Maximum allowable results to show per-page
+* @param	integer	Default number of results to show per-page
+* @return actual per page results
+*/
+function fetch_perpage($perpage, $maxperpage = 20, $defaultperpage = 20)
+{
+	$perpage = intval($perpage);
+	if ($perpage < 1)
+	{
+		$perpage = $defaultperpage;
+	}
+
+	if ($perpage > $maxperpage)
+	{
+		$perpage = $maxperpage;
+	}
+	return $perpage;
+}
+
 // #############################################################################
 /**
 * Returns the HTML for multi-page navigation
@@ -2311,12 +2945,12 @@ function sanitize_pageresults($numresults, &$page, &$perpage, $maxperpage = 20, 
 *
 * @return	string	Page navigation HTML
 */
-function construct_page_nav($pagenumber, $perpage, $results, $address, $address2 = '', $anchor = '')
+function construct_page_nav($pagenumber, $perpage, $results, $address, $address2 = '', $anchor = '', $seolink = '', $objectinfo = array(), $pageinfo = array())
 {
-	global $vbulletin, $vbphrase, $stylevar, $show;
+	global $vbulletin, $vbphrase, $show;
 
 	$curpage = 0;
-	$pagenav = '';
+	$pagenavarr = array();
 	$firstlink = '';
 	$prevlink = '';
 	$lastlink = '';
@@ -2332,47 +2966,172 @@ function construct_page_nav($pagenumber, $perpage, $results, $address, $address2
 
 	$total = vb_number_format($results);
 	$totalpages = ceil($results / $perpage);
-
 	$show['prev'] = false;
 	$show['next'] = false;
 	$show['first'] = false;
 	$show['last'] = false;
 
+	//this function has already been hacked beyond recognition to handle seo urls
+	//This change is intended to handle the case where friendly urls are set to
+	//"standard urls".  In this case we need to pick up some ids from the url, and
+	//pass them into the form (since the form is a get, it throws away anything
+	//on the action query string).  Currently this requires passing a value for
+	//address using the old style url in addition to the seo information.
+	//
+	//We don't want to directly use the $objectinfo because it's frequently a
+	//large array containing stuff not needed for the url.  This gets the minimum
+	//set of items.
+	if (!$address AND $seolink)
+	{
+		//the friendly url basic urls do not work as form values -- they have a segment
+		//of the query string that is not a name/value pair and the hidden variables force
+		//it into that mold -- which breaks the parsing when the page is reloaded.
+		//We fix this by forcing the url that we grab the hidden fields to be the basic
+		//non friendly version which will always work.  This is approximately the original
+		//behavior of the code, we just centralize it here rather than force the caller to
+		//deal with it.
+		require_once(DIR . '/includes/class_friendly_url.php');
+		$friendlyurl = vB_Friendly_Url::fetchLibrary($vbulletin, $seolink, $objectinfo);
+		$address = $friendlyurl->get_url(FRIENDLY_URL_OFF, $canonical);
+	}
+
+	$bits = $vbulletin->input->parse_url($address);
+	//jumpaddress isn't referenced anywhere.
+	//$jumpaddress = $bits['path'];
+	$querybits = explode('&amp;', $bits['query'] . $address2);
+	$hiddenfields = '';
+	if (!empty($querybits))
+	{
+		foreach ($querybits AS $bit)
+		{
+			if ($bit)
+			{
+				$bitinfo = explode('=', $bit);
+				if(!empty($bitinfo[1]))
+				{
+					$hiddenfields .= "<input type=\"hidden\" name=\"$bitinfo[0]\" value=\"$bitinfo[1]\" />";
+				}
+				else
+				{
+					$hiddenfields .= "<input type=\"hidden\" name=\"" . $vbulletin->options['route_requestvar'] . "\" value=\"$bitinfo[0]\" />";
+				}
+			}
+		}
+	}
+	if ($seolink)
+	{
+		$show['pagelinks'] = false;
+		// $jumpaddress = fetch_seo_url($seolink, $objectinfo, $pageinfo);
+		if (!empty($pageinfo))
+		{
+			foreach ($pageinfo AS $name => $value)
+			{
+				$hiddenfields .= "<input type=\"hidden\" name=\"$name\" value=\"$value\" />";
+			}
+		}
+		$use_qmark = 0;
+		$use_amp = 0;
+	}
+	else
+	{
+		$firstaddress = $prevaddress = $nextaddress = $lastaddress = $address;
+		$show['pagelinks'] = true;
+		$use_qmark =  strpos($address, '?') ? 0 : 1;
+		$use_amp = $bits['query'] AND !$use_qmark ? 1 : 0;
+	}
+
 	if ($pagenumber > 1)
 	{
 		$prevpage = $pagenumber - 1;
 		$prevnumbers = fetch_start_end_total_array($prevpage, $perpage, $results);
+		if ($seolink)
+		{
+			$pageinfo['page'] = $prevpage;
+			$prevaddress = fetch_seo_url($seolink, $objectinfo, $pageinfo);
+		}
 		$show['prev'] = true;
 	}
 	if ($pagenumber < $totalpages)
 	{
 		$nextpage = $pagenumber + 1;
+		if ($seolink)
+		{
+			$pageinfo['page'] = $nextpage;
+			$nextaddress = fetch_seo_url($seolink, $objectinfo, $pageinfo);
+		}
 		$nextnumbers = fetch_start_end_total_array($nextpage, $perpage, $results);
 		$show['next'] = true;
 	}
 
 	// create array of possible relative links that we might have (eg. +10, +20, +50, etc.)
-	if (!is_array($vbulletin->options['pagenavsarr']))
+	if (!isset($vbulletin->options['pagenavsarr']))
 	{
 		$vbulletin->options['pagenavsarr'] = preg_split('#\s+#s', $vbulletin->options['pagenavs'], -1, PREG_SPLIT_NO_EMPTY);
 	}
 
-	while ($curpage++ < $totalpages)
+
+	$pages = array(1, $pagenumber, $totalpages);
+
+	if ($vbulletin->options['pagenavpages'] > 0)
+    {
+
+	    for ($i = 1; $i <= $vbulletin->options['pagenavpages']; $i++)
+	    {
+		    $pages[] = $pagenumber + $i;
+		    $pages[] = $pagenumber - $i;
+	    }
+
+	    foreach ($vbulletin->options['pagenavsarr'] AS $relpage)
+	    {
+		    $pages[] = $pagenumber + $relpage;
+		    $pages[] = $pagenumber - $relpage;
+	    }
+    }
+    else
+    {
+        for ($i = 2; $i < $totalpages; $i++)
+        {
+            $pages[] = $i;
+        }
+    }
+
+	$show_prior_elipsis = $show_after_elipsis = ($totalpages > $vbulletin->options['pagenavpages']) ? 1 : 0;
+
+	$pages = array_unique($pages);
+	sort($pages);
+
+	foreach ($pages AS $foo => $curpage)
 	{
+		if ($curpage < 1 OR $curpage > $totalpages)
+		{
+			continue;
+		}
+
 		($hook = vBulletinHook::fetch_hook('pagenav_page')) ? eval($hook) : false;
+
+		if ($pagenumber != 1)
+		{
+			$firstnumbers = fetch_start_end_total_array(1, $perpage, $results);
+			if ($seolink)
+			{
+				unset($pageinfo['page']);
+				$firstaddress = fetch_seo_url($seolink, $objectinfo, $pageinfo);
+			}
+			$show['first'] = true;
+		}
+		if ($pagenumber != $totalpages)
+		{
+			$lastnumbers = fetch_start_end_total_array($totalpages, $perpage, $results);
+			if ($seolink)
+			{
+				$pageinfo['page'] = $totalpages;
+				$lastaddress = fetch_seo_url($seolink, $objectinfo, $pageinfo);
+			}
+			$show['last'] = true;
+		}
 
 		if (abs($curpage - $pagenumber) >= $vbulletin->options['pagenavpages'] AND $vbulletin->options['pagenavpages'] != 0)
 		{
-			if ($curpage == 1)
-			{
-				$firstnumbers = fetch_start_end_total_array(1, $perpage, $results);
-				$show['first'] = true;
-			}
-			if ($curpage == $totalpages)
-			{
-				$lastnumbers = fetch_start_end_total_array($totalpages, $perpage, $results);
-				$show['last'] = true;
-			}
 			// generate relative links (eg. +10,etc).
 			if (in_array(abs($curpage - $pagenumber), $vbulletin->options['pagenavsarr']) AND $curpage != 1 AND $curpage != $totalpages)
 			{
@@ -2382,27 +3141,329 @@ function construct_page_nav($pagenumber, $perpage, $results, $address, $address2
 				{
 					$relpage = '+' . $relpage;
 				}
-				eval('$pagenav .= "' . fetch_template('pagenav_pagelinkrel') . '";');
+				if ($seolink)
+				{
+					$pageinfo['page'] = $curpage;
+					$address = fetch_seo_url($seolink, $objectinfo, $pageinfo);
+					$show['curpage'] = false;
+				}
+				else
+				{
+					$show['curpage'] = ($curpage != 1);
+				}
+				$templater = vB_Template::create('pagenav_pagelinkrel');
+					$templater->register('address', $address);
+					$templater->register('address2', $address2);
+					$templater->register('anchor', $anchor);
+					$templater->register('curpage', $curpage);
+					$templater->register('pagenumbers', $pagenumbers);
+					$templater->register('relpage', $relpage);
+					$templater->register('total', $total);
+					$templater->register('use_qmark', $use_qmark);
+					$templater->register('use_amp', $use_amp);
+				$pagenavarr[] = $templater->render();
 			}
 		}
 		else
 		{
+			//if appropriate, hide the elipses
+			if ($curpage == 1)
+			{
+				$show_prior_elipsis = 0;
+			}
+			else if ($curpage == $totalpages)
+			{
+				$show_after_elipsis = 0;
+			}
 			if ($curpage == $pagenumber)
 			{
 				$numbers = fetch_start_end_total_array($curpage, $perpage, $results);
-				eval('$pagenav .= "' . fetch_template('pagenav_curpage') . '";');
+				$templater = vB_Template::create('pagenav_curpage');
+					$templater->register('curpage', $curpage);
+					$templater->register('numbers', $numbers);
+					$templater->register('total', $total);
+					$templater->register('use_qmark', $use_qmark);
+					$templater->register('use_amp', $use_amp);
+				$pagenavarr[] = $templater->render();
 			}
 			else
 			{
+				if ($seolink)
+				{
+					$pageinfo['page'] = $curpage;
+					$address = fetch_seo_url($seolink, $objectinfo, $pageinfo);
+					$show['curpage'] = false;
+				}
+				else
+				{
+					$show['curpage'] = ($curpage != 1);
+				}
 				$pagenumbers = fetch_start_end_total_array($curpage, $perpage, $results);
-				eval('$pagenav .= "' . fetch_template('pagenav_pagelink') . '";');
+				$templater = vB_Template::create('pagenav_pagelink');
+					$templater->register('address', $address);
+					$templater->register('address2', $address2);
+					$templater->register('anchor', $anchor);
+					$templater->register('curpage', $curpage);
+					$templater->register('pagenumbers', $pagenumbers);
+					$templater->register('total', $total);
+					$templater->register('use_qmark', $use_qmark);
+					$templater->register('use_amp', $use_amp);
+				$pagenavarr[] = $templater->render();
 			}
 		}
 	}
 
+	if (LANGUAGE_DIRECTION == 'rtl' AND (is_browser('ie') AND is_browser('ie') < 8))
+	{
+		$pagenavarr = array_reverse($pagenavarr);
+	}
+
+	$pagenav = implode('', $pagenavarr);
+
 	($hook = vBulletinHook::fetch_hook('pagenav_complete')) ? eval($hook) : false;
 
-	eval('$pagenav = "' . fetch_template('pagenav') . '";');
+	$templater = vB_Template::create('pagenav');
+		$templater->register('address2', $address2);
+		$templater->register('address', $address);
+		$templater->register('anchor', $anchor);
+		$templater->register('firstaddress', $firstaddress);
+		$templater->register('firstnumbers', $firstnumbers);
+		$templater->register('jumpaddress', $address);
+		$templater->register('lastaddress', $lastaddress);
+		$templater->register('lastnumbers', $lastnumbers);
+		$templater->register('nextaddress', $nextaddress);
+		$templater->register('nextnumbers', $nextnumbers);
+		$templater->register('nextpage', $nextpage);
+		$templater->register('pagenav', $pagenav);
+		$templater->register('pagenumber', $pagenumber);
+		$templater->register('prevaddress', $prevaddress);
+		$templater->register('prevnumbers', $prevnumbers);
+		$templater->register('prevpage', $prevpage);
+		$templater->register('total', $total);
+		$templater->register('totalpages', $totalpages);
+		$templater->register('show_prior_elipsis', $show_prior_elipsis);
+		$templater->register('show_after_elipsis', $show_after_elipsis);
+		$templater->register('hiddenfields', $hiddenfields);
+		$templater->register('use_qmark', $use_qmark);
+		$templater->register('use_amp', $use_amp);
+	$pagenav = $templater->render();
+	return $pagenav;
+}
+
+/**
+* Returns the HTML for multi-page navigation without a fully know result set
+*
+* This handles multipage navigation when we don't have a count for the
+* resultset.  The follow things must be true for this logic to work correctly
+*
+* 1) $confirmedcount is less than or equal to the total number of results
+* 2) if $confirmedcount is not the total number of results, it must be at
+* 	least equal to the "count" of the last result displayed in the window.
+*
+* These assumptions allow us to display the window links knowing that they will
+* be valid without knowing the full extent of the result set.
+*
+* @see fetch_seo_url
+* @param	integer	Page number being displayed
+* @param	integer Number of pages to show before and after current page
+* @param	integer	Number of items to be displayed per page
+* @param 	integer	Number of items confirmed in the results
+* @param	string	Base address for links eg: showthread.php?t=99{&page=4}
+* @param	string	Ending portion of address for links
+* @param 	string 	The base link for seo urls (if this is used address will not be)
+* @param 	array 	Additonal object info for generating the seo urls
+* @param	array 	Additonal page info for generating the seo urls
+*
+* @todo is it correct to include the pagenav hooks here?  Do we need other hooks
+* 	to replace them?
+* @return	string	Page navigation HTML
+*/
+function construct_window_page_nav (
+	$pagenumber,
+	$window,
+	$perpage,
+	$confirmedcount,
+	$address,
+	$address2 = '',
+	$anchor = '',
+	$seolink = '',
+	$objectinfo = '',
+	$pageinfo = ''
+	)
+{
+	global $vbulletin, $vbphrase, $show;
+
+	$curpage = 0;
+	$pagenavarr = array();
+	$firstlink = '';
+	$prevlink = '';
+	$lastlink = '';
+	$nextlink = '';
+
+	if ($confirmedcount <= $perpage)
+	{
+		$show['pagenav'] = false;
+		return '';
+	}
+
+	$show['pagenav'] = true;
+
+	$confirmedpages = ceil($confirmedcount / $perpage);
+
+	//window style page navs don't permit "jump to end" logic
+	$show['jumppage'] = false;
+	$show['last'] = false;
+
+	$show['prev'] = false;
+	$show['next'] = false;
+	$show['first'] = false;
+
+	$bits = $vbulletin->input->parse_url($address);
+	$jumpaddress = $bits['path'];
+	$querybits = explode('&amp;', $bits['query'] . $address2);
+	$hiddenfields = '';
+	if (!empty($querybits))
+	{
+		foreach ($querybits AS $bit)
+		{
+			if ($bit)
+			{
+				$bitinfo = explode('=', $bit);
+				$hiddenfields .= "<input type=\"hidden\" name=\"$bitinfo[0]\" value=\"$bitinfo[1]\" />";
+			}
+		}
+	}
+	$hiddenfields .= "<input type=\"hidden\" name=\"s\" value=\"" . vB::$vbulletin->session->vars['sessionhash'] . "\" />
+			<input type=\"hidden\" name=\"securitytoken\" value=\"" . vB::$vbulletin->userinfo['securitytoken'] .
+		"\" />";
+
+	if ($seolink)
+	{
+		$show['pagelinks'] = false;
+		$use_qmark = 0;
+		$use_amp = 0;
+	}
+	else
+	{
+		$firstaddress = $prevaddress = $nextaddress = $lastaddress = $address;
+		$show['pagelinks'] = true;
+		$use_qmark =  strpos($address, '?') ? 0 : 1;
+		$use_amp = $bits['query'] AND !$use_qmark ? 1 : 0;
+	}
+
+	if ($pagenumber > 1)
+	{
+		$prevpage = $pagenumber - 1;
+		$prevnumbers = fetch_start_end_total_array($prevpage, $perpage, $confirmedcount);
+		if ($seolink)
+		{
+			$pageinfo['page'] = $prevpage;
+			$prevaddress = fetch_seo_url($seolink, $objectinfo, $pageinfo);
+		}
+		$show['prev'] = true;
+	}
+
+	if ($pagenumber < $confirmedpages)
+	{
+		$nextpage = $pagenumber + 1;
+		if ($seolink)
+		{
+			$pageinfo['page'] = $nextpage;
+			$nextaddress = fetch_seo_url($seolink, $objectinfo, $pageinfo);
+		}
+		$nextnumbers = fetch_start_end_total_array($nextpage, $perpage, $confirmedcount);
+		$show['next'] = true;
+	}
+
+	if (($pagenumber - $window) > 1)
+	{
+		$firstnumbers = fetch_start_end_total_array(1, $perpage, $confirmedcount);
+		if ($seolink)
+		{
+			unset($pageinfo['page']);
+			$firstaddress = fetch_seo_url($seolink, $objectinfo, $pageinfo);
+		}
+		$show['first'] = true;
+	}
+
+
+	for ($curpage = ($pagenumber - $window); $curpage <= $pagenumber+$window AND $curpage <= $confirmedpages; $curpage++)
+	{
+		if ($curpage < 1)
+		{
+			continue;
+		}
+
+		else if ($curpage == $pagenumber)
+		{
+			$numbers = fetch_start_end_total_array($curpage, $perpage, $confirmedcount);
+
+			$templater = vB_Template::create('pagenav_curpage_window');
+			$templater->register('curpage', $curpage);
+			$templater->register('numbers', $numbers);
+			$templater->register('use_qmark', $use_qmark);
+			$templater->register('use_amp', $use_amp);
+			$templater->register('total', $total);
+			$pagenavarr[] = $templater->render();
+		}
+
+		else
+		{
+			if ($seolink)
+			{
+				$pageinfo['page'] = $curpage;
+				$address = fetch_seo_url($seolink, $objectinfo, $pageinfo);
+				$show['curpage'] = false;
+			}
+			else
+			{
+				$show['curpage'] = ($curpage != 1);
+			}
+			$pagenumbers = fetch_start_end_total_array($curpage, $perpage, $confirmedcount);
+
+			$templater = vB_Template::create('pagenav_pagelink_window');
+			$templater->register('address', $address);
+			$templater->register('address2', $address2);
+			$templater->register('anchor', $anchor);
+			$templater->register('curpage', $curpage);
+			$templater->register('pagenumbers', $pagenumbers);
+			$templater->register('total', $total);
+			$templater->register('use_qmark', $use_qmark);
+			$templater->register('use_amp', $use_amp);
+			$pagenavarr[] = $templater->render();
+		}
+	}
+
+	if (LANGUAGE_DIRECTION == 'rtl' AND (is_browser('ie') AND is_browser('ie') < 8))
+	{
+		$pagenavarr = array_reverse($pagenavarr);
+	}
+
+	$pagenav = implode('', $pagenavarr);
+
+	$templater = vB_Template::create('pagenav_window');
+	$templater->register('address2', $address2);
+	$templater->register('anchor', $anchor);
+	$templater->register('firstaddress', $firstaddress);
+	$templater->register('firstnumbers', $firstnumbers);
+	$templater->register('jumpaddress', $address);
+	$templater->register('lastaddress', $lastaddress);
+	$templater->register('lastnumbers', $lastnumbers);
+	$templater->register('nextaddress', $nextaddress);
+	$templater->register('nextnumbers', $nextnumbers);
+	$templater->register('nextpage', $nextpage);
+	$templater->register('pagenav', $pagenav);
+	$templater->register('pagenumber', $pagenumber);
+	$templater->register('prevaddress', $prevaddress);
+	$templater->register('prevnumbers', $prevnumbers);
+	$templater->register('prevpage', $prevpage);
+	$templater->register('total', $total);
+	$templater->register('totalpages', $confirmedpages);
+	$templater->register('use_qmark', $use_qmark);
+	$templater->register('use_amp', $use_amp);
+	$templater->register('hiddenfields', $hiddenfields);
+
+	$pagenav = $templater->render();
 	return $pagenav;
 }
 
@@ -2437,12 +3498,18 @@ function fetch_start_end_total_array($pagenumber, $perpage, $total)
 * This function will also set the GLOBAL $pagetitle to equal whatever is the last item in the navbits
 *
 * @param	array	Array of link => title pairs from which to build the link chain
-*
+* @param 	boolean Whether to include the forum breadcrumb
 * @return	string
 */
 function construct_navbits($nav_array)
 {
-	global $pagetitle, $stylevar, $vbulletin, $vbphrase, $show;
+	global $pagetitle, $vbulletin, $vbphrase, $show;
+
+	// VB API doesn't require rendering navbar.
+	if (defined('VB_API') AND VB_API === true)
+	{
+		return array();
+	}
 
 	$code = array(
 		'breadcrumb' => '',
@@ -2473,13 +3540,151 @@ function construct_navbits($nav_array)
 				continue;
 			}
 
-			eval('$code["$elementtype"] .= "' . fetch_template('navbar_link') . '";');
+			$templater = vB_Template::create('navbar_link');
+				$templater->register('nav_title', $nav_title);
+				$templater->register('nav_url', $nav_url);
+			$code["$elementtype"] .= $templater->render();
 		}
 	}
 
 	($hook = vBulletinHook::fetch_hook('navbits_complete')) ? eval($hook) : false;
 
 	return $code;
+}
+
+/**
+* Renders the option template. Simply a helper method to shorten the length of code to do this.
+*
+* @param	string	Title of the option
+* @param	string	Value of the option (sent to the server on submission)
+* @param	string	If selected, should be string: selected="selected"
+* @param	string	A class to apply to the option
+*
+* @return	string	Option HTML
+*/
+function render_option_template($optiontitle, $optionvalue, $optionselected = '', $optionclass = '')
+{
+	$templater = vB_Template::create('option');
+
+	$templater->register('optionclass', $optionclass);
+	$templater->register('optionselected', $optionselected);
+	$templater->register('optiontitle', $optiontitle);
+	$templater->register('optionvalue', $optionvalue);
+
+	return $templater->render();
+}
+
+/**
+* Extracts member information for the action drop-down from the postinfo array
+*
+* @param	array	post information
+*
+* @return	array	member information
+*/
+function fetch_lastposter_userinfo($lastpostinfo)
+{
+	global $show, $vbulletin;
+
+	// use all the information thats already in lastpostinfo
+	$memberinfo = $lastpostinfo;
+
+	// calculate any pertinent missing info for member action drop-down
+	$memberinfo = array_merge($memberinfo , convert_bits_to_array($lastpostinfo['useroptions'], $vbulletin->bf_misc_useroptions));
+	$memberinfo['userid'] = $lastpostinfo['lastposterid'];
+	$memberinfo['username'] = $lastpostinfo['lastposter'];
+	$memberinfo['showemail'] = (isset($memberinfo['showemail']) ? $memberinfo['showemail'] : false);
+	$memberinfo['online'] = (isset($memberinfo['online']) ? $memberinfo['online'] : 'offline');
+
+	return $memberinfo;
+}
+
+/**
+* Returns the HTML for the member dwop-down pop-up menu
+*
+* @param	array	user information for the drop-down context
+* @param	array	template hook, if we dont want to use the global one (like in postbit)
+* @param	string	class name to apply to the div for context specific stylings
+*
+* @return	string	Member Drop-Down HTML
+*/
+function construct_memberaction_dropdown($memberinfo, $template_hook = array(), $page_class = null)
+{
+	global $show, $vbulletin;
+
+	$memberperm = cache_permissions($memberinfo, false);
+
+	// display the private messgage link?
+	$show['pmlink']=
+	(
+		$vbulletin->options['enablepms']
+			AND
+		$vbulletin->userinfo['permissions']['pmquota']
+			AND
+		(
+			$vbulletin->userinfo['permissions']['adminpermissions'] & $vbulletin->bf_ugp_adminpermissions['cancontrolpanel']
+				OR
+			($memberinfo['receivepm'] AND $memberperm['pmquota'])
+		)
+	);
+
+	// display the user's homepage link?
+	$show['homepage'] = ($memberinfo['homepage'] != '' AND $memberinfo['homepage'] != 'http://');
+
+	// display the add as friend link?
+	$show['addfriend']=
+	(
+		$vbulletin->options['socnet'] & $vbulletin->bf_misc_socnet['enable_friends']
+		AND $vbulletin->userinfo['userid']
+		AND $memberinfo['userid'] != $vbulletin->userinfo['userid']
+		AND $vbulletin->userinfo['permissions']['genericpermissions2'] & $vbulletin->bf_ugp_genericpermissions2['canusefriends']
+		AND $memberperm['genericpermissions2'] & $vbulletin->bf_ugp_genericpermissions2['canusefriends']
+		AND !$memberinfo['isfriend']
+	);
+
+	// Check if blog is installed, and show link if so
+	$show['viewblog'] = $vbulletin->products['vbblog'];
+
+	// Check if CMS is installed, and show link if so
+	$show['viewarticles'] = $vbulletin->products['vbcms'];
+
+	//MAPI fudge ...
+	$show['cmsattach'] = $show['viewarticles'] ? 1 : 0 ;
+
+	// display the email link?
+	$show['emaillink'] = (
+		$memberinfo['showemail'] AND $vbulletin->options['displayemails'] AND
+		(
+			!$vbulletin->options['secureemail']
+				OR
+			($vbulletin->options['secureemail'] AND $vbulletin->options['enableemail'])
+		)
+		AND $vbulletin->userinfo['permissions']['genericpermissions'] & $vbulletin->bf_ugp_genericpermissions['canemailmember']
+		AND $vbulletin->userinfo['userid']
+	);
+
+	if ($show['viewarticles'])
+	{
+		$memberinfo['author_list_url'] = vBCms_Route_List::getURL(array('type' =>'author', 'value' => $memberinfo['userid'] . '-' . $memberinfo['username']));
+	}
+
+	if (!$memberinfo['onlinestatusphrase'])
+	{
+		require_once(DIR . '/includes/functions_bigthree.php');
+		fetch_online_status($memberinfo);
+	}
+
+	// execute memberaction hook
+	($hook = vBulletinHook::fetch_hook('memberaction_dropdown')) ? eval($hook) : false;
+
+	$templater = vB_Template::create('memberaction_dropdown');
+	$templater->register('memberinfo', $memberinfo);
+	$templater->register('template_hook', $template_hook);
+	if (!empty($page_class))
+	{
+		$templater->register('page_class', $page_class);
+	}
+
+	return $templater->render();
 }
 
 // #############################################################################
@@ -2492,46 +3697,82 @@ function construct_navbits($nav_array)
 *
 * @param	string	Text of the phrase
 * @param	mixed	First variable to be inserted
+* ..		..		..
 * @param	mixed	Nth variable to be inserted
 *
 * @return	string	The parsed phrase
 */
 function construct_phrase()
 {
-	static $argpad;
-
 	$args = func_get_args();
 	$numargs = sizeof($args);
 
-	// if we have only one argument, just return the argument
+	// FAIL SAFE: check if only parameter is an array,
+	// if so we should have called construct_phrase_from_array instead
+	if ($numargs == 1 AND is_array($args[0]))
+	{
+		return construct_phrase_from_array($args[0]);
+	}
+
+	// if this function was called with the phrase as the first argument, and an array
+	// of paramters as the second, combine into single array for construct_phrase_from_array
+	else if ($numargs == 2 AND is_string($args[0]) AND is_array($args[1]))
+	{
+		array_unshift($args[1], $args[0]);
+		return construct_phrase_from_array($args[1]);
+	}
+
+	// otherwise just package arguments up as an array
+	// and call the array version of this func
+	else
+	{
+		return construct_phrase_from_array($args);
+	}
+}
+
+/**
+* Construct Phrase from Array
+*
+* this function is actually just a wrapper for sprintf but makes identification of phrase code easier
+* and will not error if there are no additional arguments. The first element of the array is the phrase text, and
+* the (unlimited number of) following elements are the variables to be parsed into that phrase.
+*
+* @param	array	array containing phrase and arguments
+*
+* @return	string	The parsed phrase
+*/
+function construct_phrase_from_array($phrase_array)
+{
+	$numargs = sizeof($phrase_array);
+
+	// if we have only one argument then its a phrase
+	// with no variables, so just return it
 	if ($numargs < 2)
 	{
-		return $args[0];
+		return $phrase_array[0];
+	}
+
+	// call sprintf() on the first argument of this function
+	$phrase = @call_user_func_array('sprintf', $phrase_array);
+	if ($phrase !== false)
+	{
+		return $phrase;
 	}
 	else
 	{
-		// call sprintf() on the first argument of this function
-		$phrase = @call_user_func_array('sprintf', $args);
-		if ($phrase !== false)
+		// if that failed, add some extra arguments for debugging
+		for ($i = $numargs; $i < 10; $i++)
+		{
+			$phrase_array["$i"] = "[ARG:$i UNDEFINED]";
+		}
+		if ($phrase = @call_user_func_array('sprintf', $phrase_array))
 		{
 			return $phrase;
 		}
+		// if it still doesn't work, just return the un-parsed text
 		else
 		{
-			// if that failed, add some extra arguments for debugging
-			for ($i = $numargs; $i < 10; $i++)
-			{
-				$args["$i"] = "[ARG:$i UNDEFINED]";
-			}
-			if ($phrase = @call_user_func_array('sprintf', $args))
-			{
-				return $phrase;
-			}
-			// if it still doesn't work, just return the un-parsed text
-			else
-			{
-				return $args[0];
-			}
+			return $phrase_array[0];
 		}
 	}
 }
@@ -2566,6 +3807,35 @@ function fetch_email_phrases($email_phrase, $languageid = -1, $emailsub_phrase =
 
 // #############################################################################
 /**
+* Converts an array of error values to error strings by calling the fetch_error
+* function.
+*
+* @param	Array(mixed) Errors to compile.  Values can either be a string, which is taken
+* 	be be the error varname or it can be an array in which case it is viewed as
+*		a list of parameters to pass to fetch_error
+*
+* @return	Array(string)	The array of compiled error messages.  Keys are preserved.
+*/
+function fetch_error_array($errors)
+{
+	$compiled_errors = array();
+	foreach ($errors as $key => $value)
+	{
+		if (is_string($value))
+		{
+			$compiled_errors[$key] = fetch_error($value);
+		}
+		else if (is_array($value))
+		{
+			$compiled_errors[$key] = call_user_func_array('fetch_error', $value);
+		}
+	}
+
+	return $compiled_errors;
+}
+
+// #############################################################################
+/**
 * Fetches an error phrase from the database and inserts values for its embedded variables
 *
 * @param	string	Varname of error phrase
@@ -2587,12 +3857,12 @@ function fetch_error()
 		$args = $args[0];
 	}
 
-	if (class_exists('vBulletinHook'))
+	if (class_exists('vBulletinHook', false))
 	{
 		($hook = vBulletinHook::fetch_hook('error_fetch')) ? eval($hook) : false;
 	}
 
-	if (!function_exists('fetch_phrase'))
+	if (!function_exists('fetch_phrase') AND !VB_API)
 	{
 		require_once(DIR . '/includes/functions_misc.php');
 	}
@@ -2606,6 +3876,12 @@ function fetch_error()
 			case 'forumpasswordmissing':
 				$args[0] = $args[0] . '_ajax';
 		}
+	}
+
+	// API only needs error phrase name and args.
+	if (defined('VB_API') AND VB_API === true)
+	{
+		return $args;
 	}
 
 	$args[0] = fetch_phrase($args[0], 'error', '', false);
@@ -2625,7 +3901,7 @@ function fetch_error()
 */
 function print_no_permission()
 {
-	global $vbulletin, $stylevar, $vbphrase;
+	global $vbulletin, $vbphrase;
 
 	require_once(DIR . '/includes/functions_misc.php');
 
@@ -2735,47 +4011,16 @@ function print_no_permission()
 	{
 		eval(standard_error(fetch_error('nopermission_loggedin',
 			$vbulletin->userinfo['username'],
-			$stylevar['right'],
+			vB_Template_Runtime::fetchStyleVar('right'),
 			$vbulletin->session->vars['sessionurl'],
 			$vbulletin->userinfo['securitytoken'],
-			$vbulletin->options['forumhome']
+			fetch_seo_url('forumhome', array())
 		)));
 	}
 	else
 	{
 		define('VB_ERROR_PERMISSION', true);
 		eval(standard_error(fetch_error('nopermission_loggedout')));
-	}
-}
-
-// #############################################################################
-/**
-* Returns eval()-able code to initiate a standard error
-*
-* @deprecated	Deprecated since 3.5. Use standard_error(fetch_error(...)) instead.
-*
-* @param	string	Name of error phrase
-* @param	boolean	If false, use the name of error phrase as the phrase text itself
-* @param	boolean	If true, set the visitor's status on WOL to error page
-*
-* @return	string
-*/
-function print_standard_error($err_phrase, $doquery = true, $savebadlocation = true)
-{
-	die("<h1><em>print_standard_error(...)</em><br />is now redundant. Instead, use<br /><em>standard_error(fetch_error(...))</em></h1>");
-
-	if ($doquery)
-	{
-		if (!function_exists('fetch_phrase'))
-		{
-			require_once(DIR . '/includes/functions_misc.php');
-		}
-
-		return 'standard_error("' . fetch_phrase($err_phrase, 'error', 'error_') . "\", '', " . intval($savebadlocation) . ");";
-	}
-	else
-	{
-		return 'standard_error("' . $err_phrase . "\", '', " . intval($savebadlocation) . ");";
 	}
 }
 
@@ -2791,12 +4036,12 @@ function print_standard_error($err_phrase, $doquery = true, $savebadlocation = t
 function standard_error($error = '', $headinsert = '', $savebadlocation = true, $override_template = '')
 {
 	global $header, $footer, $headinclude, $forumjump, $timezone, $gobutton;
-	global $vbulletin, $vbphrase, $stylevar, $template_hook;
+	global $vbulletin, $vbphrase, $template_hook;
 	global $pmbox, $show, $ad_location, $notifications_menubits, $notifications_total;
 
 	$show['notices'] = false;
 
-	construct_forum_jump();
+	construct_quick_nav(array(), -1, true, true);
 
 	$title = $vbulletin->options['bbtitle'];
 	$pagetitle =& $title;
@@ -2806,9 +4051,27 @@ function standard_error($error = '', $headinsert = '', $savebadlocation = true, 
 	{
 		$vbulletin->userinfo['badlocation'] = 3;
 	}
-
 	require_once(DIR . '/includes/functions_misc.php');
-	$postvars = construct_post_vars_html();
+	if ($_POST['securitytoken'] OR $vbulletin->GPC['postvars'])
+	{
+		$postvars = construct_post_vars_html();
+		if ($vbulletin->GPC['postvars'])
+		{
+			$_postvars = @unserialize(verify_client_string($vbulletin->GPC['postvars']));
+			if ($_postvars['securitytoken'] == 'guest')
+			{
+				unset($_postvars);
+			}
+		}
+		else if ($_POST['securitytoken'] == 'guest')
+		{
+			unset($postvars);
+		}
+	}
+	else
+	{
+		$postvars = '';
+	}
 
 	if (defined('VB_ERROR_PERMISSION') AND VB_ERROR_PERMISSION == true)
 	{
@@ -2821,7 +4084,9 @@ function standard_error($error = '', $headinsert = '', $savebadlocation = true, 
 
 	$show['search_noindex'] = (bool)($vbulletin->userinfo['permissions']['forumpermissions'] & $vbulletin->bf_ugp_forumpermissions['canview']);
 
-	$navbits = $navbar = '';
+	$navbar = '';
+	$navbits = construct_navbits(array('' => $vbphrase['vbulletin_message']));
+
 	if (defined('VB_ERROR_LITE') AND VB_ERROR_LITE == true)
 	{
 		$templatename = 'STANDARD_ERROR_LITE';
@@ -2829,16 +4094,15 @@ function standard_error($error = '', $headinsert = '', $savebadlocation = true, 
 	}
 	else
 	{
-		if ($vbulletin->userinfo['permissions']['forumpermissions'] & $vbulletin->bf_ugp_forumpermissions['canview'])
-		{
-			$show['forumdesc'] = false;
-			$navbits = construct_navbits(array('' => $vbphrase['vbulletin_message']));
-			eval('$navbar = "' . fetch_template('navbar') . '";');
-		}
 		$templatename = ($override_template ? preg_replace('#[^a-z0-9_]#i', '', $override_template) : 'STANDARD_ERROR');
 	}
 
+	$show['dst_correction'] = false;
+
 	($hook = vBulletinHook::fetch_hook('error_generic')) ? eval($hook) : false;
+
+	// VBIV-4792 always render navbar (also fixes VBIV-11560).
+	$navbar = render_navbar_template($navbits);
 
 	if ($vbulletin->GPC['ajax'])
 	{
@@ -2855,8 +4119,36 @@ function standard_error($error = '', $headinsert = '', $savebadlocation = true, 
 			@header('Content-Type: text/html' . ($vbulletin->userinfo['lang_charset'] != '' ? '; charset=' . $vbulletin->userinfo['lang_charset'] : ''));
 		}
 
-		eval('print_output("' . fetch_template($templatename) . '");');
-		exit;
+		$redirpath = SCRIPTPATH;
+		$pathinfo = $vbulletin->input->parse_url($VB_URL);
+		$options = array(
+				$vbulletin->options['vbforum_url'],
+				$vbulletin->options['vbblog_url'],
+				$vbulletin->options['vbcms_url'],
+		);
+		foreach($options AS $value)
+		{
+			if ($value AND $info = $vbulletin->input->parse_url($value))
+			{
+				if ("{$info['scheme']}://{$info['host']}" == VB_URL_SCHEME . '://' . VB_URL_HOST)
+				{
+					$redirpath = $vbulletin->input->xss_clean(VB_URL);
+					break;
+				}
+			}
+		}
+
+		$templater = vB_Template::create($templatename);
+			$templater->register_page_templates();
+			$templater->register('errormessage', $errormessage);
+			$templater->register('forumjump', $forumjump);
+			$templater->register('headinsert', $headinsert);
+			$templater->register('navbar', $navbar);
+			$templater->register('pagetitle', $pagetitle);
+			$templater->register('postvars', $postvars);
+			$templater->register('scriptpath', $redirpath);
+			$templater->register('url', $vbulletin->url);
+		print_output($templater->render());
 	}
 }
 
@@ -2866,31 +4158,47 @@ function standard_error($error = '', $headinsert = '', $savebadlocation = true, 
 *
 * The global variable $url should contain the URL target for the redirect
 *
-* @param	string	Name of redirect phrase
+* @param	mixed	Name of redirect phrase, or array if constructing a phrase.
 * @param	boolean	If false, use the name of redirect phrase as the phrase text itself
 * @param	boolean	Whether or not to force a redirect message to be shown
 * @param	integer	Language ID to fetch the phrase from (-1 uses the page-wide default)
+* @param	bool	Force bypass of domain whitelist check
 *
-* @return	string
+* @return	none (the session is re-directed).
 */
-function print_standard_redirect($redir_phrase, $doquery = true, $forceredirect = false, $languageid = -1)
+function print_standard_redirect($redir_phrase, $isphrase = true, $forceredirect = false, $languageid = -1, $bypasswhitelist = false)
 {
-	if ($doquery)
+	if (!VB_API)
 	{
-		if (!function_exists('fetch_phrase'))
+		if ($isphrase)
 		{
-			require_once(DIR . '/includes/functions_misc.php');
-		}
+			if (!function_exists('fetch_phrase'))
+			{
+				require_once(DIR . '/includes/functions_misc.php');
+			}
 
-		$phrase = fetch_phrase($redir_phrase, 'frontredirect', 'redirect_', true, false, $languageid, false);
-		// addslashes run in fetch_phrase
+			if (is_array($redir_phrase))
+			{
+				// array element 0 is the phrase name, convert it to the phrase, and then run it through construct.
+				$redir_phrase[0] = fetch_phrase($redir_phrase[0], 'frontredirect', 'redirect_', false, false, $languageid);
+				$phrase = construct_phrase($redir_phrase); // Build final output.
+			}
+			else
+			{
+				$phrase = fetch_phrase($redir_phrase, 'frontredirect', 'redirect_', true, false, $languageid, false);
+			}
+		}
+		else
+		{
+			$phrase = addslashes($redir_phrase);
+		}
 	}
 	else
 	{
-		$phrase = addslashes($redir_phrase);
+		$phrase = $redir_phrase;
 	}
 
-	return 'standard_redirect("' . $phrase . '", ' . intval($forceredirect) . ');';
+	return standard_redirect($phrase, $forceredirect, $bypasswhitelist);
 }
 
 // #############################################################################
@@ -2902,11 +4210,12 @@ function print_standard_redirect($redir_phrase, $doquery = true, $forceredirect 
 *
 * @param	string	Redirect message
 * @param	string	URL to which to redirect the browser
+* @param	bool	Force bypass of domain whitelist check
 */
-function standard_redirect($message = '', $forceredirect = false)
+function standard_redirect($message = '', $forceredirect = false, $bypasswhitelist = false)
 {
-	global $header, $footer, $headinclude, $forumjump;
-	global $timezone, $vbulletin, $vbphrase, $stylevar, $pagestarttime;
+	global $header, $footer, $headinclude, $headinclude_bottom, $forumjump;
+	global $timezone, $vbulletin, $vbphrase;
 
 	static
 		$str_find     = array('"',      '<',    '>'),
@@ -2914,12 +4223,7 @@ function standard_redirect($message = '', $forceredirect = false)
 
 	if ($vbulletin->db->explain)
 	{
-		$pageendtime = microtime();
-
-		$starttime = explode(' ', $pagestarttime);
-		$endtime = explode(' ', $pageendtime);
-
-		$totaltime = $endtime[0] - $starttime[0] + $endtime[1] - $starttime[1];
+		$totaltime = microtime(true) - TIMESTART;
 
 		$vartext .= "<!-- Page generated in " . vb_number_format($totaltime, 5) . " seconds with " . $vbulletin->db->querycount . " queries -->";
 
@@ -2928,9 +4232,64 @@ function standard_redirect($message = '', $forceredirect = false)
 		exit;
 	}
 
-	if ($vbulletin->options['useheaderredirect'] AND !$forceredirect AND !headers_sent() AND !$vbulletin->GPC['postvars'])
+	if ($vbulletin->url AND !$bypasswhitelist AND !$vbulletin->options['redirect_whitelist_disable'])
 	{
-		exec_header_redirect($vbulletin->url);
+		$foundurl = false;
+		if ($urlinfo = $vbulletin->input->parse_url($vbulletin->url))
+		{
+			if (!$urlinfo['scheme'])
+			{	// url is made full in exec_header_redirect which stops a url from being redirected to, say "www.php.net" (no http://)
+				$foundurl = true;
+			}
+			else
+			{
+				$whitelist = array();
+				if ($vbulletin->options['redirect_whitelist'])
+				{
+					$whitelist = explode("\n", trim($vbulletin->options['redirect_whitelist']));
+				}
+				// Add $bburl to the whitelist
+				$bburlinfo = $vbulletin->input->parse_url($vbulletin->options['bburl']);
+				$bburl = "{$bburlinfo['scheme']}://{$bburlinfo['host']}";
+				array_unshift($whitelist, $bburl);
+
+				// if the "realurl" of this request does not equal $bburl, add it as well..
+				$realurl = VB_URL_SCHEME . '://' . VB_URL_HOST;
+				if (strtolower($bburl) != strtolower($realurl))
+				{
+					array_unshift($whitelist, $realurl);
+				}
+
+				foreach(array('vbblog', 'vbforum', 'vbcms') AS $value)
+				{
+					if ($vbulletin->options[$value . '_url'])
+					{
+						array_unshift($whitelist, $vbulletin->options[$value . '_url']);
+					}
+				}
+
+				$vburl = strtolower($vbulletin->url);
+				foreach ($whitelist AS $url)
+				{
+					$url = trim($url);
+					if ($vburl == strtolower($url) OR strpos($vburl, strtolower($url) . '/', 0) === 0)
+					{
+						$foundurl = true;
+						break;
+					}
+				}
+			}
+		}
+
+		if (!$foundurl)
+		{
+			eval(standard_error(fetch_error('invalid_redirect_url_x', $vbulletin->url)));
+		}
+	}
+
+	if ($vbulletin->options['useheaderredirect'] AND !$forceredirect AND !headers_sent() AND !$vbulletin->GPC['postvars'] AND !VB_API)
+	{
+		exec_header_redirect(unhtmlspecialchars($vbulletin->url, true));
 	}
 
 	$title = $vbulletin->options['bbtitle'];
@@ -2938,7 +4297,7 @@ function standard_redirect($message = '', $forceredirect = false)
 	$pagetitle = $title;
 	$errormessage = $message;
 
-	$url = unhtmlspecialchars($vbulletin->url);
+	$url = unhtmlspecialchars($vbulletin->url, true);
 	$url = str_replace(chr(0), '', $url);
 	$url = create_full_url($url);
 	$url = str_replace($str_find, $str_replace, $url);
@@ -2959,7 +4318,16 @@ function standard_redirect($message = '', $forceredirect = false)
 
 	($hook = vBulletinHook::fetch_hook('redirect_generic')) ? eval($hook) : false;
 
-	eval('print_output("' . fetch_template('STANDARD_REDIRECT') . '");');
+	$templater = vB_Template::create('STANDARD_REDIRECT');
+		$templater->register('errormessage', $errormessage);
+		$templater->register('formfile', $formfile);
+		$templater->register('headinclude', $headinclude);
+		$templater->register('headinclude_bottom', $headinclude_bottom);
+		$templater->register('js_url', $js_url);
+		$templater->register('pagetitle', $pagetitle);
+		$templater->register('postvars', $postvars);
+		$templater->register('url', $url);
+	print_output($templater->render());
 	exit;
 }
 
@@ -2969,13 +4337,19 @@ function standard_redirect($message = '', $forceredirect = false)
 *
 * @param	string	Destination URL
 */
-function exec_header_redirect($url)
+function exec_header_redirect($url, $redirectcode = 303)
 {
 	global $vbulletin;
 
+	// VB API modification
+	if (defined('VB_API') AND VB_API === true)
+	{
+		eval(print_standard_redirect('header_redirect', true, true));
+	}
+
 	$url = create_full_url($url);
 
-	if (class_exists('vBulletinHook'))
+	if (class_exists('vBulletinHook', false))
 	{
 		// this can be called when we don't have the hook class
 		($hook = vBulletinHook::fetch_hook('header_redirect')) ? eval($hook) : false;
@@ -2988,15 +4362,31 @@ function exec_header_redirect($url)
 		trigger_error("Header may not contain more than a single header, new line detected.", E_USER_ERROR);
 	}
 
-	header("Location: $url", 0, 302);
+	if ($redirectcode == 303 AND $_SERVER['SERVER_PROTOCOL'] == 'HTTP/1.0')
+	{
+		$redirectcode = 302;
+	}
+
+	header("Location: $url", 0, $redirectcode);
 
 	if ($vbulletin->options['addheaders'] AND (SAPI_NAME == 'cgi' OR SAPI_NAME == 'cgi-fcgi'))
 	{
 		// see #24779
-		header('Status: 302 Found');
+		switch($redirectcode)
+		{
+			case 301:
+				header('Status: 301 Moved Permanently');
+			case 302:
+				header('Status: 302 Found');
+			case 303:
+				header('Status: 303 See Other');
+				break;
+		}
 	}
 
 	define('NOPMPOPUP', 1);
+
+	$vbulletin->shutdown->shutdown();
 	if (defined('NOSHUTDOWNFUNC'))
 	{
 		exec_shut_down();
@@ -3010,56 +4400,107 @@ function exec_header_redirect($url)
 * a / are assumed to be within the main vB-directory
 *
 * @param	string	Relative URL
+* @param  string  Always use the bburl setting as the base path regardless of admin options.
+* 	(Unless already an absolute path).  Primarily used in the archives where its currently
+* 	hardcoded.
 *
 * @param	string	Fully-qualified URL
 */
-function create_full_url($url)
+function create_full_url($url = '', $force_bburl = false)
 {
+	global $vbulletin;
+
 	// enforces HTTP 1.1 compliance
 	if (!preg_match('#^[a-z]+(?<!about|javascript|vbscript|data)://#i', $url))
 	{
-		// make sure we get the correct value from a multitude of server setups
-		if ($_SERVER['HTTP_HOST'] OR $_ENV['HTTP_HOST'])
+		if ('/' == $url{0})
 		{
-			$http_host = ($_SERVER['HTTP_HOST'] ? $_SERVER['HTTP_HOST'] : $_ENV['HTTP_HOST']);
-		}
-		else if ($_SERVER['SERVER_NAME'] OR $_ENV['SERVER_NAME'])
-		{
-			$http_host = ($_SERVER['SERVER_NAME'] ? $_SERVER['SERVER_NAME'] : $_ENV['SERVER_NAME']);
-		}
-
-		// if we don't have this, then this isn't going to work correctly,
-		// so let's assume that we're going to be OK with just a relative URL
-		if ($http_host = trim($http_host))
-		{
-			$method = REQ_PROTOCOL . '://';
-
-			if ($url{0} != '/')
+			$vb_url_webroot = preg_replace('/^http:/si', 'https:', VB_URL_WEBROOT);
+			if (    stripos($vbulletin->options['bburl'], 'https', 0) === 0
+						AND
+					stripos(VB_URL_WEBROOT, 'https', 0) === false
+						AND
+					stripos($vbulletin->options['bburl'], $vb_url_webroot, 0) == 0
+			)
 			{
-				if (($dirpath = dirname(SCRIPT . 'i')) != '/')
-				{
-					if ($dirpath == '\\')
-					{
-						$dirpath = '/';
-					}
-					else
-					{
-						$dirpath .= '/';
-					}
-				}
+				$url = $vb_url_webroot . $url;
 			}
 			else
 			{
-				$dirpath = '';
+				$url = VB_URL_WEBROOT . $url;
 			}
-			$dirpath .= $url;
+		}
+		else if (VB_URL_SCHEME)
+		{
+			$url = $vbulletin->input->fetch_relpath($url);
 
-			$url = $method . $http_host . $dirpath;
+			if ($force_bburl)
+			{
+				$base = $vbulletin->options['bburl'] . "/";
+			}
+			//these areas depend on the redirection being done against the VB_URL_BASE_PATH path explicitly.
+			else if (in_array(VB_AREA, array('Install', 'Upgrade', 'AdminCP', 'ModCP', 'Archive', 'tools')))
+			{
+				$base = VB_URL_BASE_PATH;
+			}
+			else
+			{
+				$base = $vbulletin->input->fetch_basepath();
+			}
+			$url = $base . ltrim($url, '/\\');
 		}
 	}
+	else
+	{
+		$url = $vbulletin->input->xss_clean_url($url);
+	}
+
+	// Collapse ../ and ./
+	$url = normalize_path($url);
 
 	return $url;
 }
+
+
+/**
+ * Adds a query string to a path, fixing the query characters.
+ *
+ * @param 	string		The path to add the query to
+ * @return	string		The resulting string
+ */
+function add_query($path, $query = false)
+{
+	if (false === $query)
+	{
+		$query = VB_URL_QUERY;
+	}
+
+	if (!$query OR !($query = trim($query, '?&')))
+	{
+		return $path;
+	}
+
+	return $path . '?' . $query;
+}
+
+
+/**
+ * Collapses ../ and ./ in a path.
+ *
+ * @param	string		The path to normalize
+ * @return	string		The nromalized path
+ */
+function normalize_path($path)
+{
+	// Collapse ../
+	$path = preg_replace('#\w+\/\.\.\/#', '', $path);
+
+	// Collapse ./
+	$path = preg_replace('#\/\.\/#', '/', $path);
+
+	return $path;
+}
+
 
 // #############################################################################
 /**
@@ -3067,10 +4508,22 @@ function create_full_url($url)
 *
 * @param	array	List of template names to be fetched
 * @param	string	Serialized array of template name => template id pairs
+* @param	bool	Whether to skip adding the bbcode style refs
 */
-function cache_templates($templates, $templateidlist)
+function cache_templates($templates, $templateidlist, $skip_bbcode_style = false)
 {
 	global $vbulletin, $templateassoc;
+
+	$actioned = false;
+
+	($hook = vBulletinHook::fetch_hook('cache_templates_process')) ? eval($hook) : false;
+
+	if ($actioned)
+	{
+		return;
+	}
+
+	$templates = array_unique($templates);
 
 	if (empty($templateassoc))
 	{
@@ -3107,13 +4560,15 @@ function cache_templates($templates, $templateidlist)
 		$vbulletin->db->free_result($temps);
 	}
 
-	$vbulletin->bbcode_style = array(
-		'code'  => &$templateassoc['bbcode_code_styleid'],
-		'html'  => &$templateassoc['bbcode_html_styleid'],
-		'php'   => &$templateassoc['bbcode_php_styleid'],
-		'quote' => &$templateassoc['bbcode_quote_styleid']
-	);
-
+	if (!$skip_bbcode_style)
+	{
+		$vbulletin->bbcode_style = array(
+				'code'  => &$templateassoc['bbcode_code_styleid'],
+				'html'  => &$templateassoc['bbcode_html_styleid'],
+				'php'   => &$templateassoc['bbcode_php_styleid'],
+				'quote' => &$templateassoc['bbcode_quote_styleid']
+		);
+	}
 }
 
 // #############################################################################
@@ -3124,17 +4579,27 @@ function cache_templates($templates, $templateidlist)
 * @param	integer	Escape quotes in template? 1: escape template; -1: unescape template; 0: do nothing
 * @param	boolean	Wrap template in HTML comments showing the template name?
 *
+*	TODO Delete this function
+*
 * @return	string
 */
 function fetch_template($templatename, $escape = 0, $gethtmlcomments = true)
 {
 	// gets a template from the db or from the local cache
-	global $style, $vbulletin, $tempusagecache, $templateassoc;
+	global $vbulletin, $tempusagecache, $templateassoc;
+
+	trigger_error('fetch_template() calls should be replaced by the vB_Template class. Template name: ' . htmlspecialchars($templatename), E_USER_WARNING);
 
 	// use legacy postbit if necessary
 	if ($vbulletin->options['legacypostbit'] AND $templatename == 'postbit')
 	{
 		$templatename = 'postbit_legacy';
+	}
+
+	global $bootstrap;
+	if (!empty($bootstrap) AND !$bootstrap->called('template'))
+	{
+		$bootstrap->process_templates();
 	}
 
 	if (isset($vbulletin->templatecache["$templatename"]))
@@ -3143,8 +4608,7 @@ function fetch_template($templatename, $escape = 0, $gethtmlcomments = true)
 	}
 	else
 	{
-		DEVDEBUG("Uncached template: $templatename");
-		$GLOBALS['_TEMPLATEQUERIES']["$templatename"] = true;
+		vB_Template::$template_queries[$templatename] = true;
 
 		$fetch_tid = intval($templateassoc["$templatename"]);
 		if (!$fetch_tid)
@@ -3163,16 +4627,6 @@ function fetch_template($templatename, $escape = 0, $gethtmlcomments = true)
 		$vbulletin->templatecache["$templatename"] = $template;
 	}
 
-	// **************************
-	/*
-	if ($template == '<<< FILE >>>')
-	{
-		$template = addslashes(implode('', file("./templates/$templatename.html")));
-		$vbulletin->templatecache["$templatename"] = $template;
-	}
-	*/
-	// **************************
-
 	switch($escape)
 	{
 		case 1:
@@ -3187,13 +4641,13 @@ function fetch_template($templatename, $escape = 0, $gethtmlcomments = true)
 			break;
 	}
 
-	if (isset($tempusagecache["$templatename"]))
+	if (!isset(vB_Template::$template_usage[$templatename]))
 	{
-		++$tempusagecache["$templatename"];
+		vB_Template::$template_usage[$templatename] = 1;
 	}
 	else
 	{
-		$tempusagecache["$templatename"] = 1;
+		vB_Template::$template_usage[$templatename]++;
 	}
 
 	if ($vbulletin->options['addtemplatename'] AND $gethtmlcomments)
@@ -3234,6 +4688,7 @@ function cache_ordered_forums($getcounters = 0, $getinvisibles = 0, $userid = 0)
 				forum.forumid,
 				IF(tachyforumpost.userid IS NULL, forum.lastpost, tachyforumpost.lastpost) AS lastpost,
 				IF(tachyforumpost.userid IS NULL, forum.lastposter, tachyforumpost.lastposter) AS lastposter,
+				IF(tachyforumpost.userid IS NULL, forum.lastposterid, tachyforumpost.lastposterid) AS lastposterid,
 				IF(tachyforumpost.userid IS NULL, forum.lastthread, tachyforumpost.lastthread) AS lastthread,
 				IF(tachyforumpost.userid IS NULL, forum.lastthreadid, tachyforumpost.lastthreadid) AS lastthreadid,
 				IF(tachyforumpost.userid IS NULL, forum.lasticonid, tachyforumpost.lasticonid) AS lasticonid,
@@ -3246,7 +4701,7 @@ function cache_ordered_forums($getcounters = 0, $getinvisibles = 0, $userid = 0)
 		else
 		{
 			$tachyjoin = '';
-			$counter_select = 'forum.forumid, lastpost, lastposter, lastthread, lastthreadid, lasticonid, threadcount, replycount, lastpostid, lastprefixid';
+			$counter_select = 'forum.forumid, forum.lastpost, forum.lastposter, forum.lastposterid, forum.lastthread, forum.lastthreadid, forum.lasticonid, forum.threadcount, forum.replycount, forum.lastpostid, forum.lastprefixid';
 		}
 
 		($hook = vBulletinHook::fetch_hook('cache_ordered_forums')) ? eval($hook) : false;
@@ -3255,11 +4710,14 @@ function cache_ordered_forums($getcounters = 0, $getinvisibles = 0, $userid = 0)
 		if ($userid)
 		{
 			$query = "
-				SELECT subscribeforumid, $counter_select
+				SELECT subscribeforumid, $counter_select, user.usergroupid, user.homepage, user.options AS useroptions, IF(userlist.friend = 'yes', 1, 0) AS isfriend,
+					user.lastactivity, user.lastvisit, IF(user.options & " . $vbulletin->bf_misc_useroptions['invisible'] . ", 1, 0) AS invisible
 					". iif($vbulletin->options['threadmarking'], ', forumread.readtime AS forumread') . "
 				FROM " . TABLE_PREFIX . "forum AS forum
 				LEFT JOIN " . TABLE_PREFIX . "subscribeforum AS subscribeforum ON (subscribeforum.forumid = forum.forumid AND subscribeforum.userid = $userid)
 				" . iif($vbulletin->options['threadmarking'], " LEFT JOIN " . TABLE_PREFIX . "forumread AS forumread ON (forumread.forumid = forum.forumid AND forumread.userid = $userid)") . "
+				LEFT JOIN " . TABLE_PREFIX . "user AS user ON (user.userid = forum.lastposterid)
+				LEFT JOIN " . TABLE_PREFIX . "userlist AS userlist ON (userlist.relationid = user.userid AND userlist.type = 'buddy' AND userlist.userid = " . $vbulletin->userinfo['userid'] . ")
 				$tachyjoin
 			";
 		}
@@ -3267,10 +4725,13 @@ function cache_ordered_forums($getcounters = 0, $getinvisibles = 0, $userid = 0)
 		else
 		{
 			$query = "
-				SELECT $counter_select
+				SELECT $counter_select, user.usergroupid, user.homepage, user.options AS useroptions, IF(userlist.friend = 'yes', 1, 0) AS isfriend,
+					user.lastactivity, user.lastvisit, IF(user.options & " . $vbulletin->bf_misc_useroptions['invisible'] . ", 1, 0) AS invisible
 					". iif($vbulletin->options['threadmarking'] AND $vbulletin->userinfo['userid'], ', forumread.readtime AS forumread') . "
 				FROM " . TABLE_PREFIX . "forum AS forum
 				" . iif($vbulletin->options['threadmarking'] AND $vbulletin->userinfo['userid'], " LEFT JOIN " . TABLE_PREFIX . "forumread AS forumread ON (forumread.forumid = forum.forumid AND forumread.userid = " .  $vbulletin->userinfo['userid'] . ")") . "
+				LEFT JOIN " . TABLE_PREFIX . "user AS user ON (user.userid = forum.lastposterid)
+				LEFT JOIN " . TABLE_PREFIX . "userlist AS userlist ON (userlist.relationid = user.userid AND userlist.type = 'buddy' AND userlist.userid = " . $vbulletin->userinfo['userid'] . ")
 				$tachyjoin
 			";
 		}
@@ -3330,18 +4791,25 @@ function cache_ordered_forums($getcounters = 0, $getinvisibles = 0, $userid = 0)
 /**
 * Returns the HTML for the forum jump menu
 *
+* @param	array		Information about current page (id, title, and link)
 * @param	integer	ID of the parent forum for the group to be shown (-1 for all)
 * @param	boolean	If true, evaluate the forumjump template too
-* @param	string	Characters to prepend to forum titles to indicate depth
-* @param	string	Not sure actually...
+* @param	boolean	Override $complete
 */
-function construct_forum_jump($parentid = -1, $addbox = true, $prependchars = '', $permission = '')
+function construct_quick_nav($navpopup = array(), $parentid = -1, $addbox = true, $override = false)
 {
-	global $vbulletin, $optionselected, $usecategories, $jumpforumid, $jumpforumtitle, $jumpforumbits, $curforumid, $daysprune;
-	global $stylevar, $vbphrase, $defaultselected, $forumjump, $selectedone;
-	global $frmjmpsel; // allows context sensitivity for non-forum areas
-	global $gobutton;
+	global $vbulletin, $daysprune, $vbphrase, $forumjump;
 	static $complete = false;
+
+	if ($override)
+	{
+		$complete = false;
+	}
+
+	if (!$navpopup['id'])
+	{
+		$navpopup['id'] = 'navpopup';
+	}
 
 	if ($complete OR !$vbulletin->options['useforumjump'] OR !($vbulletin->userinfo['permissions']['forumpermissions'] & $vbulletin->bf_ugp_forumpermissions['canview']))
 	{
@@ -3362,7 +4830,6 @@ function construct_forum_jump($parentid = -1, $addbox = true, $prependchars = ''
 	foreach($vbulletin->iforumcache["$parentid"] AS $forumid)
 	{
 		$forumperms = $vbulletin->userinfo['forumpermissions']["$forumid"];
-		#if ((!($forumperms & $vbulletin->bf_ugp_forumpermissions['canview']) AND !$vbulletin->options['showprivateforums']) OR !($vbulletin->forumcache["$forumid"]['options'] & $vbulletin->bf_misc_forumoptions['showonforumjump']) OR !$vbulletin->forumcache["$forumid"]['displayorder'] OR !($vbulletin->forumcache["$forumid"]['options'] & $vbulletin->bf_misc_forumoptions['active']))
 		if ((!($forumperms & $vbulletin->bf_ugp_forumpermissions['canview']) AND ($vbulletin->forumcache["$forumid"]['showprivate'] == 1 OR (!$vbulletin->forumcache["$forumid"]['showprivate'] AND !$vbulletin->options['showprivateforums']))) OR !($vbulletin->forumcache["$forumid"]['options'] & $vbulletin->bf_misc_forumoptions['showonforumjump']) OR !$vbulletin->forumcache["$forumid"]['displayorder'] OR !($vbulletin->forumcache["$forumid"]['options'] & $vbulletin->bf_misc_forumoptions['active']))
 		{
 			continue;
@@ -3372,54 +4839,48 @@ function construct_forum_jump($parentid = -1, $addbox = true, $prependchars = ''
 			// set $forum from the $vbulletin->forumcache
 			$forum = $vbulletin->forumcache["$forumid"];
 
-			$optionvalue = $forumid;
-			$optiontitle = $prependchars . " $forum[title_clean]";
-
-			$optionclass = 'fjdpth' . iif($forum['depth'] > 4, 4, $forum['depth']);
-
-			if ($curforumid == $optionvalue)
+			$children = explode(',', trim($forum['childlist']));
+			if (sizeof($children) <= 2)
 			{
-				$optionselected = 'selected="selected"';
-				$optionclass = 'fjsel';
-				$selectedone = 1;
+				$jumpforumbits[] = array('type' => 'link', 'forum' => $forum);
 			}
 			else
 			{
-				$optionselected = '';
+				 if ($forumbits = construct_quick_nav($navpopup, $forumid, false))
+				 {
+				 	$forum['depth']++;
+				  	$jumpforumbits[] = array('type' => 'subforum_begin', 'forum' => $forum);
+				  	$jumpforumbits = array_merge($jumpforumbits, $forumbits);
+				  	$jumpforumbits[] = array('type' => 'subforum_end');
+				 }
+				 else
+				 {
+				  	$jumpforumbits[] = array('type' => 'link', 'forum' => $forum);
+				 }
 			}
-
-			eval('$jumpforumbits .= "' . fetch_template('option') . '";');
-
-			construct_forum_jump($optionvalue, 0, $prependchars . FORUM_PREPEND, $forumperms);
 
 		} // if can view
 	} // end foreach ($vbulletin->iforumcache[$parentid] AS $forumid)
 
 	if ($addbox)
 	{
-		if ($selectedone != 1)
-		{
-			$defaultselected = 'selected="selected"';
-		}
-		if (!is_array($frmjmpsel))
-		{
-			$frmjmpsel = array();
-		}
-		if (empty($daysprune))
-		{
-			$daysprune = '';
-		}
-		else
-		{
-			$daysprune = intval($daysprune);
-		}
-
 		($hook = vBulletinHook::fetch_hook('forumjump')) ? eval($hook) : false;
 
-		eval('$forumjump = "' . fetch_template('forumjump') . '";');
+		$templater = vB_Template::create('forumjump');
+			if ($daysprune)
+			{
+				$templater->register('daysprune', intval($daysprune));
+			}
+			$templater->register('jumpforumbits', $jumpforumbits);
+			$templater->register('navpopup', $navpopup);
+		$forumjump = $templater->render();
 
 		// prevent forumjump from being built more than once
 		$complete = true;
+	}
+	else
+	{
+		return $jumpforumbits;
 	}
 }
 
@@ -3497,6 +4958,11 @@ function vbdate($format, $timestamp = TIMENOW, $doyestoday = false, $locale = tr
 	global $vbulletin, $vbphrase;
 	$uselocale = false;
 
+	if (defined('VB_API') AND VB_API === true)
+	{
+		$doyestoday = false;
+	}
+
 	if (is_array($userinfo) AND !empty($userinfo))
 	{
 		if ($userinfo['lang_locale'])
@@ -3524,7 +4990,7 @@ function vbdate($format, $timestamp = TIMENOW, $doyestoday = false, $locale = tr
 	else
 	{
 		$hourdiff = $vbulletin->options['hourdiff'];
-		if ($vbulletin->userinfo['lang_locale'])
+		if ($vbulletin->userinfo['lang_locale']  AND !(defined('VB_API') AND VB_API === true))
 		{
 			$uselocale = true;
 		}
@@ -3670,6 +5136,23 @@ function unhtmlspecialchars($text, $doUniCode = false)
 
 // #############################################################################
 /**
+ * Checks if PCRE supports unicode
+ *
+ * @return bool
+ */
+function is_pcre_unicode()
+{
+	static $enabled;
+
+	if (NULL !== $enabled)
+	{
+		return $enabled;
+	}
+
+	return $enabled = @preg_match('#\pN#u', '1');
+}
+
+/**
 * Converts an integer into a UTF-8 character string
 *
 * @param	integer	Integer to be converted
@@ -3712,21 +5195,34 @@ function convert_int_to_utf8($intval)
 * Converts Unicode entities of the format %uHHHH where each H is a hexadecimal
 * character to &#DDDD; or the appropriate UTF-8 character based on current charset.
 *
-* @param	string	Encoded text
+* @param	Mixed		array or text
 *
 * @return	string	Decoded text
 */
 function convert_urlencoded_unicode($text)
 {
-	global $stylevar;
+	if (is_array($text))
+	{
+		foreach ($text AS $key => $value)
+		{
+			$text["$key"] = convert_urlencoded_unicode($value);
+		}
+		return $text;
+	}
+
+	if (!($charset = vB_Template_Runtime::fetchStyleVar('charset')))
+	{
+		global $vbulletin;
+		$charset = $vbulletin->userinfo['lang_charset'];
+	}
 
 	$return = preg_replace(
 		'#%u([0-9A-F]{1,4})#ie',
-		"convert_unicode_char_to_charset(hexdec('\\1'), \$stylevar['charset'])",
+		"convert_unicode_char_to_charset(hexdec('\\1'), \$charset)",
 		$text
 	);
 
-	$lower_charset = strtolower($stylevar['charset']);
+	$lower_charset = strtolower($charset);
 
 	if ($lower_charset != 'utf-8' AND function_exists('html_entity_decode'))
 	{
@@ -3735,14 +5231,14 @@ function convert_urlencoded_unicode($text)
 		// note: we don't want to convert &gt;, etc as that undoes the effects of STR_NOHTML
 		$return = preg_replace('#&([a-z]+);#i', '&amp;$1;', $return);
 
-		if ($lower_charset == 'windows-1251' AND phpversion() >= '5')
+		if ($lower_charset == 'windows-1251')
 		{
 			// there's a bug in PHP5 html_entity_decode that decodes some entities that
 			// it shouldn't. So double encode them to ensure they don't get decoded.
 			$return = preg_replace('/&#(128|129|1[3-9][0-9]|2[0-4][0-9]|25[0-5]);/', '&amp;#$1;', $return);
 		}
 
-		$return = @html_entity_decode($return, ENT_NOQUOTES, $stylevar['charset']);
+		$return = @html_entity_decode($return, ENT_NOQUOTES, $charset);
 	}
 
 	return $return;
@@ -3780,6 +5276,269 @@ function convert_unicode_char_to_charset($unicode_int, $charset)
 	return "&#$unicode_int;";
 }
 
+/**
+* Poor man's urlencode that only encodes specific characters and preserves unicode.
+* Use urldecode() to decode.
+*
+* @param	string	String to encode
+* @return	string	Encoded string
+*/
+function urlencode_uni($str)
+{
+	return preg_replace(
+		'`([\s/\\\?:@=+$,<>\%"\'\.\r\n\t\x00-\x1f\x7f]|(?(?<!&)#|#(?![0-9]+;))|&(?!#[0-9]+;)|(?<!&#\d|&#\d{2}|&#\d{3}|&#\d{4}|&#\d{5});)`e',
+		"urlencode('\\1')",
+		$str
+	);
+}
+
+/**
+ * Converts a string to utf8
+ *
+ * @param	string	The variable to clean
+ * @param	string	The source charset
+ * @param	bool	Whether to strip invalid utf8 if we couldn't convert
+ *
+ * @return	string	The reencoded string
+ */
+function to_utf8($in, $charset = false, $strip = true)
+{
+	if ($in === '' OR $in === false OR is_null($in) OR strtolower($charset) == 'utf-8')
+	{
+		return $in;
+	}
+
+	// Fallback to UTF-8
+	if (!$charset)
+	{
+		$charset = 'UTF-8';
+	}
+
+	// Try iconv
+	// TRANSLIT is better but sometimes IGNORE works when TRANSLIT fails
+	if (function_exists('iconv') AND ($out = @iconv($charset, 'UTF-8//TRANSLIT', $in) OR $out = @iconv($charset, 'UTF-8//IGNORE', $in)))
+	{
+		return $out;
+	}
+
+	// Try mbstring
+	if (function_exists('mb_convert_encoding') AND $out = @mb_convert_encoding($in, 'UTF-8', $charset))
+	{
+		return $out;
+	}
+
+	if (!$strip)
+	{
+		return $in;
+	}
+
+	// Strip non valid UTF-8
+	// TODO: Do we really want to do this?
+	$utf8 = '#([\x09\x0A\x0D\x20-\x7E]' .			# ASCII
+			'|[\xC2-\xDF][\x80-\xBF]' .				# non-overlong 2-byte
+			'|\xE0[\xA0-\xBF][\x80-\xBF]' .			# excluding overlongs
+			'|[\xE1-\xEC\xEE\xEF][\x80-\xBF]{2}' .	# straight 3-byte
+			'|\xED[\x80-\x9F][\x80-\xBF]' .			# excluding surrogates
+			'|\xF0[\x90-\xBF][\x80-\xBF]{2}' .		# planes 1-3
+			'|[\xF1-\xF3][\x80-\xBF]{3}' .			# planes 4-15
+			'|\xF4[\x80-\x8F][\x80-\xBF]{2})#S';	# plane 16
+
+	$out = '';
+	$matches = array();
+	while (preg_match($utf8, $in, $matches))
+	{
+		$out .= $matches[0];
+		$in = substr($in, strlen($matches[0]));
+	}
+
+	return $out;
+}
+
+/**
+ * Converts a string from one character encoding to another.
+ * If the target encoding is not specified then it will be resolved from the current
+ * language settings.
+ *
+ * @param	string	The string to convert
+ * @param	string	The source encoding
+ * @return	string	The target encoding
+ */
+function to_charset($in, $in_encoding, $target_encoding = false)
+{
+	if (!$target_encoding)
+	{
+		if (!($target_encoding = vB_Template_Runtime::fetchStyleVar('charset')))
+		{
+			global $vbulletin;
+			if (!($target_encoding = $vbulletin->userinfo['lang_charset']))
+			{
+				return $in;
+			}
+		}
+	}
+
+	// Try iconv
+	if (function_exists('iconv') AND $out = @iconv($in_encoding, $target_encoding, $in))
+	{
+		return $out;
+	}
+
+	// Try mbstring
+	if (function_exists('mb_convert_encoding') AND $out = @mb_convert_encoding($in, $target_encoding, $in_encoding))
+	{
+		return $out;
+	}
+
+	return $in;
+}
+
+/**
+ * Strips NCRs from a string.
+ *
+ * @param	string	The string to strip from
+ * @return	string	The result
+ */
+function stripncrs($str)
+{
+	return preg_replace('/(&#[0-9]+;)/', '', $str);
+}
+
+/**
+ * Converts a UTF-8 string into unicode NCR equivelants.
+ *
+ * @param	string	String to encode
+ * @param	bool	Only ncrencode unicode bytes
+ * @param	bool	If true and $skip_ascii is true, it will skip windows-1252 extended chars
+ * @return	string	Encoded string
+ */
+function ncrencode($str, $skip_ascii = false, $skip_win = false)
+{
+	if (!$str)
+	{
+		return $str;
+	}
+
+	if (function_exists('mb_encode_numericentity'))
+	{
+		if ($skip_ascii)
+		{
+			if ($skip_win)
+			{
+				$start = 0xFE;
+			}
+			else
+			{
+				$start = 0x80;
+			}
+		}
+		else
+		{
+			$start = 0x0;
+		}
+		return mb_encode_numericentity($str, array($start, 0xffff, 0, 0xffff), 'UTF-8');
+	}
+
+	if (is_pcre_unicode())
+	{
+		return preg_replace_callback(
+			'#\X#u',
+			create_function('$matches', 'return ncrencode_matches($matches, ' . (int)$skip_ascii . ', ' . (int)$skip_win . ');'),
+			$str
+		);
+	}
+
+	return $str;
+}
+
+/**
+ * NCR encodes matches from a preg_replace.
+ * Single byte characters are preserved.
+ *
+ * @param	string	The character to encode
+ * @return	string	The encoded character
+ */
+function ncrencode_matches($matches, $skip_ascii = false, $skip_win = false)
+{
+	$ord = ord_uni($matches[0]);
+
+	if ($skip_win)
+	{
+		$start = 254;
+	}
+	else
+	{
+		$start = 128;
+	}
+
+	if ($skip_ascii AND $ord < $start)
+	{
+		return $matches[0];
+	}
+
+	return '&#' . ord_uni($matches[0]) . ';';
+}
+
+/**
+ * Gets the Unicode Ordinal for a UTF-8 character.
+ *
+ * @param	string	Character to convert
+ * @return	int		Ordinal value or false if invalid
+ */
+function ord_uni($chr)
+{
+	// Valid lengths and first byte ranges
+	static $check_len = array(
+		1 => array(0, 127),
+		2 => array(192, 223),
+		3 => array(224, 239),
+		4 => array(240, 247),
+		5 => array(248, 251),
+		6 => array(252, 253)
+	);
+
+	// Get length
+	$blen = strlen($chr);
+
+	// Get single byte ordinals
+	$b = array();
+	for ($i = 0; $i < $blen; $i++)
+	{
+		$b[$i] = ord($chr[$i]);
+	}
+
+	// Check expected length
+	foreach ($check_len AS $len => $range)
+	{
+		if (($b[0] >= $range[0]) AND ($b[0] <= $range[1]))
+		{
+			$elen = $len;
+		}
+	}
+
+	// If no range found, or chr is too short then it's invalid
+	if (!isset($elen) OR ($blen < $elen))
+	{
+		return false;
+	}
+
+	// Normalise based on octet-sequence length
+	switch ($elen)
+	{
+		case (1):
+			return $b[0];
+		case (2):
+			return ($b[0] - 192) * 64 + ($b[1] - 128);
+		case (3):
+			return ($b[0] - 224) * 4096 + ($b[1] - 128) * 64 + ($b[2] - 128);
+		case (4):
+			return ($b[0] - 240) * 262144 + ($b[1] - 128) * 4096 + ($b[2] - 128) * 64 + ($b[3] - 128);
+		case (5):
+			return ($b[0] - 248) * 16777216 + ($b[1] - 128) * 262144 + ($b[2] - 128) * 4096 + ($b[3] - 128) * 64 + ($b[4] - 128);
+		case (6):
+			return ($b[0] - 252) * 1073741824 + ($b[1] - 128) * 16777216 + ($b[2] - 128) * 262144 + ($b[3] - 128) * 4096 + ($b[4] - 128) * 64 + ($b[5] - 128);
+	}
+}
+
 // #############################################################################
 /**
 * Stuffs a message into the $DEVDEBUG array
@@ -3807,6 +5566,8 @@ function exec_headers($headers = true, $nocache = true)
 {
 	global $vbulletin;
 
+	$contenttype = $vbulletin->contenttype ? $vbulletin->contenttype : 'text/html';
+
 	$sendcontent = true;
 	if ($vbulletin->options['addheaders'] AND !$vbulletin->noheader AND $headers)
 	{
@@ -3817,9 +5578,9 @@ function exec_headers($headers = true, $nocache = true)
 		}
 		else
 		{
-			header('HTTP/1.1 200 OK');
+			header($_SERVER['SERVER_PROTOCOL'] . ' 200 OK');
 		}
-		@header('Content-Type: text/html' . iif($vbulletin->userinfo['lang_charset'] != '', '; charset=' . $vbulletin->userinfo['lang_charset']));
+		@header('Content-Type: ' . $contenttype . iif($vbulletin->userinfo['lang_charset'] != '', '; charset=' . $vbulletin->userinfo['lang_charset']));
 		$sendcontent = false;
 	}
 
@@ -3834,14 +5595,15 @@ function exec_headers($headers = true, $nocache = true)
 		@header("Pragma: private");
 		if ($sendcontent)
 		{
-			@header('Content-Type: text/html' . iif($vbulletin->userinfo['lang_charset'] != '', '; charset=' . $vbulletin->userinfo['lang_charset']));
+			$charset = $vbulletin->userinfo['lang_charset'] ? $vbulletin->userinfo['lang_charset'] : vB_Template_Runtime::fetchStyleVar('charset');
+			@header('Content-Type: ' . $contenttype . '; charset=' . $charset);
 		}
 	}
 
-	// IE8 emulate IE7 mode
-	if ($vbulletin->options['ie8render7'])
+	if ($vbulletin->options['forceie8'])
 	{
-		@header('X-UA-Compatible: IE=7');
+		//Disable any IE emulate option
+		@header('X-UA-Compatible: IE=Edge');
 	}
 }
 
@@ -3884,7 +5646,7 @@ function exec_nocache_headers($sendcontent = true)
 */
 function verify_forum_password($forumid, $password, $showerror = true)
 {
-	global $vbulletin, $stylevar;
+	global $vbulletin;
 
 	if (!$password OR ($vbulletin->userinfo['permissions']['adminpermissions'] & $vbulletin->bf_ugp_adminpermissions['cancontrolpanel']) OR ($vbulletin->userinfo['permissions']['adminpermissions'] & $vbulletin->bf_ugp_adminpermissions['ismoderator']) OR can_moderate($forumid))
 	{
@@ -3893,9 +5655,21 @@ function verify_forum_password($forumid, $password, $showerror = true)
 
 	$foruminfo = fetch_foruminfo($forumid);
 	$parents = explode(',', $foruminfo['parentlist']);
-	foreach ($parents AS $fid)
-	{ // get the pwd from any parent forums -- allows pwd cookies to cascade down
-		if ($temp = fetch_bbarray_cookie('forumpwd', $fid) AND $temp === md5($vbulletin->userinfo['userid'] . $password))
+	if (!VB_API)
+	{
+		foreach ($parents AS $fid)
+			{
+				// get the pwd from any parent forums -- allows pwd cookies to cascade down
+			if ($temp = fetch_bbarray_cookie('forumpwd', $fid) AND $temp === md5($vbulletin->userinfo['userid'] . $password))
+			{
+				return true;
+			}
+		}
+	}
+	else
+	{
+		$forumpwdmd5 = $vbulletin->input->clean_gpc('r', 'forumpwdmd5', TYPE_STR);
+		if ($forumpwdmd5 === md5($vbulletin->userinfo['userid'] . $password))
 		{
 			return true;
 		}
@@ -3909,13 +5683,21 @@ function verify_forum_password($forumid, $password, $showerror = true)
 		$security_token_html = '<input type="hidden" name="securitytoken" value="' . $vbulletin->userinfo['securitytoken'] . '" />';
 
 		// forum password is bad - show error
+
+		//use the basic link here.  I'm not sure how the advanced link will play with the postvars in the form.
+		require_once(DIR . '/includes/class_friendly_url.php');
+		$forumlink = vB_Friendly_Url::fetchLibrary($vbulletin, 'forum|nosession',
+			$foruminfo, array('do' => 'doenterpwd'));
+		$forumlink = $forumlink->get_url(FRIENDLY_URL_OFF);
+		// TODO convert the 'forumpasswordmissoing' phrase to vB4
 		eval(standard_error(fetch_error('forumpasswordmissing',
 			$vbulletin->session->vars['sessionhash'],
 			$vbulletin->scriptpath,
 			$forumid,
 			construct_post_vars_html() . $security_token_html,
-			$stylevar['cellpadding'],
-			$stylevar['cellspacing']
+			10,
+			1,
+			$forumlink
 		)));
 	}
 	else
@@ -3923,6 +5705,49 @@ function verify_forum_password($forumid, $password, $showerror = true)
 		// forum password is bad - return false
 		return false;
 	}
+}
+
+// #############################################################################
+/**
+* Returns whether or not the user requires a human verification test to complete the specified action
+*
+* @param string $action						The name of the action to check
+* @return boolean							Whether a hv check is required
+*/
+function fetch_require_hvcheck($action)
+{
+	global $vbulletin;
+
+	if (!$vbulletin->options['hv_type']
+		OR !($vbulletin->options['hvcheck'] & $vbulletin->bf_misc_hvcheck[$action]))
+	{
+		return false;
+	}
+
+	switch ($action)
+	{
+		case 'register':
+		{
+			$guestuser = array(
+				'userid'      => 0,
+				'usergroupid' => 0,
+			);
+			cache_permissions($guestuser);
+
+			return ($guestuser['permissions']['genericoptions'] & $vbulletin->bf_ugp_genericoptions['requirehvcheck']);
+		}
+
+		case 'lostpw':
+		{
+			if ($vbulletin->userinfo['permissions']['adminpermissions'] & $vbulletin->bf_ugp_adminpermissions['cancontrolpanel'])
+			{
+				return false;
+			}
+			break;
+		}
+	}
+
+	return ($vbulletin->userinfo['permissions']['genericoptions'] & $vbulletin->bf_ugp_genericoptions['requirehvcheck']);
 }
 
 // #############################################################################
@@ -3959,16 +5784,20 @@ function convert_bits_to_array(&$bitfield, $_FIELDNAMES)
 *
 * @param	array	(ref) User info array
 * @param	boolean	If true, returns combined usergroup permissions, individual forum permissions, individual calendar permissions and attachment permissions
-* @param boolean        Reset the accesscache array for permissions following access mask update. Only allows one reset.
+* @param 	boolean Reset the accesscache array for permissions following access mask update. Only allows one reset.
+* @param	boolean	If true, returns calendar permissions if required, otherwise never returns them
 *
 * @return	array	Permissions component of user info array
 */
-function cache_permissions(&$user, $getforumpermissions = true, $resetaccess = false)
+function cache_permissions(&$user, $getforumpermissions = true, $resetaccess = false, $calperms = true)
 {
 	global $vbulletin, $forumpermissioncache;
 
 	// these are the arrays created by this function
-	global $calendarcache;
+
+	//this is only set if we load the calendar perms, which have been moved to another function
+	//global $calendarcache;
+
 	static $accesscache = array(), $reset;
 
 	if ($resetaccess AND !$reset)
@@ -4001,6 +5830,12 @@ function cache_permissions(&$user, $getforumpermissions = true, $resetaccess = f
 	}
 	else
 	{
+		// initialise fields to 0
+		foreach ($vbulletin->bf_ugp AS $dbfield => $permfields)
+		{
+			$user['permissions']["$dbfield"] = 0;
+		}
+
 		// return the merged array of all user's membergroup permissions (user has additional member groups)
 		foreach ($membergroupids AS $usergroupid)
 		{
@@ -4035,7 +5870,7 @@ function cache_permissions(&$user, $getforumpermissions = true, $resetaccess = f
 		$user['permissions'] = array_merge($vbulletin->usergroupcache["$USERGROUPID"], $user['permissions'], $intperms);
 	}
 
-	if ($user['infractiongroupids'])
+	if (!empty($user['infractiongroupids']))
 	{
 		$infractiongroupids = explode(',', str_replace(' ', '', $user['infractiongroupids']));
 	}
@@ -4080,29 +5915,30 @@ function cache_permissions(&$user, $getforumpermissions = true, $resetaccess = f
 		return $user['permissions'];
 	}
 
-	if (!is_array($user['forumpermissions']))
+	if (!isset($user['forumpermissions']) OR !is_array($user['forumpermissions']))
 	{
 		$user['forumpermissions'] = array();
 	}
-
-	foreach (array_keys($vbulletin->forumcache) AS $forumid)
+	if(!empty($vbulletin->forumcache))
 	{
-		if (!isset($user['forumpermissions']["$forumid"]))
+		foreach (array_keys($vbulletin->forumcache) AS $forumid)
 		{
-			$user['forumpermissions']["$forumid"] = 0;
-		}
-		foreach ($membergroupids AS $usergroupid)
-		{
-			$user['forumpermissions']["$forumid"] |= $vbulletin->forumcache["$forumid"]['permissions']["$usergroupid"];
-		}
-		foreach ($infractiongroupids AS $usergroupid)
-		{
-			$user['forumpermissions']["$forumid"] &= $vbulletin->forumcache["$forumid"]['permissions']["$usergroupid"];
+			if (!isset($user['forumpermissions']["$forumid"]))
+			{
+				$user['forumpermissions']["$forumid"] = 0;
+			}
+			foreach ($membergroupids AS $usergroupid)
+			{
+				$user['forumpermissions']["$forumid"] |= $vbulletin->forumcache["$forumid"]['permissions']["$usergroupid"];
+			}
+			foreach ($infractiongroupids AS $usergroupid)
+			{
+				$user['forumpermissions']["$forumid"] &= $vbulletin->forumcache["$forumid"]['permissions']["$usergroupid"];
+			}
 		}
 	}
-
 	// do access mask stuff if required
-	if ($vbulletin->options['enableaccess'] AND $user['hasaccessmask'] == 1)
+	if ($vbulletin->options['enableaccess'] AND isset($user['hasaccessmask']) AND $user['hasaccessmask'] == 1)
 	{
 		if (empty($accesscache["$user[userid]"]))
 		{
@@ -4177,61 +6013,10 @@ function cache_permissions(&$user, $getforumpermissions = true, $resetaccess = f
 	}
 
 	// query calendar permissions
-	if (!empty($calfiles[THIS_SCRIPT]))
-	{ // Only query calendar permissions when accessing the calendar or subscriptions or index.php
-		$cpermscache = array();
-		$calendarcache = array();
-		$displayorder = array();
-
-		$calendarpermissions = $vbulletin->db->query_read_slave("
-			SELECT calendarpermission.usergroupid, calendarpermission.calendarpermissions,calendar.calendarid,calendar.title, displayorder
-			FROM " . TABLE_PREFIX . "calendar AS calendar
-			LEFT JOIN " . TABLE_PREFIX . "calendarpermission AS calendarpermission ON
-				(calendarpermission.calendarid = calendar.calendarid AND usergroupid IN (" . implode(', ', $membergroupids) . "))
-			ORDER BY displayorder ASC
-		");
-		while ($calendarpermission = $vbulletin->db->fetch_array($calendarpermissions))
-		{
-			$cpermscache["$calendarpermission[calendarid]"]["$calendarpermission[usergroupid]"] = intval($calendarpermission['calendarpermissions']);
-			$calendarcache["$calendarpermission[calendarid]"] = $calendarpermission['title'];
-			$displayorder["$calendarpermission[calendarid]"] = $calendarpermission['displayorder'];
-		}
-		$vbulletin->db->free_result($calendarpermissions);
-
-		// Combine the calendar permissions for all member groups
-		foreach ($cpermscache AS $calendarid => $cpermissions)
-		{
-			$user['calendarpermissions']["$calendarid"] = 0;
-
-			if (empty($displayorder["$calendarid"]))
-			{
-				// leave permissions at 0 for calendars that aren't being displayed
-				continue;
-			}
-
-			foreach ($membergroupids AS $usergroupid)
-			{
-				if (isset($cpermissions["$usergroupid"]))
-				{
-					$user['calendarpermissions']["$calendarid"] |= $cpermissions["$usergroupid"];
-				}
-				else
-				{
-					$user['calendarpermissions']["$calendarid"] |= $vbulletin->usergroupcache["$usergroupid"]['calendarpermissions'];
-				}
-			}
-			foreach ($infractiongroupids AS $usergroupid)
-			{
-				if (isset($cpermissions["$usergroupid"]))
-				{
-					$user['calendarpermissions']["$calendarid"] &= $cpermissions["$usergroupid"];
-				}
-				else
-				{
-					$user['calendarpermissions']["$calendarid"] &= $vbulletin->usergroupcache["$usergroupid"]['calendarpermissions'];
-				}
-			}
-		}
+	if (!empty($calfiles[THIS_SCRIPT]) AND $calperms)
+	{
+		// Only query calendar permissions when accessing the calendar or subscriptions or index.php
+		cache_calendar_permissions($user);
 	}
 
 	if (!empty($vbulletin->attachmentcache) AND empty($vbulletin->attachmentcache['extensions']))
@@ -4287,10 +6072,12 @@ function cache_permissions(&$user, $getforumpermissions = true, $resetaccess = f
 			if (empty($user['attachmentpermissions']["$extension"]))
 			{
 				$user['attachmentpermissions']["$extension"] = array(
-					'permissions' => 1,
-					'size'        =>& $vbulletin->attachmentcache["$extension"]['size'],
-					'height'      =>& $vbulletin->attachmentcache["$extension"]['height'],
-					'width'       =>& $vbulletin->attachmentcache["$extension"]['width'],
+					'permissions'  => 1,
+					'size'         => $vbulletin->attachmentcache["$extension"]['size'],
+					'height'       => $vbulletin->attachmentcache["$extension"]['height'],
+					'width'        => $vbulletin->attachmentcache["$extension"]['width'],
+					'contenttypes' => isset($vbulletin->attachmentcache["$extension"]['contenttypes']) ?
+						$vbulletin->attachmentcache["$extension"]['contenttypes'] : null,
 				);
 			}
 			else if ($need_default)
@@ -4359,6 +6146,99 @@ function cache_permissions(&$user, $getforumpermissions = true, $resetaccess = f
 	return $user['permissions'];
 }
 
+/**
+* Sets the calendar permissions to the passed user info array
+*
+* @param	array	(ref) User info array
+*
+* @return	array	Calendar permissions component of user info array
+*/
+function cache_calendar_permissions(&$user)
+{
+	global $calendarcache;
+	global $vbulletin;
+
+	$cpermscache = array();
+	$calendarcache = array();
+	$displayorder = array();
+
+	//we should move this stuff to a user object.
+	if (!empty($user['infractiongroupids']))
+	{
+		$infractiongroupids = explode(',', str_replace(' ', '', $user['infractiongroupids']));
+	}
+	else
+	{
+		$infractiongroupids = array();
+	}
+
+	// initialise $membergroups - make an array of the usergroups to which this user belongs
+	$membergroupids = fetch_membergroupids_array($user);
+
+	// build usergroup permissions
+	if (sizeof($membergroupids) == 1 OR
+		!($vbulletin->usergroupcache["$user[usergroupid]"]['genericoptions'] &
+		$vbulletin->bf_ugp_genericoptions['allowmembergroups'])
+	)
+	{
+		// if primary usergroup doesn't allow member groups then get rid of them!
+		$membergroupids = array($user['usergroupid']);
+	}
+
+	$calendarpermissions = $vbulletin->db->query_read_slave("
+		SELECT calendarpermission.usergroupid, calendarpermission.calendarpermissions,
+			calendar.calendarid,calendar.title, displayorder
+		FROM " . TABLE_PREFIX . "calendar AS calendar
+		LEFT JOIN " . TABLE_PREFIX . "calendarpermission AS calendarpermission ON
+			(calendarpermission.calendarid = calendar.calendarid AND
+				usergroupid IN (" . implode(', ', $membergroupids) . "))
+		ORDER BY displayorder ASC
+	");
+	while ($cp = $vbulletin->db->fetch_array($calendarpermissions))
+	{
+		$cpermscache["$cp[calendarid]"]["$cp[usergroupid]"] = intval($cp['calendarpermissions']);
+		$calendarcache["$cp[calendarid]"] = $cp['title'];
+		$displayorder["$cp[calendarid]"] = $cp['displayorder'];
+	}
+	$vbulletin->db->free_result($calendarpermissions);
+
+	// Combine the calendar permissions for all member groups
+	foreach ($cpermscache AS $calendarid => $cpermissions)
+	{
+		$user['calendarpermissions']["$calendarid"] = 0;
+
+		if (empty($displayorder["$calendarid"]))
+		{
+			// leave permissions at 0 for calendars that aren't being displayed
+			continue;
+		}
+
+		foreach ($membergroupids AS $usergroupid)
+		{
+			if (isset($cpermissions["$usergroupid"]))
+			{
+				$user['calendarpermissions']["$calendarid"] |= $cpermissions["$usergroupid"];
+			}
+			else
+			{
+				$user['calendarpermissions']["$calendarid"] |= $vbulletin->usergroupcache["$usergroupid"]['calendarpermissions'];
+			}
+		}
+		foreach ($infractiongroupids AS $usergroupid)
+		{
+			if (isset($cpermissions["$usergroupid"]))
+			{
+				$user['calendarpermissions']["$calendarid"] &= $cpermissions["$usergroupid"];
+			}
+			else
+			{
+				$user['calendarpermissions']["$calendarid"] &= $vbulletin->usergroupcache["$usergroupid"]['calendarpermissions'];
+			}
+		}
+	}
+	return $user['calendarpermissions'];
+}
+
 // #############################################################################
 /**
 * Returns permissions for given forum and user
@@ -4366,10 +6246,11 @@ function cache_permissions(&$user, $getforumpermissions = true, $resetaccess = f
 * @param	integer	Forum ID
 * @param	integer	User ID
 * @param	array	User info array
+* @param	bool	Get calendar permissions if required, false = always skip them
 *
 * @return	mixed
 */
-function fetch_permissions($forumid = 0, $userid = -1, $userinfo = false)
+function fetch_permissions($forumid = 0, $userid = -1, $userinfo = false, $calperms = true)
 {
 	// gets permissions, depending on given userid and forumid
 	global $vbulletin, $usercache, $permscache;
@@ -4382,7 +6263,8 @@ function fetch_permissions($forumid = 0, $userid = -1, $userinfo = false)
 	}
 
 	// ########## #DEBUG# CODE ##############
-	$DEBUG_MESSAGE = iif(isset($GLOBALS['_permsgetter_']), "($GLOBALS[_permsgetter_])", '(unspecified)'). " fetch_permissions($forumid, $userid, $usergroupid,'$parentlist'); ";
+	$DEBUG_MESSAGE = (isset($GLOBALS['_permsgetter_']) ? "($GLOBALS[_permsgetter_])" : '(unspecified)') .
+		" fetch_permissions($forumid, $userid, $usergroupid); ";
 	unset($GLOBALS['_permsgetter_']);
 	// ########## END #DEBUG# CODE ##############
 
@@ -4411,16 +6293,15 @@ function fetch_permissions($forumid = 0, $userid = -1, $userinfo = false)
 		if ($forumid)
 		{
 			DEVDEBUG($DEBUG_MESSAGE."-> trying to get forumpermissions for non \$bbuserinfo");
-			cache_permissions($userinfo);
+			cache_permissions($userinfo, true, false, $calperms);
 			return $userinfo['forumpermissions']["$forumid"];
 		}
 		else
 		{
 			DEVDEBUG($DEBUG_MESSAGE."-> trying to get combined permissions for non \$bbuserinfo");
-			return cache_permissions($userinfo, false);
+			return cache_permissions($userinfo, false, false, $calperms);
 		}
 	}
-
 }
 
 // #############################################################################
@@ -4456,6 +6337,7 @@ function fetch_moderator_permissions($forumid, $userid = -1, $useglobalperms = f
 		'permissions'  => 0,
 		'permissions2' => 0,
 	);
+	$getperms = array();
 	$hasglobalperms = false;
 
 	if (isset($imodcache))
@@ -4526,9 +6408,9 @@ function fetch_moderator_permissions($forumid, $userid = -1, $useglobalperms = f
 			$globalperms['permissions'] = array_sum($vbulletin->bf_misc_moderatorpermissions) - ($vbulletin->bf_misc_moderatorpermissions['newthreademail'] + $vbulletin->bf_misc_moderatorpermissions['newpostemail']);
 			$globalperms['permissions2'] = array_sum($vbulletin->bf_misc_moderatorpermissions2);
 		}
-		$getperms['permissions'] = intval($getperms['permissions']);
+		$getperms['permissions'] = !empty($getperms['permissions']) ? intval($getperms['permissions']) : 0;
 		$getperms['permissions'] |= intval($globalperms['permissions']);
-		$getperms['permissions2'] = intval($getperms['permissions2']);
+		$getperms['permissions2'] = !empty($getperms['permissions2']) ? intval($getperms['permissions2']) : 0;
 		$getperms['permissions2'] |= intval($globalperms['permissions2']);
 	}
 
@@ -4660,7 +6542,7 @@ function can_moderate($forumid = 0, $do = '', $userid = -1, $usergroupids = '')
 				return $modcache["$userid"]["$do"];
 			}
 
-			if (isset($permissioncache["$userid"]["$set"]))
+			if ($do AND isset($permissioncache["$userid"]["$set"]))
 			{
 				if ($set == 'permissions2')
 				{
@@ -4738,10 +6620,8 @@ function can_moderate($forumid = 0, $do = '', $userid = -1, $usergroupids = '')
 			else
 			{
 				$return = false;
-				if (!isset($permission))
-				{
-					($hook = vBulletinHook::fetch_hook('can_moderate_forum')) ? eval($hook) : false;
-				}
+				($hook = vBulletinHook::fetch_hook('can_moderate_forum')) ? eval($hook) : false;
+
 				return $return;
 			}  // if has perms for this action
 		}// if is mod for forum and no action set
@@ -4790,7 +6670,8 @@ function is_browser($browser, $version = 0)
 			'webkit'    => 0,
 			'webtv'     => 0,
 			'netscape'  => 0,
-			'mac'       => 0
+			'mac'       => 0,
+			'ie64bit'   => 0,
 		);
 
 		// detect opera
@@ -4814,6 +6695,10 @@ function is_browser($browser, $version = 0)
 		{
 			preg_match('#msie ([0-9\.]+)#', $useragent, $regs);
 			$is['ie'] = $regs[1];
+			if (strpos($useragent, 'x64') !== false)
+			{
+				$is['ie64bit'] = 1;
+			}
 		}
 
 		// detect macintosh
@@ -4830,7 +6715,7 @@ function is_browser($browser, $version = 0)
 			# Mozilla/5.0 (iPod; U; CPU like Mac OS X; en) AppleWebKit/420.1 (KHTML, like Gecko) Version/3.0 Mobile/3A100a Safari/419.3
 		if (strpos($useragent, 'applewebkit') !== false)
 		{
-			preg_match('#applewebkit/(\d+)#', $useragent, $regs);
+			preg_match('#applewebkit/([0-9\.]+)#', $useragent, $regs);
 			$is['webkit'] = $regs[1];
 
 			if (strpos($useragent, 'safari') !== false)
@@ -4856,8 +6741,12 @@ function is_browser($browser, $version = 0)
 			# Mozilla/5.0 (X11; U; Linux 2.4.3-20mdk i586; en-US; rv:0.9.1) Gecko/20010611
 		if (strpos($useragent, 'gecko') !== false AND !$is['safari'] AND !$is['konqueror'])
 		{
-			preg_match('#gecko/(\d+)#', $useragent, $regs);
-			$is['mozilla'] = $regs[1];
+			// See bug #26926, this is for Gecko based products without a build
+			$is['mozilla'] = 20090105;
+			if (preg_match('#gecko/(\d+)#', $useragent, $regs))
+			{
+				$is['mozilla'] = $regs[1];
+			}
 
 			// detect firebird / firefox
 				# Mozilla/5.0 (Windows; U; WinNT4.0; en-US; rv:1.3a) Gecko/20021207 Phoenix/0.5
@@ -4928,7 +6817,45 @@ function is_browser($browser, $version = 0)
 
 // #############################################################################
 /**
-* Returns the complete array of StyleVars
+* Check webserver's make and model
+*
+* @param	string	Browser name (apache, iis, samber, nginx... etc. - see $is array)
+* @param	float	Minimum acceptable version for true result (optional)
+*
+* @return	boolean
+*/
+function is_server($server_name, $version = 0)
+{
+	static $server;
+
+	// Resolve server
+	if (!is_array($server))
+	{
+		$server_name = preg_quote(strtolower($server_name), '#');
+		$server = strtolower($_SERVER['SERVER_SOFTWARE']);
+		$matches = array();
+
+		if (preg_match("#(.*)(?:/| )([0-9\.]*)#i", $server, $matches))
+		{
+			$server = array('name' => $matches[1]);
+			$server['version'] = (isset($matches[2]) AND $matches[2]) ? $matches[2] : true;
+		}
+	}
+
+	if (strpos($server['name'], $server_name))
+	{
+		if (!$version OR (true === $server['version']) OR ($server['version'] >= $version))
+		{
+			return true;
+		}
+	}
+
+	return false;
+}
+
+// #############################################################################
+/**
+* Sets up the Fakey stylevars
 *
 * @param	array	(ref) Style info array
 * @param	array	User info array
@@ -4937,94 +6864,125 @@ function is_browser($browser, $version = 0)
 */
 function fetch_stylevars(&$style, $userinfo)
 {
-	global $vbulletin;
+	global $vbulletin, $show;
 
 	if (is_array($style))
 	{
-		// first let's get the basic stylevar array
-		$stylevar = unserialize($style['stylevars']);
-		unset($style['stylevars']);
-
 		// if we have a buttons directory override, use it
 		if ($userinfo['lang_imagesoverride'])
 		{
-			$stylevar['imgdir_button'] = str_replace('<#>', $style['styleid'], $userinfo['lang_imagesoverride']);
+			vB_Template_Runtime::addStyleVar('imgdir_button', str_replace('<#>', $style['styleid'], $userinfo['lang_imagesoverride']), 'imagedir');
 		}
-	}
-	else
-	{
-		$stylevar = array();
 	}
 
 	// get text direction and left/right values
 	if ($userinfo['lang_options'] & $vbulletin->bf_misc_languageoptions['direction'])
 	{
-		// standard left-to-right layout
-		$stylevar['textdirection'] = 'ltr';
-		$stylevar['left'] = 'left';
-		$stylevar['right'] = 'right';
+		vB_Template_Runtime::addStyleVar('left', 'left');
+		vB_Template_Runtime::addStyleVar('right', 'right');
+		vB_Template_Runtime::addStyleVar('textdirection', 'ltr');
 	}
 	else
 	{
-		// reversed right-to-left layout
-		$stylevar['textdirection'] = 'rtl';
-		$stylevar['left'] = 'right';
-		$stylevar['right'] = 'left';
+		vB_Template_Runtime::addStyleVar('left', 'right');
+		vB_Template_Runtime::addStyleVar('right', 'left');
+		vB_Template_Runtime::addStyleVar('textdirection', 'rtl');
 	}
 
 	if ($userinfo['lang_options'] & $vbulletin->bf_misc_languageoptions['dirmark'])
 	{
-		$stylevar['dirmark'] = ($stylevar['textdirection'] == 'ltr') ? '&lrm;' : '&rlm;';
+		vB_Template_Runtime::addStyleVar('dirmark', ($userinfo['lang_options'] & $vbulletin->bf_misc_languageoptions['direction']) ? '&lrm;' : '&rlm;');
 	}
 
 	// get the 'lang' attribute for <html> tags
-	$stylevar['languagecode'] = $userinfo['lang_code'];
+	vB_Template_Runtime::addStyleVar('languagecode', $userinfo['lang_code']);
 
 	// get the 'charset' attribute
-	$stylevar['charset'] = $userinfo['lang_charset'];
-
-	// merge in css colors if available
-	if (!empty($style['csscolors']))
-	{
-		$stylevar = array_merge($stylevar, unserialize($style['csscolors']));
-		unset($style['csscolors']);
-	}
-
-	// get CSS width for outerdivwidth from outertablewidth
-	if (strpos($stylevar['outertablewidth'], '%') === false)
-	{
-		$stylevar['outerdivwidth'] = $stylevar['outertablewidth'] . 'px';
-	}
-	else
-	{
-		$stylevar['outerdivwidth'] = $stylevar['outertablewidth'];
-	}
-
-	// get CSS width for divwidth from tablewidth
-	if (strpos($stylevar['tablewidth'], '%') === false)
-	{
-		$stylevar['divwidth'] = $stylevar['tablewidth'] . 'px';
-	}
-	else if ($stylevar['tablewidth'] == '100%')
-	{
-		$stylevar['divwidth'] = 'auto';
-	}
-	else
-	{
-		$stylevar['divwidth'] = $stylevar['tablewidth'];
-	}
+	vB_Template_Runtime::addStyleVar('charset', $userinfo['lang_charset']);
 
 	// create the path to YUI depending on the version
-	if ($vbulletin->options['remoteyui'])
+	if ($vbulletin->options['customyui_path'])
 	{
-		$stylevar['yuipath'] = 'http://yui.yahooapis.com/' . YUI_VERSION . '/build';
+		$show['remoteyui'] = true;
+		vB_Template_Runtime::addStyleVar('yuipath', $vbulletin->options['customyui_path'] . YUI_VERSION . '/build');
+		if ($vbulletin->options['customyui_combopath'])
+		{
+			vB_Template_Runtime::addStyleVar('yuicombopath', $vbulletin->options['customyui_combopath']);
+			$show['remoteyuicombo'] = true;
+		}
+		else
+		{
+			vB_Template_Runtime::addStyleVar('yuicombopath', '');
+			$show['remoteyuicombo'] = false;
+		}
+	}
+	else if ($vbulletin->options['remoteyui'] == 1)
+	{	// Yahoo CDN
+		$show['remoteyui'] = true;
+		$show['remoteyuicombo'] = true;
+		vB_Template_Runtime::addStyleVar('yuipath', 'http://yui.yahooapis.com/' . YUI_VERSION . '/build');
+		vB_Template_Runtime::addStyleVar('yuicombopath', 'http://yui.yahooapis.com/combo');
+	}
+	else if ($vbulletin->options['remoteyui'] == 2)
+	{	// Google CDN (Doesn't support Combo)
+		$show['remoteyui'] = true;
+		$show['remoteyuicombo'] = false;
+		vB_Template_Runtime::addStyleVar('yuipath', REQ_PROTOCOL . '://ajax.googleapis.com/ajax/libs/yui/' . YUI_VERSION . '/build');
+		vB_Template_Runtime::addStyleVar('yuicombopath', '');
 	}
 	else
 	{
-		$stylevar['yuipath'] = 'clientscript/yui';
+		$show['remoteyui'] = false;
+		$show['remoteyuicombo'] = false;
+		vB_Template_Runtime::addStyleVar('yuipath', 'clientscript/yui');
 	}
 
-	return $stylevar;
+	vB_Template_Runtime::addStyleVar('yuiversion', YUI_VERSION);
+
+	// create the path to jQuery depending on the version
+	if ($vbulletin->options['customjquery_path'])
+	{
+		$show['remotejquery'] = true;
+		$path = str_replace('{version}', JQUERY_VERSION, $vbulletin->options['customjquery_path']);
+		if (!preg_match('#^https?://#si', $vbulletin->options['customjquery_path']))
+		{
+			$path = REQ_PROTOCOL . '://' . $path;
+		}
+		vB_Template_Runtime::addStyleVar('jquerymain', $path);
+
+		// Custom Mobile CDN is not here because the mobile style uses a modified jQuery file at present.
+		// So the mobile references below are just placeholders for now.
+	}
+	else if ($vbulletin->options['remotejquery'] == 1)
+	{	// Google CDN
+		$show['remotejquery'] = true;
+		vB_Template_Runtime::addStyleVar('jquerymain', REQ_PROTOCOL . '://ajax.googleapis.com/ajax/libs/jquery/' . JQUERY_VERSION . '/jquery.min.js');
+		// Google doesn't support mobile jquery at this point so fallback to jQuery CDN
+		//vB_Template_Runtime::addStyleVar('jquerymobilemain', REQ_PROTOCOL . '://code.jquery.com/mobile/' . JQUERY_MOBILE_VERSION . '/jquery.mobile-' . JQUERY_MOBILE_VERSION . '.min.js');
+	}
+	else if ($vbulletin->options['remotejquery'] == 2)
+	{	// jQuery CDN
+		$show['remotejquery'] = true;
+		vB_Template_Runtime::addStyleVar('jquerymain', REQ_PROTOCOL . '://code.jquery.com/jquery-' . JQUERY_VERSION . '.min.js');
+		//vB_Template_Runtime::addStyleVar('jquerymobilemain', REQ_PROTOCOL . '://code.jquery.com/mobile/' . JQUERY_MOBILE_VERSION . '/jquery.mobile-' . JQUERY_MOBILE_VERSION . '.min.js');
+	}
+	else if ($vbulletin->options['remotejquery'] == 3)
+	{	// Microsoft CDN
+		$show['remotejquery'] = true;
+		vB_Template_Runtime::addStyleVar('jquerymain', REQ_PROTOCOL . '://ajax.aspnetcdn.com/ajax/jquery/jquery-' . JQUERY_VERSION . '.min.js');
+		//vB_Template_Runtime::addStyleVar('jquerymobilemain', REQ_PROTOCOL . '://ajax.aspnetcdn.com/ajax/jquery.mobile/' . JQUERY_MOBILE_VERSION . '/jquery.mobile-' . JQUERY_MOBILE_VERSION . '.min.js');
+	}
+	else
+	{
+		$show['remotejquery'] = false;
+		vB_Template_Runtime::addStyleVar('jquerymain', 'clientscript/jquery/jquery-' . JQUERY_VERSION . '.min.js');
+		//vB_Template_Runtime::addStyleVar('jquerymobilemain', REQ_PROTOCOL . '://code.jquery.com/mobile/' . JQUERY_MOBILE_VERSION . '/jquery.mobile-' . JQUERY_MOBILE_VERSION . '.min.js');
+	}
+
+	vB_Template_Runtime::addStyleVar('jqueryversion', JQUERY_VERSION);
+	vB_Template_Runtime::addStyleVar('jquerymobileversion', JQUERY_MOBILE_VERSION);
+
+	vB_Template_Runtime::addStyleVar('basepath', $vbulletin->options['bburl'] . '/');
 }
 
 // #############################################################################
@@ -5072,6 +7030,15 @@ function fetch_options_overrides($userinfo)
 			$locale2 = setlocale(LC_CTYPE, $userinfo['lang_locale']);
 		}
 	}
+
+	if (defined('VB_API') AND VB_API === true)
+	{
+		// vboptions overwrite for API
+		$vbulletin->options['dateformat'] = 'm-d-Y';
+		$vbulletin->options['timeformat'] = 'h:i A';
+		$vbulletin->options['registereddateformat'] = 'm-d-Y';
+	}
+
 }
 
 // #############################################################################
@@ -5082,16 +7049,16 @@ function fetch_options_overrides($userinfo)
 */
 function init_language()
 {
-	global $vbulletin, $phrasegroups;
+	global $vbulletin, $phrasegroups, $vbphrasegroup;
 	global $copyrightyear, $timediff, $timenow, $datenow;
 
 	// define languageid
 	define('LANGUAGEID', iif(empty($vbulletin->userinfo['languageid']), $vbulletin->options['languageid'], $vbulletin->userinfo['languageid']));
 
-	// define language direction (preferable to use $stylevar[textdirection])
+	// define language direction
 	define('LANGUAGE_DIRECTION', iif(($vbulletin->userinfo['lang_options'] & $vbulletin->bf_misc_languageoptions['direction']), 'ltr', 'rtl'));
 
-	// define html language code (lang="xyz") (preferable to use $stylevar[languagecode])
+	// define html language code (lang="xyz")
 	define('LANGUAGE_CODE', $vbulletin->userinfo['lang_code']);
 
 	// initialize the $vbphrase array
@@ -5108,16 +7075,29 @@ function init_language()
 		unset($vbulletin->userinfo["phrasegroup_$phrasegroup"], $tmp);
 	}
 
+	$vbphrasegroup = array();
+	$tmp = unserialize($vbulletin->userinfo["lang_phrasegroupinfo"]);
+	if (is_array($tmp))
+	{
+		$vbphrasegroup = $tmp;
+	}
+	unset($vbulletin->userinfo['lang_phrasegroupinfo']);
+
 	// prepare phrases for construct_phrase / sprintf use
 	//$vbphrase = preg_replace('/\{([0-9]+)\}/siU', '%\\1$s', $vbphrase);
 
-	// pre-parse some global phrases
-	$tzoffset = iif($vbulletin->userinfo['tzoffset'], ' ' . $vbulletin->userinfo['tzoffset']);
-	$vbphrase['all_times_are_gmt_x_time_now_is_y'] = construct_phrase($vbphrase['all_times_are_gmt_x_time_now_is_y'], $tzoffset, $timenow, $datenow);
-	$vbphrase['vbulletin_copyright_orig'] = $vbphrase['vbulletin_copyright'];
-	$vbphrase['vbulletin_copyright'] = construct_phrase($vbphrase['vbulletin_copyright'], $vbulletin->options['templateversion'], $copyrightyear);
-	$vbphrase['powered_by_vbulletin'] = construct_phrase($vbphrase['powered_by_vbulletin'], $vbulletin->options['templateversion'], $copyrightyear);
-	$vbphrase['timezone'] = construct_phrase($vbphrase['timezone'], $timediff, $timenow, $datenow);
+	if (!defined('NOGLOBALPHRASE'))
+	{
+		// pre-parse some global phrases
+		$tzoffset = iif($vbulletin->userinfo['tzoffset'], ' ' . $vbulletin->userinfo['tzoffset']);
+		$vbphrase['all_times_are_gmt_x_time_now_is_y'] = construct_phrase($vbphrase['all_times_are_gmt_x_time_now_is_y'], $tzoffset, $timenow, $datenow);
+		$vbphrase['vbulletin_copyright_orig'] = $vbphrase['vbulletin_copyright'];
+		$vbphrase['vbulletin_copyright'] = construct_phrase($vbphrase['vbulletin_copyright'], $vbulletin->options['templateversion'], $copyrightyear);
+		$vbphrase['powered_by_vbulletin'] = construct_phrase($vbphrase['powered_by_vbulletin'], $vbulletin->options['templateversion'], $copyrightyear);
+		$vbphrase['timezone'] = construct_phrase($vbphrase['timezone'], $timediff, $timenow, $datenow);
+	}
+
+	vB_Phrase::preCache($vbphrase, $phrasegroups);
 
 	// all done
 	return $vbphrase;
@@ -5127,16 +7107,17 @@ function init_language()
 /**
 * Constructs a language chooser HTML menu
 *
-* @param	integer	Style ID
+* @param	string	Marker to prepend each language name with
 * @param	boolean	Whether or not this will build the quick chooser menu
+* @param	integer	Reference to the total number of languages available in the chooser
 *
 * @return	string
 */
-function construct_language_options($depthmark = '', $quickchooser = false)
+function construct_language_options($depthmark = '', $quickchooser = false, &$languagecount = 0)
 {
-	global $vbulletin, $vbphrase, $languagecount;
+	global $vbulletin, $vbphrase;
 
-	$thislanguageid = iif($quickchooser, $vbulletin->userinfo['languageid'], $vbulletin->userinfo['reallanguageid']);
+	$thislanguageid = ($quickchooser ? $vbulletin->userinfo['languageid'] : $vbulletin->userinfo['reallanguageid']);
 	if ($thislanguageid == 0 AND $quickchooser)
 	{
 		$thislanguageid = $vbulletin->options['languageid'];
@@ -5157,7 +7138,7 @@ function construct_language_options($depthmark = '', $quickchooser = false)
 		}
 		$optionvalue = 0;
 		$optiontitle = $vbphrase['use_forum_default'];
-		eval ('$languagelist .= "' . fetch_template('option') . '";');
+		$languagelist .= render_option_template($optiontitle, $optionvalue, $optionselected, $optionclass);
 	}
 
 	if ($vbulletin->languagecache === null)
@@ -5169,7 +7150,7 @@ function construct_language_options($depthmark = '', $quickchooser = false)
 	{
 		if ($language['userselect']) # OR $vbulletin->userinfo['permissions']['adminpermissions'] & $vbulletin->bf_ugp_adminpermissions['cancontrolpanel'])
 		{
-			$languagecount++;
+			++$languagecount;
 			if ($thislanguageid == $language['languageid'])
 			{
 				$optionselected = 'selected="selected"';
@@ -5181,7 +7162,7 @@ function construct_language_options($depthmark = '', $quickchooser = false)
 			$optionvalue = $language['languageid'];
 			$optiontitle = $depthmark . ' ' . $language['title'];
 			$optionclass = '';
-			eval ('$languagelist .= "' . fetch_template('option') . '";');
+			$languagelist .= render_option_template($optiontitle, $optionvalue, $optionselected, $optionclass);
 		}
 	}
 
@@ -5196,15 +7177,20 @@ function construct_language_options($depthmark = '', $quickchooser = false)
 * @param	string	String repeated before style name to indicate nesting
 * @param	boolean	Whether or not to initialize this function (this function is recursive)
 * @param	boolean	Whether or not this will build the quick chooser menu
+* @param	integer Reference to the total number of styles available in the chooser
 *
 * @return	string
 */
-function construct_style_options($styleid = -1, $depthmark = '', $init = true, $quickchooser = false)
+function construct_style_options($styleid = -1, $depthmark = '', $init = true, $quickchooser = false, &$stylecount = 0)
 {
-	global $vbulletin, $stylevar, $vbphrase, $stylecount;
+	global $vbulletin, $vbphrase, $show;
 
-	$thisstyleid = iif($quickchooser, $vbulletin->userinfo['styleid'], $vbulletin->userinfo['realstyleid']);
-	if ($thisstyleid == 0 AND $quickchooser)
+	$thisstyleid = ($quickchooser ? $vbulletin->userinfo['styleid'] : $vbulletin->userinfo['realstyleid']);
+	if ($thisstyleid == 0)
+	{
+		$thisstyleid = ($quickchooser ? $vbulletin->userinfo['realstyleid'] : $vbulletin->userinfo['styleid']);
+	}
+	if ($thisstyleid == 0)
 	{
 		$thisstyleid = $vbulletin->options['styleid'];
 	}
@@ -5224,20 +7210,19 @@ function construct_style_options($styleid = -1, $depthmark = '', $init = true, $
 			if ($thisstyleid == 0)
 			{
 				$optionselected = 'selected="selected"';
+				$show['style_option_default_selected'] = true;
 			}
-			$optionvalue = 0;
-			$optiontitle = $vbphrase['use_forum_default'];
-			eval ('$stylesetlist .= "' . fetch_template('option') . '";');
+			$show['style_option_default'] = true;
 		}
 	}
 
 	// check to see that the current styleid exists
 	// and workaround a very very odd bug (#2079)
-	if (is_array($vbulletin->stylecache["$styleid"]))
+	if (isset($vbulletin->stylecache["$styleid"]) AND is_array($vbulletin->stylecache["$styleid"]))
 	{
 		$cache =& $vbulletin->stylecache["$styleid"];
 	}
-	else if (is_array($vbulletin->stylecache[$styleid]))
+	else if (isset($vbulletin->stylecache[$styleid]) AND is_array($vbulletin->stylecache[$styleid]))
 	{
 		$cache =& $vbulletin->stylecache[$styleid];
 	}
@@ -5251,6 +7236,14 @@ function construct_style_options($styleid = -1, $depthmark = '', $init = true, $
 	{
 		foreach ($x AS $style)
 		{
+			if (!$vbulletin->options['allowchangestyles'])
+			{	// Only allow the default style and any mobile styles.
+				if (!$style['userselect'] OR ($style['styleid'] != $vbulletin->options['styleid'] AND !isset($vbulletin->stylecache['mobile'][$style['styleid']])))
+				{
+					continue;
+				}
+			}
+
 			if ($style['userselect'] OR $vbulletin->userinfo['permissions']['adminpermissions'] & $vbulletin->bf_ugp_adminpermissions['cancontrolpanel'])
 			{
 				$stylecount++;
@@ -5263,13 +7256,14 @@ function construct_style_options($styleid = -1, $depthmark = '', $init = true, $
 					$optionselected = '';
 				}
 				$optionvalue = $style['styleid'];
-				$optiontitle = $depthmark . ' ' . $style['title'];
-				eval ('$stylesetlist .= "' . fetch_template('option') . '";');
-				$stylesetlist .= construct_style_options($style['styleid'], $depthmark . '--', false, $quickchooser);
+				$optiontitle = $depthmark . ' ' . htmlspecialchars_uni($style['title']);
+				$optionclass = '';
+				$stylesetlist .= render_option_template($optiontitle, $optionvalue, $optionselected, $optionclass);
+				$stylesetlist .= construct_style_options($style['styleid'], $depthmark . '--', false, $quickchooser, $stylecount);
 			}
 			else
 			{
-				$stylesetlist .= construct_style_options($style['styleid'], $depthmark, false, $quickchooser);
+				$stylesetlist .= construct_style_options($style['styleid'], $depthmark, false, $quickchooser, $stylecount);
 			}
 		}
 	}
@@ -5308,6 +7302,47 @@ function build_datastore($title = '', $data = '', $unserialize = 0)
 
 // #############################################################################
 /**
+* Checks whether or not user came from search engine
+*/
+function is_came_from_search_engine()
+{
+	global $vbulletin;
+
+	static $is_came_from_search_engine;	// hey, you, user, you came from search engine?
+
+	if (!isset($is_came_from_search_engine))
+	{
+		$user_referrer = $_SERVER['HTTP_REFERER'] . '.';		// we're trusting wherever the user claims they're from, if they lie, we can't do anything about it
+
+		if ($vbulletin->options['searchenginereferrers'] = trim($vbulletin->options['searchenginereferrers']))
+		{
+
+			$searchengines = preg_split('#\s+#', $vbulletin->options['searchenginereferrers'], -1, PREG_SPLIT_NO_EMPTY);
+			foreach ($searchengines AS $searchengine)
+			{
+				if (strpos($searchengine, '*') === false AND $searchengine{strlen($searchengine) - 1} != '.')
+				{
+					$searchengine .= '.';
+				}
+
+				$searchengine_regex = str_replace('\*', '(.*)', preg_quote($searchengine, '#'));
+				if (preg_match('#' . $searchengine_regex . '#U', $user_referrer))
+				{
+					$is_came_from_search_engine = true;
+					return $is_came_from_search_engine;
+				}
+			}
+		}
+
+		// if nothing to match against (or we didn't return earlier)
+		$is_came_from_search_engine = false;
+	}
+
+	return $is_came_from_search_engine;
+}
+
+// #############################################################################
+/**
 * Updates the LoadAverage DataStore
 */
 
@@ -5320,7 +7355,7 @@ function update_loadavg()
 		$vbulletin->loadcache = array();
 	}
 
-	if ($stats = @exec('uptime 2>&1') AND trim($stats) != '' AND preg_match('#: ([\d.,]+),?\s+([\d.,]+),?\s+([\d.,]+)$#', $stats, $regs))
+	if (function_exists('exec') AND $stats = @exec('uptime 2>&1') AND trim($stats) != '' AND preg_match('#: ([\d.,]+),?\s+([\d.,]+),?\s+([\d.,]+)$#', $stats, $regs))
 	{
 		$vbulletin->loadcache['loadavg'] = $regs[2];
 	}
@@ -5378,7 +7413,7 @@ function addslashes_js($text, $quotetype = "'")
 */
 function process_replacement_vars($newtext, $paramstyle = false)
 {
-	global $vbulletin, $stylevar;
+	global $vbulletin;
 	static $replacementvars;
 
 	if (connection_status())
@@ -5423,27 +7458,28 @@ function process_replacement_vars($newtext, $paramstyle = false)
 */
 function print_output($vartext, $sendheader = true)
 {
-	global $pagestarttime, $querytime, $vbulletin, $show;
-	global $vbphrase, $stylevar;
+	global $querytime, $vbulletin, $show, $vbphrase;
 
-	if ($vbulletin->options['addtemplatename'])
+	if (VB_API)
 	{
-		if ($doctypepos = @strpos($vartext, $stylevar['htmldoctype']))
+		$template = vB_Template::create('response');
+		$template->register('response', $vartext);
+		$vartext = $template->render(true, true);
+	}
+
+	if (!VB_API AND $vbulletin->options['addtemplatename'])
+	{
+		if ($doctypepos = @strpos($vartext, vB_Template_Runtime::fetchStyleVar('htmldoctype')))
 		{
 			$comment = substr($vartext, 0, $doctypepos);
-			$vartext = substr($vartext, $doctypepos + strlen($stylevar['htmldoctype']));
-			$vartext = $stylevar['htmldoctype'] . "\n" . $comment . $vartext;
+			$vartext = substr($vartext, $doctypepos + strlen(vB_Template_Runtime::fetchStyleVar('htmldoctype')));
+			$vartext = vB_Template_Runtime::fetchStyleVar('htmldoctype') . "\n" . $comment . $vartext;
 		}
 	}
 
-	if (!empty($vbulletin->db->explain) OR $vbulletin->debug)
+	if (!VB_API AND (!empty($vbulletin->db->explain) OR $vbulletin->debug))
 	{
-		$pageendtime = microtime();
-
-		$starttime = explode(' ', $pagestarttime);
-		$endtime = explode(' ', $pageendtime);
-
-		$totaltime = $endtime[0] - $starttime[0] + $endtime[1] - $starttime[1];
+		$totaltime = microtime(true) - TIMESTART;
 
 		$vartext .= "<!-- Page generated in " . vb_number_format($totaltime, 5) . " seconds with " . $vbulletin->db->querycount . " queries -->";
 	}
@@ -5458,10 +7494,9 @@ function print_output($vartext, $sendheader = true)
 		);
 	}
 
-	// --------------------------------------------------------------------
 	// debug code
-	global $_TEMPLATEQUERIES, $tempusagecache, $DEVDEBUG, $vbcollapse;
-	if ($vbulletin->debug)
+	global $DEVDEBUG, $vbcollapse;
+	if (!VB_API AND $vbulletin->debug)
 	{
 		devdebug('php_sapi_name(): ' . SAPI_NAME);
 
@@ -5474,14 +7509,20 @@ function print_output($vartext, $sendheader = true)
 			}
 		}
 
-		if (is_array($tempusagecache))
+		if (!empty(vB_Template::$template_usage))
 		{
+			$tempusagecache = vB_Template::$template_usage;
+			$_TEMPLATEQUERIES = vB_Template::$template_queries;
+
 			unset($tempusagecache['board_inactive_warning'], $_TEMPLATEQUERIES['board_inactive_warning']);
 
 			ksort($tempusagecache);
 			foreach ($tempusagecache AS $template_name => $times)
 			{
-				$tempusagecache["$template_name"] = "<span class=\"shade\" style=\"float:right\">($times)</span>" . ($_TEMPLATEQUERIES["$template_name"] ? "<span style=\"color:red; font-weight:bold\">$template_name</span>" : $template_name);
+				$tempusagecache["$template_name"] =
+					"<span class=\"shade\" style=\"float:right\">($times)</span>" .
+						((isset($_TEMPLATEQUERIES["$template_name"]) AND $_TEMPLATEQUERIES["$template_name"]) ?
+							"<span style=\"color:red; font-weight:bold\">$template_name</span>" : $template_name);
 			}
 		}
 		else
@@ -5490,9 +7531,11 @@ function print_output($vartext, $sendheader = true)
 		}
 
 		$hook_usage = '';
+		$hook_total = 0;
 		foreach (vBulletinHook::fetch_hookusage() AS $hook_name => $has_code)
 		{
 			$hook_usage .= '<li class="smallfont' . (!$has_code ? ' shade' : '') . '">' . $hook_name . '</li>';
+			$hook_total++;
 		}
 		if (!$hook_usage)
 		{
@@ -5510,75 +7553,103 @@ function print_output($vartext, $sendheader = true)
 			$phrase_groups = '<li class="smallfont">&nbsp;</li>';
 		}
 
+		$vbcollapse['collapseimg_debuginfo'] = (!empty($vbcollapse['collapseimg_debuginfo']) ? $vbcollapse['collapseimg_debuginfo'] : '');
+		$vbcollapse['collapseobj_debuginfo'] = (!empty($vbcollapse['collapseobj_debuginfo']) ? $vbcollapse['collapseobj_debuginfo'] : '');
+
 		$debughtml = "
-			<table class=\"tborder\" cellpadding=\"$stylevar[cellpadding]\" cellspacing=\"$stylevar[cellspacing]\" border=\"0\" align=\"center\" style=\"margin-top:20px\" id=\"debuginfo\" dir=\"ltr\">
-			<thead>
-				<tr>
-					<th class=\"tcat\" colspan=\"2\" align=\"left\">
-						<a style=\"float:right\" href=\"#\" title=\"Close Debug Info\" onclick=\"document.getElementById('debuginfo').parentNode.removeChild(document.getElementById('debuginfo')); return false;\">X</a>
-						vBulletin {$vbulletin->options[templateversion]} Debug Information
-					</th>
-				</tr>
-				<tr>
-					<td class=\"alt1 smallfont\" colspan=\"2\">
+			<div class=\"block\" id=\"debuginfo\" style=\"width:800px; margin:4px auto;\">
+				<h2 class=\"blockhead collapse\">
+					<a style=\"float:" . vB_Template_Runtime::fetchStyleVar('right') . ";\" href=\"" . htmlspecialchars_uni($vbulletin->input->fetch_relpath()) . "#\" title=\"Close Debug Information\" onclick=\"document.getElementById('debuginfo').parentNode.removeChild(document.getElementById('debuginfo')); return false;\">X</a>
+						vBulletin {$vbulletin->options['templateversion']} Debug Information
+				</h2>
+				<div style=\"border:" . vB_Template_Runtime::fetchStyleVar('blockhead_border') . "; border-top:0;\">
+					<div class=\"blockbody\">
+						<div class=\"blockrow\">
 						<ul style=\"list-style:none; margin:0px; padding:0px\">
 							<li class=\"smallfont\" style=\"display:inline; margin-right:8px\"><span class=\"shade\">Page Generation</span> " . vb_number_format($totaltime, 5) . " seconds</li>
 							" . (function_exists('memory_get_usage') ? "<li class=\"smallfont\" style=\"display:inline; margin-right:8px\"><span class=\"shade\">Memory Usage</span> " . number_format(memory_get_usage() / 1024) . 'KB</li>' : '') . "
 							<li class=\"smallfont\" style=\"display:inline; margin-right:8px\"><span class=\"shade\">Queries Executed</span> " . (empty($_TEMPLATEQUERIES) ? $vbulletin->db->querycount : "<span title=\"Uncached Templates!\" style=\"color:red; font-weight:bold\">{$vbulletin->db->querycount}</span>") . " <a href=\"" . ($vbulletin->scriptpath) . (strpos($vbulletin->scriptpath, '?') === false ? '?' : '&amp;') . "explain=1\" target=\"_blank\" title=\"Explain Queries\">(?)</a></li>
 						</ul>
-					</td>
-				</tr>
-				<tr align=\"left\">
-					<th class=\"thead\" colspan=\"2\"><a style=\"float:right\" href=\"#\" onclick=\"return toggle_collapse('debuginfo')\"><img id=\"collapseimg_debuginfo\" src=\"$stylevar[imgdir_button]/collapse_thead$vbcollapse[collapseimg_debuginfo].gif\" alt=\"\" border=\"0\" /></a> More Information</th>
-				</tr>
-			</thead>
-			<tbody id=\"collapseobj_debuginfo\" style=\"$vbcollapse[collapseobj_debuginfo]\">
-				<tr valign=\"top\">
-					<td class=\"alt1 smallfont\">
-						<div style=\"margin-bottom:6px\"><strong>Template Usage:</strong></div>
+						</div>
+					</div>
+					<div class=\"blocksubhead collapse\" style=\"width: 98.5%; padding-" . vB_Template_Runtime::fetchStyleVar('right') . ": 1px;\">
+						<a style=\"top:5px;\" class=\"collapse\" id=\"collapse_debuginfo_body\" href=\"#top\"><img src=\"" . vB_Template_Runtime::fetchStyleVar('imgdir_button') . "/collapse_40b.png\" alt=\"\" title=\"Collapse Debug Information\" /></a>
+						More Information
+					</div>
+					<div class=\"blockbody\" id=\"debuginfo_body\">
+						<div class=\"blockrow\">
+							<div style=\"width:48%; float:left;\">
+								<div style=\"margin-bottom:6px; font-weight:bold;\">Template Usage (" . sizeof($tempusagecache) . "):</div>
 						<ul style=\"list-style:none; margin:0px; padding:0px\"><li class=\"smallfont\">" . implode('</li><li class="smallfont">', $tempusagecache) . "&nbsp;</li></ul>
 						<hr style=\"margin:10px 0px 10px 0px\" />
-						<div style=\"margin-bottom:6px\"><strong>Phrase Groups Available:</strong></div>
+
+								<div style=\"margin-bottom:6px; font-weight:bold;\">Phrase Groups Available (" . sizeof($GLOBALS['phrasegroups']) . "):</div>
 						<ul style=\"list-style:none; margin:0px; padding:0px\">$phrase_groups</ul>
-					</td>
-					<td class=\"alt1 smallfont\">
-						<div style=\"margin-bottom:6px\"><strong>Included Files:</strong></div>
-						<ul style=\"list-style:none; margin:0px; padding:0px\"><li class=\"smallfont\">" . implode('</li><li class="smallfont">', str_replace(str_replace('\\', '/', DIR) . '/', '', preg_replace('#^(.*/)#si', '<span class="shade">./\1</span>', str_replace('\\', '/', get_included_files())))) . "&nbsp;</li></ul>
+							</div>
+							<div style=\"width:48%; float:right;\">
+								<div style=\"margin-bottom:6px; font-weight:bold;\">Included Files (" . sizeof($included_files = get_included_files()) . "):</div>
+						<ul style=\"list-style:none; margin:0px; padding:0px\"><li class=\"smallfont\">" . implode('</li><li class="smallfont">', str_replace(str_replace('\\', '/', DIR) . '/', '', preg_replace('#^(.*/)#si', '<span class="shade">./\1</span>', str_replace('\\', '/', $included_files)))) . "&nbsp;</li></ul>
 						<hr style=\"margin:10px 0px 10px 0px\" />
-						<div style=\"margin-bottom:6px\"><strong>Hooks Called:</strong></div>
+
+								<div style=\"margin-bottom:6px; font-weight:bold;\">Hooks Called ($hook_total):</div>
 						<ul style=\"list-style:none; margin:0px; padding:0px\">$hook_usage</ul>
-					</td>
-				</tr>
-				</tbody>
-				<tbody>
-				<tr>
-					<td class=\"alt2 smallfont\" colspan=\"2\"><label>Messages:<select style=\"display:block; width:100%\">$messages</select></label></td>
-				</tr>
-			</tbody>
-			</table>
+							</div>
+							<br style=\"clear:both;\" />
+						</div>
+					</div>
+					<div class=\"blockbody\">
+						<div class=\"blockrow\">
+							<label>Messages:<select style=\"display:block; width:100%\">$messages</select></label>
+						</div>
+					</div>
+				</div>
+			</div>
 		";
 
 		$vartext = str_replace('</body>', "<!--start debug html-->$debughtml<!--end debug html-->\n</body>", $vartext);
 	}
 	// end debug code
-	// --------------------------------------------------------------------
 
 	$output = process_replacement_vars($vartext);
 
-	if ($vbulletin->debug AND function_exists('memory_get_usage'))
+	if (!VB_API AND ($vbulletin->debug AND function_exists('memory_get_usage')))
 	{
 		$output = preg_replace('#(<!--querycount-->Executed <b>\d+</b> queries<!--/querycount-->)#siU', 'Memory Usage: <strong>' . number_format((memory_get_usage() / 1024)) . 'KB</strong>, \1', $output);
 	}
 
 	// parse PHP include ##################
-	if (!is_demo_mode())
+	($hook = vBulletinHook::fetch_hook('global_complete')) ? eval($hook) : false;
+
+	// make sure headers sent returns correctly
+	if (ob_get_level() AND ob_get_length())
 	{
-		($hook = vBulletinHook::fetch_hook('global_complete')) ? eval($hook) : false;
+		ob_end_flush();
 	}
 
-	if ($vbulletin->options['gzipoutput'] AND !headers_sent())
+	if (defined('VB_API') AND VB_API === true AND !headers_sent() AND $sendheader)
 	{
-		$output = fetch_gzipped_text($output, $vbulletin->options['gziplevel']);
+		// API Verification
+		global $VB_API_REQUESTS;
+		if (!in_array($VB_API_REQUESTS['api_m'], array('login_login', 'login_logout')))
+		{
+			$sign = md5($output . $vbulletin->apiclient['apiaccesstoken'] . $vbulletin->apiclient['apiclientid'] . $vbulletin->apiclient['secret'] . $vbulletin->options['apikey']);
+			@header('Authorization: ' . $sign);
+		}
+
+		if (!$vbulletin->debug OR !$vbulletin->GPC['debug'])
+		{
+			//  JSON header
+			@header('Content-Type: application/json');
+		}
+
+	}
+
+	if (!headers_sent())
+	{
+		if ($vbulletin->options['gzipoutput'])
+		{
+			$output = fetch_gzipped_text($output, $vbulletin->options['gziplevel']);
+		}
 
 		if ($sendheader AND $vbulletin->donegzip)
 		{
@@ -5586,18 +7657,21 @@ function print_output($vartext, $sendheader = true)
 		}
 	}
 
+	// Trigger shutdown event
+	$vbulletin->shutdown->shutdown();
+
 	if (defined('NOSHUTDOWNFUNC'))
 	{
 		exec_shut_down();
 	}
 
 	// show regular page
-	if (empty($vbulletin->db->explain))
+	if (empty($vbulletin->db->explain) OR (defined('VB_API') AND VB_API === true))
 	{
 		echo $output;
 	}
 	// show explain
-	else
+	elseif (!VB_API)
 	{
 		$querytime = $vbulletin->db->time_total;
 		echo "\n<b>Page generated in $totaltime seconds with " . $vbulletin->db->querycount . " queries,\nspending $querytime doing MySQL queries and " . ($totaltime - $querytime) . " doing PHP things.\n\n<hr />Shutdown Queries:</b>" . (defined('NOSHUTDOWNFUNC') ? " <b>DISABLED</b>" : '') . "<hr />\n\n";
@@ -5608,7 +7682,189 @@ function print_output($vartext, $sendheader = true)
 	{
 		flush();
 	}
+
 	exit;
+}
+
+// #############################################################################
+/**
+* Converts raw link information into an appropriate URL
+* Verifies that the requested linktype can be handled
+*
+* @param	string	Type of link, 'thread', etc
+* @param	array		Specific information relevant to the page being linked to, $threadinfo, etc
+* @param	array		Other information relevant to the page being linked to
+* @param	string	Override the default $linkinfo[userid] with $linkinfo[$primaryid]
+* @param	string	Override the default $linkinfo[title] with $linkinfo[$primarytitle]
+* @param	bool	Get the raw, canonical url.  Set to true if the url is for a redirect.
+*/
+function fetch_seo_url($link, $linkinfo, $pageinfo = null, $primaryid = null, $primarytitle = null, $canonical = false)
+{
+	global $vbulletin;
+
+	require_once(DIR . '/includes/class_friendly_url.php');
+	$friendlyurl = vB_Friendly_Url::fetchLibrary($vbulletin, $link, $linkinfo, $pageinfo, $primaryid, $primarytitle);
+
+	return $friendlyurl->get_url(false, $canonical);
+}
+
+/**
+* Verifies that we are at the proper canonical seo url based on admin settings
+*
+* @param	string	Type of link, 'thread', etc
+* @param	array		Specific information relevant to the page being linked to, $threadinfo, etc
+* @param	array		Other information relevant to the page being linked to
+* @param	string	Override the default $linkinfo[userid] with $linkinfo[$primaryid]
+* @param	string	Override the default $linkinfo[title] with $linkinfo[$primarytitle]
+*/
+function verify_seo_url($link, $linkinfo, $pageinfo = null, $primaryid = null, $primarytitle = null)
+{
+	global $vbulletin;
+
+	require_once(DIR . '/includes/class_friendly_url.php');
+
+	// Check we have something to compare
+	if (empty($linkinfo) OR !isset($vbulletin->input->friendly_uri))
+	{
+		return;
+	}
+
+	// Redirect if the current request is not canonical
+	$canonical = vB_Friendly_Url::fetchLibrary($vbulletin, $link . '|nosession', $linkinfo, $pageinfo, $primaryid, $primarytitle);
+	$canonical->redirect_canonical_url($vbulletin->input->friendly_uri);
+
+
+	// Set the WOLPATH
+	$url = $canonical->get_url(FRIENDLY_URL_OFF);
+	$vbulletin->session->set('location', $url);
+	define('WOLPATH', $vbulletin->input->strip_sessionhash($url));
+}
+
+
+function verify_subdirectory_url($prefix, $scriptid = null)
+{
+	global $vbulletin;
+	if (!$prefix)
+	{
+		return;
+	}
+
+	// Never redirect a post
+	// unless we're in debug mode and we wan't to error out on the bad urls
+	// unless again its ajax... we're relying on the old urls for ajax because
+	// a) it doesn't matter, users and search engines one see them and b) getting the
+	// url logic into javascript is difficult.
+	if (('GET' != $_SERVER['REQUEST_METHOD']) AND
+		(!(defined('DEV_REDIRECT_404') AND DEV_REDIRECT_404) OR $vbulletin->GPC['ajax']) )
+	{
+		return;
+	}
+
+	if (defined('FRIENDLY_URL_LINK'))
+	{
+		$friendly = vB_Friendly_Url::fetchLibrary($vbulletin, FRIENDLY_URL_LINK . '|nosession');
+		if (vB_Friendly_Url::getMethodUsed() == FRIENDLY_URL_REWRITE)
+		{
+			$scriptid = $friendly->getRewriteSegment();
+		}
+		else
+		{
+			$scriptid = $friendly->getScript();
+		}
+	}
+	else
+	{
+		if (is_null($scriptid))
+		{
+			$scriptid = THIS_SCRIPT;
+		}
+	}
+
+	$pos = strrpos(VB_URL_CLEAN, '/' . $scriptid);
+	if ($pos === false)
+	{
+		//if we don't know what this url is, then lets not try to mess with it.
+		//this came up with the situation where the main index.php is set to forum
+		//but the forums have been moved to a subdirectory.  Doesn't make much sense
+		//but we should handle it gracefully.
+		return;
+	}
+
+	$base_part = substr(VB_URL_CLEAN, 0, $pos);
+	$script_part = substr(VB_URL_CLEAN, $pos+1);
+
+	if (!preg_match('#' . preg_quote($prefix) . '$#', $base_part))
+	{
+		//force the old urls to 404 for testing purposes
+		if (defined('DEV_REDIRECT_404') AND DEV_REDIRECT_404)
+		{
+			//dev only, no need to phrase the error.
+			header("HTTP/1.0 404 Not Found");
+			standard_error("old style url found, shouldn't get here");
+		}
+		else
+		{
+			$url = $prefix . '/' . $script_part;
+			// redirect to the correct url
+			exec_header_redirect($url, 301);
+		}
+	}
+}
+
+
+function verify_forum_url($scriptid = null)
+{
+	global $vbulletin;
+	return verify_subdirectory_url($vbulletin->options['vbforum_url'], $scriptid);
+}
+
+
+/**
+ * Implodes an array using both values and keys
+ *
+ * @param string $glue1							- Glue between key and value
+ * @param string $glue2							- Glue between value and key
+ * @param mixed $array							- Arr to implode
+ * @param boolean $skip_empty					- Whether to skip empty elements
+ * @return string								- The imploded result
+ */
+function implode_both($glue1 = '', $glue2 = '', $array, $skip_empty = false)
+{
+	if (!is_array($array))
+	{
+		return '';
+	}
+
+	$newarray = array();
+	foreach ($array as $key => $val)
+	{
+		if (!$skip_empty OR !empty($val))
+		{
+			$newarray[$key] = $key . $glue1 . $val;
+		}
+	}
+
+	return implode($glue2, $newarray);
+}
+
+/**
+ * Implodes an assoc array into a partial url query string
+ *
+ * @param mixed $array							- Array to parse
+ * @param boolean $skip_empty					- Whether to skip empty elements
+ * @return string								- The parsed result
+ */
+function urlimplode($array, $skip_empty = true, $skip_urlencode = false, $preserve_uni = false)
+{
+	if (!$skip_urlencode)
+	{
+		foreach ($array AS $key => $value)
+		{
+			$array[$key] = ($preserve_uni ? urlencode_uni($value) : urlencode($value));
+		}
+	}
+
+	return implode_both('=', ($skip_urlencode ? '&' : '&amp;'), $array, $skip_empty);
 }
 
 // #############################################################################
@@ -5639,7 +7895,7 @@ function exec_shut_down()
 		$vbulletin->userinfo['badlocation'] = 2;
 	}
 
-	if (class_exists('vBulletinHook'))
+	if (class_exists('vBulletinHook', false))
 	{
 		($hook = vBulletinHook::fetch_hook('global_shutdown')) ? eval($hook) : false;
 	}
@@ -5648,11 +7904,11 @@ function exec_shut_down()
 	{
 		if (!defined('LOCATION_BYPASS'))
 		{
-			$vbulletin->session->set('inforum', $foruminfo['forumid']);
-			$vbulletin->session->set('inthread', $threadinfo['threadid']);
-			$vbulletin->session->set('incalendar', $calendarinfo['calendarid']);
+			$vbulletin->session->set('inforum', (!empty($foruminfo['forumid']) ? $foruminfo['forumid'] : 0));
+			$vbulletin->session->set('inthread', (!empty($threadinfo['threadid']) ? $threadinfo['threadid'] : 0));
+			$vbulletin->session->set('incalendar', (!empty($calendarinfo['calendarid']) ? $calendarinfo['calendarid'] : 0));
 		}
-		$vbulletin->session->set('badlocation', $vbulletin->userinfo['badlocation']);
+		$vbulletin->session->set('badlocation', (!empty($vbulletin->userinfo['badlocation']) ? $vbulletin->userinfo['badlocation'] : ''));
 		if ($vbulletin->session->vars['loggedin'] == 1 AND !$vbulletin->session->created)
 		{
 			# If loggedin = 1, this is out first page view after a login so change value to 2 to signify we are past the first page view
@@ -5686,7 +7942,10 @@ function exec_shut_down()
 		$vbulletin->db->show_errors();
 	}
 
-	exec_mail_queue();
+	if (!$vbulletin->options['mailqueue'])
+	{
+		exec_mail_queue();
+	}
 
 	// Make sure the database connection is closed since it can get hung up for a long time on php4 do to the mysterious echo() lagging issue
 	// If NOSHUTDOWNFUNC is defined then this function should always be the last one called, before echoing of data
@@ -5698,10 +7957,600 @@ function exec_shut_down()
 	// bye bye!
 }
 
+/**
+ * Spreads an array of values across the given number of stepped levels based on
+ * their standard deviation from the mean value.
+ *
+ * The function accepts an array of $id => $value and returns $id => $level.
+ *
+ * @param array $values							- Array of id => values
+ * @param integer $levels						- Number of levels to assign
+ */
+function fetch_standard_deviated_levels($values, $levels=5)
+{
+	if (!$count = sizeof($values))
+	{
+		return array();
+	}
+
+	$total = $summation = 0;
+	$results = array();
+
+	// calculate the total
+	foreach ($values AS $value)
+	{
+		$total += $value;
+	}
+
+	// calculate the mean
+	$mean = $total / $count;
+
+	// calculate the summation
+	foreach ($values AS $id => $value)
+	{
+		$summation += pow(($value - $mean), 2);
+	}
+
+	$sd = sqrt($summation / $count);
+
+	if ($sd)
+	{
+		$sdvalues = array();
+		$lowestsds = 0;
+		$highestsds = 0;
+
+		// find the max and min standard deviations
+		foreach ($values AS $id => $value)
+		{
+			$value = (($value - $mean) / $sd);
+			$values[$id] = $value;
+
+			$lowestsds = min($value, $lowestsds);
+			$highestsds = max($value, $highestsds);
+		}
+
+		foreach ($values AS $id => $value)
+		{
+			// normalize the std devs to 0 - 1, then map back to 1 - #levls
+			$values[$id] = round((($value - $lowestsds) / ($highestsds - $lowestsds)) * ($levels - 1)) + 1;
+		}
+	}
+	else
+	{
+		foreach ($values AS $id => $value)
+		{
+			$values[$id] = round($levels / 2);
+		}
+	}
+
+	return $values;
+}
+
+/**
+ * Checks if Facebook is enabled, and applicable to the current request
+ *
+ * @return bool, true if Facebook code should be run for the current request
+ */
+function is_facebookenabled()
+{
+	global $vbulletin;
+	static $fb_funcs = false;
+
+	// on top of facebook being enabled, make sure we are not skipping session for this request
+	if (
+		$vbulletin->options['enablefacebookconnect']
+			AND
+		$vbulletin->options['facebookappid']
+			AND
+		$vbulletin->options['facebooksecret']
+			AND
+		!defined('SKIP_SESSIONCREATE')
+	)
+	{
+		// make sure to include facebook objects if they aren't already
+		if (!class_exists('vB_Facebook'))
+		{
+			require_once(DIR . '/includes/class_facebook.php');
+			require_once(DIR . '/includes/functions_facebook.php');
+		}
+		return true;
+	}
+	else
+	{
+		if (!$fb_funcs)
+		{
+			$fb_funcs = true;
+			// Only try and load this once.
+			require_once(DIR . '/includes/functions_facebook.php');
+		}
+		return false;
+	}
+}
+
+/**
+ * Ensures the framework is bootstrapped.
+ */
+function bootstrap_framework()
+{
+	if (VB_FRAMEWORK === true)
+	{
+		return;
+	}
+
+	require_once(DIR . '/includes/class_bootstrap_framework.php');
+	vB_Bootstrap_Framework::init();
+
+}
+
+/** Checks to see if the current user has at least read access to the CMS root node.
+*
+* @return	boolean
+**/
+
+function can_see_cms()
+{
+	global $vbulletin;
+
+	if (!$vbulletin->products['vbcms'])
+	{
+		return false;
+	}
+
+	if (class_exists('vBCMS_Permissions', false))
+	{
+		return vBCMS_Permissions::canView(1);
+	}
+
+	$ids = array();
+	$rawids = explode(',', $vbulletin->userinfo['usergroupid'] . ',' . $vbulletin->userinfo['membergroupids']);
+	foreach ($rawids AS $id)
+	{
+		if (($id = intval($id)) > 0)
+		{
+			$ids[] = $id;
+		}
+	}
+
+	if (!empty($ids))
+	{
+		$perms = $vbulletin->db->query_first("
+			SELECT MAX(permissions & 1) AS perm
+			FROM " . TABLE_PREFIX . "cms_permissions
+			WHERE nodeid = 1 AND usergroupid IN (" . implode(',', $ids) . ")
+		");
+
+		return (intval($perms['perm']) > 0);
+	}
+
+	return false;
+}
+
+
+/**
+ * Clear out autosave content .. we need this all over the place
+ */
+function clear_autosave_text($contenttypeid, $contentid, $parentcontentid, $userid)
+{
+	global $vbulletin;
+
+	$vbulletin->db->query_write("
+		DELETE FROM " . TABLE_PREFIX . "autosave
+		WHERE
+			contenttypeid = '" . $vbulletin->db->escape_string($contenttypeid) . "'
+				AND
+			contentid = " . intval($contentid) . "
+				AND
+			parentcontentid = " . intval($parentcontentid) . "
+				AND
+			userid = " . intval($userid) . "
+	");
+}
+
+/**
+ * Write mobile device usage ..
+ */
+function post_vb_api_details($contenttype, $contentid)
+{
+	global $vbulletin;
+
+	if (defined('VB_API') AND VB_API === true)
+	{
+		if ($contenttypeid = vB_Types::instance()->getContentTypeID($contenttype))
+		{
+			$vbulletin->db->query_write("
+				INSERT INTO " . TABLE_PREFIX . "apipost
+					(
+						contenttypeid, contentid, userid, clientname, clientversion, platformname, platformversion
+					)
+				VALUES
+					(
+						{$contenttypeid},
+						{$contentid},
+						{$vbulletin->userinfo['userid']},
+						'" . $vbulletin->db->escape_string($vbulletin->apiclient['clientname']) . "',
+						'" . $vbulletin->db->escape_string($vbulletin->apiclient['clientversion']) . "',
+						'" . $vbulletin->db->escape_string($vbulletin->apiclient['platformname']) . "',
+						'" . $vbulletin->db->escape_string($vbulletin->apiclient['platformversion']) . "'
+					)
+			");
+		}
+	}
+}
+
+/**
+* Determines if the server is over the defined load limits
+*
+* @return	bool
+*/
+function server_overloaded()
+{
+	global $vbulletin;
+	if (strtoupper(substr(PHP_OS, 0, 3)) != 'WIN' AND $vbulletin->options['loadlimit'] > 0)
+	{
+		if (!is_array($vbulletin->loadcache) OR $vbulletin->loadcache['lastcheck'] < (TIMENOW - $vbulletin->options['recheckfrequency']))
+		{
+			update_loadavg();
+		}
+		if ($vbulletin->loadcache['loadavg'] > $vbulletin->options['loadlimit'])
+		{
+			return true;
+		}
+	}
+	return false;
+}
+
+/**
+ * Wrapper for the PHP function var_export to work around PHP bug #52534. See: http://bugs.php.net/bug.php?id=52534
+ *
+ * @param	mixed	The variable to be exported
+ * @param	bool	Whether or not to return the output
+ * @param	int	Recursion level (for internal function recursive calls only)
+ *
+ * @return	mixed	Retuns the exported value, or null
+ */
+function vb_var_export($expression, $return = false, $level = 0)
+{
+	// test if workaround is needed
+	static $needs_workaround = null;
+	if ($needs_workaround === null)
+	{
+		$test = var_export(array(-1 => 1), true);
+		$needs_workaround = (strpos($test, '-1') === false);
+	}
+
+	// skip the workaround when appropriate
+	if (!$needs_workaround)
+	{
+		return var_export($expression, $return);
+	}
+
+	// begin workaround
+	static $tab = '  ';
+	$output = '';
+
+	if (is_array($expression))
+	{
+		// use this function for arrays
+		$tabs = str_repeat($tab, $level);
+
+		if ($level > 0)
+		{
+			$output .= "\n$tabs";
+		}
+
+		$output .= "array (\n";
+		foreach ($expression AS $k => $v)
+		{
+			// use var_export for keys, as they cannot be arrays
+			$output .= "$tabs$tab" . var_export($k, true) . ' => ' . vb_var_export($v, true, $level + 1) . ",\n";
+		}
+
+		$output .= "$tabs)";
+	}
+	else
+	{
+		// use var_export for everything but arrays
+		$output .= var_export($expression, true);
+	}
+
+	if ($level == 0)
+	{
+		// done
+
+		// strip trailing spaces or tabs on each line to mimic var_export
+		$output = preg_replace("/[ \t]+(\r\n|\n|\r)/", '$1', $output);
+
+		if ($return)
+		{
+			return $output;
+		}
+		else
+		{
+			echo $output;
+			return null;
+		}
+	}
+	else
+	{
+		// return from recursive call
+		return $output;
+	}
+}
+
+/**
+* Get the CMS Node a thread is associated with.
+*
+* @param	int	Thread id
+*
+* @return	int The nodeid or zero if the thread isnt associated with a node
+*/
+function get_nodeFromThreadid($threadid)
+{
+	global $vbulletin;
+
+	// No CMS installed, return 0.
+	if (!$vbulletin->products['vbcms'])
+	{
+		return 0;
+	}
+
+	$threadid = intval($threadid);
+	$data = $vbulletin->db->query_first_slave("
+		SELECT nodeid
+		FROM " . TABLE_PREFIX . "cms_nodeinfo
+		WHERE associatedthreadid = $threadid
+		LIMIT 1
+	");
+
+	return intval($data['nodeid']);
+}
+
+/**
+* Verify the threadid associated with a CMS Node.
+*
+* @param	int	Thread id
+* @param	int	Node id
+*
+* @return	bool True if the nodes associated threadid matches the supplied node id
+*/
+function verify_threadNode($threadid, $nodeid)
+{
+	global $vbulletin;
+
+	// No CMS installed, return false.
+	if (!$vbulletin->products['vbcms'])
+	{
+		return false;
+	}
+
+	$nodeid = intval($nodeid);
+	$data = $vbulletin->db->query_first_slave("
+		SELECT associatedthreadid AS threadid
+		FROM " . TABLE_PREFIX . "cms_nodeinfo
+		WHERE nodeid = $nodeid
+		LIMIT 1
+	");
+
+	return intval($data['threadid']) == $threadid;
+}
+
+/*
+* Create a comma separated values (csv) list.
+*
+* @param	mixed	The input, can be a string, array or serialized string
+* @param	bool	Return zero if the list would otherwise be empty
+* @param	bool	Remove null, zero, false elements.
+* @param	bool	Remove duplicates from the list
+*
+* @return	string	the redirect url (or false).
+*/
+function make_csv_list($list, $zero = true, $filter = true, $unique = true)
+{
+	if (substr($list,0,2) == 'a:')
+	{
+		$list = unserialize($list);
+	}
+
+	if (is_array($list))
+	{
+		$array = array_map('intval',$list);
+	}
+	else
+	{
+		$array = array_map('intval', explode(',', trim($list)));
+	}
+
+	if ($unique)
+	{
+		$array = array_unique($array);
+	}
+
+	if ($filter)
+	{
+		$array = array_filter($array);
+	}
+
+	$csv = trim(implode(',', $array));
+
+	if (!$csv and $zero)
+	{
+		$csv = '0';
+	}
+
+	return $csv;
+}
+
+/*
+Stop execution at any point and prints a trace.
+If passed a variable, it will also output the contents of
+that variable. If exit is set to 0, it will return after
+printing the trace (this allows multiple traces to be displayed).
+*/
+function vbstop($variable = null, $exit = 1, $showtrace = -1, $showvar = 1)
+{
+	$count = 0;
+	if ($showtrace)
+	{
+		echo'<pre><br />';
+		$trace = debug_backtrace();
+		foreach ($trace AS $index => $trace_item)
+		{
+			$index++;
+			$count++;
+			if ($showtrace > 0 AND $count > $showtrace)
+			{
+				break;
+			}
+			$param = (in_array($trace_item['function'], array('require', 'require_once', 'include', 'include_once')) ? $trace_item['args'][0] : '');
+			$param = str_replace(DIR, '[path]', $param);
+			$trace_item['file'] = str_replace(DIR, '[path]', $trace_item['file']);
+			echo "#$index : $trace_item[class]$trace_item[type]$trace_item[function]($param) called in $trace_item[file] on line $trace_item[line]<br />";
+		}
+		echo'<br /></pre>';
+	}
+
+	if ($showvar AND $variable !== null)
+	{
+		echo'<pre>';
+		if ($variable === false)
+		{
+			echo'false';
+		}
+		else
+		{
+			print_r($variable);
+		}
+		echo'</pre>';
+	}
+
+	if ($exit)
+	{
+		exit;
+	}
+
+	return;
+}
+
+/**
+* Compares two version strings. Returns true if the first parameter is
+* newer than the second.
+*
+* @param	string	Version string; usually the latest version
+* @param	string	Version string; usually the current version
+* @param	bool	Flag to allow check if the versions are the same
+*
+* @return	bool	True if the first argument is newer than the second, or if the check_same is true and the versions are the equals
+*/
+function is_newer_version($new_version_str, $cur_version_str, $check_same = false)
+{
+	// if they're the same, don't even bother
+	if ($cur_version_str != $new_version_str)
+	{
+		$cur_version = fetch_version_array($cur_version_str);
+		$new_version = fetch_version_array($new_version_str);
+
+		// iterate parts
+		for ($i = 0; $i <= 5; $i++)
+		{
+			if ($new_version["$i"] != $cur_version["$i"])
+			{
+				// true if newer is greater
+				return ($new_version["$i"] > $cur_version["$i"]);
+			}
+		}
+	}
+	else if ($check_same)
+	{
+		return true;
+	}
+
+	return false;
+}
+function fetch_version_array($version)
+{
+	// parse for a main and subversion
+	if (preg_match('#^([a-z]+ )?([0-9\.]+)[\s-]*([a-z].*)$#i', trim($version), $match))
+	{
+		$main_version = $match[2];
+		$sub_version = $match[3];
+	}
+	else
+	{
+		$main_version = $version;
+		$sub_version = '';
+	}
+
+	$version_bits = explode('.', $main_version);
+
+	// pad the main version to 4 parts (1.1.1.1)
+	if (sizeof($version_bits) < 4)
+	{
+		for ($i = sizeof($version_bits); $i < 4; $i++)
+		{
+			$version_bits["$i"] = 0;
+		}
+	}
+
+	// default sub-versions
+	$version_bits[4] = 0; // for alpha, beta, rc, pl, etc
+	$version_bits[5] = 0; // alpha, beta, etc number
+
+	if (!empty($sub_version))
+	{
+		// match the sub-version
+		if (preg_match('#^(A|ALPHA|B|BETA|G|GAMMA|RC|RELEASE CANDIDATE|GOLD|STABLE|FINAL|PL|PATCH LEVEL)\s*(\d*)\D*$#i', $sub_version, $match))
+		{
+			switch (strtoupper($match[1]))
+			{
+				case 'A':
+				case 'ALPHA';
+					$version_bits[4] = -4;
+					break;
+
+				case 'B':
+				case 'BETA':
+					$version_bits[4] = -3;
+					break;
+
+				case 'G':
+				case 'GAMMA':
+					$version_bits[4] = -2;
+					break;
+
+				case 'RC':
+				case 'RELEASE CANDIDATE':
+					$version_bits[4] = -1;
+					break;
+
+				case 'PL':
+				case 'PATCH LEVEL';
+					$version_bits[4] = 1;
+					break;
+
+				case 'GOLD':
+				case 'STABLE':
+				case 'FINAL':
+				default:
+					$version_bits[4] = 0;
+					break;
+			}
+
+			$version_bits[5] = $match[2];
+		}
+	}
+
+	// sanity check -- make sure each bit is an int
+	for ($i = 0; $i <= 5; $i++)
+	{
+		$version_bits["$i"] = intval($version_bits["$i"]);
+	}
+
+	return $version_bits;
+}
+
 /*======================================================================*\
 || ####################################################################
-|| # Downloaded: 16:21, Sat Apr 6th 2013
-|| # CVS: $RCSfile$ - $Revision: 26979 $
+|| # Downloaded: 14:57, Sun Aug 11th 2013
+|| # CVS: $RCSfile$ - $Revision: 73770 $
 || ####################################################################
 \*======================================================================*/
-?>

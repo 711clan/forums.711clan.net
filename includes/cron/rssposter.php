@@ -1,9 +1,9 @@
 <?php
 /*======================================================================*\
 || #################################################################### ||
-|| # vBulletin 3.7.2 Patch Level 2 - Licence Number VBF2470E4F
+|| # vBulletin 4.2.1 - Licence Number VBC2DDE4FB
 || # ---------------------------------------------------------------- # ||
-|| # Copyright ©2000-2013 Jelsoft Enterprises Ltd. All Rights Reserved. ||
+|| # Copyright ©2000-2013 vBulletin Solutions Inc. All Rights Reserved. ||
 || # This file may not be redistributed in whole or significant part. # ||
 || # ---------------- VBULLETIN IS NOT FREE SOFTWARE ---------------- # ||
 || # http://www.vbulletin.com | http://www.vbulletin.com/license.html # ||
@@ -23,7 +23,13 @@ if (!is_object($vbulletin->db))
 
 require_once(DIR . '/includes/functions_newpost.php');
 require_once(DIR . '/includes/class_rss_poster.php');
-require_once(DIR . '/includes/functions_wysiwyg.php');
+require_once(DIR . '/includes/class_wysiwygparser.php');
+
+if (($current_memory_limit = ini_size_to_bytes(@ini_get('memory_limit'))) < 128 * 1024 * 1024 AND $current_memory_limit > 0)
+{
+	@ini_set('memory_limit', 128 * 1024 * 1024);
+}
+@set_time_limit(0);
 
 // #############################################################################
 // slurp all enabled feeds from the database
@@ -73,7 +79,7 @@ if (!empty($feeds))
 	{
 		$feed =& $feeds["$rssfeedid"];
 
-		$feed['xml'] =& new vB_RSS_Poster($vbulletin);
+		$feed['xml'] = new vB_RSS_Poster($vbulletin);
 		$feed['xml']->fetch_xml($feed['url']);
 		if (empty($feed['xml']->xml_string))
 		{
@@ -97,17 +103,32 @@ if (!empty($feeds))
 		{
 			$feed['searchterms'] = array();
 			$feed['searchwords'] = preg_quote($feed['searchwords'], '#');
-			foreach (preg_split('#[ \r\n\t]+#', $feed['searchwords'], -1, PREG_SPLIT_NO_EMPTY) AS $searchword)
+			$matches = false;
+
+			// find quoted terms or single words
+			if (preg_match_all('#(?:"(?P<phrase>.*?)"|(?P<word>[^ \r\n\t]+))#', $feed['searchwords'], $matches, PREG_SET_ORDER))
 			{
-				// exact word match required
-				if (substr($searchword, 0, 2) == '\\{' AND substr($searchword, -2, 2) == '\\}')
+				foreach ($matches AS $match)
 				{
-					$feed['searchterms']["$searchword"] = '#(?<=[\x00-\x40\x5b-\x60\x7b-\x7f]|^)' . substr($searchword, 2, -2) . '(?=[\x00-\x40\x5b-\x60\x7b-\x7f]|$)#si';
-				}
-				// string fragment match required
-				else
-				{
-					$feed['searchterms']["$searchword"] = "#$searchword#si";
+					$searchword = empty($match['phrase']) ? $match['word'] : $match['phrase'];
+
+					// Ensure empty quotes were not used
+					if (!($searchword))
+					{
+						continue;
+					}
+
+					// exact word match required
+					if (substr($searchword, 0, 2) == '\\{' AND substr($searchword, -2, 2) == '\\}')
+					{
+						// don't match words nested in other words - the patterns here match targets that are not surrounded by ascii alphanums below 0128 \x7F
+						$feed['searchterms']["$searchword"] = '#(?<=[\x00-\x40\x5b-\x60\x7b-\x7f]|^)' . substr($searchword, 2, -2) . '(?=[\x00-\x40\x5b-\x60\x7b-\x7f]|$)#si';
+					}
+					// string fragment match required
+					else
+					{
+						$feed['searchterms']["$searchword"] = "#$searchword#si";
+					}
 				}
 			}
 		}
@@ -138,7 +159,7 @@ if (!empty($feeds))
 			// backward compatability to RSS
 			if (!isset($item['description']))
 			{
-				$item['description'] =& $description;
+				$item['description'] = $description;
 			}
 			if (!isset($item['guid']) AND isset($item['id']))
 			{
@@ -189,20 +210,33 @@ if (!empty($feeds))
 			// check to see if there are search words defined for this feed
 			if (is_array($feed['searchterms']))
 			{
+				$matched = false;
+
 				foreach ($feed['searchterms'] AS $searchword => $searchterm)
 				{
 					// (search title only                     ) OR (search description if option is set..)
 					if (preg_match($searchterm, $item['title']) OR ($feed['rssoptions'] & $vbulletin->bf_misc_feedoptions['searchboth'] AND preg_match($searchterm, $description)))
 					{
-						// add item to the potential insert array
-						if ($feed['maxresults'] == 0 OR $feed['counter'] < $feed['maxresults'])
+						$matched = true;
+
+						if (!($feed['rssoptions'] & $vbulletin->bf_misc_feedoptions['matchall']))
 						{
-							$feed['counter']++;
-							$items["$uniquehash"] = $item;
-							$itemstemp["$uniquehash"] = $item;
+							break;
 						}
+					}
+					else if ($feed['rssoptions'] & $vbulletin->bf_misc_feedoptions['matchall'])
+					{
+						$matched = false;
 						break;
 					}
+				}
+
+				// add matched item to the potential insert array
+				if ($matched AND ($feed['maxresults'] == 0 OR $feed['counter'] < $feed['maxresults']))
+				{
+					$feed['counter']++;
+					$items["$uniquehash"] = $item;
+					$itemstemp["$uniquehash"] = $item;
 				}
 			}
 			// no search terms, insert item regardless
@@ -256,11 +290,14 @@ if (!empty($feeds))
 	{
 		$vbulletin->options['postminchars'] = 1; // try to avoid minimum character errors
 		$error_type = (defined('IN_CONTROL_PANEL') ? ERRTYPE_CP : ERRTYPE_SILENT);
+		$rss_logs_inserted = false;
 
 		if (defined('IN_CONTROL_PANEL'))
 		{
 			echo "<ol>";
 		}
+
+		$html_parser = new vB_WysiwygHtmlParser($vbulletin);
 
 		// process the remaining list of items to be inserted
 		foreach ($items AS $uniquehash => $item)
@@ -280,7 +317,7 @@ if (!empty($feeds))
 			$pagetext = $feed['xml']->parse_template($body_template, $item);
 			if ($feed['rssoptions'] & $vbulletin->bf_misc_feedoptions['html2bbcode'])
 			{
-				$pagetext = convert_wysiwyg_html_to_bbcode($pagetext, false, true);
+				$pagetext = $html_parser->parse_wysiwyg_html_to_bbcode($pagetext, false, true);
 				// disable for announcements
 				$feed['rssoptions'] = $feed['rssoptions'] & ~$vbulletin->bf_misc_feedoptions['allowhtml'];
 			}
@@ -303,10 +340,10 @@ if (!empty($feeds))
 
 					$itemdata->set('userid', $feed['userid']);
 					$itemdata->set('forumid', $feed['forumid']);
-					$itemdata->set('title', strip_bbcode(convert_wysiwyg_html_to_bbcode($feed['xml']->parse_template($feed['titletemplate'], $item))));
+					$itemdata->set('title', strip_bbcode($html_parser->parse_wysiwyg_html_to_bbcode($feed['xml']->parse_template($feed['titletemplate'], $item))));
 					$itemdata->set('pagetext', $pagetext);
 					$itemdata->set('startdate', TIMENOW);
-					$itemdata->set('enddate', (TIMENOW + (86400 * ($feed['endannouncement'] > 0 ? $feed['endannouncement'] : 7))));
+					$itemdata->set('enddate', (TIMENOW + (86400 * ($feed['endannouncement'] > 0 ? $feed['endannouncement'] : 7))) - 1);
 					$itemdata->set_bitfield('announcementoptions', 'allowsmilies', ($feed['rssoptions'] & $vbulletin->bf_misc_feedoptions['allowsmilies']) ? 1 : 0);
 					$itemdata->set_bitfield('announcementoptions', 'signature', ($feed['rssoptions'] & $vbulletin->bf_misc_feedoptions['showsignature']) ? 1 : 0);
 					$itemdata->set_bitfield('announcementoptions', 'allowhtml', ($feed['rssoptions'] & $vbulletin->bf_misc_feedoptions['allowhtml']) ? 1 : 0);
@@ -339,14 +376,14 @@ if (!empty($feeds))
 					$itemdata =& datamanager_init('Thread_FirstPost', $vbulletin, $error_type, 'threadpost');
 					$itemdata->set_info('forum', fetch_foruminfo($feed['forumid']));
 					$itemdata->set_info('user', $feed);
-					$itemdata->set_info('is_automated', true);
+					$itemdata->set_info('is_automated', 'rss');
 					$itemdata->set_info('chop_title', true);
 					$itemdata->set('iconid', $feed['iconid']);
 					$itemdata->set('sticky', ($feed['rssoptions'] & $vbulletin->bf_misc_feedoptions['stickthread'] ? 1 : 0));
 					$itemdata->set('forumid', $feed['forumid']);
 					$itemdata->set('prefixid', $feed['prefixid']);
 					$itemdata->set('userid', $feed['userid']);
-					$itemdata->set('title', strip_bbcode(convert_wysiwyg_html_to_bbcode($feed['xml']->parse_template($feed['titletemplate'], $item))));
+					$itemdata->set('title', strip_bbcode($html_parser->parse_wysiwyg_html_to_bbcode($feed['xml']->parse_template($feed['titletemplate'], $item))));
 					$itemdata->set('pagetext', $pagetext);
 					$itemdata->set('visible', ($feed['rssoptions'] & $vbulletin->bf_misc_feedoptions['moderatethread'] ? 0 : 1));
 					$itemdata->set('allowsmilie', ($feed['rssoptions'] & $vbulletin->bf_misc_feedoptions['allowsmilies']) ? 1 : 0);
@@ -358,7 +395,7 @@ if (!empty($feeds))
 					{
 						$itemtype = 'thread';
 						$itemtitle = $itemdata->fetch_field('title');
-						$itemlink = "../showthread.php?t=$itemid";
+						$itemlink = fetch_seo_url('thread|bburl', $itemdata->thread);
 
 						if (defined('IN_CONTROL_PANEL'))
 						{
@@ -371,6 +408,18 @@ if (!empty($feeds))
 					break;
 				}
 			}
+
+			if (!empty($rsslog_insert_sql))
+			{
+				// insert logs
+				$vbulletin->db->query_replace(
+					TABLE_PREFIX . 'rsslog',
+					'(rssfeedid, itemid, itemtype, uniquehash, contenthash, dateline, threadactiontime)',
+					$rsslog_insert_sql
+				);
+				$rsslog_insert_sql = array();
+				$rss_logs_inserted = true;
+			}
 		}
 
 		if (defined('IN_CONTROL_PANEL'))
@@ -378,15 +427,8 @@ if (!empty($feeds))
 			echo "</ol>";
 		}
 
-		if (!empty($rsslog_insert_sql))
+		if ($rss_logs_inserted)
 		{
-			// insert logs
-			$vbulletin->db->query_replace(
-				TABLE_PREFIX . 'rsslog',
-				'(rssfeedid, itemid, itemtype, uniquehash, contenthash, dateline, threadactiontime)',
-				$rsslog_insert_sql
-			);
-
 			// rebuild forum counters
 			require_once(DIR . '/includes/functions_databuild.php');
 			foreach (array_keys($update_forumids) AS $forumid)
@@ -481,8 +523,8 @@ if ($log_items)
 
 /*======================================================================*\
 || ####################################################################
-|| # Downloaded: 16:21, Sat Apr 6th 2013
-|| # CVS: $RCSfile$ - $Revision: 26778 $
+|| # Downloaded: 14:57, Sun Aug 11th 2013
+|| # CVS: $RCSfile$ - $Revision: 43197 $
 || ####################################################################
 \*======================================================================*/
 ?>

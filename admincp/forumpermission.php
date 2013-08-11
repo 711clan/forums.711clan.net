@@ -1,9 +1,9 @@
 <?php
 /*======================================================================*\
 || #################################################################### ||
-|| # vBulletin 3.7.2 Patch Level 2 - Licence Number VBF2470E4F
+|| # vBulletin 4.2.1 - Licence Number VBC2DDE4FB
 || # ---------------------------------------------------------------- # ||
-|| # Copyright ©2000-2013 Jelsoft Enterprises Ltd. All Rights Reserved. ||
+|| # Copyright ©2000-2013 vBulletin Solutions Inc. All Rights Reserved. ||
 || # This file may not be redistributed in whole or significant part. # ||
 || # ---------------- VBULLETIN IS NOT FREE SOFTWARE ---------------- # ||
 || # http://www.vbulletin.com | http://www.vbulletin.com/license.html # ||
@@ -14,7 +14,7 @@
 error_reporting(E_ALL & ~E_NOTICE);
 
 // ##################### DEFINE IMPORTANT CONSTANTS #######################
-define('CVS_REVISION', '$RCSfile$ - $Revision: 15960 $');
+define('CVS_REVISION', '$RCSfile$ - $Revision: 46627 $');
 
 // #################### PRE-CACHE TEMPLATES AND DATA ######################
 $phrasegroups = array('cppermission', 'forum');
@@ -188,7 +188,7 @@ if ($_POST['do'] == 'doupdate')
 		{
 			build_forum_permissions();
 			define('CP_REDIRECT', "forumpermission.php?do=modify&f=" . $vbulletin->GPC['forumid']);
-			print_stop_message('please_complete_required_fields');
+			print_stop_message('saved_forum_permissions_successfully');
 		}
 	}
 	else
@@ -558,7 +558,7 @@ if ($_REQUEST['do'] == 'quickforum')
 	$usergroups = $db->query_read("SELECT usergroupid, title FROM " . TABLE_PREFIX . "usergroup ORDER BY title");
 	while ($usergroup = $db->fetch_array($usergroups))
 	{
-		$usergrouplist[] = "<input type=\"checkbox\" name=\"usergrouplist[$usergroup[usergroupid]]\" value=\"1\" tabindex=\"1\" /> $usergroup[title]";
+		$usergrouplist[] = "<input type=\"checkbox\" name=\"usergrouplist[$usergroup[usergroupid]]\" id=\"usergrouplist_$usergroup[usergroupid]\" value=\"1\" tabindex=\"1\" /><label for=\"usergrouplist_$usergroup[usergroupid]\">$usergroup[title]</label>";
 	}
 	$usergrouplist = implode('<br />', $usergrouplist);
 
@@ -728,7 +728,7 @@ if ($_REQUEST['do'] == 'modify')
 <center>
 <div class="tborder" style="width: 89%">
 <div class="alt1" style="padding: 8px">
-<div class="darkbg" style="padding: 4px; border: 2px inset; text-align: <?php echo $stylevar['left']; ?>">
+<div class="darkbg" style="padding: 4px; border: 2px inset; text-align: <?php echo vB_Template_Runtime::fetchStyleVar('left'); ?>">
 <?php
 
 	// run the display function
@@ -889,8 +889,8 @@ print_cp_footer();
 
 /*======================================================================*\
 || ####################################################################
-|| # Downloaded: 16:21, Sat Apr 6th 2013
-|| # CVS: $RCSfile$ - $Revision: 15960 $
+|| # Downloaded: 14:57, Sun Aug 11th 2013
+|| # CVS: $RCSfile$ - $Revision: 46627 $
 || ####################################################################
 \*======================================================================*/
 ?>

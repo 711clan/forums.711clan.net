@@ -1,16 +1,16 @@
 <?php
 /*======================================================================*\
 || #################################################################### ||
-|| # vBulletin 3.7.2 Patch Level 2 - Licence Number VBF2470E4F
+|| # vBulletin 4.2.1 - Licence Number VBC2DDE4FB
 || # ---------------------------------------------------------------- # ||
-|| # Copyright ©2000-2013 Jelsoft Enterprises Ltd. All Rights Reserved. ||
+|| # Copyright ©2000-2013 vBulletin Solutions Inc. All Rights Reserved. ||
 || # This file may not be redistributed in whole or significant part. # ||
 || # ---------------- VBULLETIN IS NOT FREE SOFTWARE ---------------- # ||
 || # http://www.vbulletin.com | http://www.vbulletin.com/license.html # ||
 || #################################################################### ||
 \*======================================================================*/
 
-if (!class_exists('vB_DataManager'))
+if (!class_exists('vB_DataManager', false))
 {
 	exit;
 }
@@ -19,8 +19,8 @@ if (!class_exists('vB_DataManager'))
 * Class to do data save/delete operations for albums
 *
 * @package	vBulletin
-* @version	$Revision: 26098 $
-* @date		$Date: 2008-03-14 06:52:33 -0500 (Fri, 14 Mar 2008) $
+* @version	$Revision: 62619 $
+* @date		$Date: 2012-05-15 16:54:47 -0700 (Tue, 15 May 2012) $
 */
 class vB_DataManager_Album extends vB_DataManager
 {
@@ -30,16 +30,16 @@ class vB_DataManager_Album extends vB_DataManager
 	* @var	array
 	*/
 	var $validfields = array(
-		'albumid'         => array(TYPE_UINT,       REQ_INCR, 'return ($data > 0);'),
-		'userid'          => array(TYPE_UINT,       REQ_YES),
-		'createdate'      => array(TYPE_UNIXTIME,   REQ_AUTO),
-		'lastpicturedate' => array(TYPE_UNIXTIME,   REQ_NO),
-		'visible'         => array(TYPE_UINT,       REQ_NO),
-		'moderation'      => array(TYPE_UINT,       REQ_NO),
-		'title'           => array(TYPE_NOHTMLCOND, REQ_YES, VF_METHOD),
-		'description'     => array(TYPE_NOHTMLCOND, REQ_NO),
-		'state'           => array(TYPE_STR,        REQ_NO, 'if (!in_array($data, array(\'public\', \'private\', \'profile\'))) { $data = \'public\'; } return true; '),
-		'coverpictureid'  => array(TYPE_UINT,       REQ_NO)
+		'albumid'           => array(TYPE_UINT,       REQ_INCR, 'return ($data > 0);'),
+		'userid'            => array(TYPE_UINT,       REQ_YES),
+		'createdate'        => array(TYPE_UNIXTIME,   REQ_AUTO),
+		'lastpicturedate'   => array(TYPE_UNIXTIME,   REQ_NO),
+		'visible'           => array(TYPE_UINT,       REQ_NO),
+		'moderation'        => array(TYPE_UINT,       REQ_NO),
+		'title'             => array(TYPE_NOHTMLCOND, REQ_YES, VF_METHOD),
+		'description'       => array(TYPE_NOHTMLCOND, REQ_NO),
+		'state'             => array(TYPE_STR,        REQ_NO, 'if (!in_array($data, array(\'public\', \'private\', \'profile\'))) { $data = \'public\'; } return true; '),
+		'coverattachmentid' => array(TYPE_UINT,       REQ_NO)
 	);
 
 	/**
@@ -141,6 +141,16 @@ class vB_DataManager_Album extends vB_DataManager
 			$this->remove_usercss_background_image();
 		}
 
+		if (!$this->condition)
+		{
+			$activity = new vB_ActivityStream_Manage('album', 'album');
+			$activity->set('contentid', $this->fetch_field('albumid'));
+			$activity->set('userid', $this->fetch_field('userid'));
+			$activity->set('dateline', $this->fetch_field('createdate'));
+			$activity->set('action', 'create');
+			$activity->save();		
+		}
+		
 		($hook = vBulletinHook::fetch_hook('albumdata_postsave')) ? eval($hook) : false;
 
 		return true;
@@ -153,82 +163,36 @@ class vB_DataManager_Album extends vB_DataManager
 	*/
 	function post_delete($doquery = true)
 	{
-		$pictures = array();
+		$types = vB_Types::instance();
+		$contenttypeid = intval($types->getContentTypeID('vBForum_Album'));
+
+		$attachmentids = array();
+		$attachdata =& datamanager_init('Attachment', $this->registry, ERRTYPE_STANDARD, 'attachment');
 		$picture_sql = $this->registry->db->query_read("
-			SELECT albumpicture.pictureid, picture.idhash, picture.extension
-			FROM " . TABLE_PREFIX . "albumpicture AS albumpicture
-			LEFT JOIN " . TABLE_PREFIX . "picture AS picture ON (albumpicture.pictureid = picture.pictureid)
-			WHERE albumpicture.albumid = " . $this->fetch_field('albumid')
-		);
+			SELECT
+				a.attachmentid, a.filedataid, a.userid
+			FROM " . TABLE_PREFIX . "attachment AS a
+			WHERE
+				a.contentid = " . $this->fetch_field('albumid') . "
+					AND
+				a.contenttypeid = $contenttypeid
+		");
 		while ($picture = $this->registry->db->fetch_array($picture_sql))
 		{
-			$pictures["$picture[pictureid]"] = $picture;
+			$attachdata->set_existing($picture);
+			$attachdata->delete(true, false, 'album', 'photo');
+			$attachmentids[] = $picture['attachmentid'];
 		}
-
-		if ($pictures)
-		{
-			if ($this->registry->options['album_dataloc'] != 'db')
-			{
-				// remove from fs
-				foreach ($pictures AS $picture)
-				{
-					@unlink(fetch_picture_fs_path($picture));
-					@unlink(fetch_picture_fs_path($picture, true));
-				}
-			}
-
-			$this->registry->db->query_write("
-				DELETE FROM " . TABLE_PREFIX . "picture
-				WHERE pictureid IN (" . implode(',', array_keys($pictures)) . ")
-			");
-
-
-			// delete based on picture id as this means that when a picture is deleted,
-			// it's removed from all albums automatically
-			$this->registry->db->query_write("
-				DELETE FROM " . TABLE_PREFIX . "albumpicture
-				WHERE pictureid IN (" . implode(',', array_keys($pictures)) . ")
-			");
-
-			$this->registry->db->query_write("
-				DELETE FROM " . TABLE_PREFIX . "picturecomment
-				WHERE pictureid IN (" . implode(',', array_keys($pictures)) . ")
-			");
-
-			require_once(DIR . '/includes/functions_picturecomment.php');
-			build_picture_comment_counters($this->fetch_field('userid'));
-
-			$groups = array();
-
-			$groups_sql = $this->registry->db->query_read("
-				SELECT DISTINCT socialgroup.*
-				FROM " . TABLE_PREFIX . "socialgrouppicture AS socialgrouppicture
-				INNER JOIN " . TABLE_PREFIX . "socialgroup AS socialgroup ON (socialgroup.groupid = socialgrouppicture.groupid)
-				WHERE socialgrouppicture.pictureid IN (" . implode(',', array_keys($pictures)) . ")
-			");
-			while ($group = $this->registry->db->fetch_array($groups_sql))
-			{
-				$groups[] = $group;
-			}
-
-			$this->registry->db->query_write("
-				DELETE FROM " . TABLE_PREFIX . "socialgrouppicture
-				WHERE pictureid IN (" . implode(',', array_keys($pictures)) . ")
-			");
-
-			foreach ($groups AS $group)
-			{
-				$groupdata =& datamanager_init('SocialGroup', $this->registry, ERRTYPE_SILENT);
-				$groupdata->set_existing($group);
-				$groupdata->rebuild_picturecount();
-				$groupdata->save();
-			}
-		}
+		$this->registry->db->free_result($picture_sql);
 
 		$this->remove_usercss_background_image();
 
 		($hook = vBulletinHook::fetch_hook('albumdata_delete')) ? eval($hook) : false;
 
+		$activity = new vB_ActivityStream_Manage('album', 'album');
+		$activity->set('contentid', $this->fetch_field('albumid'));
+		$activity->delete();	
+		
 		return true;
 	}
 
@@ -241,9 +205,12 @@ class vB_DataManager_Album extends vB_DataManager
 	{
 		$this->registry->db->query_write("
 			DELETE FROM " . TABLE_PREFIX . "usercss
-			WHERE property = 'background_image'
-				AND value LIKE '" . $this->fetch_field('albumid') . ",%'
-				AND userid = " . intval($this->fetch_field('userid')) . "
+			WHERE
+				property = 'background_image'
+					AND
+				value LIKE '" . $this->fetch_field('albumid') . ",%'
+					AND
+				userid = " . intval($this->fetch_field('userid')) . "
 		");
 		if ($this->registry->db->affected_rows() AND $this->fetch_field('userid'))
 		{
@@ -264,15 +231,19 @@ class vB_DataManager_Album extends vB_DataManager
 			return;
 		}
 
+		$types = vB_Types::instance();
+		$contenttypeid = intval($types->getContentTypeID('vBForum_Album'));
+
 		$counts = $this->registry->db->query_first("
 			SELECT
-				SUM(IF(picture.state = 'visible', 1, 0)) AS visible,
-				SUM(IF(picture.state = 'moderation', 1, 0)) AS moderation,
-				MAX(IF(picture.state = 'visible', albumpicture.dateline, 0)) AS lastpicturedate
-			FROM " . TABLE_PREFIX . "albumpicture AS albumpicture
-			INNER JOIN " . TABLE_PREFIX . "picture AS picture ON (albumpicture.pictureid = picture.pictureid)
-			WHERE albumpicture.albumid = " . $this->fetch_field('albumid') . "
-
+				SUM(IF(a.state = 'visible', 1, 0)) AS visible,
+				SUM(IF(a.state = 'moderation', 1, 0)) AS moderation,
+				MAX(IF(a.state = 'visible', a.dateline, 0)) AS lastpicturedate
+			FROM " . TABLE_PREFIX . "attachment AS a
+			WHERE
+				a.contentid = " . $this->fetch_field('albumid') . "
+					AND
+				a.contenttypeid = $contenttypeid
 		");
 
 		$this->set('visible', $counts['visible']);
@@ -283,8 +254,8 @@ class vB_DataManager_Album extends vB_DataManager
 
 /*======================================================================*\
 || ####################################################################
-|| # Downloaded: 16:21, Sat Apr 6th 2013
-|| # CVS: $RCSfile$ - $Revision: 26098 $
+|| # Downloaded: 14:57, Sun Aug 11th 2013
+|| # CVS: $RCSfile$ - $Revision: 62619 $
 || ####################################################################
 \*======================================================================*/
 ?>

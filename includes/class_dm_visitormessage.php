@@ -1,26 +1,27 @@
 <?php
 /*======================================================================*\
 || #################################################################### ||
-|| # vBulletin 3.7.2 Patch Level 2 - Licence Number VBF2470E4F
+|| # vBulletin 4.2.1 - Licence Number VBC2DDE4FB
 || # ---------------------------------------------------------------- # ||
-|| # Copyright ©2000-2013 Jelsoft Enterprises Ltd. All Rights Reserved. ||
+|| # Copyright ©2000-2013 vBulletin Solutions Inc. All Rights Reserved. ||
 || # This file may not be redistributed in whole or significant part. # ||
 || # ---------------- VBULLETIN IS NOT FREE SOFTWARE ---------------- # ||
 || # http://www.vbulletin.com | http://www.vbulletin.com/license.html # ||
 || #################################################################### ||
 \*======================================================================*/
 
-if (!class_exists('vB_DataManager'))
+if (!class_exists('vB_DataManager', false))
 {
 	exit;
 }
+require_once (DIR . '/vb/search/indexcontroller/queue.php');
 
 /**
 * Class to do data save/delete operations for profile messages
 *
 * @package	vBulletin
-* @version	$Revision: 26588 $
-* @date		$Date: 2008-05-07 12:10:03 -0500 (Wed, 07 May 2008) $
+* @version	$Revision: 62619 $
+* @date		$Date: 2012-05-15 16:54:47 -0700 (Tue, 15 May 2012) $
 *
 */
 class vB_DataManager_VisitorMessage extends vB_DataManager
@@ -172,7 +173,7 @@ class vB_DataManager_VisitorMessage extends vB_DataManager
 			$akismet = new vB_Akismet($this->registry);
 			$akismet->akismet_board = $this->registry->options['bburl'];
 			$akismet->akismet_key = $this->registry->options['vb_antispam_key'];
-			if ($akismet->verify_text(array('user_ip' => IPADDRESS, 'user_agent' => USER_AGENT, 'comment_type' => 'post', 'comment_author' => ($this->info['user']['userid'] ? $this->info['user']['username'] : $this->fetch_field('postusername')), 'comment_content' => $this->fetch_field('pagetext'))) === 'spam')
+			if ($akismet->verify_text(array('user_ip' => IPADDRESS, 'user_agent' => USER_AGENT, 'comment_type' => 'post', 'comment_author' => ($this->info['user']['userid'] ? $this->info['user']['username'] : $this->fetch_field('postusername')), 'comment_author_email' => $this->info['user']['email'], 'comment_author_url' => $this->info['user']['homepage'], 'comment_content' => $this->fetch_field('pagetext'))) === 'spam')
 			{
 				$this->set('state', 'moderation');
 				$this->spamlog_insert = true;
@@ -205,19 +206,16 @@ class vB_DataManager_VisitorMessage extends vB_DataManager
 
 			if ($this->info['hard_delete'])
 			{
-				$db->query_write("
-					DELETE FROM " . TABLE_PREFIX . "deletionlog WHERE primaryid = $vmid AND type = 'visitormessage'
-				");
-
-				$db->query_write("
-					DELETE FROM " . TABLE_PREFIX . "visitormessage WHERE vmid = $vmid
-				");
-
-				$db->query_write("
-					DELETE FROM " . TABLE_PREFIX . "moderation WHERE primaryid = $vmid AND type = 'visitormessage'
-				");
+				$db->query_write("DELETE FROM " . TABLE_PREFIX . "deletionlog WHERE primaryid = $vmid AND type = 'visitormessage'");
+				$db->query_write("DELETE FROM " . TABLE_PREFIX . "visitormessage WHERE vmid = $vmid");
+				$db->query_write("DELETE FROM " . TABLE_PREFIX . "moderation WHERE primaryid = $vmid AND type = 'visitormessage'");
+				$activity = new vB_ActivityStream_Manage('forum', 'visitormessage');
+				$activity->set('contentid', $vmid);
+				$activity->delete();
 
 				// Logging?
+				//let's update the index
+				vB_Search_Indexcontroller_Queue::indexQueue('vBForum', 'VisitorMessage', 'delete', $vmid);
 			}
 			else
 			{
@@ -247,6 +245,7 @@ class vB_DataManager_VisitorMessage extends vB_DataManager
 			$db->query_write("
 				DELETE FROM " . TABLE_PREFIX . "moderation WHERE primaryid = $vmid AND type = 'visitormessage'
 			");
+			vB_Search_Indexcontroller_Queue::indexQueue('vBForum', 'VisitorMessage', 'index', $vmid);
 
 			return true;
 		}
@@ -273,6 +272,7 @@ class vB_DataManager_VisitorMessage extends vB_DataManager
 	function post_save_once($doquery = true)
 	{
 		$vmid = intval($this->fetch_field('vmid'));
+		vB_Search_Indexcontroller_Queue::indexQueue('vBForum', 'VisitorMessage', 'index', $vmid);
 
 		if (!$this->condition)
 		{
@@ -280,6 +280,13 @@ class vB_DataManager_VisitorMessage extends vB_DataManager
 			{
 				$this->insert_dupehash($this->fetch_field('userid'));
 			}
+
+			$activity = new vB_ActivityStream_Manage('forum', 'visitormessage');
+			$activity->set('contentid', $this->fetch_field('vmid'));
+			$activity->set('userid', $this->fetch_field('postuserid'));
+			$activity->set('dateline', $this->fetch_field('dateline'));
+			$activity->set('action', 'create');
+			$activity->save();
 		}
 
 		if (!$this->info['profileuser'])
@@ -336,10 +343,9 @@ class vB_DataManager_VisitorMessage extends vB_DataManager
 			// message was made visible, remove the moderation record
 			$this->dbobject->query_write("
 				DELETE FROM " . TABLE_PREFIX . "moderation
-				WHERE primaryid
+				WHERE primaryid = $vmid AND type = 'visitormessage'
 			");
 		}
-
 		($hook = vBulletinHook::fetch_hook('visitormessagedata_postsave')) ? eval($hook) : false;
 	}
 
@@ -429,9 +435,9 @@ class vB_DataManager_VisitorMessage extends vB_DataManager
 	{
 		if (empty($this->info['is_automated']))
 		{
-			if ($this->registry->options['postmaxchars'] != 0 AND ($postlength = vbstrlen($pagetext)) > $this->registry->options['postmaxchars'])
+			if ($this->registry->options['vm_maxchars'] != 0 AND ($postlength = vbstrlen($pagetext)) > $this->registry->options['vm_maxchars'])
 			{
-				$this->error('toolong', $postlength, $this->registry->options['postmaxchars']);
+				$this->error('toolong', $postlength, $this->registry->options['vm_maxchars']);
 				return false;
 			}
 
@@ -544,8 +550,8 @@ class vB_DataManager_VisitorMessage extends vB_DataManager
 }
 /*======================================================================*\
 || ####################################################################
-|| # Downloaded: 16:21, Sat Apr 6th 2013
-|| # CVS: $RCSfile$ - $Revision: 26588 $
+|| # Downloaded: 14:57, Sun Aug 11th 2013
+|| # CVS: $RCSfile$ - $Revision: 62619 $
 || ####################################################################
 \*======================================================================*/
 ?>

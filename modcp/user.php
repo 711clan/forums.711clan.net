@@ -1,9 +1,9 @@
 <?php
 /*======================================================================*\
 || #################################################################### ||
-|| # vBulletin 3.7.2 Patch Level 2 - Licence Number VBF2470E4F
+|| # vBulletin 4.2.1 - Licence Number VBC2DDE4FB
 || # ---------------------------------------------------------------- # ||
-|| # Copyright ©2000-2013 Jelsoft Enterprises Ltd. All Rights Reserved. ||
+|| # Copyright ©2000-2013 vBulletin Solutions Inc. All Rights Reserved. ||
 || # This file may not be redistributed in whole or significant part. # ||
 || # ---------------- VBULLETIN IS NOT FREE SOFTWARE ---------------- # ||
 || # http://www.vbulletin.com | http://www.vbulletin.com/license.html # ||
@@ -14,7 +14,7 @@
 error_reporting(E_ALL & ~E_NOTICE);
 
 // ##################### DEFINE IMPORTANT CONSTANTS #######################
-define('CVS_REVISION', '$RCSfile$ - $Revision: 26706 $');
+define('CVS_REVISION', '$RCSfile$ - $Revision: 58375 $');
 
 // #################### PRE-CACHE TEMPLATES AND DATA ######################
 $phrasegroups = array('banning', 'cpuser', 'forum', 'timezone', 'user', 'cprofilefield', 'profilefield');
@@ -114,7 +114,7 @@ if ($_REQUEST['do'] == 'doips')
 			{
 				$hostname = $vbphrase['could_not_resolve_hostname'];
 			}
-			print_description_row('<div style="margin-' . $stylevar['left'] . ':20px"><a href="user.php?' . $vbulletin->session->vars['sessionurl'] . 'do=gethost&amp;ip=' . $vbulletin->GPC['ipaddress'] . '">' . $vbulletin->GPC['ipaddress'] . "</a> : <b>$hostname</b></div>");
+			print_description_row('<div style="margin-' . vB_Template_Runtime::fetchStyleVar('left') . ':20px"><a href="user.php?' . $vbulletin->session->vars['sessionurl'] . 'do=gethost&amp;ip=' . $vbulletin->GPC['ipaddress'] . '">' . $vbulletin->GPC['ipaddress'] . "</a> : <b>$hostname</b></div>");
 
 			$results = construct_ip_usage_table($vbulletin->GPC['ipaddress'], 0, $vbulletin->GPC['depth']);
 			print_description_row($vbphrase['post_ip_addresses'], false, 2, 'thead');
@@ -239,7 +239,7 @@ if ($_REQUEST['do'] == 'findnames')
 	if ($db->num_rows($users) > 0)
 	{
 		print_form_header('', '', 0, 1, 'cpform', '70%');
-		print_table_header(construct_phrase($vbphrase['showing_users_x_to_y_of_z'], '1', $db->num_rows($users), $db->num_rows($users)), 7);
+		print_table_header(construct_phrase($vbphrase['showing_users_x_to_y_of_z'], '1', $db->num_rows($users), $db->num_rows($users)), 8);
 		while ($user = $db->fetch_array($users))
 		{
 			$cell = array("<b>$user[username]</b>");
@@ -261,6 +261,7 @@ if ($_REQUEST['do'] == 'findnames')
 			$cell[] = iif($caneditsigs, '<span class="smallfont">' . construct_link_code($vbphrase['change_signature'], 'user.php?' . $vbulletin->session->vars['sessionurl'] . "do=editsig&amp;u=$user[userid]") . '</span>');
 			$cell[] = iif($caneditavatar, '<span class="smallfont">' . construct_link_code($vbphrase['change_avatar'], 'user.php?' . $vbulletin->session->vars['sessionurl'] . "do=avatar&amp;u=$user[userid]") . '</span>');
 			$cell[] = iif($caneditprofilepic, '<span class="smallfont">' . construct_link_code($vbphrase['change_profile_picture'], 'user.php?' . $vbulletin->session->vars['sessionurl'] . "do=profilepic&amp;u=$user[userid]") . '</span>');
+			$cell[] = iif($caneditsigs, '<span class="smallfont">' . construct_link_code($vbphrase['change_signature_picture'], 'user.php?' . $vbulletin->session->vars['sessionurl'] . "do=sigpic&amp;u=$user[userid]") . '</span>');
 			$cell[] = iif($caneditreputation, '<span class="smallfont">' . construct_link_code($vbphrase['edit_reputation'], 'user.php?' . $vbulletin->session->vars['sessionurl'] . "do=reputation&amp;u=$user[userid]") . '</span>');
 
 			print_cells_row($cell);
@@ -276,7 +277,6 @@ if ($_REQUEST['do'] == 'findnames')
 // ###################### Start viewuser #######################
 if ($_REQUEST['do'] == 'viewuser')
 {
-
 	if (!can_moderate(0, 'canviewprofile'))
 	{
 		print_stop_message('no_permission');
@@ -293,18 +293,20 @@ if ($_REQUEST['do'] == 'viewuser')
 	$user = $db->query_first("
 		SELECT user.*,usertextfield.signature,avatar.avatarpath, NOT ISNULL(customavatar.userid) AS hascustomavatar,
 			customavatar.width AS avatarwidth, customavatar.height AS avatarheight, customprofilepic.height AS profilepicheight,
-			customprofilepic.width AS profilepicwidth,
-			customavatar.dateline AS avatardateline, customprofilepic.userid AS profilepic, customprofilepic.dateline AS profilepicdateline
+			customprofilepic.width AS profilepicwidth, NOT ISNULL(sigpic.userid) AS hassigpic, sigpic.width AS sigpicwidth, 
+			sigpic.height AS sigpicheight,
+			customavatar.dateline AS avatardateline, customprofilepic.userid AS profilepic, customprofilepic.dateline AS 
+			profilepicdateline, sigpic.userid AS sigpic, sigpic.dateline AS sigpicdateline
 		FROM " . TABLE_PREFIX . "user AS user
 		LEFT JOIN " . TABLE_PREFIX . "avatar AS avatar ON avatar.avatarid = user.avatarid
 		LEFT JOIN " . TABLE_PREFIX . "customavatar AS customavatar ON customavatar.userid = user.userid
 		LEFT JOIN " . TABLE_PREFIX . "customprofilepic AS customprofilepic ON customprofilepic.userid = user.userid
+		LEFT JOIN " . TABLE_PREFIX . "sigpic AS sigpic ON sigpic.userid = user.userid
 		LEFT JOIN " . TABLE_PREFIX . "usertextfield AS usertextfield ON (usertextfield.userid = user.userid)
 		WHERE user.userid = " . $vbulletin->GPC['userid'] . "
 	");
-
-	$getoptions = convert_bits_to_array($user['options'], $vbulletin->bf_misc_useroptions);
-	$user = array_merge($user, $getoptions);
+	$user = array_merge($user, convert_bits_to_array($user['options'], $vbulletin->bf_misc_useroptions));
+	$user = array_merge($user, convert_bits_to_array($user['adminoptions'], $vbulletin->bf_misc_adminoptions));
 
 	// get threaded mode options
 	if ($user['threadedmode'] == 1 OR $user['threadedmode'] == 2)
@@ -327,7 +329,7 @@ if ($_REQUEST['do'] == 'viewuser')
 
 	// make array for daysprune menu
 	$pruneoptions = array(
-		'-1'   => '- ' . $vbphrase['use_forum_default'] . ' -',
+		'0'    => '- ' . $vbphrase['use_forum_default'] . ' -',
 		'1'    => $vbphrase['show_threads_from_last_day'],
 		'2'    => construct_phrase($vbphrase['show_threads_from_last_x_days'], 2),
 		'7'    => $vbphrase['show_threads_from_last_week'],
@@ -339,7 +341,7 @@ if ($_REQUEST['do'] == 'viewuser')
 		'75'   => construct_phrase($vbphrase['show_threads_from_last_x_days'], 75),
 		'100'  => construct_phrase($vbphrase['show_threads_from_last_x_days'], 100),
 		'365'  => $vbphrase['show_threads_from_last_year'],
-		'1000' => construct_phrase($vbphrase['show_threads_from_last_x_days'], 1000)
+		'-1'   => $vbphrase['show_all_threads']
 	);
 	if ($pruneoptions["$user[daysprune]"] == '')
 	{
@@ -367,6 +369,12 @@ if ($_REQUEST['do'] == 'viewuser')
 	print_yes_no_row($vbphrase['custom_user_title'], 'options[customtitle]', $user['customtitle']);
 	print_input_row($vbphrase['home_page'], 'user[homepage]', $user['homepage'], 0);
 	print_time_row($vbphrase['birthday'], 'birthday', $user['birthday'], 0, 1);
+	print_select_row($vbphrase['privacy'], 'user[showbirthday]', array(
+		0 => $vbphrase['hide_age_and_dob'],
+		1 => $vbphrase['display_age'],
+		3 => $vbphrase['display_day_and_month'],
+		2 => $vbphrase['display_age_and_dob']
+	), $user['showbirthday']);
 	print_textarea_row($vbphrase['signature'] . iif(can_moderate(0, 'caneditsigs'), '<br /><br />' . construct_link_code($vbphrase['edit_signature'], 'user.php?' . $vbulletin->session->vars['sessionurl'] . "do=editsig&amp;u=$user[userid]")), 'signature', $user['signature'], 8, 45, 1, 0);
 	print_input_row($vbphrase['icq_uin'], 'user[icq]', $user['icq'], 0);
 	print_input_row($vbphrase['aim_screen_name'], 'user[aim]', $user['aim'], 0);
@@ -392,7 +400,7 @@ if ($_REQUEST['do'] == 'viewuser')
 	print_table_header($vbphrase['image_options']);
 	if ($user['avatarid'])
 	{
-		$avatarurl = iif(substr($user['avatarpath'], 0, 7) != 'http://' AND substr($user['avatarpath'], 0, 1) != '/', '../') . $user['avatarpath'];
+		$avatarurl = resolve_cp_image_url($user['avatarpath']);
 	}
 	else
 	{
@@ -400,7 +408,7 @@ if ($_REQUEST['do'] == 'viewuser')
 		{
 			if ($vbulletin->options['usefileavatar'])
 			{
-				$avatarurl = iif(substr($vbulletin->options['avatarurl'] , 0, 7) == 'http://', '', '../') . $vbulletin->options['avatarurl'] . "/avatar$user[userid]_$user[avatarrevision].gif";
+				$avatarurl = resolve_cp_image_url($vbulletin->options['avatarurl'] . "/avatar$user[userid]_$user[avatarrevision].gif");
 			}
 			else
 			{
@@ -420,7 +428,7 @@ if ($_REQUEST['do'] == 'viewuser')
 	{
 		if ($vbulletin->options['usefileavatar'])
 		{
-			$profilepicurl = iif(substr($vbulletin->options['profilepicurl'] , 0, 7) == 'http://', '', '../') . $vbulletin->options['profilepicurl'] . "/profilepic$user[userid]_$user[profilepicrevision].gif";
+			$profilepicurl = resolve_cp_image_url($vbulletin->options['profilepicurl'] . "/profilepic$user[userid]_$user[profilepicrevision].gif");
 		}
 		else
 		{
@@ -435,8 +443,29 @@ if ($_REQUEST['do'] == 'viewuser')
 	{
 		$profilepicurl = '../' . $vbulletin->options['cleargifurl'];
 	}
+	if ($user['hassigpic'])
+	{
+		if ($vbulletin->options['usefileavatar'])
+		{
+			$sigpicurl = resolve_cp_image_url($vbulletin->options['sigpicurl'] . "/sigpic$user[userid]_$user[sigpicrevision].gif");
+		}
+		else
+		{
+			$sigpicurl = "../image.php?" . $vbulletin->session->vars['sessionurl'] . "u=$user[userid]&amp;type=sigpic&amp;dateline=$user[sigpicdateline]";
+		}
+		
+		if ($user['sigpicwidth'] AND $user['sigpicheight'])
+		{
+			$sigpicurl .= "\" width=$user[sigpicwidth]\" height=\"$user[sigpicheight]";
+		}
+	}
+	else
+	{
+		$sigpicurl = '../' . $vbulletin->options['cleargifurl'];
+	}
 	print_label_row($vbphrase['avatar'] . iif(can_moderate(0, 'caneditavatar'), '<br /><br />' . construct_link_code($vbphrase['edit_avatar'], 'user.php?' . $vbulletin->session->vars['sessionurl'] . "do=avatar&amp;u=$user[userid]")) . '<input type="image" src="../' . $vbulletin->options['cleargifurl'] . '" alt="" />','<img src="' . $avatarurl . '" alt="" align="top" />');
 	print_label_row($vbphrase['profile_picture'] . iif(can_moderate(0, 'caneditprofilepic'), '<br /><br />' . construct_link_code($vbphrase['edit_profile_picture'], 'user.php?' . $vbulletin->session->vars['sessionurl'] . "do=profilepic&amp;u=$user[userid]")) . '<input type="image" src="../' . $vbulletin->options['cleargifurl'] . '" alt="" />','<img src="' . $profilepicurl . '" alt="" align="top" />');
+	print_label_row($vbphrase['signature_picture'] . iif(can_moderate(0, 'caneditsigs'), '<br /><br />' . construct_link_code($vbphrase['edit_signature_picture'], 'user.php?' . $vbulletin->session->vars['sessionurl'] . "do=sigpic&amp;u=$user[userid]")) . '<input type="image" src="../' . $vbulletin->options['cleargifurl'] . '" alt="" />','<img src="' . $sigpicurl . '" alt="" align="top" />');
 	print_table_break('', $INNERTABLEWIDTH);
 
 	// PROFILE FIELDS SECTION
@@ -467,7 +496,7 @@ if ($_REQUEST['do'] == 'viewuser')
 			print_description_row(construct_phrase($vbphrase['fields_from_form_x'], $forms["$profilefield[form]"]), false, 2, 'optiontitle');
 			$currentform = $profilefield['form'];
 		}
-		print_profilefield_row('profile', $profilefield, $userfield);
+		print_profilefield_row('profile', $profilefield, $userfield, false);
 	}
 
 	($hook = vBulletinHook::fetch_hook('useradmin_edit_column1')) ? eval($hook) : false;
@@ -488,13 +517,40 @@ if ($_REQUEST['do'] == 'viewuser')
 	// USERGROUP SECTION
 	print_table_header($vbphrase['usergroup_options']);
 	print_chooser_row($vbphrase['primary_usergroup'], 'user[usergroupid]', 'usergroup', $user['usergroupid']);
+	if (!empty($user['membergroupids']))
+	{
+		$usergroupids = $user['usergroupid'] . (!empty($user['membergroupids']) ? ',' . $user['membergroupids'] : '');
+		print_chooser_row($vbphrase['display_usergroup'], 'user[displaygroupid]', 'usergroup', iif($user['displaygroupid'] == 0, -1, $user['displaygroupid']), $vbphrase['default'], 0, "WHERE usergroupid IN ($usergroupids)");
+	}
+	$tempgroup = $user['usergroupid'];
+	$user['usergroupid'] = 0;
 	print_membergroup_row($vbphrase['additional_usergroups'], 'membergroup', 0, $user);
 	print_table_break('', $INNERTABLEWIDTH);
 
 	// reputation SECTION
+	require_once(DIR . '/includes/functions_reputation.php');
+	
+	if ($user['userid'])
+	{
+		$perms = fetch_permissions(0, $user['userid'], $user);
+	}
+	else
+	{
+		$perms = array();
+	}
+	$score = fetch_reppower($user, $perms);
+	
 	print_table_header($vbphrase['reputation']);
 	print_yes_no_row($vbphrase['display_reputation'], 'options[showreputation]', $user['showreputation']);
 	print_input_row($vbphrase['reputation_level'], 'user[reputation]', $user['reputation']);
+	print_label_row($vbphrase['current_reputation_power'], $score, '', 'top', 'reputationpower');
+	print_table_break('',$INNERTABLEWIDTH);
+	
+	//INFRACTIONS SECTION
+	print_table_header($vbphrase['infractions']);
+	print_input_row($vbphrase['warnings'], 'user[warnings]', $user['warnings'], true, 5);
+	print_input_row($vbphrase['infractions'], 'user[infractions]', $user['infractions'], true, 5);
+	print_input_row($vbphrase['infraction_points'], 'user[ipoints]', $user['ipoints'], true, 5);
 	print_table_break('',$INNERTABLEWIDTH);
 
 	// BROWSING OPTIONS SECTION
@@ -502,12 +558,19 @@ if ($_REQUEST['do'] == 'viewuser')
 	print_yes_no_row($vbphrase['receive_admin_emails'], 'options[adminemail]', $user['adminemail']);
 	print_yes_no_row($vbphrase['display_email'], 'options[showemail]', $user[showemail]);
 	print_yes_no_row($vbphrase['invisible_mode'], 'options[invisible]', $user['invisible']);
+	print_yes_no_row($vbphrase['allow_vcard_download'], 'options[showvcard]', $user['showvcard']);
 	print_yes_no_row($vbphrase['receive_private_messages'], 'options[receivepm]', $user['receivepm']);
+	print_yes_no_row($vbphrase['pm_from_contacts_only'], 'options[receivepmbuddies]', $user['receivepmbuddies']);
 	print_yes_no_row($vbphrase['send_notification_email_when_a_private_message_is_received'], 'options[emailonpm]', $user['emailonpm']);
 	print_yes_no_row($vbphrase['pop_up_notification_box_when_a_private_message_is_received'], 'user[pmpopup]', $user['pmpopup']);
+	print_yes_no_row($vbphrase['acp_save_pm_copy_default'], 'user[pmdefaultsavecopy]', $user['pmdefaultsavecopy']);
+	print_yes_no_row($vbphrase['enable_visitor_messaging'], 'options[vm_enable]', $user['vm_enable']);
+	print_yes_no_row($vbphrase['limit_vm_to_contacts_only'], 'options[vm_contactonly]', $user['vm_contactonly']);
 	print_yes_no_row($vbphrase['display_signature'], 'options[showsignatures]', $user['showsignatures']);
 	print_yes_no_row($vbphrase['display_avatars'], 'options[showavatars]', $user['showavatars']);
 	print_yes_no_row($vbphrase['display_images'], 'options[showimages]', $user['showimages']);
+	print_yes_no_row($vbphrase['show_others_custom_profile_styles'], 'options[showusercss]', $user['showusercss']);
+	print_yes_no_row($vbphrase['receieve_friend_request_notification'], 'options[receivefriendemailrequest]', $user['receivefriendemailrequest']);
 	//print_yes_no_row($vbphrase['use_email_notification_by_default'], 'options[emailnotification]', $user['emailnotification']);
 	print_radio_row($vbphrase['auto_subscription_mode'], 'user[autosubscribe]', array(
 		-1 => $vbphrase['subscribe_choice_none'],
@@ -531,12 +594,22 @@ if ($_REQUEST['do'] == 'viewuser')
 
 	construct_style_chooser($vbphrase['style'], 'user[styleid]', $user['styleid']);
 	print_table_break('', $INNERTABLEWIDTH);
+	
+	// ADMIN OVERRIDE OPTIONS SECTION
+	print_table_header($vbphrase['admin_override_options']);
+	foreach ($vbulletin->bf_misc_adminoptions AS $field => $value)
+	{
+		print_yes_no_row($vbphrase['keep_' . $field], 'adminoptions[' . $field . ']', $user["$field"]);
+	}
+	print_table_break('', $INNERTABLEWIDTH);
 
 	// TIME FIELDS SECTION
 	print_table_header($vbphrase['time_options']);
-	print_description_row($vbphrase['timezone'].' <select name="user[timezoneoffset]" class="bginput" tabindex="1">' . construct_select_options(fetch_timezones_array(), $user['timezoneoffset']) . '</select>');
+	print_select_row($vbphrase['timezone'], 'user[timezoneoffset]', fetch_timezones_array(), $user['timezoneoffset']);
+	print_yes_no_row($vbphrase['automatically_detect_dst_settings'], 'options[dstauto]', $user['dstauto']);
+	print_yes_no_row($vbphrase['dst_currently_in_effect'], 'options[dstonoff]', $user['dstonoff']);
 	print_label_row($vbphrase['default_view_age'], '<select name="user[daysprune]" class="bginput" tabindex="1">' . construct_select_options($pruneoptions, $user['daysprune']) . '</select>');
-	print_time_row($vbphrase['join_date'], 'joindate', $user['joindate'], 0);
+	print_time_row($vbphrase['join_date'], 'joindate', $user['joindate']);
 	print_time_row($vbphrase['last_visit'], 'lastvisit', $user['lastvisit']);
 	print_time_row($vbphrase['last_activity'], 'lastactivity', $user['lastactivity']);
 	print_time_row($vbphrase['last_post'], 'lastpost', $user['lastpost']);
@@ -625,6 +698,147 @@ if ($_POST['do'] == 'doeditsig')
 	}
 	print_stop_message('saved_signature_successfully');
 
+}
+
+// ###################### Start modify Signature Pic ##############
+if ($_REQUEST['do'] == 'sigpic')
+{
+	if(!can_moderate(0,'caneditsigs'))
+	{
+		print_stop_message('no_permission');
+	}
+	
+	if(is_unalterable_user($vbulletin->GPC['userid']))
+	{
+		print_stop_message('user_is_protected_from_alteration_by_undeletableusers_var');
+	}
+	
+	$userinfo = fetch_userinfo($vbulletin->GPC['userid'], FETCH_USERINFO_SIGPIC);
+	if(!$userinfo)
+	{
+		print_stop_message('invalid_user_specified');
+	}
+	
+	if ($userinfo['sigpicwidth'] AND $userinfo['sigpicheight'])
+	{
+		$size = " width=\"$userinfo[sigpicwidth]\" height=\"$userinfo[sigpicheight]\"";
+	}
+	
+	print_form_header('user', 'updatesigpic', 1);
+	construct_hidden_code('userid', $vbulletin->GPC['userid']);
+	if(!$userinfo['sigpic'])
+	{
+		construct_hidden_code('usesigpic',1);
+	}
+	print_table_header($vbphrase['edit_signature_picture']);
+	
+	if($userinfo['sigpic'])
+	{
+		if($vbulletin->options['usefileavatar'])
+		{
+			$userinfo['sigpicurl'] = '../' . $vbulletin->options['sigpicurl'] . '/sigpic' . $userinfo['userid'] . '_' .
+			$userinfo['sigpicrevision'] . '.gif';
+		}
+		else
+		{
+			$userinfo['sigpicurl'] = '../image.php?' . $vbulletin->session->vars['sessionurl'] . 'u=' . $userinfo['userid'] . "&amp;dateline=$userinfo[sigpicdateline]&amp;type=sigpic";
+		}
+		print_description_row("<div align=\"center\"><img src=\"$userinfo[sigpicurl]\" $size alt=\"\" title=\"" . construct_phrase($vbphrase['xs_picture'], $userinfo['username']) . "\" /></div>");
+		print_yes_no_row($vbphrase['use_signature_picture'], 'usesigpic', iif($userinfo['sigpic'], 1, 0));
+	}
+	else
+	{
+		construct_hidden_code('usesigpic',1);
+	}
+	
+	cache_permissions($userinfo,false);
+	if ($vbulletin->userinfo['permissions']['adminpermissions'] & $vbulletin->bf_ugp_adminpermissions['cancontrolpanel'] AND ($userinfo['permissions']['sigpicmaxwidth'] > 0 OR $userinfo['permissions']['sigpicmaxheight'] > 0))
+	{
+		print_yes_no_row($vbphrase['resize_image_to_users_maximum_allowed_size'], 'resize');
+	}
+	print_input_row($vbphrase['enter_image_url'], 'sigpicurl', 'http://www.');
+	print_upload_row($vbphrase['upload_image_from_computer'], 'upload');
+	
+	print_submit_row($vbphrase['update'], '');
+	
+}
+
+// ###################### Start Update Signature Pic ##############
+if ($_POST['do'] == 'updatesigpic')
+{
+	if (!can_moderate(0,'caneditsigs'))
+	{
+		print_stop_message('no_permission');
+	}
+	
+	$vbulletin->input->clean_array_gpc('p', array(
+		'usesigpic' => TYPE_BOOL,
+		'sigpicurl' => TYPE_STR,
+		'resize'    => TYPE_BOOL,
+	));
+	
+	if(is_unalterable_user($vbulletin->GPC['userid']))
+	{
+		print_stop_message('user_is_protected_from_alteration_by_undeletableusers_var');
+	}
+	
+	$userinfo = fetch_userinfo($vbulletin->GPC['userid']);
+	if(!$userinfo)
+	{
+		print_stop_message('invalid_user_specified');
+	}
+	
+	if($vbulletin->GPC['usesigpic'])
+	{
+		$vbulletin->input->clean_gpc('f', 'upload', TYPE_FILE);
+		
+		require_once(DIR . '/includes/class_upload.php');
+		require_once(DIR . '/includes/class_image.php');
+		
+		$upload = new vB_Upload_Userpic($vbulletin);
+		
+		$upload->data =& datamanager_init('Userpic_Sigpic', $vbulletin, ERRTYPE_CP, 'userpic');
+		$upload->image =& vB_Image::fetch_library($vbulletin);
+		$upload->userinfo =& $userinfo;
+		
+		cache_permissions($userinfo, false);
+		if(
+			($userinfo['permissions']['sigpicmaxwidth'] > 0 OR $userinfo['permissions']['sigpicmaxheight'] > 0)
+			AND 
+			(
+				$vbulletin->GPC['resize']
+					OR
+				(!($vbulletin->userinfo['permissions']['adminpermissions'] & $vbulletin->bf_ugp_adminpermissions['cancontrolpanel']))
+			)
+		)
+		{
+			$upload->maxwidth = $userinfo['permissions']['sigpicmaxwidth'];
+			$upload->maxheight = $userinfo['permissions']['sigpicmaxheight'];
+		}
+		
+		if(!$upload->process_upload($vbulletin->GPC['sigpicurl']))
+		{
+			print_stop_message('there_were_errors_encountered_with_your_upload_x', $upload->fetch_error());
+		}
+	}
+	else
+	{
+		// not using a sigpic
+		$userpic =& datamanager_init('Userpic_Sigpic', $vbulletin, ERRTYPE_CP, 'userpic');
+		$userpic->condition = "userid = " . $userinfo['userid'];
+		$userpic->delete();
+	}
+	
+	if(can_moderate(0, 'canviewprofile'))
+	{
+		define('CP_REDIRECT', 'user.php?do=viewuser&amp;u=' . $userinfo['userid']);
+	}
+	else
+	{
+		define('CP_REDIRECT', 'index.php?do=home');
+	}
+	print_stop_message('saved_signature_picture_successfully');
+	
 }
 
 // ###################### Start modify Profile Pic ################
@@ -863,7 +1077,7 @@ if ($_REQUEST['do'] == 'avatar')
 	while ($avatar = $db->fetch_array($avatars))
 	{
 		$avatarid = $avatar['avatarid'];
-		$avatar['avatarpath'] = iif(substr($avatar['avatarpath'], 0, 7) != 'http://' AND $avatar['avatarpath']{0} != '/', '../', '') . $avatar['avatarpath'];
+		$avatar['avatarpath'] = resolve_cp_image_url($avatar['avatarpath']);
 		if ($avatarcount == 0)
 		{
 			$output .= '<tr class="' . fetch_row_bgclass() . '">';
@@ -1322,8 +1536,8 @@ print_cp_footer();
 
 /*======================================================================*\
 || ####################################################################
-|| # Downloaded: 16:21, Sat Apr 6th 2013
-|| # CVS: $RCSfile$ - $Revision: 26706 $
+|| # Downloaded: 14:57, Sun Aug 11th 2013
+|| # CVS: $RCSfile$ - $Revision: 58375 $
 || ####################################################################
 \*======================================================================*/
 ?>

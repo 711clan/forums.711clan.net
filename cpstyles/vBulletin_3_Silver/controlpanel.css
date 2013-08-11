@@ -1,8 +1,8 @@
 /*======================================================================*\
 || #################################################################### ||
-|| # vBulletin 3.7.2 Patch Level 2
+|| # vBulletin 4.2.1
 || # ---------------------------------------------------------------- # ||
-|| # All code in this file is ©2000-2013 Jelsoft Enterprises Ltd.     # ||
+|| # All code in this file is ©2000-2013 vBulletin Solutions Inc.     # ||
 || # This file may not be redistributed in whole or significant part. # ||
 || # ---------------- VBULLETIN IS NOT FREE SOFTWARE ---------------- # ||
 || # http://www.vbulletin.com | http://www.vbulletin.com/license.html # ||
@@ -94,7 +94,7 @@ input.bginput, input.col-c, input.col-i, input.col-g
 }
 .button
 {
-	background: #EEF0F2 url("../../cpstyles/vBulletin_3_Silver/cp_button_bg.gif") repeat-x;
+	background: #7D7B7A url("../../cpstyles/vBulletin_3_Silver/cp_button_bg.gif") repeat-x;
 	border: outset 1px;
 	color: #000000;
 }
@@ -185,6 +185,14 @@ td.thead, .thead td
 	border: outset 1px;
 }
 
+/* status */
+.status
+{
+	color: #001F30;
+	background: #DEE0E2;
+	padding: 5px;
+}
+
 /* Page title banner */
 .pagetitle
 {
@@ -273,13 +281,23 @@ option.templategroup
 }
 
 /* Color preview buttons on the CSS editor */
+.color_input_container {float:left; display:inline; margin-right:4px}
 .colorpreview
 {
 	font-weight: normal;
 	background: none;
-	border: inset 1px #90AFC0;
+	border: 1px solid black;
 	width: 40px;
 	height: 21px;
+
+	float:left;
+	display:inline;
+	border-style: inset;
+	border-width: 1px;
+	background: rgb(0, 0, 0) none repeat scroll 0% 0%;
+	-moz-background-clip: -moz-initial;
+	-moz-background-origin:	-moz-initial;
+	-moz-background-inline-policy: -moz-initial;
 }
 
 /* ############################################################################# */
@@ -296,22 +314,109 @@ option.templategroup
 	color: #000000;
 }
 
-.diff-added
-{
-	background-color: #90f090;
-	color: #000000;
-}
-
-.diff-deleted
-{
-	background-color: #f09090;
-	color: #000000;
-}
-
 .diff-changed
 {
 	background-color: #f0f060;
 	color: #000000;
+}
+
+.diff-added, .diff-inline-added
+{
+	background-color: #B0F0B0;
+	color: #000000;
+	border: 0 solid #00FF00;
+}
+
+.diff-inline-added-start
+{
+	border-top-width: 1px;
+}
+
+.diff-inline-added-end
+{
+	border-bottom-width: 1px;
+}
+
+.diff-deleted, .diff-inline-deleted
+{
+	background-color: #F0B0B0;
+	color: #000000;
+	border: 0 solid #EB5858;
+}
+
+.diff-inline-deleted-start
+{
+	border-top-width: 1px
+}
+
+.diff-inline-deleted-end
+{
+	border-bottom-width: 1px;
+}
+
+.diff-inline-break
+{
+	border: solid gray;
+	border-width:1px 0;
+}
+
+.diff-linenumber
+{
+	color: #999988;
+	background-color: #EEEEDD;
+	border-bottom: 1px solid #999988;
+	border-right: 1px solid #CCCCCC;
+	vertical-align: top;
+	text-align: center;
+}
+
+.merge-nochange
+{
+	background-color: #dddddd;
+	color: #000000;
+}
+
+.merge-successful
+{
+	background-color: #f0f060;
+	color: #000000;
+}
+
+.merge-conflict
+{
+	background: #F0B0B0;
+	color: #000000;
+}
+
+#compare_inline .merge-conflict
+{
+	background: #F0B0B0 url(../../cpstyles/vBulletin_3_Default/merge_conflict_bg.png) repeat-y;
+	color: #000000;
+	padding-left: 0px;
+	padding-top: 0px;
+	padding-bottom: 0px;
+}
+
+.merge-conflict-row
+{
+	padding-left: 20px;
+	border-bottom: 1px solid #D04040;
+}
+
+.merge-conflict-final-row
+{
+	padding-left: 20px;
+}
+
+.template-text-merged
+{
+	color: #0000C0;
+}
+
+.template-text-conflicted
+{
+	color: #D00000;
+	font-weight: bold;
 }
 
 /* ############################################################################# */
@@ -441,6 +546,25 @@ hr
 	list-style-type: disc;
 }
 
+/* todo copy to other styles */
+ul.cbsubgroup
+{
+	margin: 0px;
+	padding: 0px;
+	margin-left: 20px;
+	list-style: none inside;
+}
+
+ul.cbsubgroup li
+{
+	font-style: italic;
+}
+
+.cbsubgroup-trigger img
+{
+	border:none;
+	vertical-align: bottom;
+}
 /* ############################################################################# */
 /* NAV PANEL ELEMENTS */
 
@@ -496,21 +620,23 @@ hr
 }
 
 /* Individual nav links */
-.navlink-normal, .navlink-hover
+a.navlink
 {
 	border-bottom: solid 1px #666688;
 	padding: 2px 4px 2px 4px;
-	cursor: pointer;
+	display: block;
+	outline: 0 none;
+	-moz-outline-style: 0 none;
 }
 
-/* Normal nav link <div> */
-.navlink-normal
+/* Normal nav link */
+a.navlink:link, a.navlink:visited
 {
 	background: #DDDDE2;
 }
 
-/* Mouse-over nav link <div> */
-.navlink-hover
+/* Mouse-over nav link  */
+a.navlink:hover
 {
 	background: #F0F0F6;
 }
@@ -522,9 +648,116 @@ hr
 	font-weight:bold;
 }
 
+/* ############################################################################# */
+/* Layout Manager */
+.widget_container
+{
+	list-style:none;
+	margin:6px;
+	border: 1px solid black;
+}
+.widget_title
+{
+	background-color:#808080;
+	text-align:center;
+	font: 12px tahoma;
+	height:25px;
+	position:relative;
+}
+.widget_title_primary
+{
+	background-color:#DC143C;
+}
+.widget_title div.title {
+	padding:4px;
+	margin-right:19px;
+	overflow:hidden;
+	white-space:nowrap;
+	_width:60%;
+}
+.widget_title div.closebutton
+{
+	position:absolute;
+	right:2px;
+	top:2px;
+	padding:0;
+	cursor:pointer;
+	border:1px solid white;
+	background-color:black;
+	color:white;
+	width:11px;
+	height:11px;
+	font-size:10px;
+	font-weight:bold;
+	font-family:verdana,geneva,lucida,'lucida grande',arial,helvetica,sans-serif;
+	line-height:0.8;
+	background:none;
+}
+
+.widget_title div.closebutton:hover {
+	background-color:#CC3333;
+}
+.widget_description
+{
+	background-color:#D3D3D3;
+	padding:4px;
+	padding-top:10px;
+	font:12px tahoma;
+	text-align:center;
+	height:40px;
+}
+.widget_description_primary
+{
+	background-color:#F08080;
+}
+.list_no_decoration
+{
+	list-style:none;
+	margin:0px;
+	padding:1px;
+}
+.yui-header, .yui-footer
+{
+	background-color:#BDB76B;
+}
+.yui-panel
+{
+	background-color:#FFFF33;
+}
+.yui-sidebar
+{
+	background-color:#CCCC99;
+}
+
+/* added for cms */
+.section_name
+{
+	border:1px solid #A8B2B8;
+	color: #000000;
+}
+
+#sections {
+	border: 4px ridge #001F30;
+	background: #EEEEEE;
+}
+
+#sections div {
+	padding: 10px;
+}
+
+tr.selected_parent_row td {
+	background: #AEACB9;
+	border: outset 2px;
+}
+
+tr.selected_parent_row td .sectionTitleWrapper a {
+	font-size:16px;
+}
+
+
 /*======================================================================*\
 || ####################################################################
-|| # Downloaded: 16:21, Sat Apr 6th 2013
-|| # CVS: $RCSfile$ - $Revision: 26837 $
+|| # Downloaded: 14:57, Sun Aug 11th 2013
+|| # CVS: $RCSfile$ - $Revision: 40651 $
 || ####################################################################
 \*======================================================================*/

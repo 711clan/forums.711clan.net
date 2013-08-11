@@ -1,9 +1,9 @@
 <?php
 /*======================================================================*\
 || #################################################################### ||
-|| # vBulletin 3.7.2 Patch Level 2 - Licence Number VBF2470E4F
+|| # vBulletin 4.2.1 - Licence Number VBC2DDE4FB
 || # ---------------------------------------------------------------- # ||
-|| # Copyright ©2000-2013 Jelsoft Enterprises Ltd. All Rights Reserved. ||
+|| # Copyright ©2000-2013 vBulletin Solutions Inc. All Rights Reserved. ||
 || # This file may not be redistributed in whole or significant part. # ||
 || # ---------------- VBULLETIN IS NOT FREE SOFTWARE ---------------- # ||
 || # http://www.vbulletin.com | http://www.vbulletin.com/license.html # ||
@@ -137,7 +137,7 @@ class vB_ReportItem
 		);
 
 		require_once(DIR . '/includes/class_floodcheck.php');
-		$floodcheck =& new vB_FloodCheck($this->registry, 'user', 'emailstamp');
+		$floodcheck = new vB_FloodCheck($this->registry, 'user', 'emailstamp');
 		$floodcheck->commit_key($this->registry->userinfo['userid'], TIMENOW, TIMENOW - $flood_limit);
 		if ($floodcheck->is_flooding())
 		{
@@ -178,6 +178,7 @@ class vB_ReportItem
 			'remail'    => $this->registry->userinfo['email'],
 		);
 
+
 		if ($this->registry->options['postmaxchars'] > 0)
 		{
 			$reportinfo['reason'] = substr($reason, 0, $this->registry->options['postmaxchars']);
@@ -207,7 +208,11 @@ class vB_ReportItem
 			$reportinfo['modlist'] = $vbphrase['n_a'];
 		}
 
+		//set the item specific report info
 		$this->set_reportinfo($reportinfo);
+		$this->set_reportinfo_commonlinks($reportinfo);
+
+		($hook = vBulletinHook::fetch_hook('report_do_report')) ? eval($hook) : false;
 
 		if ($reportthread)
 		{
@@ -221,6 +226,7 @@ class vB_ReportItem
 					$rpthreadinfo['forumid'] != $rpforuminfo['forumid'])
 				))
 			{
+				//creates magic variables $subject and $message
 				eval(fetch_email_phrases('report' . $this->phrasekey . '_newthread', 0));
 
 				if (!$this->registry->options['rpuserid'] OR !($userinfo = fetch_userinfo($this->registry->options['rpuserid'])))
@@ -245,43 +251,49 @@ class vB_ReportItem
 					// not posting as the current user, IP won't make sense
 					$threadman->set('ipaddress', '');
 				}
-				$rpthreadid = $threadman->save();
 
-				if ($this->update_item_reportid($rpthreadid))
+				if ($rpthreadid = $threadman->save())
 				{
-					$threadman->set_info('skip_moderator_email', false);
-					$threadman->email_moderators(array('newthreademail', 'newpostemail'));
-					$this->iteminfo['reportthreadid'] = 0;
-					$rpthreadinfo = array(
-						'threadid'   => $rpthreadid,
-						'forumid'    => $rpforuminfo['forumid'],
-						'postuserid' => $userinfo['userid'],
-					);
-
-					// check the permission of the other user
-					$userperms = fetch_permissions($rpthreadinfo['forumid'], $userinfo['userid'], $userinfo);
-					if (($userperms & $this->registry->bf_ugp_forumpermissions['canview']) AND ($userperms & $this->registry->bf_ugp_forumpermissions['canviewthreads']) AND $userinfo['autosubscribe'] != -1)
+					if ($this->update_item_reportid($rpthreadid))
 					{
-						$this->registry->db->query_write("
-							INSERT IGNORE INTO " . TABLE_PREFIX . "subscribethread
-								(userid, threadid, emailupdate, folderid, canview)
-							VALUES
-								(" . $userinfo['userid'] . ", $rpthreadinfo[threadid], $userinfo[autosubscribe], 0, 1)
-						");
+						$threadman->set_info('skip_moderator_email', false);
+						$threadman->email_moderators(array('newthreademail', 'newpostemail'));
+						$this->iteminfo['reportthreadid'] = 0;
+						$rpthreadinfo = array(
+							'threadid'   => $rpthreadid,
+							'forumid'    => $rpforuminfo['forumid'],
+							'postuserid' => $userinfo['userid'],
+						);
+
+						// check the permission of the other user
+						$userperms = fetch_permissions($rpthreadinfo['forumid'], $userinfo['userid'], $userinfo);
+						if (($userperms & $this->registry->bf_ugp_forumpermissions['canview']) AND ($userperms & $this->registry->bf_ugp_forumpermissions['canviewthreads']) AND $userinfo['autosubscribe'] != -1)
+						{
+							$this->registry->db->query_write("
+								INSERT IGNORE INTO " . TABLE_PREFIX . "subscribethread
+									(userid, threadid, emailupdate, folderid, canview)
+								VALUES
+									(" . $userinfo['userid'] . ", $rpthreadinfo[threadid], $userinfo[autosubscribe], 0, 1)
+							");
+						}
+					}
+					else
+					{
+						// Delete the thread we just created
+						if ($delthread = fetch_threadinfo($rpthreadid))
+						{
+							$threadman =& datamanager_init('Thread', $this->registry, ERRTYPE_SILENT, 'threadpost');
+							$threadman->set_existing($delthread);
+							$threadman->delete($rpforuminfo['countposts'], true, NULL, false);
+							unset($threadman);
+						}
+
+						$this->refetch_iteminfo();
 					}
 				}
 				else
 				{
-					// Delete the thread we just created
-					if ($delthread = fetch_threadinfo($rpthreadid))
-					{
-						$threadman =& datamanager_init('Thread', $this->registry, ERRTYPE_SILENT, 'threadpost');
-						$threadman->set_existing($delthread);
-						$threadman->delete($rpforuminfo['countposts'], true, NULL, false);
-						unset($threadman);
-					}
-
-					$this->refetch_iteminfo();
+					$reportemail = true;
 				}
 			}
 
@@ -368,7 +380,8 @@ class vB_ReportItem
 
 		($hook = vBulletinHook::fetch_hook('report_send_email')) ? eval($hook) : false;
 
-		$reportinfo['discuss'] = $rpthreadinfo ? construct_phrase($vbphrase['discussion_thread_created_x_y'], $this->registry->options['bburl'], $rpthreadinfo['threadid']) : '';
+		$reportinfo['discuss'] = $rpthreadinfo ? construct_phrase($vbphrase['discussion_thread_created_x'],
+			fetch_seo_url('thread|nosession|js|bburl', $rpthreadinfo)) : '';
 
 		eval(fetch_email_phrases('report' . $this->phrasekey, $email_langid));
 		vbmail($moderator['email'], $subject, $message, true);
@@ -393,14 +406,15 @@ class vB_ReportItem
 	 */
 	function fetch_affected_super_moderators($mods)
 	{
-			return $this->registry->db->query_read_slave("
-				SELECT DISTINCT user.email, user.languageid, user.username, user.userid
-				FROM " . TABLE_PREFIX . "usergroup AS usergroup
-				INNER JOIN " . TABLE_PREFIX . "user AS user ON
-					(user.usergroupid = usergroup.usergroupid OR FIND_IN_SET(usergroup.usergroupid, user.membergroupids))
-				WHERE usergroup.adminpermissions <> 0
-					" . (!empty($mods) ? "AND userid NOT IN (" . implode(',', array_keys($mods)) . ")" : "") . "
-			");
+		return $this->registry->db->query_read_slave("
+			SELECT DISTINCT user.email, user.languageid, user.username, user.userid
+			FROM " . TABLE_PREFIX . "usergroup AS usergroup
+			INNER JOIN " . TABLE_PREFIX . "user AS user ON
+				(user.usergroupid = usergroup.usergroupid OR FIND_IN_SET(usergroup.usergroupid, user.membergroupids))
+			WHERE usergroup.adminpermissions > 0
+				AND (usergroup.adminpermissions & " . $this->registry->bf_ugp_adminpermissions['ismoderator'] . ")
+				" . (!empty($mods) ? "AND userid NOT IN (" . implode(',', array_keys($mods)) . ")" : "") . "
+		");
 	}
 
 	/**
@@ -411,9 +425,25 @@ class vB_ReportItem
 	 * @abstract
 	 *
 	 */
-	function set_reportinfo()
+	function set_reportinfo(&$reportinfo)
 	{
-		return array();
+	}
+
+
+	/*
+	 *	Set the common links that every class is going to need.
+	 *	Seperated out from set_report_info because most classes won't need to override it.
+	 */
+	protected function set_reportinfo_commonlinks(&$reportinfo)
+	{
+		$reportinfo['reporterlink'] = fetch_seo_url('member|js|nosession|bburl', $reportinfo, null, 'ruserid', 'rusername');
+
+		//this isn't common report information, but every type sets a purserid and pusername to the report info
+		if (isset($reportinfo['puserid']))
+		{
+			$reportinfo['posterlink'] = fetch_seo_url('member|js|nosession|bburl',
+				$reportinfo, null, 'puserid', 'pusername');
+		}
 	}
 
 	/**
@@ -424,9 +454,8 @@ class vB_ReportItem
 	 * @abstract
 	 *
 	 */
-	function set_forminfo()
+	function set_forminfo(&$iteminfo)
 	{
-		return array();
 	}
 
 	/**
@@ -503,7 +532,7 @@ class vB_ReportItem_Post extends vB_ReportItem
 			'reporttype'   => $vbphrase['forum'],
 			'description'  => $vbphrase['only_used_to_report'],
 			'itemname'     => $this->extrainfo['forum']['title_clean'],
-			'itemlink'     => "forumdisplay.php?" . $this->registry->session->vars['sessionurl'] . "f=" . $this->extrainfo['forum']['forumid'],
+			'itemlink'     => fetch_seo_url('forum', $this->extrainfo['forum']),
 		);
 
 		$this->set_reporting_hidden_value('postid', $iteminfo['postid']);
@@ -530,7 +559,13 @@ class vB_ReportItem_Post extends vB_ReportItem
 			'pagetext'    => $this->iteminfo['pagetext'],
 		));
 
-		$reportinfo['prefix_plain'] = $this->extrainfo['thread']['prefixid'] ? fetch_phrase("prefix_" . $this->extrainfo['thread']['prefixid'] . "_title_plain", 'global', '', false, true, 0, false) . ' ' : '';
+		$reportinfo['postlink'] = fetch_seo_url('thread|nosession|bburl|js', $reportinfo,
+			array('p' => $reportinfo['postid'])) . "#post$reportinfo[postid]";
+		$reportinfo['threadlink'] = fetch_seo_url('thread|nosession|bburl|js', $reportinfo);
+
+		$reportinfo['prefix_plain'] = $this->extrainfo['thread']['prefixid'] ?
+			fetch_phrase("prefix_" . $this->extrainfo['thread']['prefixid'] . "_title_plain",
+				'global', '', false, true, 0, false) . ' ' : '';
 	}
 
 	/**
@@ -570,6 +605,70 @@ class vB_ReportItem_Post extends vB_ReportItem
 		{
 			$this->iteminfo['reportthreadid'] = $rpinfo['reportthreadid'];
 		}
+	}
+}
+
+/**
+ * Report Article Comment Class
+ *
+ * @package 	vBulletin
+ * @copyright 	http://www.vbulletin.com/license.html
+ *
+ * @final
+ *
+ */
+class vB_ReportItem_ArticleComment extends vB_ReportItem_Post
+{
+	/**
+	 * @var string	"Key" for the phrase(s) used when reporting this item
+	 */
+	var $phrasekey = 'articlecomment';
+
+	/**
+	 * Sets information to be used in the form for the report
+	 *
+	 * @param	array	Information to be used.
+	 *
+	 */
+	function set_forminfo(&$iteminfo)
+	{
+		global $vbphrase;
+
+		$content = new vBCms_Item_Content_Article($this->extrainfo['node']);
+
+		$this->forminfo = array(
+			'file'         => 'report',
+			'action'       => 'sendemail',
+			'reportphrase' => $vbphrase['report_bad_articlecomment'],
+			'reporttype'   => $vbphrase['article'],
+			'description'  => $vbphrase['only_used_to_report'],
+			'itemname'     => $content->getTitle(),
+			'itemlink'     => vBCms_Route_Content::getURL(array('node' => $this->extrainfo['node'] . '-' . $content->getUrl())),
+		);
+
+		$this->set_reporting_hidden_value('postid', $iteminfo['postid']);
+		$this->set_reporting_hidden_value('return_node', $this->extrainfo['node']);
+
+		return $this->forminfo;
+	}
+
+	/**
+	 * Sets information regarding the report
+	 *
+	 * @param	array	Information regarding the report
+	 *
+	 */
+	function set_reportinfo(&$reportinfo)
+	{
+		$content = new vBCms_Item_Content_Article($this->extrainfo['node']);
+
+		parent::set_reportinfo($reportinfo);
+		$reportinfo = array_merge($reportinfo, array(
+			'entrytitle' => unhtmlspecialchars($content->getTitle()),
+			'node'       => $this->extrainfo['node'],
+			'itemlink'   => vBCms_Route_Content::getURL(array('node' => $this->extrainfo['node'] . '-' . $content->getUrl())),
+			'postid'     => $this->iteminfo['postid'],
+		));
 	}
 }
 
@@ -623,7 +722,7 @@ class vB_ReportItem_VisitorMessage extends vB_ReportItem
 			'reporttype'   => $vbphrase['visitor_message'],
 			'description'  => $vbphrase['only_used_to_report'],
 			'itemname'     => $this->extrainfo['user']['username'],
-			'itemlink'     => "member.php?" . $this->registry->session->vars['sessionurl'] . "u=" . $this->extrainfo['user']['userid'],
+			'itemlink'     => fetch_seo_url('member', $this->extrainfo['user']),
 		);
 
 		$this->set_reporting_hidden_value('vmid', $iteminfo['vmid']);
@@ -639,14 +738,24 @@ class vB_ReportItem_VisitorMessage extends vB_ReportItem
 	 */
 	function set_reportinfo(&$reportinfo)
 	{
-		$reportinfo = array_merge($reportinfo, array(
-			'username'     => unhtmlspecialchars($this->extrainfo['user']['username']),
-			'userid'       => $this->extrainfo['user']['userid'],
-			'messagetitle' => unhtmlspecialchars($this->iteminfo['title']),
-			'pusername'    => unhtmlspecialchars($this->iteminfo['postusername']),
-			'puserid'      => $this->iteminfo['postuserid'],
-			'vmid'         => $this->iteminfo['vmid'],
-			'pagetext'     => $this->iteminfo['pagetext'],
+		$profile_user = array(
+			'username' => unhtmlspecialchars($this->extrainfo['user']['username']),
+			'userid' => $this->extrainfo['user']['userid']
+		);
+
+		$reportinfo = array_merge($reportinfo, $profile_user, array(
+			'messagetitle'  => unhtmlspecialchars($this->iteminfo['title']),
+			'pusername'     => unhtmlspecialchars($this->iteminfo['postusername']),
+			'puserid'       => $this->iteminfo['postuserid'],
+			'vmid'          => $this->iteminfo['vmid'],
+			'pagetext'      => $this->iteminfo['pagetext'],
+			'memberlink_pi' => fetch_seo_url('member|js|nosession|bburl', $profile_user,
+				array(
+					'tab'  => 'visitor_messaging',
+					'vmid' => $this->iteminfo['vmid'],
+				)
+			),
+			'memberlink'    => fetch_seo_url('member|js|nosesson|bburl',$profile_user),
 		));
 	}
 
@@ -739,8 +848,15 @@ class vB_ReportItem_GroupMessage extends vB_ReportItem
 			'reporttype'   => $vbphrase['social_group'],
 			'description'  => $vbphrase['only_used_to_report'],
 			'itemname'     => $this->extrainfo['group']['name'],
-			'itemlink'     => "group.php?" . $this->registry->session->vars['sessionurl'] . "gmid=$iteminfo[gmid]",
+			'itemlink'     => fetch_seo_url('groupmessage', $iteminfo),
 		);
+
+		//I'd have to rewrite the way the form code handles the post action to make this work
+		//with the seo classes.  Better to just handle the option directly.
+		if ($this->registry->options['vbforum_url'])
+		{
+			$this->forminfo['file'] = $this->registry->options['vbforum_url'] . '/' . 	$this->forminfo['file'];
+		}
 
 		$this->set_reporting_hidden_value('gmid', $iteminfo['gmid']);
 
@@ -756,14 +872,21 @@ class vB_ReportItem_GroupMessage extends vB_ReportItem
 	function set_reportinfo(&$reportinfo)
 	{
 		$reportinfo = array_merge($reportinfo, array(
-			'messagetitle' => unhtmlspecialchars($this->iteminfo['title']),
-			'pusername'    => unhtmlspecialchars($this->iteminfo['postusername']),
-			'gmid'         => $this->iteminfo['gmid'],
-			'groupname'    => $this->extrainfo['group']['name'],
-			'groupid'      => $this->extrainfo['group']['groupid'],
-			'puserid'      => $this->iteminfo['postuserid'],
-			'pagetext'     => $this->iteminfo['pagetext'],
+			'messagetitle'    => unhtmlspecialchars($this->iteminfo['title']),
+			'pusername'       => unhtmlspecialchars($this->iteminfo['postusername']),
+			'gmid'            => $this->iteminfo['gmid'],
+			'groupname'       => unhtmlspecialchars($this->extrainfo['group']['name']),
+			'groupid'         => $this->extrainfo['group']['groupid'],
+			'discussiontitle' => unhtmlspecialchars($this->extrainfo['discussion']['title']),
+			'discussionid'    => $this->extrainfo['discussion']['discussionid'],
+			'puserid'         => $this->iteminfo['postuserid'],
+			'pagetext'        => $this->iteminfo['pagetext']
 		));
+
+		$reportinfo['groupurl'] = fetch_seo_url('group|js|bburl|nosession', $this->extrainfo['group']);
+		$reportinfo['discussionurl'] = fetch_seo_url('groupdiscussion|js|bburl|nosession', $this->extrainfo['discussion']);
+		$reportinfo['messageurl'] = fetch_seo_url('groupmessage|js|bburl|nosession', $this->iteminfo) .
+			"#gmessage$reportinfo[gmid]";
 	}
 
 	/**
@@ -887,7 +1010,7 @@ class vB_ReportItem_AlbumPicture extends vB_ReportItem
 		);
 
 		$this->set_reporting_hidden_value('albumid', $this->extrainfo['album']['albumid']);
-		$this->set_reporting_hidden_value('pictureid', $iteminfo['pictureid']);
+		$this->set_reporting_hidden_value('attachmentid', $iteminfo['attachmentid']);
 
 		return $this->forminfo;
 	}
@@ -901,13 +1024,13 @@ class vB_ReportItem_AlbumPicture extends vB_ReportItem
 	function set_reportinfo(&$reportinfo)
 	{
 		$reportinfo = array_merge($reportinfo, array(
-			'pusername'  => unhtmlspecialchars($this->extrainfo['user']['username']),
-			'puserid'    => $this->extrainfo['user']['userid'],
-			'albumtitle' => unhtmlspecialchars($this->extrainfo['album']['title']),
-			'albumid'    => $this->extrainfo['album']['albumid'],
-			'pictureid'  => $this->iteminfo['pictureid'],
-			'username'   => unhtmlspecialchars($this->extrainfo['user']['username']),
-			'userid'     => $this->extrainfo['user']['userid'],
+			'pusername'    => unhtmlspecialchars($this->extrainfo['user']['username']),
+			'puserid'      => $this->extrainfo['user']['userid'],
+			'albumtitle'   => unhtmlspecialchars($this->extrainfo['album']['title']),
+			'albumid'      => $this->extrainfo['album']['albumid'],
+			'attachmentid' => $this->iteminfo['attachmentid'],
+			'username'     => unhtmlspecialchars($this->extrainfo['user']['username']),
+			'userid'       => $this->extrainfo['user']['userid'],
 		));
 	}
 
@@ -922,9 +1045,11 @@ class vB_ReportItem_AlbumPicture extends vB_ReportItem
 		$checkrpid = ($this->iteminfo['reportthreadid'] ? $this->iteminfo['reportthreadid'] : 0);
 
 		$this->registry->db->query_write("
-			UPDATE " . TABLE_PREFIX . "picture SET
+			UPDATE " . TABLE_PREFIX . "attachment
+			SET
 				reportthreadid = $newthreadid
-			WHERE pictureid = " . $this->iteminfo['pictureid'] . " AND reportthreadid = $checkrpid
+			WHERE
+				attachmentid = " . $this->iteminfo['attachmentid'] . " AND reportthreadid = $checkrpid
 		");
 
 		return ($this->registry->db->affected_rows() ? true : false);
@@ -938,8 +1063,9 @@ class vB_ReportItem_AlbumPicture extends vB_ReportItem
 	{
 		$rpinfo = $this->registry->db->query_first("
 			SELECT reportthreadid
-			FROM " . TABLE_PREFIX . "picture
-			WHERE pictureid = " . $this->iteminfo['pictureid']
+			FROM " . TABLE_PREFIX . "attachment
+			WHERE
+				attachmentid = " . $this->iteminfo['attachmentid']
 		);
 		if ($rpinfo['reportthreadid'])
 		{
@@ -998,11 +1124,18 @@ class vB_ReportItem_GroupPicture extends vB_ReportItem
 			'reporttype'   => $vbphrase['social_group'],
 			'description'  => $vbphrase['only_report_inappropriate_pictures'],
 			'itemname'     => $this->extrainfo['group']['name'],
-			'itemlink'     => "group.php?" . $this->registry->session->vars['sessionurl'] . "groupid=" . $this->extrainfo['group']['groupid'],
+			'itemlink'     => fetch_seo_url('group', $this->extrainfo['group']),
 		);
 
+		//I'd have to rewrite the way the form code handles the post action to make this work
+		//with the seo classes.  Better to just handle the option directly.
+		if ($this->registry->options['vbforum_url'])
+		{
+			$this->forminfo['file'] = $this->registry->options['vbforum_url'] . '/' . 	$this->forminfo['file'];
+		}
+
 		$this->set_reporting_hidden_value('groupid', $this->extrainfo['group']['groupid']);
-		$this->set_reporting_hidden_value('pictureid', $iteminfo['pictureid']);
+		$this->set_reporting_hidden_value('attachmentid', $iteminfo['attachmentid']);
 
 		return $this->forminfo;
 	}
@@ -1016,12 +1149,16 @@ class vB_ReportItem_GroupPicture extends vB_ReportItem
 	function set_reportinfo(&$reportinfo)
 	{
 		$reportinfo = array_merge($reportinfo, array(
-			'pusername' => unhtmlspecialchars($this->extrainfo['user']['username']),
-			'puserid'   => $this->extrainfo['user']['userid'],
-			'groupname' => unhtmlspecialchars($this->extrainfo['group']['name']),
-			'groupid'   => $this->extrainfo['group']['groupid'],
-			'pictureid' => $this->iteminfo['pictureid'],
+			'pusername'    => unhtmlspecialchars($this->extrainfo['user']['username']),
+			'puserid'      => $this->extrainfo['user']['userid'],
+			'groupname'    => unhtmlspecialchars($this->extrainfo['group']['name']),
+			'groupid'      => $this->extrainfo['group']['groupid'],
+			'attachmentid' => $this->iteminfo['attachmentid'],
 		));
+
+		$reportinfo['groupurl'] = fetch_seo_url('group|js|bburl|nosession', $this->extrainfo['group']);
+		$reportinfo['pictureurl'] = fetch_seo_url('group|js|bburl|nosession', $this->extrainfo['group'],
+			array('do' => 'picture', 'attachmentid' => $this->iteminfo['attachmentid']));
 	}
 
 	/**
@@ -1035,9 +1172,10 @@ class vB_ReportItem_GroupPicture extends vB_ReportItem
 		$checkrpid = ($this->iteminfo['reportthreadid'] ? $this->iteminfo['reportthreadid'] : 0);
 
 		$this->registry->db->query_write("
-			UPDATE " . TABLE_PREFIX . "picture SET
+			UPDATE " . TABLE_PREFIX . "attachment
+			SET
 				reportthreadid = $newthreadid
-			WHERE pictureid = " . $this->iteminfo['pictureid'] . " AND reportthreadid = $checkrpid
+			WHERE attachmentid = " . $this->iteminfo['attachmentid'] . " AND reportthreadid = $checkrpid
 		");
 
 		return ($this->registry->db->affected_rows() ? true : false);
@@ -1051,8 +1189,8 @@ class vB_ReportItem_GroupPicture extends vB_ReportItem
 	{
 		$rpinfo = $this->registry->db->query_first("
 			SELECT reportthreadid
-			FROM " . TABLE_PREFIX . "picture
-			WHERE pictureid = " . $this->iteminfo['pictureid']
+			FROM " . TABLE_PREFIX . "attachment
+			WHERE attachmentid = " . $this->iteminfo['attachmentid']
 		);
 		if ($rpinfo['reportthreadid'])
 		{
@@ -1113,13 +1251,13 @@ class vB_ReportItem_PictureComment extends vB_ReportItem
 			'itemname'     => ($this->extrainfo['picture']['albumid'] ? $this->extrainfo['album']['title_html'] : $this->extrainfo['group']['name']),
 			'itemlink'     => ($this->extrainfo['picture']['albumid']
 				? "album.php?" . $this->registry->session->vars['sessionurl'] . "albumid=" . $this->extrainfo['picture']['albumid']
-				: "group.php?" . $this->registry->session->vars['sessionurl'] . "groupid=" . $this->extrainfo['group']['groupid']
+				: fetch_seo_url('group', $this->extrainfo['group'])
 			),
 		);
 
 		$this->set_reporting_hidden_value('groupid', $this->extrainfo['group']['groupid']);
 		$this->set_reporting_hidden_value('albumid', $this->extrainfo['album']['albumid']);
-		$this->set_reporting_hidden_value('pictureid', $this->extrainfo['picture']['pictureid']);
+		$this->set_reporting_hidden_value('attachmentid', $this->extrainfo['picture']['attachmentid']);
 		$this->set_reporting_hidden_value('commentid', $iteminfo['commentid']);
 
 		return $this->forminfo;
@@ -1136,12 +1274,22 @@ class vB_ReportItem_PictureComment extends vB_ReportItem
 		$reportinfo = array_merge($reportinfo, array(
 			'pusername'  => unhtmlspecialchars($this->iteminfo['postusername']),
 			'puserid'    => $this->iteminfo['postuserid'],
-			'commenturl' => ($this->extrainfo['picture']['albumid']
-				? "album.php?" . $this->registry->session->vars['sessionurl'] . "albumid=" . $this->extrainfo['picture']['albumid'] . "&pictureid={$this->iteminfo['pictureid']}&commentid={$this->iteminfo['commentid']}#picturecomment{$this->iteminfo['commentid']}"
-				: "group.php?" . $this->registry->session->vars['sessionurl'] . "do=picture&groupid=" . $this->extrainfo['group']['groupid'] . "&pictureid={$this->iteminfo['pictureid']}&commentid={$this->iteminfo['commentid']}#picturecomment{$this->iteminfo['commentid']}"
-			),
 			'pagetext'   => $this->iteminfo['pagetext'],
 		));
+
+		if ($this->extrainfo['picture']['albumid'])
+		{
+			$reportinfo['commenturl'] = "album.php?albumid=" .
+				$this->extrainfo['picture']['albumid'] . "&attachmentid={$this->iteminfo['attachmentid']}&commentid=" .
+				$this->iteminfo['commentid'] . "#picturecomment{$this->iteminfo['commentid']}";
+			$reportinfo['commenturl'] = create_full_url($reportinfo['commenturl'], true);
+		}
+		else
+		{
+			$reportinfo['commenturl'] = fetch_seo_url('group|js|bburl|nosession', $this->extrainfo['group'],
+				array('do' => 'picture', 'attachmentid' => $this->iteminfo['attachmentid'],
+					'commentid' => $this->iteminfo['commentid'])) . "#picturecomment{$this->iteminfo['commentid']}";
+		}
 	}
 
 	/**
@@ -1181,10 +1329,126 @@ class vB_ReportItem_PictureComment extends vB_ReportItem
 	}
 }
 
+/**
+ * Report Private Message Class
+ *
+ * @package 	vBulletin
+ * @copyright 	http://www.vbulletin.com/license.html
+ *
+ * @final
+ *
+ */
+class vB_ReportItem_PrivateMessage extends vB_ReportItem
+{
+	/**
+	 * @var string	"Key" for the phrase(s) used when reporting this item
+	 */
+	var $phrasekey = 'privatemessage';
+
+	/**
+	 * Fetches the moderators affected by this report
+	 *
+	 * @return null|array	The moderators affected.
+	 *
+	 */
+	function fetch_affected_moderators()
+	{
+		return $this->registry->db->query_read_slave("
+			SELECT DISTINCT user.email, user.languageid, user.userid, user.username
+			FROM " . TABLE_PREFIX . "moderator AS moderator
+			INNER JOIN " . TABLE_PREFIX . "user AS user ON (user.userid = moderator.userid)
+			WHERE moderator.permissions & " . ($this->registry->bf_misc_moderatorpermissions['canbanusers']) . "
+				AND moderator.forumid <> -1
+		");
+	}
+
+	/**
+	 * Sets information to be used in the form for the report
+	 *
+	 * @param	array	Information to be used.
+	 *
+	 */
+	function set_forminfo(&$iteminfo)
+	{
+		global $vbphrase;
+
+		$this->forminfo = array(
+			'file'         => 'private',
+			'action'       => 'sendemail',
+			'reportphrase' => $vbphrase['report_bad_private_message'],
+			'reporttype'   => $vbphrase['private_message'],
+			'description'  => $vbphrase['only_used_to_report'],
+			'itemname'     => $iteminfo['title'],
+			'itemlink'     => $iteminfo['itemlink'],
+		);
+
+		$this->set_reporting_hidden_value('pmid', $iteminfo['pmid']);
+
+		return $this->forminfo;
+	}
+
+	/**
+	 * Sets information regarding the report
+	 *
+	 * @param	array	Information regarding the report
+	 *
+	 */
+	function set_reportinfo(&$reportinfo)
+	{
+		$reportinfo = array_merge($reportinfo, array(
+			'pmtitle'     => unhtmlspecialchars($this->iteminfo['title']),
+			'pusername'   => unhtmlspecialchars($this->iteminfo['fromusername']),
+			'puserid'     => $this->iteminfo['fromuserid'],
+			'pmid'        => $this->iteminfo['pmid'],
+			'message'    => $this->iteminfo['message'],
+		));
+
+		$reportinfo['posterlink'] = fetch_seo_url('member|js|nosession|bburl',
+			$reportinfo, null, 'puserid', 'pusername');
+	}
+
+	/**
+	 * Updates the Item being reported with the item report info.
+	 *
+	 * @param	integer	ID of the item being reported
+	 *
+	 */
+	function update_item_reportid($newthreadid)
+	{
+
+		$checkrpid = ($this->iteminfo['reportthreadid'] ? $this->iteminfo['reportthreadid'] : 0);
+
+		$this->registry->db->query_write("
+			UPDATE " . TABLE_PREFIX . "pmtext SET
+				reportthreadid = $newthreadid
+			WHERE pmtextid = " . $this->iteminfo['pmtextid'] . " AND reportthreadid = $checkrpid
+		");
+
+		return ($this->registry->db->affected_rows() ? true : false);
+	}
+
+	/**
+	 * Re-fetches information regarding the reported item from the database
+	 *
+	 */
+	function refetch_iteminfo()
+	{
+		$rpinfo = $this->registry->db->query_first("
+			SELECT reportthreadid
+			FROM " . TABLE_PREFIX . "pmtext
+			WHERE pmtextid = " . $this->iteminfo['pmtextid']
+		);
+		if ($rpinfo['reportthreadid'])
+		{
+			$this->iteminfo['reportthreadid'] = $rpinfo['reportthreadid'];
+		}
+	}
+}
+
 /*======================================================================*\
 || ####################################################################
-|| # Downloaded: 16:21, Sat Apr 6th 2013
-|| # CVS: $RCSfile$ - $Revision: 26307 $
+|| # Downloaded: 14:57, Sun Aug 11th 2013
+|| # CVS: $RCSfile$ - $Revision: 64477 $
 || ####################################################################
 \*======================================================================*/
 

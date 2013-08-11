@@ -1,9 +1,9 @@
 <?php
 /*======================================================================*\
 || #################################################################### ||
-|| # vBulletin 3.7.2 Patch Level 2 - Licence Number VBF2470E4F
+|| # vBulletin 4.2.1 - Licence Number VBC2DDE4FB
 || # ---------------------------------------------------------------- # ||
-|| # Copyright ©2000-2013 Jelsoft Enterprises Ltd. All Rights Reserved. ||
+|| # Copyright ©2000-2013 vBulletin Solutions Inc. All Rights Reserved. ||
 || # This file may not be redistributed in whole or significant part. # ||
 || # ---------------- VBULLETIN IS NOT FREE SOFTWARE ---------------- # ||
 || # http://www.vbulletin.com | http://www.vbulletin.com/license.html # ||
@@ -14,7 +14,7 @@
 error_reporting(E_ALL & ~E_NOTICE);
 
 // ##################### DEFINE IMPORTANT CONSTANTS #######################
-define('CVS_REVISION', '$RCSfile$ - $Revision: 25974 $');
+define('CVS_REVISION', '$RCSfile$ - $Revision: 59008 $');
 
 // #################### PRE-CACHE TEMPLATES AND DATA ######################
 $phrasegroups = array('cppermission', 'forum', 'moderator');
@@ -174,7 +174,15 @@ if ($_REQUEST['do'] == 'add' OR $_REQUEST['do'] == 'edit' OR $_REQUEST['do'] == 
 	if ($_REQUEST['do'] != 'editglobal')
 	{
 		print_forum_chooser($vbphrase['forum_and_children'], 'forumid', $moderator['forumid']);
-		print_input_row($vbphrase['moderator_usernames'] . "<dfn>$vbphrase[separate_usernames_semicolon]</dfn>", 'modusername', $moderator['username'], 0);
+		if ($_REQUEST['do'] == 'add')
+		{
+			print_input_row($vbphrase['moderator_usernames'] . "<dfn>$vbphrase[separate_usernames_semicolon]</dfn>", 'modusername', $moderator['username'], 0);
+		}
+		else if ($_REQUEST['do'] == 'edit')
+		{
+			print_input_row($vbphrase['moderator_username'], 'modusername', $moderator['username'], 0);
+		}
+
 		construct_hidden_code('redir', $vbulletin->GPC['redir']);
 	}
 
@@ -220,10 +228,20 @@ if ($_REQUEST['do'] == 'add' OR $_REQUEST['do'] == 'edit' OR $_REQUEST['do'] == 
 	print_description_row($vbphrase['social_group_permissions'], false, 2, 'thead');
 	print_yes_no_row($vbphrase['can_edit_social_groups'], 'modperms[caneditsocialgroups]', $moderator['caneditsocialgroups']);
 	print_yes_no_row($vbphrase['can_delete_social_groups'], 'modperms[candeletesocialgroups]', $moderator['candeletesocialgroups']);
+	print_yes_no_row($vbphrase['can_transfer_social_groups'], 'modperms[cantransfersocialgroups]', $moderator['cantransfersocialgroups']);
+
+	print_yes_no_row($vbphrase['can_edit_pictures'], 'modperms[caneditgrouppicture]', $moderator['caneditgrouppicture']);
+	print_yes_no_row($vbphrase['can_delete_pictures'], 'modperms[candeletegrouppicture]', $moderator['candeletegrouppicture']);
+	print_yes_no_row($vbphrase['can_moderate_pictures'], 'modperms[canmoderategrouppicture]', $moderator['canmoderategrouppicture']);
+
 	print_yes_no_row($vbphrase['can_edit_posts'], 'modperms[caneditgroupmessages]', $moderator['caneditgroupmessages']);
+	print_yes_no_row($vbphrase['can_moderate_posts'], 'modperms[canmoderategroupmessages]', $moderator['canmoderategroupmessages']);
 	print_yes_no_row($vbphrase['can_delete_posts'], 'modperms[candeletegroupmessages]', $moderator['candeletegroupmessages']);
 	print_yes_no_row($vbphrase['can_physically_delete_posts'], 'modperms[canremovegroupmessages]', $moderator['canremovegroupmessages']);
-	print_yes_no_row($vbphrase['can_moderate_posts'], 'modperms[canmoderategroupmessages]', $moderator['canmoderategroupmessages']);
+	print_yes_no_row($vbphrase['can_edit_discussions'], 'modperms[caneditdiscussions]', $moderator['caneditdiscussions']);
+	print_yes_no_row($vbphrase['can_moderate_discussions'], 'modperms[canmoderatediscussions]', $moderator['canmoderatediscussions']);
+	print_yes_no_row($vbphrase['can_delete_discussions'], 'modperms[candeletediscussions]', $moderator['candeletediscussions']);
+	print_yes_no_row($vbphrase['can_physically_delete_discussions'], 'modperms[canremovediscussions]', $moderator['canremovediscussions']);
 
 	// user permissions
 	print_description_row($vbphrase['user_permissions'], false, 2, 'thead');
@@ -311,7 +329,7 @@ if ($_POST['do'] == 'update')
 
 		$moddata =& datamanager_init('Moderator', $vbulletin, ERRTYPE_CP);
 
-		if ($moddata_existing)
+		if ($moddata_existing AND $moddata_existing['forumid'] == $vbulletin->GPC['forumid'])
 		{
 			$moddata->set_existing($moddata_existing);
 		}
@@ -483,7 +501,7 @@ if ($_REQUEST['do'] == 'showlist')
 	print_form_header('', '');
 	print_table_header($vbphrase['super_moderators']);
 	echo "<tr valign=\"top\">\n\t<td class=\"" . fetch_row_bgclass() . "\" colspan=\"2\">";
-	echo "<div class=\"darkbg\" style=\"padding: 4px; border: 2px inset; text-align: $stylevar[left]\"><ul>";
+	echo "<div class=\"darkbg\" style=\"padding: 4px; border: 2px inset; text-align: " . vB_Template_Runtime::fetchStyleVar('left') . "\"><ul>";
 
 	$countmods = 0;
 	$supergroups = $db->query_read("
@@ -543,7 +561,7 @@ if ($_REQUEST['do'] == 'showlist')
 	print_form_header('', '');
 	print_table_header($vbphrase['moderators']);
 	echo "<tr valign=\"top\">\n\t<td class=\"" . fetch_row_bgclass() . "\" colspan=\"2\">";
-	echo "<div class=\"darkbg\" style=\"padding: 4px; border: 2px inset; text-align: $stylevar[left]\">";
+	echo "<div class=\"darkbg\" style=\"padding: 4px; border: 2px inset; text-align: " . vB_Template_Runtime::fetchStyleVar('left') . "\">";
 
 	$countmods = 0;
 	$moderators = $db->query_read("
@@ -590,7 +608,7 @@ if ($_REQUEST['do'] == 'showlist')
 				echo "\n\t<ul>\n\t<li><b><a href=\"user.php?" . $vbulletin->session->vars['sessionurl'] . "do=edit&amp;u=$moderator[userid]&amp;redir=showlist\">$moderator[username]</a></b><span class=\"smallfont\"> - " . $vbphrase['last_online'] . " <span class=\"$onlinecolor\">" . $lastonline . "</span></span>\n";
 				echo "\n\t\t<ul>$vbphrase[forums] <span class=\"smallfont\">(" . construct_link_code($vbphrase['remove_moderator_from_all_forums'], "moderator.php?" . $vbulletin->session->vars['sessionurl'] . "do=removeall&amp;u=$moderator[userid]") . ")</span>\n\t<ul>\n";
 			}
-			echo "\t\t\t<li><a href=\"../forumdisplay.php?" . $vbulletin->session->vars['sessionurl'] . "f=$moderator[forumid]\" target=\"_blank\">$moderator[title]</a>\n".
+			echo "\t\t\t<li><a href=\"" . fetch_seo_url('forum|nosession|bburl', $moderator) . "\" target=\"_blank\">$moderator[title]</a>\n".
 				"\t\t\t\t<span class=\"smallfont\">(" . construct_link_code($vbphrase['edit'], "moderator.php?" . $vbulletin->session->vars['sessionurl'] . "do=edit&moderatorid=$moderator[moderatorid]&amp;redir=showlist").
 				construct_link_code($vbphrase['remove'], "moderator.php?" . $vbulletin->session->vars['sessionurl'] . "do=remove&moderatorid=$moderator[moderatorid]") . ")</span>\n".
 				"\t\t\t</li><br />\n";
@@ -650,7 +668,7 @@ if ($_REQUEST['do'] == 'showmods')
 	print_form_header('', '');
 	print_table_header($vbphrase['moderators']);
 	echo "<tr valign=\"top\">\n\t<td class=\"" . fetch_row_bgclass() . "\" colspan=\"2\">";
-	echo "<div class=\"darkbg\" style=\"padding: 4px; border: 2px inset; text-align: $stylevar[left]\">";
+	echo "<div class=\"darkbg\" style=\"padding: 4px; border: 2px inset; text-align: " . vB_Template_Runtime::fetchStyleVar('left') . "\">";
 
 	// get the timestamp for the beginning of today, according to bbuserinfo's timezone
 	require_once(DIR . '/includes/functions_misc.php');
@@ -672,9 +690,7 @@ if ($_REQUEST['do'] == 'showmods')
 					echo "\t\t</ul>\n\t\t</ul>\n\t</li>\n\t</ul>\n";
 				}
 
-
-
-				echo "\n\t<ul>\n\t<li><b><a href=\"../forumdisplay.php?" . $vbulletin->session->vars['sessionurl'] . "f=$forum[forumid]\">$forum[title]</a></b>\n";
+				echo "\n\t<ul>\n\t<li><b><a href=\"" . fetch_seo_url('forum|nosession|bburl', $forum) . "\">$forum[title]</a></b>\n";
 				echo "\n\t\t<ul>$vbphrase[moderators]\n\t<ul>\n";
 			}
 
@@ -825,8 +841,8 @@ print_cp_footer();
 
 /*======================================================================*\
 || ####################################################################
-|| # Downloaded: 16:21, Sat Apr 6th 2013
-|| # CVS: $RCSfile$ - $Revision: 25974 $
+|| # Downloaded: 14:57, Sun Aug 11th 2013
+|| # CVS: $RCSfile$ - $Revision: 59008 $
 || ####################################################################
 \*======================================================================*/
 ?>

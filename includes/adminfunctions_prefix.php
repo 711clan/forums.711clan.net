@@ -1,9 +1,9 @@
 <?php
 /*======================================================================*\
 || #################################################################### ||
-|| # vBulletin 3.7.2 Patch Level 2 - Licence Number VBF2470E4F
+|| # vBulletin 4.2.1 - Licence Number VBC2DDE4FB
 || # ---------------------------------------------------------------- # ||
-|| # Copyright ©2000-2013 Jelsoft Enterprises Ltd. All Rights Reserved. ||
+|| # Copyright ©2000-2013 vBulletin Solutions Inc. All Rights Reserved. ||
 || # This file may not be redistributed in whole or significant part. # ||
 || # ---------------- VBULLETIN IS NOT FREE SOFTWARE ---------------- # ||
 || # http://www.vbulletin.com | http://www.vbulletin.com/license.html # ||
@@ -133,13 +133,25 @@ function build_prefix_datastore()
 
 	$prefixes = array();
 	$prefix_sql = $vbulletin->db->query_read("
-		SELECT *
-		FROM " . TABLE_PREFIX . "prefix
-		ORDER BY displayorder
+		SELECT prefix.*, prefixpermission.usergroupid AS restriction
+		FROM " . TABLE_PREFIX . "prefix AS prefix
+		LEFT JOIN " . TABLE_PREFIX . "prefixpermission AS prefixpermission ON (prefix.prefixid = prefixpermission.prefixid)
+		ORDER BY prefix.displayorder
 	");
 	while ($prefix = $vbulletin->db->fetch_array($prefix_sql))
 	{
-		$prefixes["$prefix[prefixsetid]"][] = $prefix['prefixid'];
+		if (empty($prefixes["$prefix[prefixsetid]"]["$prefix[prefixid]"]))
+		{
+			$prefixes["$prefix[prefixsetid]"]["$prefix[prefixid]"] = array(
+				'prefixid' => $prefix['prefixid'],
+				'restrictions' => array()
+			);
+		}
+
+		if ($prefix['restriction'])
+		{
+			$prefixes["$prefix[prefixsetid]"]["$prefix[prefixid]"]['restrictions'][] = $prefix['restriction'];
+		}
 	}
 
 	$forum_prefixes = array();
@@ -206,8 +218,8 @@ function remove_prefixes_forum($prefixes, $forumids)
 
 /*======================================================================*\
 || ####################################################################
-|| # Downloaded: 16:21, Sat Apr 6th 2013
-|| # CVS: $RCSfile$ - $Revision: 25433 $
+|| # Downloaded: 14:57, Sun Aug 11th 2013
+|| # CVS: $RCSfile$ - $Revision: 32878 $
 || ####################################################################
 \*======================================================================*/
 ?>

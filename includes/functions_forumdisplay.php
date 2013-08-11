@@ -1,9 +1,9 @@
 <?php
 /*======================================================================*\
 || #################################################################### ||
-|| # vBulletin 3.7.2 Patch Level 2 - Licence Number VBF2470E4F
+|| # vBulletin 4.2.1 - Licence Number VBC2DDE4FB
 || # ---------------------------------------------------------------- # ||
-|| # Copyright ©2000-2013 Jelsoft Enterprises Ltd. All Rights Reserved. ||
+|| # Copyright ©2000-2013 vBulletin Solutions Inc. All Rights Reserved. ||
 || # This file may not be redistributed in whole or significant part. # ||
 || # ---------------- VBULLETIN IS NOT FREE SOFTWARE ---------------- # ||
 || # http://www.vbulletin.com | http://www.vbulletin.com/license.html # ||
@@ -57,11 +57,11 @@ function fetch_dot_threads_array($ids)
 // ###################### Start parseThreadData #######################
 // translate stuff from the db into data for a template like threadbit
 // note: this function requires the use of $iconcache - include it in $specialtemplates!
-function process_thread_array($thread, $lastread = -1, $allowicons = -1)
+function process_thread_array($thread, $lastread = -1, $allowicons = -1, $fetchavatar = false)
 {
-	global $vbphrase, $stylevar, $foruminfo, $vbulletin;
+	global $vbphrase, $foruminfo, $vbulletin;
 	global $newthreads, $dotthreads, $perpage, $ignore, $show;
-	static $pperpage;
+	static $pperpage, $perm_cache;
 
 	if ($pperpage == 0)
 	{ // lets calculate posts per page
@@ -90,16 +90,12 @@ function process_thread_array($thread, $lastread = -1, $allowicons = -1)
 			AND
 			($forumperms = fetch_permissions($thread['forumid'])) AND ($forumperms & $vbulletin->bf_ugp_forumpermissions['caneditpost'])
 			AND
-			($thread['dateline'] + $vbulletin->options['editthreadtitlelimit'] * 60) > TIMENOW
+			(!$vbulletin->options['editthreadtitlelimit'] OR (($thread['dateline'] + $vbulletin->options['editthreadtitlelimit'] * 60) > TIMENOW))
 		)
 	)
 	{
-		$thread['title_editable'] = '<a rel="vB::AJAX"></a>';
+		$thread['title_editable'] = true;
 		$show['ajax_js'] = true;
-	}
-	else
-	{
-		$thread['title_editable'] = '';
 	}
 
 	if (
@@ -116,12 +112,8 @@ function process_thread_array($thread, $lastread = -1, $allowicons = -1)
 		)
 	)
 	{
-		$thread['openclose_editable'] = '<a rel="vB::AJAX"></a>';
+		$thread['openclose_editable'] = true;
 		$show['ajax_js'] = true;
-	}
-	else
-	{
-		$thread['openclose_editable'] = '';
 	}
 
 	/*if ($thread['postuserid'] == $vbulletin->userinfo['userid'])
@@ -132,6 +124,39 @@ function process_thread_array($thread, $lastread = -1, $allowicons = -1)
 			$thread['openclose_editable'] .= "<div><strong>Own thread</strong></div>";
 		}
 	}*/
+
+	if ($fetchavatar)
+	{
+		require_once(DIR . '/includes/functions_user.php');
+		$avatar = fetch_avatar_from_record($thread, true, 'userid', 'api_');
+		$thread['avatarurl'] = $avatar[0];
+		$avatarinfo = parse_subsstring_array($thread, 'api_');
+		$avatarinfo['adminavatar'] = ($avatarinfo['adminoptions'] & $vbulletin->bf_misc_adminoptions['adminavatar']);
+
+		if (!isset($perm_cache["{$avatarinfo['userid']}"]))
+		{
+			$perm_cache["{$avatarinfo['userid']}"] = cache_permissions($avatarinfo, false);
+		}
+		else
+		{
+			$avatarinfo['permissions'] =& $perm_cache["{$avatarinfo['userid']}"];
+		}
+
+		if ( // no avatar defined for this user
+			empty($thread['avatarurl'])
+				OR // visitor doesn't want to see avatars
+			($vbulletin->userinfo['userid'] > 0 AND !$vbulletin->userinfo['showavatars'])
+				OR // user has a custom avatar but no permission to display it
+			(!$avatarinfo['avatarid'] AND !($perm_cache["{$avatarinfo['userid']}"]['genericpermissions'] & $vbulletin->bf_ugp_genericpermissions['canuseavatar']) AND !$avatarinfo['adminavatar']) //
+		)
+		{
+			$show['avatar'] = false;
+		}
+		else
+		{
+			$show['avatar'] = true;
+		}
+	}
 
 	if ($allowicons == -1)
 	{
@@ -150,6 +175,7 @@ function process_thread_array($thread, $lastread = -1, $allowicons = -1)
 	{
 		$thread['forumtitle'] = $vbulletin->forumcache["$thread[forumid]"]['title'];
 	}
+	$thread['forumtitleclean'] = $vbulletin->forumcache["$thread[forumid]"]['title_clean'];
 
 	// word wrap title
 	if ($vbulletin->options['wordwrap'] != 0)
@@ -175,13 +201,22 @@ function process_thread_array($thread, $lastread = -1, $allowicons = -1)
 	{
 		$thread['preview'] = '';
 	}
-	else if (isset($thread['preview']) AND $vbulletin->options['threadpreview'] > 0)
+	else if (isset($thread['preview']))
 	{
-		$thread['preview'] = strip_quotes($thread['preview']);
-		$thread['preview'] = htmlspecialchars_uni(fetch_censored_text(fetch_trimmed_title(
-			strip_bbcode($thread['preview'], false, true),
-			$vbulletin->options['threadpreview']
-		)));
+		if($vbulletin->options['threadpreview'] > 0)
+		{
+			$thread['preview'] = strip_quotes($thread['preview']);
+			$thread['preview'] = htmlspecialchars_uni(fetch_censored_text(
+				fetch_trimmed_title(strip_bbcode($thread['preview'], false, true, true, true),
+					$vbulletin->options['threadpreview'])
+			));
+		}
+		//if the preview text is disabled, then make sure that we don't leave this function
+		//with it set.
+		else
+		{
+			unset($thread['preview']);
+		}
 	}
 
 	// thread last reply date/time
@@ -198,6 +233,28 @@ function process_thread_array($thread, $lastread = -1, $allowicons = -1)
 	{
 		$thread['postdate'] = '';
 		$thread['posttime'] = '';
+	}
+
+	// get the thread starting date and time if applicable
+	if ($thread['dateline'])
+	{
+		$thread['startdate'] = vbdate($vbulletin->options['dateformat'], $thread['dateline'], true);
+		$thread['starttime'] = vbdate($vbulletin->options['timeformat'], $thread['dateline']);
+	}
+	else
+	{
+		$thread['startdate'] = '';
+		$thread['starttime'] = '';
+	}
+
+	// non magical thread status
+	if (2 == $thread['visible'])
+	{
+		$thread['status']['deleted'] = 'deleted';
+	}
+	else if (!$thread['visible'])
+	{
+		$thread['status']['moderated'] = 'moderated';
 	}
 
 	// thread not moved
@@ -266,11 +323,17 @@ function process_thread_array($thread, $lastread = -1, $allowicons = -1)
 		// multipage nav
 		$thread['totalposts'] = $thread['replycount'] + 1;
 		$total =& $thread['totalposts'];
-		if (($vbulletin->options['allowthreadedmode'] == 0 OR ($vbulletin->userinfo['threadedmode'] == 0 AND empty($vbulletin->GPC[COOKIE_PREFIX . 'threadedmode'])) OR $vbulletin->GPC[COOKIE_PREFIX . 'threadedmode'] == 'linear') AND $thread['totalposts'] > $pperpage AND $vbulletin->options['linktopages'])
+		if (
+			($vbulletin->options['allowthreadedmode'] == 0 OR
+				($vbulletin->userinfo['threadedmode'] == 0 AND
+					empty($vbulletin->GPC[COOKIE_PREFIX . 'threadedmode'])) OR
+				$vbulletin->GPC[COOKIE_PREFIX . 'threadedmode'] == 'linear') AND
+			$thread['totalposts'] > $pperpage AND $vbulletin->options['linktopages']
+		)
 		{
 			$thread['totalpages'] = ceil($thread['totalposts'] / $pperpage);
-			$address = 'showthread.php?' . $vbulletin->session->vars['sessionurl'] . "t=$thread[threadid]";
-			$address2 = "$thread[highlight]";
+			#$address2 = "$thread[highlight]";
+
 			$curpage = 0;
 
 			$thread['pagenav'] = '';
@@ -280,14 +343,35 @@ function process_thread_array($thread, $lastread = -1, $allowicons = -1)
 			{
 				if ($vbulletin->options['maxmultipage'] AND $curpage > $vbulletin->options['maxmultipage'])
 				{
+					$lastpageinfo = array(
+						'page' => $thread['totalpages']
+					);
+
+					if ($thread['highlight'])
+					{
+						$lastpageinfo['highlight'] = urlencode(implode(' ', $thread['highlight']));
+					}
+
+					$thread['lastpagelink'] = fetch_seo_url('thread', $thread, $lastpageinfo, 'threadid', 'threadtitle');
 					$show['pagenavmore'] = true;
 					break;
 				}
 
-				$pagenumbers = fetch_start_end_total_array($curpage, $pperpage, $thread['totalposts']);
-				eval('$thread[pagenav] .= " ' . fetch_template('threadbit_pagelink') . '";');
-			}
+				$pageinfo = array(
+					'page' => $curpage
+				);
+				if ($thread['highlight'])
+				{
+					$pageinfo['highlight'] = urlencode(implode(' ', $thread['highlight']));
+				}
 
+				$pagenumbers = fetch_start_end_total_array($curpage, $pperpage, $thread['totalposts']);
+				$templater = vB_Template::create('threadbit_pagelink');
+					$templater->register('curpage', $curpage);
+					$templater->register('pageinfo', $pageinfo);
+					$templater->register('thread', $thread);
+				$thread['pagenav'] .= ' ' . $templater->render();
+			}
 		}
 		// do not show pagenav
 		else
@@ -309,10 +393,12 @@ function process_thread_array($thread, $lastread = -1, $allowicons = -1)
 			if ($thread['pollid'] != 0)
 			{
 				$show['threadicon'] = true;
-				$thread['threadiconpath'] = "$stylevar[imgdir_misc]/poll_posticon.gif";
+				$thread['threadiconpath'] = vB_Template_Runtime::fetchStyleVar('imgdir_misc') . "/poll_posticon.gif";
 				$thread['threadicontitle'] = $vbphrase['poll'];
 			}
 			// show specified icon
+			// this looks obsolete -- there isn't anything that appears to set threadiconpath
+			// anywhere outside of this file.
 			else if ($thread['threadiconpath'])
 			{
 				$show['threadicon'] = true;
@@ -348,24 +434,24 @@ function process_thread_array($thread, $lastread = -1, $allowicons = -1)
 		}
 
 		// folder icon generation
-		$thread['statusicon'] = '';
+		$thread['status'] = array();
 
 		// show dot folder?
 		if ($vbulletin->userinfo['userid'] AND $vbulletin->options['showdots'] AND $dotthreads["$thread[threadid]"])
 		{
-			$thread['statusicon'] .= '_dot';
+			$thread['status']['dot'] = 'dot';
 			$thread['dot_count'] = $dotthreads["$thread[threadid]"]['count'];
 			$thread['dot_lastpost'] = $dotthreads["$thread[threadid]"]['lastpost'];
 		}
 		// show hot folder?
 		if ($vbulletin->options['usehotthreads'] AND (($thread['replycount'] >= $vbulletin->options['hotnumberposts'] AND $vbulletin->options['hotnumberposts'] > 0) OR ($thread['views'] >= $vbulletin->options['hotnumberviews'] AND $vbulletin->options['hotnumberviews'] > 0)))
 		{
-			$thread['statusicon'] .= '_hot';
+			$thread['status']['hot'] = 'hot';
 		}
 		// show locked folder?
 		if (!$thread['open'])
 		{
-			$thread['statusicon'] .= '_lock';
+			$thread['status']['lock'] = 'lock';
 			$thread['checkbox_value'] += THREAD_FLAG_CLOSED;
 		}
 
@@ -383,7 +469,7 @@ function process_thread_array($thread, $lastread = -1, $allowicons = -1)
 
 			if ($thread['lastpost'] > $threadview)
 			{
-				$thread['statusicon'] .= '_new';
+				$thread['status']['new'] = 'new';
 				$show['gotonewpost'] = true;
 			}
 			else
@@ -430,12 +516,49 @@ function process_thread_array($thread, $lastread = -1, $allowicons = -1)
 		$thread['replycount'] = '-';
 		$thread['views'] = '-';
 		$show['threadicon'] = false;
-		$thread['statusicon'] = '_moved' . iif($thread['lastpost'] > $lastread, '_new');
+
+		$thread['status'] = array();
+		// VB_API relies on thread redirects to fully reflect the read status of the redirected thread
+		if ($vbulletin->options['threadmarking'] AND $vbulletin->userinfo['userid'] AND defined('VB_API') AND VB_API === true)
+		{
+			if ($lastpost = $vbulletin->db->query_first("
+				SELECT thread.forumid, thread.lastpost, threadread.readtime AS threadread
+				FROM " . TABLE_PREFIX . "thread AS thread
+				LEFT JOIN " . TABLE_PREFIX . "threadread AS threadread ON (threadread.threadid = thread.threadid AND threadread.userid = {$vbulletin->userinfo['userid']})
+				WHERE thread.threadid = {$thread['pollid']}
+			"))
+			{
+				$forumread = $vbulletin->forumcache["$lastpost[forumid]"]['forumread'];
+				$lastread = max($forumread, TIMENOW - ($vbulletin->options['markinglimit'] * 86400));
+
+				if ($lastpost['lastpost'] > $lastread)
+				{
+					if ($lastpost['threadread'])
+					{
+						$threadview = $lastpost['threadread'];
+					}
+
+					if ($lastpost['lastpost'] > $threadview)
+					{
+						$thread['status']['new'] = 'new';
+					}
+				}
+			}
+			else
+			{
+				$thread['status']['new'] = ($thread['lastpost'] > $lastread) ? 'new' : false;
+			}
+		}
+		else
+		{
+			$thread['status']['new'] = ($thread['lastpost'] > $lastread) ? 'new' : false;
+		}
+
+		$thread['status']['moved'] = 'moved';
 		$thread['pagenav'] = '';
 		$thread['movedprefix'] = $vbphrase['moved_thread_prefix'];
 		$thread['rating'] = 0;
 		$thread['votenum'] = 0;
-		$thread['pagenav'] = '';
 		$show['gotonewpost'] = false;
 		$thread['showpagenav'] = false;
 		$show['sticky'] = false;
@@ -451,13 +574,29 @@ function process_thread_array($thread, $lastread = -1, $allowicons = -1)
 
 	($hook = vBulletinHook::fetch_hook('threadbit_process')) ? eval($hook) : false;
 
+	$thread['statusstring'] = implode(' ', $thread['status']);
+
 	return $thread;
 }
 
+
+function parse_subsstring_array($array, $index)
+{
+	$return = array();
+	$length = strlen($index);
+	foreach($array AS $key => $value)
+	{
+		if (strpos($key, $index, 0) !== false)
+		{
+			$return[substr($key, $length)] = $value;
+		}
+	}
+
+	return $return;
+}
 /*======================================================================*\
 || ####################################################################
-|| # Downloaded: 16:21, Sat Apr 6th 2013
-|| # CVS: $RCSfile$ - $Revision: 26251 $
+|| # Downloaded: 14:57, Sun Aug 11th 2013
+|| # CVS: $RCSfile$ - $Revision: 63769 $
 || ####################################################################
 \*======================================================================*/
-?>

@@ -1,9 +1,9 @@
 <?php
 /*======================================================================*\
 || #################################################################### ||
-|| # vBulletin 3.7.2 Patch Level 2 - Licence Number VBF2470E4F
+|| # vBulletin 4.2.1 - Licence Number VBC2DDE4FB
 || # ---------------------------------------------------------------- # ||
-|| # Copyright ©2000-2013 Jelsoft Enterprises Ltd. All Rights Reserved. ||
+|| # Copyright ©2000-2013 vBulletin Solutions Inc. All Rights Reserved. ||
 || # This file may not be redistributed in whole or significant part. # ||
 || # ---------------- VBULLETIN IS NOT FREE SOFTWARE ---------------- # ||
 || # http://www.vbulletin.com | http://www.vbulletin.com/license.html # ||
@@ -21,7 +21,7 @@ function fetch_user_location_array($userinfo)
 	if  (($userinfo['invisible'] == 0 OR $userinfo['userid'] == $vbulletin->userinfo['userid'] OR $vbulletin->userinfo['permissions']['genericpermissions'] & $vbulletin->bf_ugp_genericpermissions['canseehidden']) AND // Check if user is hidden
 		$vbulletin->options['WOLenable'] AND // Is WOL enabled?
 		($vbulletin->userinfo['permissions']['wolpermissions'] & $vbulletin->bf_ugp_wolpermissions['canwhosonline']) AND // Does viewing user have WOL access?
-		 ($userinfo['lastactivity'] > $datecut AND $userinfo['lastvisit'] != $user['lastactivity']) AND // Is user actually online?
+		 ($userinfo['lastactivity'] > $datecut AND $userinfo['lastvisit'] != $userinfo['lastactivity']) AND // Is user actually online?
 		$location = $vbulletin->db->query_first("SELECT location, badlocation FROM " . TABLE_PREFIX . "session WHERE userid = $userinfo[userid] AND lastactivity > $datecut ORDER BY lastactivity DESC LIMIT 1"))
 	{
 
@@ -38,19 +38,15 @@ function fetch_user_location_array($userinfo)
 // ###################### Start showonline #######################
 function construct_online_bit($userinfo, $doall = 0)
 {
-	global $vbulletin, $limitlower, $limitupper, $stylevar, $vbphrase, $ipclass, $show;
-	global $wol_album, $wol_attachment, $wol_calendar, $wol_event, $wol_inf, $wol_pm, $wol_post, $wol_search, $wol_socialgroup, $wol_thread, $wol_user;
+	global $vbulletin, $vbphrase, $show;
+	global $wol_album, $wol_attachment, $wol_calendar, $wol_event, $wol_inf, $wol_pm, $wol_post,
+		$wol_search, $wol_socialgroup, $wol_thread, $wol_user;
 	static $count;
 
 	$count++;
 	$show['nopermission'] = false;
 	$show['lockedout'] = false;
 	$show['errormessage'] = false;
-
-	if ($doall == 1 AND ($count > $limitupper OR $count < $limitlower))
-	{
-		return '';
-	}
 
 	if ($userinfo['attachmentid'])
 	{
@@ -111,6 +107,7 @@ function construct_online_bit($userinfo, $doall = 0)
 		$forumid = $wol_thread["$wol_post[$postid]"]['forumid'];
 	}
 	$threadtitle = fetch_censored_text($wol_thread["$threadid"]['title']);
+	$threadprefix = ($wol_thread["$threadid"]['prefixid'] ? $vbphrase['prefix_' . $wol_thread["$threadid"]['prefixid'] . '_title_rich'] . ' ' : '');
 	$canview = $vbulletin->userinfo['forumpermissions']["$forumid"] & $vbulletin->bf_ugp_forumpermissions['canview'];
 	$canviewothers = $vbulletin->userinfo['forumpermissions']["$forumid"] & $vbulletin->bf_ugp_forumpermissions['canviewothers'];
 	$canviewthreads = $vbulletin->userinfo['forumpermissions']["$forumid"] & $vbulletin->bf_ugp_forumpermissions['canviewthreads'];
@@ -122,7 +119,7 @@ function construct_online_bit($userinfo, $doall = 0)
 	{
 		$calendarid = $wol_event["$eventid"]['calendarid'];
 	}
-	$eventtitle = htmlspecialchars_uni($wol_event["$eventid"]['title']);
+	$eventtitle = $wol_event["$eventid"]['title'];
 	$eventpostuserid = $wol_event["$eventid"]['postuserid'];
 	$calendartitle = $wol_calendar["$calendarid"];
 	$canviewcalendar = $vbulletin->userinfo['calendarpermissions']["$calendarid"] & $vbulletin->bf_ugp_calendarpermissions['canviewcalendar'];
@@ -171,1029 +168,1115 @@ function construct_online_bit($userinfo, $doall = 0)
 		{
 			$seeuserid = $userinfo['targetuserid'];
 		}
+		$username = $wol_user["$seeuserid"]['musername'];
 	}
 
-	switch($userinfo['activity'])
+	if (strpos($userinfo['location'], 'route:') === 0)
 	{
-		case 'visitormessage_posting':
-			$userinfo['action'] = $vbphrase['posting_visitor_message'];
-			break;
-		case 'visitormessage_delete':
-			$userinfo['action'] = $vbphrase['deleting_visitor_message'];
-			break;
-		case 'viewingipaddress':
-			$userinfo['action'] = '<b><i>' . $vbphrase['moderating'] . '</b></i>';
-			if (can_moderate())
-			{
-				$userinfo['action'] = $vbphrase['viewing_ip_address'];
-			}
-			break;
-		case 'visitormessage_reporting':
-			$userinfo['action'] = $vbphrase['reporting_visitor_message'];
-			break;
+		$handled = false;
 
-		case 'posthistory':
-			$userinfo['action'] = $vbphrase['viewing_post_history'];
-			if ($seetitle)
-			{
-				$userinfo['where'] = '<a href="showthread.php?' . $vbulletin->session->vars['sessionurl'] . "p=$postid#post$postid\" title=\"$threadpreview\">$threadtitle</a>";
-			}
-			break;
+		$location = substr($userinfo['location'], strlen('route:'));
+		$location = explode('|', $location);
 
-		case 'tags':
-			$userinfo['action'] = $vbphrase['managing_tags'];
-			break;
+		if (sizeof($location) == 4)
+		{
+			try
+			{
+				list($route_path, $phrasegroup, $phrasekey, $title) = $location;
+				$route_path = urldecode($route_path);
+				$title = urldecode($title);
 
-		case 'tag_list':
-			$userinfo['action'] = $vbphrase['viewing_tag_list'];
-			break;
+				list($type) = explode('_', vB_Router::getRouteClassFromPath($route_path));
 
-		case 'socialgroups_join':
-			$userinfo['action'] = $vbphrase['joining_social_group'];
-			if ($canviewgroup)
-			{
-				$userinfo['where'] = '<a href="group.php?' . $vbulletin->session->vars['sessionurl'] . "do=view&amp;groupid=$groupid\">$groupname</a>";
-			}
-			break;
-		case 'socialgroups_leave':
-			$userinfo['action'] = $vbphrase['leaving_social_group'];
-			if ($canviewgroup)
-			{
-				$userinfo['where'] = '<a href="group.php?' . $vbulletin->session->vars['sessionurl'] . "do=view&amp;groupid=$groupid\">$groupname</a>";
-			}
-			break;
-		case 'socialgroups_edit':
-			$userinfo['action'] = $vbphrase['editing_social_group'];
-			if ($canviewgroup)
-			{
-				$userinfo['where'] = '<a href="group.php?' . $vbulletin->session->vars['sessionurl'] . "do=view&amp;groupid=$groupid\">$groupname</a>";
-			}
-			break;
-		case 'socialgroups_view':
-			$userinfo['action'] = $vbphrase['viewing_social_group'];
-			if ($canviewgroup)
-			{
-				$userinfo['where'] = '<a href="group.php?' . $vbulletin->session->vars['sessionurl'] . "do=view&amp;groupid=$groupid\">$groupname</a>";
-			}
-			break;
-		case 'socialgroups_memberlist':
-			$userinfo['action'] = $vbphrase['viewing_social_group_memberlist'];
-			if ($canviewgroup)
-			{
-				$userinfo['where'] = '<a href="group.php?' . $vbulletin->session->vars['sessionurl'] . "do=viewmembers&amp;groupid=$groupid\">$groupname</a>";
-			}
-			break;
-		case 'socialgroups_delete':
-			$userinfo['action'] = $vbphrase['deleting_social_group'];
-			if ($canviewgroup)
-			{
-				$userinfo['where'] = '<a href="group.php?' . $vbulletin->session->vars['sessionurl'] . "do=viewmembers&amp;groupid=$groupid\">$groupname</a>";
-			}
-			break;
-		case 'socialgroups_create':
-			$userinfo['action'] = $vbphrase['creating_social_group'];
-			break;
-		case 'socialgroups_list':
-			$userinfo['action'] = $vbphrase['viewing_social_group_list'];
-			if ($canviewgroup)
-			{
-				$userinfo['where'] = '<a href="group.php?' . $vbulletin->session->vars['sessionurl'] . "do=view&amp;groupid=$groupid\">$groupname</a>";
-			}
-			break;
+				$class = $type . '_Permissions';
+				$route = vB_Router::createRoute($route_path);
+				$nodeid = intval($route->getRoutePath());
 
-		case 'group_inlinemod':
-			$userinfo['action'] = '<b><i>' . $vbphrase['moderating'] . '</i></b>';
-			break;
+				$userinfo['action'] = new vB_Phrase($phrasegroup, $phrasekey);
 
-		case 'showthread':
-			$userinfo['action'] = $vbphrase['viewing_thread'];
-			if ($seetitle)
-			{
-				$userinfo['where'] = '<a href="showthread.php?' . $vbulletin->session->vars['sessionurl'] . "t=$threadid\" title=\"$threadpreview\">$threadtitle</a>";
-			}
-			break;
-		case 'showpost':
-			$userinfo['action'] = $vbphrase['viewing_thread'];
-			if ($seetitle)
-			{
-				$userinfo['where'] = '<a href="showthread.php?' . $vbulletin->session->vars['sessionurl'] . "p=$postid#post$postid\" title=\"$threadpreview\">$threadtitle</a>";
-			}
-			break;
-		case 'forumdisplay':
-			$userinfo['action'] = $vbphrase['viewing_forum'];
-			if ($seeforum)
-			{
-				if ($vbulletin->forumcache["$forumid"]['link'])
+				if (class_exists($class))
 				{
-					$userinfo['action'] = $vbphrase['followed_forum_link'];
+					$perms = new $class;
+					$canview = $perms->canView($nodeid);
 				}
-				$userinfo['where'] = '<a href="forumdisplay.php?' . $vbulletin->session->vars['sessionurl'] . "f=$forumid\">$forumtitle</a>";
-			}
-			break;
-		case 'newthread':
-			$userinfo['action'] = $vbphrase['creating_thread'];
-			if ($seeforum)
-			{
-				$userinfo['where'] = '<a href="forumdisplay.php?' . $vbulletin->session->vars['sessionurl'] . "f=$forumid\">$forumtitle</a>";
-			}
-			break;
-		case 'newreply':
-			$userinfo['action'] = $vbphrase['replying_to_thread'];
-			if ($seetitle)
-			{
-				$userinfo['where'] = '<a href="showthread.php?' . $vbulletin->session->vars['sessionurl'] . "t=$threadid\" title=\"$threadpreview\">$threadtitle</a>";
-			}
-			break;
-		case 'attachments':
-			$userinfo['action'] = $vbphrase['viewing_attachments'];
-			if ($seeuserid)
-			{
-				$userinfo['where'] = '<a href="misc.php?' . $vbulletin->session->vars['sessionurl'] . "do=attachments&amp;u=$seeuserid\">$wol_user[$seeuserid]</a>";
-			}
-			break;
-		case 'manageattachment':
-			$userinfo['action'] = $vbphrase['managing_attachments'];
-			break;
-		case 'attachment':
-			$userinfo['action'] = $vbphrase['viewing_attachment'];
-			if ($seetitle)
-			{
-				$userinfo['where'] = '<a href="showthread.php?' . $vbulletin->session->vars['sessionurl'] . "p=$postid#post$postid\" title=\"$threadpreview\">$threadtitle</a>";
-			}
-			break;
-		case 'index':
-			$userinfo['action'] = $vbphrase['viewing_index'];
-			$userinfo['where'] = '<a href="' . $vbulletin->options['forumhome'] . '.php' . $vbulletin->session->vars['sessionurl_q'] . '">' . $vbulletin->options['bbtitle'] . '</a>';
-			break;
-		case 'online':
-			$userinfo['action'] = $vbphrase['viewing_whos_online'];
-			break;
-		case 'searchnew':
-			$userinfo['action'] = $vbphrase['viewing_new_posts'];
-			$userinfo['where'] = '<a href="search.php?' . $vbulletin->session->vars['sessionurl'] . "do=getnew\">$vbphrase[new_posts]</a>";
-			break;
-		case 'search':
-			$userinfo['action'] = $vbphrase['searching_forums'];
-			if ($searchid AND $vbulletin->userinfo['permissions']['wolpermissions'] & $vbulletin->bf_ugp_wolpermissions['canwhosonlinefull'])
-			{
-				if ($searchquery)
+				else
 				{
-					$userinfo['where'] = construct_phrase($vbphrase['query_x'], htmlspecialchars_uni($searchquery));
+					$canview = true; // Default to allowed
 				}
-				if ($searchuser AND $wol_search["$searchid"]['targetuserid'])
+
+				if ($canview)
+				{
+					$userinfo['where'] = '<a href="' . $route->getCurrentUrl() . '">' . htmlspecialchars_uni($title) . '</a>';
+				}
+				else
+				{
+					$userinfo['where'] = '';
+				}
+
+				if (vB::$vbulletin->session->vars['sessionhash'])
+				{
+					$userinfo['where'] .= '&amp;s=' . vB::$vbulletin->session->vars['sessionhash'];
+				}
+
+				$handled = true;
+			}
+			catch (vB_Exception $e){}
+		}
+	}
+
+	if (!$handled)
+	{
+		switch($userinfo['activity'])
+		{
+			case 'api':
+				if ($vbulletin->userinfo['permissions']['wolpermissions'] & $vbulletin->bf_ugp_wolpermissions['canwhosonlinebad'])
+				{
+					$userinfo['action'] = $vbphrase['calling_api'];
+					$userinfo['where'] =  $userinfo['api'];
+				}
+				else
+				{
+					$userinfo['action'] = $vbphrase['viewing_index'];
+					$userinfo['where'] = '<a href="' . fetch_seo_url('forumhome', array()) . '">' .
+						$vbulletin->options['bbtitle'] . '</a>';
+				}
+				break;
+			case 'visitormessage_posting':
+				$userinfo['action'] = $vbphrase['posting_visitor_message'];
+				break;
+			case 'visitormessage_delete':
+				$userinfo['action'] = $vbphrase['deleting_visitor_message'];
+				break;
+			case 'viewingipaddress':
+				$userinfo['action'] = '<b><i>' . $vbphrase['moderating'] . '</i></b>';
+				if (can_moderate())
+				{
+					$userinfo['action'] = $vbphrase['viewing_ip_address'];
+				}
+				break;
+			case 'visitormessage_reporting':
+				$userinfo['action'] = $vbphrase['reporting_visitor_message'];
+				break;
+
+			case 'activitystream':
+				$userinfo['action'] = $vbphrase['viewing_activity_stream'];
+				break;
+
+			case 'posthistory':
+				$userinfo['action'] = $vbphrase['viewing_post_history'];
+				if ($seetitle)
+				{
+					$userinfo['where'] = $threadprefix . '<a href="' . fetch_seo_url('thread', array('threadid' => $threadid, 'title' => $wol_thread["$threadid"]['title']), array('p' => $postid)) . "#post$postid\" title=\"$threadpreview\">$threadtitle</a>";
+				}
+				break;
+
+			case 'tags':
+				$userinfo['action'] = $vbphrase['managing_tags'];
+				break;
+
+			case 'tag_list':
+				$userinfo['action'] = $vbphrase['viewing_tag_list'];
+				break;
+
+			case 'socialgroups_join':
+				$userinfo['action'] = $vbphrase['joining_social_group'];
+				if ($canviewgroup)
+				{
+					$userinfo['where'] = '<a href="' . fetch_seo_url('group', array('groupid' => $groupid, 'name' => $groupname)) . "\">$groupname</a>";
+				}
+				break;
+			case 'socialgroups_leave':
+				$userinfo['action'] = $vbphrase['leaving_social_group'];
+				if ($canviewgroup)
+				{
+					$userinfo['where'] = '<a href="' . fetch_seo_url('group', array('groupid' => $groupid, 'name' => $groupname)) . "\">$groupname</a>";
+				}
+				break;
+			case 'socialgroups_edit':
+				$userinfo['action'] = $vbphrase['editing_social_group'];
+				if ($canviewgroup)
+				{
+					$userinfo['where'] = '<a href="' . fetch_seo_url('group', array('groupid' => $groupid, 'name' => $groupname)) . "\">$groupname</a>";
+				}
+				break;
+			case 'socialgroups_view':
+				$userinfo['action'] = $vbphrase['viewing_social_group'];
+				if ($canviewgroup)
+				{
+					$userinfo['where'] = '<a href="' . fetch_seo_url('group', array('groupid' => $groupid, 'name' => $groupname)) . "\">$groupname</a>";
+				}
+				break;
+			case 'socialgroups_memberlist':
+				$userinfo['action'] = $vbphrase['viewing_social_group_memberlist'];
+				if ($canviewgroup)
+				{
+					$userinfo['where'] = '<a href="' . fetch_seo_url('group', array('groupid' => $groupid, 'name' => $groupname)) . "\">$groupname</a>";
+				}
+				break;
+			case 'socialgroups_delete':
+				$userinfo['action'] = $vbphrase['deleting_social_group'];
+				if ($canviewgroup)
+				{
+					$userinfo['where'] = '<a href="' . fetch_seo_url('group', array('groupid' => $groupid, 'name' => $groupname)) . "\">$groupname</a>";
+				}
+				break;
+			case 'socialgroups_create':
+				$userinfo['action'] = $vbphrase['creating_social_group'];
+				break;
+			case 'socialgroups_list':
+				$userinfo['action'] = $vbphrase['viewing_social_group_list'];
+				if ($canviewgroup)
+				{
+					$userinfo['where'] = '<a href="' . fetch_seo_url('group', array('groupid' => $groupid, 'name' => $groupname)) . "\">$groupname</a>";
+				}
+				break;
+			case 'socialgroups_subscriptions':
+				$userinfo['action'] = $vbphrase['viewing_social_group_subscriptions'];
+				break;
+
+			case 'group_inlinemod':
+				$userinfo['action'] = '<b><i>' . $vbphrase['moderating'] . '</i></b>';
+				break;
+			case 'showthread':
+				$userinfo['action'] = $vbphrase['viewing_thread'];
+				if ($seetitle)
+				{
+					$userinfo['where'] = $threadprefix . '<a href="' . fetch_seo_url('thread', array('threadid' => $threadid, 'title' => $wol_thread["$threadid"]['title'])) . "\" title=\"$threadpreview\">$threadtitle</a>";
+				}
+				break;
+			case 'showpost':
+				$userinfo['action'] = $vbphrase['viewing_thread'];
+				if ($seetitle)
+				{
+					$userinfo['where'] = $threadprefix . '<a href="' . fetch_seo_url('thread', array('threadid' => $threadid, 'title' => $wol_thread["$threadid"]['title']), array('p' => $postid)) . "#post$postid\" title=\"$threadpreview\">$threadtitle</a>";
+				}
+				break;
+			case 'forumdisplay':
+				$userinfo['action'] = $vbphrase['viewing_forum'];
+				if ($seeforum)
+				{
+					if ($vbulletin->forumcache["$forumid"]['link'])
+					{
+						$userinfo['action'] = $vbphrase['followed_forum_link'];
+					}
+					$userinfo['where'] = '<a href="' . fetch_seo_url('forum', array('forumid' => $forumid, 'title' => $forumtitle)) . "\">$forumtitle</a>";
+				}
+				break;
+			case 'newthread':
+				$userinfo['action'] = $vbphrase['creating_thread'];
+				if ($seeforum)
+				{
+					$userinfo['where'] = '<a href="' . fetch_seo_url('forum', array('forumid' => $forumid, 'title' => $forumtitle)) . "\">$forumtitle</a>";
+				}
+				break;
+			case 'newreply':
+				$userinfo['action'] = $vbphrase['replying_to_thread'];
+				if ($seetitle)
+				{
+					$userinfo['where'] = $threadprefix . '<a href="' . fetch_seo_url('thread', array('threadid' => $threadid, 'title' => $wol_thread["$threadid"]['title'])) . "\" title=\"$threadpreview\">$threadtitle</a>";
+				}
+				break;
+			case 'attachments':
+			case 'manageattachment':
+				$userinfo['action'] = $vbphrase['managing_attachments'];
+				break;
+			case 'attachment':
+				$userinfo['action'] = $vbphrase['viewing_attachment'];
+				break;
+			case 'index':
+				$userinfo['action'] = $vbphrase['viewing_index'];
+				$userinfo['where'] = '<a href="' . fetch_seo_url('forumhome', array()) . '">' .
+					$vbulletin->options['bbtitle'] . '</a>';
+				break;
+			case 'online':
+				$userinfo['action'] = $vbphrase['viewing_whos_online'];
+				break;
+			case 'searchnew':
+				$userinfo['action'] = $vbphrase['viewing_new_posts'];
+				$userinfo['where'] = '<a href="search.php?' . $vbulletin->session->vars['sessionurl'] . "do=getnew\">$vbphrase[new_posts]</a>";
+				break;
+			case 'search':
+				$userinfo['action'] = $vbphrase['searching_forums'];
+				if ($searchid AND $vbulletin->userinfo['permissions']['wolpermissions'] & $vbulletin->bf_ugp_wolpermissions['canwhosonlinefull'])
 				{
 					if ($searchquery)
 					{
-						$userinfo['where'] .= '<br />';
+						$userinfo['where'] = construct_phrase($vbphrase['query_x'], htmlspecialchars_uni($searchquery));
 					}
-					$userinfo['where'] .= construct_phrase($vbphrase['user_x'], '<a href="member.php?' . $vbulletin->session->vars['sessionurl'] . "u=$seeuserid\">$wol_user[$seeuserid]</a>");
-				}
-			}
-			break;
-		case 'mail':
-			$userinfo['action'] = $vbphrase['emailing'];
-			if ($seeuserid)
-			{
-				$userinfo['where'] = '<a href="member.php?' . $vbulletin->session->vars['sessionurl'] . "u=$seeuserid\">$wol_user[$seeuserid]</a>";
-			}
-			break;
-		case 'getinfo':
-			$userinfo['action'] = $vbphrase['viewing_user_profile'];
-			if ($seeuserid)
-			{
-				$userinfo['where'] = '<a href="member.php?' . $vbulletin->session->vars['sessionurl'] . "u=$seeuserid\">$wol_user[$seeuserid]</a>";
-			}
-			break;
-		case 'converse':
-			$userinfo['action'] = $vbphrase['viewing_conversation'];
-			if ($seeuserid AND $wol_user["{$userinfo['guestuserid']}"])
-			{
-				$userinfo['where'] = construct_phrase($vbphrase['x_and_y_converse'], '<a href="member.php?' . $vbulletin->session->vars['sessionurl'] . "u=$seeuserid\">$wol_user[$seeuserid]</a>", '<a href="member.php?' . $vbulletin->session->vars['sessionurl'] . "u=$userinfo[guestuserid]\">" . $wol_user["{$userinfo['guestuserid']}"] . "</a>");
-			}
-			break;
-		case 'editprofile':
-			$userinfo['action'] = $vbphrase['modifying_profile'];
-			break;
-		case 'editoptions':
-			$userinfo['action'] = $vbphrase['modifying_options'];
-			break;
-		case 'lostpw':
-		case 'editpassword':
-			$userinfo['action'] = $vbphrase['modifying_password'];
-			break;
-		case 'editavatar':
-			$userinfo['action'] = $vbphrase['modifying_avatar'];
-			break;
-		case 'editprofilepic':
-			$userinfo['action'] = $vbphrase['modifying_profilepic'];
-			break;
-		case 'editsignature':
-			$userinfo['action'] = $vbphrase['modifying_signature'];
-			break;
-		case 'markread':
-			$userinfo['where'] = $vbphrase['marking_forums_read'];
-			break;
-		case 'whoposted':
-			if ($seetitle)
-			{
-				$userinfo['action'] = $vbphrase['viewing_who_posted'];
-				$userinfo['where'] = '<a href="showthread.php?' . $vbulletin->session->vars['sessionurl'] . "t=$threadid\" title=\"$threadpreview\">$threadtitle</a>";
-			}
-			else
-			{
-				$userinfo['action'] = $vbphrase['viewing_thread'];
-			}
-			break;
-		case 'showattachments':
-			if ($seetitle)
-			{
-				$userinfo['action'] = $vbphrase['viewing_attachment_list'];
-				$userinfo['where'] = '<a href="showthread.php?' . $vbulletin->session->vars['sessionurl'] . "t=$threadid\" title=\"$threadpreview\">$threadtitle</a>";
-			}
-			else
-			{
-				$userinfo['action'] = $vbphrase['viewing_thread'];
-			}
-			break;
-		case 'showgroups':
-			$userinfo['action'] = $vbphrase['viewing_forum_leaders'];
-			break;
-		case 'login':
-			$userinfo['action'] = $vbphrase['logging_in'];
-			break;
-		case 'logout':
-			if ($userinfo['badlocation'])
-			{
-				$userinfo['action'] = $vbphrase['logging_out'];
-			}
-			break;
-		case 'archive':
-			$userinfo['action'] = $vbphrase['viewing_archives'];
-			if ($seetitle)
-			{
-				$userinfo['where'] = "<a href=\"archive/index.php/t-$threadid.html\" title=\"$threadpreview\">$threadtitle</a>";
-			}
-			else if ($seeforum)
-			{
-				$userinfo['where'] = "<a href=\"archive/index.php/f-$forumid.html\">$forumtitle</a>";
-			}
-			break;
-		case 'pm':
-			$userinfo['action'] = $vbphrase['private_messaging'];
-			if ($vbulletin->userinfo['permissions']['wolpermissions'] & $vbulletin->bf_ugp_wolpermissions['canwhosonlinefull'])
-			{
-				if ($seeuserid)
-				{
-					$userinfo['where'] = '<a href="member.php?' . $vbulletin->session->vars['sessionurl'] . "u=$seeuserid\">$wol_user[$seeuserid]</a>";
-				}
-				if ($userinfo['values']['do'] == 'newpm' OR $userinfo['values']['do'] == 'insertpm' OR $userinfo['values']['do'] == 'newmessage')
-				{
-					$userinfo['action'] = $vbphrase['creating_private_message'];
-				}
-				else if ($userinfo['values']['do'] == 'editfolders' OR $userinfo['action']['do'] == 'updatefolders')
-				{
-					$userinfo['action'] = $vbphrase['modifying_private_message_folders'];
-				}
-				else if ($userinfo['values']['do'] == 'trackpm' OR $userinfo['values']['do'] == 'deletepmreceipt')
-				{
-					$userinfo['action'] = $vbphrase['tracking_private_messages'];
-				}
-				else if ($userinfo['values']['do'] == 'showpm')
-				{
-					$userinfo['action'] = $vbphrase['viewing_private_message'];
-				}
-				else if ($userinfo['values']['do'] == 'downloadpm')
-				{
-					$userinfo['action'] = $vbphrase['downloading_private_messages'];
-				}
-
-			}
-			break;
-		case 'addbuddy':
-		case 'addignore':
-		case 'buddyignore':
-			$userinfo['action'] = $vbphrase['modifying_contact_ignore_list'];
-			break;
-		case 'subfolders':
-			$userinfo['action'] = $vbphrase['modifying_subscription_folders'];
-			break;
-		case 'subscription':
-			$userinfo['action'] = $vbphrase['viewing_subscribed_threads'];
-			break;
-		case 'addsubforum':
-			$userinfo['action'] = $vbphrase['subscribing_to_forum'];
-			if ($seeforum)
-			{
-				$userinfo['where'] = '<a href="forumdisplay.php?' . $vbulletin->session->vars['sessionurl'] . "f=$forumid\">$forumtitle</a>";
-			}
-			break;
-		case 'addsubthread':
-			$userinfo['action'] = $vbphrase['subscribing_to_thread'];
-			if ($seetitle)
-			{
-				$userinfo['where'] = '<a href="showthread.php?' . $vbulletin->session->vars['sessionurl'] . "t=$threadid\" title=\"$threadpreview\">$threadtitle</a>";
-			}
-			break;
-		case 'remsubthread':
-			$userinfo['action'] = $vbphrase['deleting_subscribed_threads'];
-			break;
-		case 'remsubforum':
-			$userinfo['action'] = $vbphrase['deleting_subscribed_forums'];
-			break;
-		case 'usercp':
-			$userinfo['action'] = $vbphrase['viewing_user_control_panel'];
-			break;
-		case 'memberlistsearch':
-			$userinfo['action'] = $vbphrase['searching_member_list'];
-			break;
-		case 'memberlist':
-			$userinfo['action'] = $vbphrase['viewing_member_list'];
-			break;
-
-		case 'member_inlinemod':
-			$userinfo['action'] = '<b><i>' . $vbphrase['moderating'] . '</i></b>';
-			if (can_moderate())
-			{
-				if ($seeuserid)
-				{
-					$userinfo['where'] = '<a href="member.php?' . $vbulletin->session->vars['sessionurl'] . "u=$seeuserid\">$wol_user[$seeuserid]</a>";
-				}
-			}
-		break;
-
-		case 'inlinemod':
-			$userinfo['action'] = '<b><i>' . $vbphrase['moderating'] . '</i></b>';
-			if (can_moderate())
-			{
-				$userinfo['where'] = '<a href="showthread.php?' . $vbulletin->session->vars['sessionurl'] . "t=$threadid\" title=\"$threadpreview\">$threadtitle</a>";
-				switch ($userinfo['values']['do'])
-				{
-					case 'open':
-						$userinfo['action'] = '<i>' . $vbphrase['inline_mod_opening_threads'] . '</i>';
-						break;
-					case 'close':
-						$userinfo['action'] = '<i>' . $vbphrase['inline_mod_closing_threads'] . '</i>';
-						break;
-					case 'stick':
-						$userinfo['action'] = '<i>' . $vbphrase['inline_mod_sticking_threads'] . '</i>';
-						break;
-					case 'unstick':
-						$userinfo['action'] = '<i>' . $vbphrase['inline_mod_unsticking_threads'] . '</i>';
-						break;
-					case 'deletethread':
-					case 'dodeletethreads':
-						$userinfo['action'] = '<i>' . $vbphrase['inline_mod_deleting_threads'] . '</i>';
-						break;
-					case 'undeletethread':
-						$userinfo['action'] = '<i>' . $vbphrase['inline_mod_undeleting_threads'] . '</i>';
-						break;
-					case 'approvethread':
-						$userinfo['action'] = '<i>' . $vbphrase['inline_mod_approving_threads'] . '</i>';
-						break;
-					case 'unapprovethread':
-						$userinfo['action'] = '<i>' . $vbphrase['inline_mod_unapproving_threads'] . '</i>';
-						break;
-
-					case 'movethread':
-					case 'domovethreads':
-						$userinfo['action'] = '<i>' . $vbphrase['inline_mod_moving_threads'] . '</i>';
-						break;
-
-					case 'mergethread':
-					case 'domergethreads':
-						$userinfo['action'] = '<i>' . $vbphrase['inline_mod_merging_threads'] . '</i>';
-						break;
-
-					case 'deleteposts':
-					case 'dodeleteposts':
-						$userinfo['action'] = '<i>' . $vbphrase['inline_mod_deleting_posts'] . '</i>';
-						break;
-
-					case 'undeleteposts':
-						$userinfo['action'] = '<i>' . $vbphrase['inline_mod_undeleting_posts'] . '</i>';
-						break;
-					case 'approveposts':
-						$userinfo['action'] = '<i>' . $vbphrase['inline_mod_approving_posts'] . '</i>';
-						break;
-					case 'unapproveposts':
-						$userinfo['action'] = '<i>' . $vbphrase['inline_mod_unapproving_posts'] . '</i>';
-						break;
-
-					case 'mergeposts':
-					case 'domergeposts':
-						$userinfo['action'] = '<i>' . $vbphrase['inline_mod_merging_posts'] . '</i>';
-						break;
-
-					case 'moveposts':
-					case 'domoveposts':
-						$userinfo['action'] = '<i>' . $vbphrase['inline_mod_moving_posts'] . '</i>';
-						break;
-
-					case 'clearthread':
-					case 'clearpost':
-						$userinfo['action'] = '<i>' . $vbphrase['inline_mod_clear'] . '</i>';
-						break;
-					case 'spampost':
-					case 'dodeletespam':
-					case 'spamconfirm':
-						$userinfo['action'] = '<i>' . $vbphrase['managing_spam'] . '</i>';
-						break;
-
-				}
-			}
-			break;
-
-		case 'postings':
-			$userinfo['action'] = '<b><i>' . $vbphrase['moderating'] . '</b></i>';
-			if (can_moderate($forumid) AND $threadtitle AND $canview AND ($canviewothers OR $postuserid == $vbulletin->userinfo['userid']))
-			{
-				$userinfo['where'] = '<a href="showthread.php?' . $vbulletin->session->vars['sessionurl'] . "t=$threadid\" title=\"$threadpreview\">$threadtitle</a>";
-				switch ($userinfo['values']['do'])
-				{
-					case 'editthread':
-					case 'updatethread':
-						$userinfo['action'] = '<i>' . $vbphrase['modifying_thread'] . '</i>';
-						break;
-					case 'openclosethread':
-						$userinfo['action'] = '<i>' . $vbphrase['open_close_thread'] . '</i>';
-						break;
-					case 'movethread':
-						$userinfo['action'] = '<i>' .$vbphrase['choosing_forum_to_move_thread_to'] . '</i>';
-						break;
-					case 'domovethread':
-						switch($userinfo['values']['method'])
-						{
-							case 'copy':
-								$userinfo['action'] = '<i>' . $vbphrase['copying_thread_to_forum'] . '</i>';
-								break;
-							case 'move':
-								$userinfo['action'] = '<i>' . $vbphrase['moving_thread_to_forum'] . '</i>';
-								break;
-							case 'movered':
-								$userinfo['action'] = '<i>' . $vbphrase['moving_thread_with_redirect_to_forum'] . '</i>';
-								break;
-						}
-						$userinfo['where'] = '<a href="showthread.php?' . $vbulletin->session->vars['sessionurl'] . "t=$threadid\" title=\"$threadpreview\">$threadtitle</a><br />" .
-										'<a href="forumdisplay.php?' . $vbulletin->session->vars['sessionurl'] . "f=$forumid\">$forumtitle</a>";
-						break;
-					case 'deletethread':
-					case 'dodeletethread':
-						$userinfo['action'] = '<i>' . $vbphrase['deleting_thread'] . '</i>';
-						break;
-					case 'deleteposts':
-					case 'dodeleteposts':
-						$userinfo['where'] = '<i>' . $vbphrase['deleting_posts'] . '</i>';
-						break;
-					case 'merge':
-					case 'domergethread':
-						$userinfo['where'] = '<i>' . $vbphrase['merging_threads'] . '</i>';
-						break;
-					case 'stick':
-						$userinfo['where'] = '<i>' . $vbphrase['stick_unstick_thread'] . '</i>';
-						break;
-					case 'getip':
-						$userinfo['where'] = '<i>' . $vbphrase['viewing_ip_address'] . '</i>';
-						break;
-					case 'removeredirect':
-						$userinfo['where'] = '<i>' . $vbphrase['deleting_redirect'] . '</i>';
-						break;
-				}
-			}
-			break;
-		case 'register':
-			$userinfo['action'] = $vbphrase['registering'];
-			break;
-		case 'requestemail':
-			$userinfo['action'] = $vbphrase['request_activation_code'];
-			break;
-		case 'activate':
-			$userinfo['action'] = $vbphrase['activating_registration'];
-			break;
-		case 'announcement':
-			$userinfo['action'] = $vbphrase['viewing_announcement'];
-			if ($seeforum)
-			{
-				$userinfo['where'] = '<a href="announcement.php?' . $vbulletin->session->vars['sessionurl'] . "f=$forumid\">$forumtitle</a>";
-			}
-			break;
-		case 'usergroup':
-			$userinfo['action'] = $vbphrase['modifying_usergroups'];
-			break;
-		case 'polls':
-			switch ($userinfo['values']['do'])
-			{
-				case 'showresults':
-					$userinfo['action'] = $vbphrase['viewing_poll'];
-					break;
-				case '':
-				case 'newpoll':
-				case 'postpoll':
-					$userinfo['action'] = $vbphrase['creating_poll'];
-					if ($seeforum)
+					if ($searchuser AND $wol_search["$searchid"]['targetuserid'])
 					{
-						$userinfo['where'] = '<a href="forumdisplay.php?' . $vbulletin->session->vars['sessionurl'] . "f=$forumid\">$forumtitle</a>";
+						if ($searchquery)
+						{
+							$userinfo['where'] .= '<br />';
+						}
+						$userinfo['where'] .= construct_phrase($vbphrase['user_x'], '<a href="' . fetch_seo_url('member', array('userid' => $seeuserid, 'username' => $wol_user["$seeuserid"]['username'])) . "\">$username</a>");
 					}
-					break;
-				case 'polledit':
-				case 'updatepoll':
-					$userinfo['action'] = $vbphrase['modifying_poll'];
-					break;
-				case 'pollvote':
-					$userinfo['action'] = $vbphrase['voting'];
-					break;
-			}
-			break;
-		case 'showsmilies':
-			$userinfo['action'] = $vbphrase['viewing_smilies'];
-			break;
-		case 'showavatars':
-			$userinfo['action'] = $vbphrase['viewing_avatars'];
-			break;
-		case 'bbcode':
-			$userinfo['action'] = $vbphrase['viewing_bb_code'];
-			break;
-		case 'faq':
-			$userinfo['action'] = $vbphrase['viewing_faq'];
-			break;
-		case 'edit':
-			$userinfo['action'] = $vbphrase['modifying_post'];
-			if ($vbulletin->userinfo['permissions']['wolpermissions'] & $vbulletin->bf_ugp_wolpermissions['canwhosonlinefull'] AND $seetitle)
-			{
-				$userinfo['where'] = '<a href="showthread.php?' . $vbulletin->session->vars['sessionurl'] . "p=$postid#post$postid\" title=\"$threadpreview\">$threadtitle</a>";
-			}
-			break;
-		case 'sendto':
-			$userinfo['action'] = $vbphrase['sending_thread_to_friend'];
-			if ($seetitle)
-			{
-				$userinfo['where'] = '<a href="printthread.php?' . $vbulletin->session->vars['sessionurl'] . "t=$threadid\" title=\"$threadpreview\">$threadtitle</a>";
-			}
-			break;
-		case 'contactus':
-			$userinfo['action'] = $vbphrase['sending_forum_feedback'];
-			break;
-		case 'aim':
-			$userinfo['action'] = $vbphrase['sending_aim_message'];
-			if ($seeuserid)
-			{
-				$userinfo['where'] = '<a href="member.php?' . $vbulletin->session->vars['sessionurl'] . "u=$seeuserid\">$wol_user[$seeuserid]</a>";
-			}
-			break;
-		case 'msn':
-			$userinfo['action'] = $vbphrase['sending_msn_message'];
-			if ($seeuserid)
-			{
-				$userinfo['where'] = '<a href="member.php?' . $vbulletin->session->vars['sessionurl'] . "u=$seeuserid\">$wol_user[$seeuserid]</a>";
-			}
-			break;
-		case 'yahoo':
-			$userinfo['action'] = $vbphrase['sending_yahoo_message'];
-			if ($seeuserid)
-			{
-				$userinfo['where'] = '<a href="member.php?' . $vbulletin->session->vars['sessionurl'] . "u=$seeuserid\">$wol_user[$seeuserid]</a>";
-			}
-			break;
-		case 'icq':
-			$userinfo['action'] = $vbphrase['sending_icq_message'];
-			if ($seeuserid)
-			{
-				$userinfo['where'] = '<a href="member.php?' . $vbulletin->session->vars['sessionurl'] . "u=$seeuserid\">$wol_user[$seeuserid]</a>";
-			}
-			break;
-		case 'skype':
-			$userinfo['action'] = $vbphrase['sending_skype_message'];
-			if ($seeuserid)
-			{
-				$userinfo['where'] = '<a href="member.php?' . $vbulletin->session->vars['sessionurl'] . "u=$seeuserid\">$wol_user[$seeuserid]</a>";
-			}
-			break;
-		case 'report':
-			if ($vbulletin->userinfo['permissions']['wolpermissions'] & $vbulletin->bf_ugp_wolpermissions['canwhosonlinefull'] AND $seetitle)
-			{
-				$userinfo['where'] = '<a href="showthread.php?' . $vbulletin->session->vars['sessionurl'] . "p=$postid#post$postid\" title=\"$threadpreview\">$threadtitle</a>";
-			}
-			$userinfo['action'] = $vbphrase['reporting_post'];
-			break;
-		case 'printthread':
-			$userinfo['action'] = $vbphrase['viewing_printable_version'];
-			if ($seetitle)
-			{
-				$userinfo['where'] = '<a href="printthread.php?' . $vbulletin->session->vars['sessionurl'] . "t=$threadid\" title=\"$threadpreview\">$threadtitle</a>";
-			}
-			break;
-		case 'calendarweek':
-			$userinfo['action'] = $vbphrase['viewing_calendar'];
-			if ($seecalendar)
-			{
-				if ($userinfo['week'])
-				{
-					$week = "&amp;week=$userinfo[week]";
 				}
-				$userinfo['where'] = '<a href="calendar.php?' . $vbulletin->session->vars['sessionurl'] . "do=displayweek&amp;c=$calendarid$week\">$calendartitle</a>";
-
-			}
-			break;
-		case 'calendarmonth';
-			$userinfo['action'] = $vbphrase['viewing_calendar'];
-			if ($seecalendar)
-			{
-				$userinfo['where'] = '<a href="calendar.php?' . $vbulletin->session->vars['sessionurl'] . "do=displaymonth&amp;c=$calendarid&amp;month=$userinfo[month]&amp;year=$userinfo[year]\">$calendartitle</a>";
-			}
-			break;
-		case 'calendaryear';
-			$userinfo['action'] = $vbphrase['viewing_calendar'];
-			if ($seecalendar)
-			{
-				if ($userinfo['year'])
-				{
-					$year = "&amp;year=$userinfo[year]";
-				}
-				$userinfo['where'] = '<a href="calendar.php?' . $vbulletin->session->vars['sessionurl'] . "do=displayyear&amp;c=$calendarid$year\">$calendartitle</a>";
-			}
-			break;
-		case 'calendarday':
-			$userinfo['action'] = $vbphrase['viewing_calendar'];
-			if ($seecalendar)
-			{
-				$userinfo['where'] = '<a href="calendar.php?' . $vbulletin->session->vars['sessionurl'] . "do=getday&amp;c=$calendarid&amp;day=$userinfo[day]\">$calendartitle</a>";
-			}
-			break;
-		case 'calendarevent':
-			$userinfo['action'] = $vbphrase['viewing_event'];
-			if ($seeevent)
-			{
-				$userinfo['where'] = '<a href="calendar.php?' . $vbulletin->session->vars['sessionurl'] . "do=getinfo&amp;e=$eventid\">$eventtitle</a>";
-			}
-			break;
-		case 'calendaradd':
-		case 'calendaraddrecur':
-			$userinfo['action'] = $vbphrase['creating_event'];
-			if ($seecalendar)
-			{
-				$userinfo['where'] = '<a href="calendar.php?' . $vbulletin->session->vars['sessionurl'] . "c=$calendarid\">$calendartitle</a>";
-			}
-			break;
-		case 'calendaredit':
-			$userinfo['action'] = $vbphrase['modifying_event'];
-			if ($seeevent)
-			{
-				$userinfo['where'] = '<a href="calendar.php?' . $vbulletin->session->vars['sessionurl'] . "do=getinfo&amp;e=$eventid\">$eventtitle</a>";
-			}
-			break;
-		case 'calreminder':
-			$userinfo['action'] = $vbphrase['managing_reminder'];
-			if ($seeevent)
-			{
-				$userinfo['where'] = '<a href="calendar.php?' . $vbulletin->session->vars['sessionurl'] . "do=getinfo&amp;e=$eventid\">$eventtitle</a>";
-			}
-			break;
-		case 'newusernote':
-			$userinfo['action'] = $vbphrase['creating_user_note'];
-			if ($seeuserid)
-			{
-				$userinfo['where'] = '<a href="usernote.php?' . $vbulletin->session->vars['sessionurl'] . "do=viewuser&amp;u=$seeuserid\">$wol_user[$seeuserid]</a>";
-			}
-			break;
-		case 'usernote':
-			$userinfo['action'] = $vbphrase['viewing_user_note'];
-			if ($seeuserid)
-			{
-				$userinfo['where'] = '<a href="usernote.php?' . $vbulletin->session->vars['sessionurl'] . "do=viewuser&amp;u=$seeuserid\">$wol_user[$seeuserid]</a>";
-			}
-			break;
-		case 'reputation':
-			$userinfo['action'] = $vbphrase['giving_reputation'];
-			if ($vbulletin->userinfo['permissions']['wolpermissions'] & $vbulletin->bf_ugp_wolpermissions['canwhosonlinefull'] AND $seetitle)
-			{
-				$userinfo['where'] = '<a href="showthread.php?' . $vbulletin->session->vars['sessionurl'] . "t=$threadid\" title=\"$threadpreview\">$threadtitle</a>";
-			}
-			break;
-		case 'joinrequests':
-			$userinfo['action'] = $vbphrase['processing_joinrequests'];
-			if ($vbulletin->userinfo['permissions']['wolpermissions'] & $vbulletin->bf_ugp_wolpermissions['canwhosonlinefull'] AND $vbulletin->usergroupcache["$userinfo[usergroupid]"]['title'])
-			{
-				$userinfo['where'] = construct_phrase($vbphrase['viewing_x'], $vbulletin->usergroupcache["$userinfo[usergroupid]"]['title']);
-			}
-			break;
-		case 'threadrate':
-			$userinfo['action'] = $vbphrase['rating_thread'];
-			if ($seetitle)
-			{
-				$userinfo['where'] = '<a href="showthread.php?' . $vbulletin->session->vars['sessionurl'] . "t=$threadid\" title=\"$threadpreview\">$threadtitle</a>";
-			}
-			break;
-		case 'infractionreport':
-			if ($vbulletin->userinfo['permissions']['genericpermissions'] & $vbulletin->bf_ugp_genericpermissions['cangiveinfraction'] OR $vbulletin->userinfo['permissions']['genericpermissions'] & $vbulletin->bf_ugp_wolpermissions['canreverseinfraction'])
-			{
-				$userinfo['action'] = $vbphrase['giving_infraction'];
+				break;
+			case 'mail':
+				$userinfo['action'] = $vbphrase['emailing'];
 				if ($seeuserid)
 				{
-					$userinfo['where'] = '<a href="member.php?' . $vbulletin->session->vars['sessionurl'] . "u=$seeuserid\">$wol_user[$seeuserid]</a>";
+					$userinfo['where'] = '<a href="' . fetch_seo_url('member', array('userid' => $seeuserid, 'username' => $wol_user["$seeuserid"]['username'])) . "\">$username</a>";
 				}
-				else if ($seetitle)
-				{
-					$userinfo['where'] = '<a href="showthread.php?' . $vbulletin->session->vars['sessionurl'] . "p=$postid#post$postid\" title=\"$threadpreview\">$threadtitle</a>";
-				}
-			}
-			else
-			{
-				$userinfo['action'] = $vbphrase['viewing_index'];
-			}
-			break;
-		case 'infractionreverse':
-			if ($vbulletin->userinfo['permissions']['genericpermissions'] & $vbulletin->bf_ugp_genericpermissions['cangiveinfraction'] OR $vbulletin->userinfo['permissions']['genericpermissions'] & $vbulletin->bf_ugp_wolpermissions['canreverseinfraction'])
-			{
-				$userinfo['action'] = $vbphrase['reversing_infraction'];
+				break;
+			case 'getinfo':
+				$userinfo['action'] = $vbphrase['viewing_user_profile'];
 				if ($seeuserid)
 				{
-					$userinfo['where'] = '<a href="infraction.php?' . $vbulletin->session->vars['sessionurl'] . "do=view&amp;infractionid=$userinfo[infractionid]\">$wol_user[$seeuserid]</a>";
+					$userinfo['where'] = '<a href="' . fetch_seo_url('member', array('userid' => $seeuserid, 'username' => $wol_user["$seeuserid"]['username'])) . "\">$username</a>";
 				}
-			}
-			else
-			{
-				$userinfo['action'] = $vbphrase['viewing_index'];
-			}
-			break;
-		case 'infractionview':
-			if ($vbulletin->userinfo['permissions']['genericpermissions'] & $vbulletin->bf_ugp_genericpermissions['cangiveinfraction'] OR $vbulletin->userinfo['permissions']['genericpermissions'] & $vbulletin->bf_ugp_wolpermissions['canreverseinfraction'])
-			{
-				$userinfo['action'] = $vbphrase['viewing_infraction'];
-				if ($seeuserid)
+				break;
+			case 'converse':
+				$userinfo['action'] = $vbphrase['viewing_conversation'];
+				if ($seeuserid AND $wol_user["{$userinfo['guestuserid']}"])
 				{
-					$userinfo['where'] = '<a href="infraction.php?' . $vbulletin->session->vars['sessionurl'] . "do=view&amp;infractionid=$userinfo[infractionid]\">$wol_user[$seeuserid]</a>";
+					$userinfo['where'] = construct_phrase($vbphrase['x_and_y_converse'], '<a href="' . fetch_seo_url('member', array('userid' => $seeuserid, 'username' => $wol_user["$seeuserid"]['username'])) . "\">$username</a>", '<a href="' . fetch_seo_url('member', array('userid' => $userinfo['guestuserid'], 'username' => $wol_user["{$userinfo['guestuserid']}"]['username'])) . "\">".$wol_user["{$userinfo['guestuserid']}"]['username']."</a>");
 				}
-			}
-			else
-			{
-				$userinfo['action'] = $vbphrase['viewing_index'];
-			}
-			break;
-		case 'modcp_deletedthreads':
-			if (can_moderate())
-			{
-				$userinfo['action'] = $vbphrase['viewing_deleted_threads'];
-			}
-			else
-			{
-				$userinfo['action'] = $vbphrase['viewing_index'];
-			}
-			break;
-		case 'modcp_deletedposts':
-			if (can_moderate())
-			{
-				$userinfo['action'] = $vbphrase['viewing_deleted_posts'];
-			}
-			else
-			{
-				$userinfo['action'] = $vbphrase['viewing_index'];
-			}
-			break;
-		case 'modcp_deletedvms':
-			if (can_moderate())
-			{
-				$userinfo['action'] = $vbphrase['viewing_deleted_visitor_messages'];
-			}
-			else
-			{
-				$userinfo['action'] = $vbphrase['viewing_index'];
-			}
-			break;
-		case 'modcp_deletedgms':
-			if (can_moderate())
-			{
-				$userinfo['action'] = $vbphrase['viewing_deleted_social_group_messages'];
-			}
-			else
-			{
-				$userinfo['action'] = $vbphrase['viewing_index'];
-			}
-			break;
-		case 'modcp_deletedpcs':
-			if (can_moderate())
-			{
-				$userinfo['action'] = $vbphrase['viewing_deleted_picture_comments'];
-			}
-			else
-			{
-				$userinfo['action'] = $vbphrase['viewing_index'];
-			}
-			break;
-		case 'modcp_moderatedthreads':
-			if (can_moderate(0, 'canmoderateposts'))
-			{
-				$userinfo['action'] = $vbphrase['viewing_moderated_threads'];
-			}
-			else
-			{
-				$userinfo['action'] = $vbphrase['viewing_index'];
-			}
-			break;
-		case 'modcp_moderatedposts':
-			if (can_moderate(0, 'canmoderateposts'))
-			{
-				$userinfo['action'] = $vbphrase['viewing_moderated_posts'];
-			}
-			else
-			{
-				$userinfo['action'] = $vbphrase['viewing_index'];
-			}
-			break;
-		case 'modcp_moderatedvms':
-			if (can_moderate(0, 'canmoderatevisitormessages'))
-			{
-				$userinfo['action'] = $vbphrase['viewing_moderated_visitor_messages'];
-			}
-			else
-			{
-				$userinfo['action'] = $vbphrase['viewing_index'];
-			}
-			break;
-		case 'modcp_moderatedgms':
-			if (can_moderate(0, 'canmoderategroupmessages'))
-			{
-				$userinfo['action'] = $vbphrase['viewing_moderated_social_group_messages'];
-			}
-			else
-			{
-				$userinfo['action'] = $vbphrase['viewing_index'];
-			}
-			break;
-		case 'modcp_moderatedpcs':
-			if (can_moderate(0, 'canmoderatepicturecomments'))
-			{
-				$userinfo['action'] = $vbphrase['viewing_moderated_picture_comments'];
-			}
-			else
-			{
-				$userinfo['action'] = $vbphrase['viewing_index'];
-			}
-			break;
-		case 'modcp_moderatedpictures':
-			if (can_moderate(0, 'canmoderatepictures'))
-			{
-				$userinfo['action'] = $vbphrase['viewing_moderated_pictures'];
-			}
-			else
-			{
-				$userinfo['action'] = $vbphrase['viewing_index'];
-			}
-			break;
-		case 'payments':
-			$userinfo['action'] = $vbphrase['viewing_paid_subscriptions'];
-			break;
-		case 'spider':
-			$userinfo['action'] = $vbphrase['search_engine_spider'];
-			break;
-		case 'admincp':
-			$userinfo['action'] = $vbphrase['admin_control_panel'];
-			break;
-		case 'admincplogin':
-			$userinfo['action'] = $vbphrase['admin_control_panel_login'];
-			break;
-		case 'modcp':
-			$userinfo['action'] = $vbphrase['moderator_control_panel'];
-			break;
-		case 'modcplogin':
-			$userinfo['action'] = $vbphrase['moderator_control_panel_login'];
-			break;
-		case 'album_delete':
-			$userinfo['action'] = $vbphrase['deleting_album'];
-			break;
-
-		case 'album_edit_album':
-		{
-			$userinfo['action'] = $vbphrase['editing_album'];
-			if ($canviewalbum)
-			{
-				$userinfo['where'] = '<a href="album.php?' . $vbulletin->session->vars['sessionurl'] . "albumid=$albumid\">$albumname</a>";
-			}
-			break;
-		}
-
-		case 'album_new_album':
-			$userinfo['action'] = $vbphrase['creating_album'];
-			break;
-
-		case 'album_edit_picture':
-		{
-			$userinfo['action'] = $vbphrase['editing_pictures'];
-			if ($canviewalbum)
-			{
-				if (!empty($userinfo['pictureid']))
+				break;
+			case 'editprofile':
+				$userinfo['action'] = $vbphrase['modifying_profile'];
+				break;
+			case 'editoptions':
+				$userinfo['action'] = $vbphrase['modifying_options'];
+				break;
+			case 'lostpw':
+			case 'editpassword':
+				$userinfo['action'] = $vbphrase['modifying_password'];
+				break;
+			case 'editavatar':
+				$userinfo['action'] = $vbphrase['modifying_avatar'];
+				break;
+			case 'editprofilepic':
+				$userinfo['action'] = $vbphrase['modifying_profilepic'];
+				break;
+			case 'editsignature':
+				$userinfo['action'] = $vbphrase['modifying_signature'];
+				break;
+			case 'markread':
+				$userinfo['where'] = $vbphrase['marking_forums_read'];
+				break;
+			case 'whoposted':
+				if ($seetitle)
 				{
-					$userinfo['where'] = '<a href="album.php?' . $vbulletin->session->vars['sessionurl'] . "albumid=$albumid&amp;pictureid=" . $userinfo['pictureid'] ."\">$albumname</a>";
+					$userinfo['action'] = $vbphrase['viewing_who_posted'];
+					$userinfo['where'] = $threadprefix . '<a href="' . fetch_seo_url('thread', array('threadid' => $threadid, 'title' => $wol_thread["$threadid"]['title'])) . "\" title=\"$threadpreview\">$threadtitle</a>";
 				}
 				else
 				{
-					$userinfo['where'] = '<a href="album.php?' . $vbulletin->session->vars['sessionurl'] . "albumid=$albumid\">$albumname</a>";
+					$userinfo['action'] = $vbphrase['viewing_thread'];
 				}
-			}
-		}
-		break;
-
-		case 'album_upload':
-		{
-			$userinfo['action'] = $vbphrase['uploading_pictures'];
-			if ($canviewalbum)
-			{
-				$userinfo['where'] = '<a href="album.php?' . $vbulletin->session->vars['sessionurl'] . "albumid=$albumid\">$albumname</a>";
-			}
-		}
-		break;
-
-		case 'album_picture':
-		{
-			$userinfo['action'] = $vbphrase['viewing_picture'];
-			if ($canviewalbum)
-			{
-				if (!empty($userinfo['pictureid']))
+				break;
+			case 'showattachments':
+				if ($seetitle)
 				{
-					$userinfo['where'] = '<a href="album.php?' . $vbulletin->session->vars['sessionurl'] . "albumid=$albumid&amp;pictureid=" . $userinfo['pictureid'] ."\">$albumname</a>";
+					$userinfo['action'] = $vbphrase['viewing_attachment_list'];
+					$userinfo['where'] = $threadprefix . '<a href="' . fetch_seo_url('thread', array('threadid' => $threadid, 'title' => $wol_thread["$threadid"]['title'])) . "\" title=\"$threadpreview\">$threadtitle</a>";
 				}
 				else
 				{
-					$userinfo['where'] = '<a href="album.php?' . $vbulletin->session->vars['sessionurl'] . "albumid=$albumid\">$albumname</a>";
+					$userinfo['action'] = $vbphrase['viewing_thread'];
 				}
-			}
-		}
-		break;
-
-		case 'album_album':
-		{
-			$userinfo['action'] = $vbphrase['viewing_album'];
-			if ($canviewalbum)
-			{
-				$userinfo['where'] = '<a href="album.php?' . $vbulletin->session->vars['sessionurl'] . "albumid=$albumid\">$albumname</a>";
-			}
-		}
-		break;
-
-		case 'album_user':
-		{
-			$userinfo['action'] = $vbphrase['viewing_users_album'];
-			if ($seeuserid)
-			{
-				$userinfo['where'] = '<a href="album.php?' . $vbulletin->session->vars['sessionurl'] . "userid=$seeuserid\">$wol_user[$seeuserid]</a>";
-			}
-		}
-		break;
-
-		case 'album_unread_comments':
-			$userinfo['action'] = $vbphrase['viewing_unread_picture_comments'];
-			break;
-
-		case 'album_moderated_comments':
-			$userinfo['action'] = $vbphrase['viewing_picture_comments_awaiting_approval'];
-			break;
-
-		case 'picturecomment_posting':
-			$userinfo['action'] = $vbphrase['posting_picture_comment'];
-			break;
-
-		case 'picturecomment_delete':
-			$userinfo['action'] = $vbphrase['deleting_picture_comment'];
-			break;
-
-		case 'picturecomment_reporting':
-			$userinfo['action'] = $vbphrase['reporting_picture_comment'];
-			break;
-
-		case 'picture_inlinemod':
-			$userinfo['action'] = '<b><i>' . $vbphrase['moderating'] . '</i></b>';
-			break;
-
-		default:
-			$handled = false;
-			($hook = vBulletinHook::fetch_hook('online_location_unknown')) ? eval($hook) : false;
-
-			if ($handled == false)
-			{
-				if ($vbulletin->userinfo['permissions']['wolpermissions'] & $vbulletin->bf_ugp_wolpermissions['canwhosonlinebad'])
+				break;
+			case 'showgroups':
+				$userinfo['action'] = $vbphrase['viewing_forum_leaders'];
+				break;
+			case 'login':
+				$userinfo['action'] = $vbphrase['logging_in'];
+				break;
+			case 'logout':
+				if ($userinfo['badlocation'])
 				{
-					require_once(DIR . '/includes/functions_login.php');
-					$userinfo['location'] = fetch_replaced_session_url(stripslashes($userinfo['location']));
-					$userinfo['where'] = "<a href=\"$userinfo[location]\">$userinfo[location]</a>";
-					$userinfo['action'] = '<b>' . $vbphrase['unknown_location'] . '</b>';
+					$userinfo['action'] = $vbphrase['logging_out'];
+				}
+				break;
+			case 'archive':
+				$userinfo['action'] = $vbphrase['viewing_archives'];
+				if ($seetitle)
+				{
+					$userinfo['where'] = $threadprefix . "<a href=\"archive/index.php/t-$threadid.html\" title=\"$threadpreview\">$threadtitle</a>";
+				}
+				else if ($seeforum)
+				{
+					$userinfo['where'] = "<a href=\"archive/index.php/f-$forumid.html\">$forumtitle</a>";
+				}
+				break;
+			case 'pm':
+				$userinfo['action'] = $vbphrase['private_messaging'];
+				if ($vbulletin->userinfo['permissions']['wolpermissions'] & $vbulletin->bf_ugp_wolpermissions['canwhosonlinefull'])
+				{
+					if ($seeuserid)
+					{
+						$userinfo['where'] = '<a href="' . fetch_seo_url('member', array('userid' => $seeuserid, 'username' => $wol_user["$seeuserid"]['username'])) . "\">$username</a>";
+					}
+					if ($userinfo['values']['do'] == 'newpm' OR $userinfo['values']['do'] == 'insertpm' OR $userinfo['values']['do'] == 'newmessage')
+					{
+						$userinfo['action'] = $vbphrase['creating_private_message'];
+					}
+					else if ($userinfo['values']['do'] == 'editfolders' OR $userinfo['action']['do'] == 'updatefolders')
+					{
+						$userinfo['action'] = $vbphrase['modifying_private_message_folders'];
+					}
+					else if ($userinfo['values']['do'] == 'trackpm' OR $userinfo['values']['do'] == 'deletepmreceipt')
+					{
+						$userinfo['action'] = $vbphrase['tracking_private_messages'];
+					}
+					else if ($userinfo['values']['do'] == 'showpm')
+					{
+						$userinfo['action'] = $vbphrase['viewing_private_message'];
+					}
+					else if ($userinfo['values']['do'] == 'downloadpm')
+					{
+						$userinfo['action'] = $vbphrase['downloading_private_messages'];
+					}
+
+				}
+				break;
+			case 'addbuddy':
+			case 'addignore':
+			case 'buddyignore':
+				$userinfo['action'] = $vbphrase['modifying_contact_ignore_list'];
+				break;
+			case 'subfolders':
+				$userinfo['action'] = $vbphrase['modifying_subscription_folders'];
+				break;
+			case 'subscription':
+				$userinfo['action'] = $vbphrase['viewing_subscribed_threads'];
+				break;
+			case 'addsubforum':
+				$userinfo['action'] = $vbphrase['subscribing_to_forum'];
+				if ($seeforum)
+				{
+					$userinfo['where'] = '<a href="' . fetch_seo_url('forum', array('forumid' => $forumid, 'title' => $forumtitle)) . "\">$forumtitle</a>";
+				}
+				break;
+			case 'addsubthread':
+				$userinfo['action'] = $vbphrase['subscribing_to_thread'];
+				if ($seetitle)
+				{
+					$userinfo['where'] = $threadprefix . '<a href="' . fetch_seo_url('thread', array('threadid' => $threadid, 'title' => $wol_thread["$threadid"]['title'])) . "\" title=\"$threadpreview\">$threadtitle</a>";
+				}
+				break;
+			case 'remsubthread':
+				$userinfo['action'] = $vbphrase['deleting_subscribed_threads'];
+				break;
+			case 'remsubforum':
+				$userinfo['action'] = $vbphrase['deleting_subscribed_forums'];
+				break;
+			case 'usercp':
+				$userinfo['action'] = $vbphrase['viewing_user_control_panel'];
+				break;
+			case 'memberlistsearch':
+				$userinfo['action'] = $vbphrase['searching_member_list'];
+				break;
+			case 'memberlist':
+				$userinfo['action'] = $vbphrase['viewing_member_list'];
+				break;
+
+			case 'member_inlinemod':
+				$userinfo['action'] = '<b><i>' . $vbphrase['moderating'] . '</i></b>';
+				if (can_moderate())
+				{
+					if ($seeuserid)
+					{
+						$userinfo['where'] = '<a href="' . fetch_seo_url('member', array('userid' => $seeuserid, 'username' => $wol_user["$seeuserid"]['username'])) . "\">$username</a>";
+					}
+				}
+			break;
+
+			case 'inlinemod':
+				$userinfo['action'] = '<b><i>' . $vbphrase['moderating'] . '</i></b>';
+				if (can_moderate())
+				{
+					$userinfo['where'] = $threadprefix . '<a href="' . fetch_seo_url('thread', array('threadid' => $threadid, 'title' => $wol_thread["$threadid"]['title'])) . "\" title=\"$threadpreview\">$threadtitle</a>";
+					switch ($userinfo['values']['do'])
+					{
+						case 'open':
+							$userinfo['action'] = '<i>' . $vbphrase['inline_mod_opening_threads'] . '</i>';
+							break;
+						case 'close':
+							$userinfo['action'] = '<i>' . $vbphrase['inline_mod_closing_threads'] . '</i>';
+							break;
+						case 'stick':
+							$userinfo['action'] = '<i>' . $vbphrase['inline_mod_sticking_threads'] . '</i>';
+							break;
+						case 'unstick':
+							$userinfo['action'] = '<i>' . $vbphrase['inline_mod_unsticking_threads'] . '</i>';
+							break;
+						case 'deletethread':
+						case 'dodeletethreads':
+							$userinfo['action'] = '<i>' . $vbphrase['inline_mod_deleting_threads'] . '</i>';
+							break;
+						case 'undeletethread':
+							$userinfo['action'] = '<i>' . $vbphrase['inline_mod_undeleting_threads'] . '</i>';
+							break;
+						case 'approvethread':
+							$userinfo['action'] = '<i>' . $vbphrase['inline_mod_approving_threads'] . '</i>';
+							break;
+						case 'unapprovethread':
+							$userinfo['action'] = '<i>' . $vbphrase['inline_mod_unapproving_threads'] . '</i>';
+							break;
+
+						case 'movethread':
+						case 'domovethreads':
+							$userinfo['action'] = '<i>' . $vbphrase['inline_mod_moving_threads'] . '</i>';
+							break;
+
+						case 'mergethread':
+						case 'domergethreads':
+							$userinfo['action'] = '<i>' . $vbphrase['inline_mod_merging_threads'] . '</i>';
+							break;
+
+						case 'deleteposts':
+						case 'dodeleteposts':
+							$userinfo['action'] = '<i>' . $vbphrase['inline_mod_deleting_posts'] . '</i>';
+							break;
+
+						case 'undeleteposts':
+							$userinfo['action'] = '<i>' . $vbphrase['inline_mod_undeleting_posts'] . '</i>';
+							break;
+						case 'approveposts':
+							$userinfo['action'] = '<i>' . $vbphrase['inline_mod_approving_posts'] . '</i>';
+							break;
+						case 'unapproveposts':
+							$userinfo['action'] = '<i>' . $vbphrase['inline_mod_unapproving_posts'] . '</i>';
+							break;
+
+						case 'mergeposts':
+						case 'domergeposts':
+							$userinfo['action'] = '<i>' . $vbphrase['inline_mod_merging_posts'] . '</i>';
+							break;
+
+						case 'moveposts':
+						case 'domoveposts':
+							$userinfo['action'] = '<i>' . $vbphrase['inline_mod_moving_posts'] . '</i>';
+							break;
+
+						case 'clearthread':
+						case 'clearpost':
+							$userinfo['action'] = '<i>' . $vbphrase['inline_mod_clear'] . '</i>';
+							break;
+						case 'spampost':
+						case 'dodeletespam':
+						case 'spamconfirm':
+							$userinfo['action'] = '<i>' . $vbphrase['managing_spam'] . '</i>';
+							break;
+
+					}
+				}
+				break;
+
+			case 'postings':
+				$userinfo['action'] = '<b><i>' . $vbphrase['moderating'] . '</b></i>';
+				if (can_moderate($forumid) AND $threadtitle AND $canview AND ($canviewothers OR $postuserid == $vbulletin->userinfo['userid']))
+				{
+					$userinfo['where'] = $threadprefix . '<a href="' . fetch_seo_url('thread', array('threadid' => $threadid, 'title' => $wol_thread["$threadid"]['title'])) ."\" title=\"$threadpreview\">$threadtitle</a>";
+					switch ($userinfo['values']['do'])
+					{
+						case 'editthread':
+						case 'updatethread':
+							$userinfo['action'] = '<i>' . $vbphrase['modifying_thread'] . '</i>';
+							break;
+						case 'openclosethread':
+							$userinfo['action'] = '<i>' . $vbphrase['open_close_thread'] . '</i>';
+							break;
+						case 'movethread':
+							$userinfo['action'] = '<i>' .$vbphrase['choosing_forum_to_move_thread_to'] . '</i>';
+							break;
+						case 'domovethread':
+							switch($userinfo['values']['method'])
+							{
+								case 'copy':
+									$userinfo['action'] = '<i>' . $vbphrase['copying_thread_to_forum'] . '</i>';
+									break;
+								case 'move':
+									$userinfo['action'] = '<i>' . $vbphrase['moving_thread_to_forum'] . '</i>';
+									break;
+								case 'movered':
+									$userinfo['action'] = '<i>' . $vbphrase['moving_thread_with_redirect_to_forum'] . '</i>';
+									break;
+							}
+							$userinfo['where'] = $threadprefix . '<a href="' . fetch_seo_url('thread', array('threadid' => $threadid, 'title' => $wol_thread["$threadid"]['title'])) . "\" title=\"$threadpreview\">$threadtitle</a><br />" .
+											'<a href="' . fetch_seo_url('forum', array('forumid' => $forumid, 'title' => $forumtitle)) . "\">$forumtitle</a>";
+							break;
+						case 'deletethread':
+						case 'dodeletethread':
+							$userinfo['action'] = '<i>' . $vbphrase['deleting_thread'] . '</i>';
+							break;
+						case 'deleteposts':
+						case 'dodeleteposts':
+							$userinfo['where'] = '<i>' . $vbphrase['deleting_posts'] . '</i>';
+							break;
+						case 'merge':
+						case 'domergethread':
+							$userinfo['where'] = '<i>' . $vbphrase['merging_threads'] . '</i>';
+							break;
+						case 'stick':
+							$userinfo['where'] = '<i>' . $vbphrase['stick_unstick_thread'] . '</i>';
+							break;
+						case 'getip':
+							$userinfo['where'] = '<i>' . $vbphrase['viewing_ip_address'] . '</i>';
+							break;
+						case 'removeredirect':
+							$userinfo['where'] = '<i>' . $vbphrase['deleting_redirect'] . '</i>';
+							break;
+					}
+				}
+				break;
+			case 'register':
+				$userinfo['action'] = $vbphrase['registering'];
+				break;
+			case 'requestemail':
+				$userinfo['action'] = $vbphrase['request_activation_code'];
+				break;
+			case 'activate':
+				$userinfo['action'] = $vbphrase['activating_registration'];
+				break;
+			case 'announcement':
+				$userinfo['action'] = $vbphrase['viewing_announcement'];
+				if ($seeforum)
+				{
+					$userinfo['where'] = '<a href="announcement.php?' . $vbulletin->session->vars['sessionurl'] . "f=$forumid\">$forumtitle</a>";
+				}
+				break;
+			case 'usergroup':
+				$userinfo['action'] = $vbphrase['modifying_usergroups'];
+				break;
+			case 'polls':
+				switch ($userinfo['values']['do'])
+				{
+					case 'showresults':
+						$userinfo['action'] = $vbphrase['viewing_poll'];
+						break;
+					case '':
+					case 'newpoll':
+					case 'postpoll':
+						$userinfo['action'] = $vbphrase['creating_poll'];
+						if ($seeforum)
+						{
+							$userinfo['where'] = '<a href="' . fetch_seo_url('forum', array('forumid' => $forumid, 'title' => $forumtitle)) . "\">$forumtitle</a>";
+						}
+						break;
+					case 'polledit':
+					case 'updatepoll':
+						$userinfo['action'] = $vbphrase['modifying_poll'];
+						break;
+					case 'pollvote':
+						$userinfo['action'] = $vbphrase['voting'];
+						break;
+				}
+				break;
+			case 'showsmilies':
+				$userinfo['action'] = $vbphrase['viewing_smilies'];
+				break;
+			case 'showavatars':
+				$userinfo['action'] = $vbphrase['viewing_avatars'];
+				break;
+			case 'bbcode':
+				$userinfo['action'] = $vbphrase['viewing_bb_code'];
+				break;
+			case 'faq':
+				$userinfo['action'] = $vbphrase['viewing_faq'];
+				break;
+			case 'edit':
+				$userinfo['action'] = $vbphrase['modifying_post'];
+				if ($vbulletin->userinfo['permissions']['wolpermissions'] & $vbulletin->bf_ugp_wolpermissions['canwhosonlinefull'] AND $seetitle)
+				{
+					$userinfo['where'] = $threadprefix . '<a href="' . fetch_seo_url('thread', array('threadid' => $threadid, 'title' => $wol_thread["$threadid"]['title']), array('p' => $postid)) ."#post$postid\" title=\"$threadpreview\">$threadtitle</a>";
+				}
+				break;
+			case 'sendto':
+				$userinfo['action'] = $vbphrase['sending_thread_to_friend'];
+				if ($seetitle)
+				{
+					$userinfo['where'] = $threadprefix . '<a href="printthread.php?' . $vbulletin->session->vars['sessionurl'] . "t=$threadid\" title=\"$threadpreview\">$threadtitle</a>";
+				}
+				break;
+			case 'contactus':
+				$userinfo['action'] = $vbphrase['sending_forum_feedback'];
+				break;
+			case 'aim':
+				$userinfo['action'] = $vbphrase['sending_aim_message'];
+				if ($seeuserid)
+				{
+					$userinfo['where'] = '<a href="' . fetch_seo_url('member', array('userid' => $seeuserid, 'username' => $wol_user["$seeuserid"]['username'])) . "\">$username</a>";
+				}
+				break;
+			case 'msn':
+				$userinfo['action'] = $vbphrase['sending_msn_message'];
+				if ($seeuserid)
+				{
+					$userinfo['where'] = '<a href="' . fetch_seo_url('member', array('userid' => $seeuserid, 'username' => $wol_user["$seeuserid"]['username'])) . "\">$username</a>";
+				}
+				break;
+			case 'yahoo':
+				$userinfo['action'] = $vbphrase['sending_yahoo_message'];
+				if ($seeuserid)
+				{
+					$userinfo['where'] = '<a href="' . fetch_seo_url('member', array('userid' => $seeuserid, 'username' => $wol_user["$seeuserid"]['username'])) . "\">$username</a>";
+				}
+				break;
+			case 'icq':
+				$userinfo['action'] = $vbphrase['sending_icq_message'];
+				if ($seeuserid)
+				{
+					$userinfo['where'] = '<a href="' . fetch_seo_url('member', array('userid' => $seeuserid, 'username' => $wol_user["$seeuserid"]['username'])) . "\">$username</a>";
+				}
+				break;
+			case 'skype':
+				$userinfo['action'] = $vbphrase['sending_skype_message'];
+				if ($seeuserid)
+				{
+					$userinfo['where'] = '<a href="' . fetch_seo_url('member', array('userid' => $seeuserid, 'username' => $wol_user["$seeuserid"]['username'])) . "\">$username</a>";
+				}
+				break;
+			case 'report':
+				if ($vbulletin->userinfo['permissions']['wolpermissions'] & $vbulletin->bf_ugp_wolpermissions['canwhosonlinefull'] AND $seetitle)
+				{
+					$userinfo['where'] = $threadprefix . '<a href="' . fetch_seo_url('thread', array('threadid' => $threadid, 'title' => $wol_thread["$threadid"]['title']), array('p' => $postid)) ."#post$postid\" title=\"$threadpreview\">$threadtitle</a>";
+				}
+				$userinfo['action'] = $vbphrase['reporting_post'];
+				break;
+			case 'printthread':
+				$userinfo['action'] = $vbphrase['viewing_printable_version'];
+				if ($seetitle)
+				{
+					$userinfo['where'] = $threadprefix . '<a href="printthread.php?' . $vbulletin->session->vars['sessionurl'] . "t=$threadid\" title=\"$threadpreview\">$threadtitle</a>";
+				}
+				break;
+			case 'calendarweek':
+				$userinfo['action'] = $vbphrase['viewing_calendar'];
+				if ($seecalendar)
+				{
+					if ($userinfo['week'])
+					{
+						$week = "&amp;week=$userinfo[week]";
+					}
+					$userinfo['where'] = '<a href="calendar.php?' . $vbulletin->session->vars['sessionurl'] . "do=displayweek&amp;c=$calendarid$week\">$calendartitle</a>";
+
+				}
+				break;
+			case 'calendarmonth';
+				$userinfo['action'] = $vbphrase['viewing_calendar'];
+				if ($seecalendar)
+				{
+					$userinfo['where'] = '<a href="calendar.php?' . $vbulletin->session->vars['sessionurl'] . "do=displaymonth&amp;c=$calendarid&amp;month=$userinfo[month]&amp;year=$userinfo[year]\">$calendartitle</a>";
+				}
+				break;
+			case 'calendaryear';
+				$userinfo['action'] = $vbphrase['viewing_calendar'];
+				if ($seecalendar)
+				{
+					if ($userinfo['year'])
+					{
+						$year = "&amp;year=$userinfo[year]";
+					}
+					$userinfo['where'] = '<a href="calendar.php?' . $vbulletin->session->vars['sessionurl'] . "do=displayyear&amp;c=$calendarid$year\">$calendartitle</a>";
+				}
+				break;
+			case 'calendarday':
+				$userinfo['action'] = $vbphrase['viewing_calendar'];
+				if ($seecalendar)
+				{
+					$userinfo['where'] = '<a href="calendar.php?' . $vbulletin->session->vars['sessionurl'] . "do=getday&amp;c=$calendarid&amp;day=$userinfo[day]\">$calendartitle</a>";
+				}
+				break;
+			case 'calendarevent':
+				$userinfo['action'] = $vbphrase['viewing_event'];
+				if ($seeevent)
+				{
+					$userinfo['where'] = '<a href="calendar.php?' . $vbulletin->session->vars['sessionurl'] . "do=getinfo&amp;e=$eventid\">$eventtitle</a>";
+				}
+				break;
+			case 'calendaradd':
+			case 'calendaraddrecur':
+				$userinfo['action'] = $vbphrase['creating_event'];
+				if ($seecalendar)
+				{
+					$userinfo['where'] = '<a href="calendar.php?' . $vbulletin->session->vars['sessionurl'] . "c=$calendarid\">$calendartitle</a>";
+				}
+				break;
+			case 'calendaredit':
+				$userinfo['action'] = $vbphrase['modifying_event'];
+				if ($seeevent)
+				{
+					$userinfo['where'] = '<a href="calendar.php?' . $vbulletin->session->vars['sessionurl'] . "do=getinfo&amp;e=$eventid\">$eventtitle</a>";
+				}
+				break;
+			case 'calreminder':
+				$userinfo['action'] = $vbphrase['managing_reminder'];
+				if ($seeevent)
+				{
+					$userinfo['where'] = '<a href="calendar.php?' . $vbulletin->session->vars['sessionurl'] . "do=getinfo&amp;e=$eventid\">$eventtitle</a>";
+				}
+				break;
+			case 'newusernote':
+				$userinfo['action'] = $vbphrase['creating_user_note'];
+				if ($seeuserid)
+				{
+					$userinfo['where'] = '<a href="usernote.php?' . $vbulletin->session->vars['sessionurl'] . "do=viewuser&amp;u=$seeuserid\">$username</a>";
+				}
+				break;
+			case 'usernote':
+				$userinfo['action'] = $vbphrase['viewing_user_note'];
+				if ($seeuserid)
+				{
+					$userinfo['where'] = '<a href="usernote.php?' . $vbulletin->session->vars['sessionurl'] . "do=viewuser&amp;u=$seeuserid\">$username</a>";
+				}
+				break;
+			case 'reputation':
+				$userinfo['action'] = $vbphrase['giving_reputation'];
+				if ($vbulletin->userinfo['permissions']['wolpermissions'] & $vbulletin->bf_ugp_wolpermissions['canwhosonlinefull'] AND $seetitle)
+				{
+					$userinfo['where'] = $threadprefix . '<a href="' . fetch_seo_url('thread', array('threadid' => $threadid, 'title' => $wol_thread["$threadid"]['title'])) . "\" title=\"$threadpreview\">$threadtitle</a>";
+				}
+				break;
+			case 'joinrequests':
+				$userinfo['action'] = $vbphrase['processing_joinrequests'];
+				if ($vbulletin->userinfo['permissions']['wolpermissions'] & $vbulletin->bf_ugp_wolpermissions['canwhosonlinefull'] AND $vbulletin->usergroupcache["$userinfo[usergroupid]"]['title'])
+				{
+					$userinfo['where'] = construct_phrase($vbphrase['viewing_x'], $vbulletin->usergroupcache["$userinfo[usergroupid]"]['title']);
+				}
+				break;
+			case 'threadrate':
+				$userinfo['action'] = $vbphrase['rating_thread'];
+				if ($seetitle)
+				{
+					$userinfo['where'] = $threadprefix . '<a href="' . fetch_seo_url('thread', array('threadid' => $threadid, 'title' => $wol_thread["$threadid"]['title'])) . "\" title=\"$threadpreview\">$threadtitle</a>";
+				}
+				break;
+			case 'infractionreport':
+				if ($vbulletin->userinfo['permissions']['genericpermissions'] & $vbulletin->bf_ugp_genericpermissions['cangiveinfraction'] OR $vbulletin->userinfo['permissions']['genericpermissions'] & $vbulletin->bf_ugp_wolpermissions['canreverseinfraction'])
+				{
+					$userinfo['action'] = $vbphrase['giving_infraction'];
+					if ($seeuserid)
+					{
+						$userinfo['where'] = '<a href="' . fetch_seo_url('member', array('userid' => $seeuserid, 'username' => $wol_user["$seeuserid"]['username'])) . "\">$username</a>";
+					}
+					else if ($seetitle)
+					{
+						$userinfo['where'] = $threadprefix . '<a href="' . fetch_seo_url('thread', array('threadid' => $threadid, 'title' => $wol_thread["$threadid"]['title']), array('p' => $postid)) . "#post$postid\" title=\"$threadpreview\">$threadtitle</a>";
+					}
 				}
 				else
 				{
-					// We were unable to parse the location
 					$userinfo['action'] = $vbphrase['viewing_index'];
-					$userinfo['where'] = '<a href="' . $vbulletin->options['forumhome'] . '.php' . $vbulletin->session->vars['sessionurl_q'] . '">' . $vbulletin->options['bbtitle'] . "</a>";
+				}
+				break;
+			case 'infractionreverse':
+				if ($vbulletin->userinfo['permissions']['genericpermissions'] & $vbulletin->bf_ugp_genericpermissions['cangiveinfraction'] OR $vbulletin->userinfo['permissions']['genericpermissions'] & $vbulletin->bf_ugp_wolpermissions['canreverseinfraction'])
+				{
+					$userinfo['action'] = $vbphrase['reversing_infraction'];
+					if ($seeuserid)
+					{
+						$userinfo['where'] = '<a href="infraction.php?' . $vbulletin->session->vars['sessionurl'] . "do=view&amp;infractionid=$userinfo[infractionid]\">$username</a>";
+					}
+				}
+				else
+				{
+					$userinfo['action'] = $vbphrase['viewing_index'];
+				}
+				break;
+			case 'infractionview':
+				if ($vbulletin->userinfo['permissions']['genericpermissions'] & $vbulletin->bf_ugp_genericpermissions['cangiveinfraction'] OR $vbulletin->userinfo['permissions']['genericpermissions'] & $vbulletin->bf_ugp_wolpermissions['canreverseinfraction'])
+				{
+					$userinfo['action'] = $vbphrase['viewing_infraction'];
+					if ($seeuserid)
+					{
+						$userinfo['where'] = '<a href="infraction.php?' . $vbulletin->session->vars['sessionurl'] . "do=view&amp;infractionid=$userinfo[infractionid]\">$username</a>";
+					}
+				}
+				else
+				{
+					$userinfo['action'] = $vbphrase['viewing_index'];
+				}
+				break;
+			case 'modcp_deletedthreads':
+				if (can_moderate())
+				{
+					$userinfo['action'] = $vbphrase['viewing_deleted_threads'];
+				}
+				else
+				{
+					$userinfo['action'] = $vbphrase['viewing_index'];
+				}
+				break;
+			case 'modcp_deletedposts':
+				if (can_moderate())
+				{
+					$userinfo['action'] = $vbphrase['viewing_deleted_posts'];
+				}
+				else
+				{
+					$userinfo['action'] = $vbphrase['viewing_index'];
+				}
+				break;
+			case 'modcp_deletedvms':
+				if (can_moderate(0,'canmoderatevisitormessages'))
+				{
+					$userinfo['action'] = $vbphrase['viewing_deleted_visitor_messages'];
+				}
+				else
+				{
+					$userinfo['action'] = $vbphrase['viewing_index'];
+				}
+				break;
+			case 'modcp_deletedgms':
+				if (can_moderate(0, 'canmoderategroupmessages'))
+				{
+					$userinfo['action'] = $vbphrase['viewing_deleted_social_group_messages'];
+				}
+				else
+				{
+					$userinfo['action'] = $vbphrase['viewing_index'];
+				}
+				break;
+			case 'modcp_deletedpcs':
+				if (can_moderate(0, 'canmoderatepicturecomments'))
+				{
+					$userinfo['action'] = $vbphrase['viewing_deleted_picture_comments'];
+				}
+				else
+				{
+					$userinfo['action'] = $vbphrase['viewing_index'];
+				}
+				break;
+			case 'modcp_moderatedthreads':
+				if (can_moderate(0, 'canmoderateposts'))
+				{
+					$userinfo['action'] = $vbphrase['viewing_moderated_threads'];
+				}
+				else
+				{
+					$userinfo['action'] = $vbphrase['viewing_index'];
+				}
+				break;
+			case 'modcp_moderatedposts':
+				if (can_moderate(0, 'canmoderateposts'))
+				{
+					$userinfo['action'] = $vbphrase['viewing_moderated_posts'];
+				}
+				else
+				{
+					$userinfo['action'] = $vbphrase['viewing_index'];
+				}
+				break;
+			case 'modcp_moderatedvms':
+				if (can_moderate(0, 'canmoderatevisitormessages'))
+				{
+					$userinfo['action'] = $vbphrase['viewing_moderated_visitor_messages'];
+				}
+				else
+				{
+					$userinfo['action'] = $vbphrase['viewing_index'];
+				}
+				break;
+			case 'modcp_moderatedgms':
+				if (can_moderate(0, 'canmoderategroupmessages'))
+				{
+					$userinfo['action'] = $vbphrase['viewing_moderated_social_group_messages'];
+				}
+				else
+				{
+					$userinfo['action'] = $vbphrase['viewing_index'];
+				}
+				break;
+			case 'modcp_moderatedpcs':
+				if (can_moderate(0, 'canmoderatepicturecomments'))
+				{
+					$userinfo['action'] = $vbphrase['viewing_moderated_picture_comments'];
+				}
+				else
+				{
+					$userinfo['action'] = $vbphrase['viewing_index'];
+				}
+				break;
+			case 'modcp_moderatedattachments':
+				if (can_moderate())
+				{
+					$userinfo['action'] = $vbphrase['viewing_moderated_attachments'];
+				}
+				else
+				{
+					$userinfo['action'] = $vbphrase['viewing_index'];
+				}
+				break;
+			case 'payments':
+				$userinfo['action'] = $vbphrase['viewing_paid_subscriptions'];
+				break;
+			case 'spider':
+				$userinfo['action'] = $vbphrase['search_engine_spider'];
+				break;
+			case 'admincp':
+				$userinfo['action'] = $vbphrase['admin_control_panel'];
+				break;
+			case 'admincplogin':
+				$userinfo['action'] = $vbphrase['admin_control_panel_login'];
+				break;
+			case 'modcp':
+				$userinfo['action'] = $vbphrase['moderator_control_panel'];
+				break;
+			case 'modcplogin':
+				$userinfo['action'] = $vbphrase['moderator_control_panel_login'];
+				break;
+			case 'album_delete':
+				$userinfo['action'] = $vbphrase['deleting_album'];
+				break;
+
+			case 'album_edit_album':
+			{
+				$userinfo['action'] = $vbphrase['editing_album'];
+				if ($canviewalbum)
+				{
+					$userinfo['where'] = '<a href="album.php?' . $vbulletin->session->vars['sessionurl'] . "albumid=$albumid\">$albumname</a>";
+				}
+				break;
+			}
+
+			case 'album_new_album':
+				$userinfo['action'] = $vbphrase['creating_album'];
+				break;
+
+			case 'album_edit_picture':
+			{
+				$userinfo['action'] = $vbphrase['editing_pictures'];
+				if ($canviewalbum)
+				{
+					if (!empty($userinfo['attachmentid']))
+					{
+						$userinfo['where'] = '<a href="album.php?' . $vbulletin->session->vars['sessionurl'] . "albumid=$albumid&amp;attachmentid=" . $userinfo['attachmentid'] ."\">$albumname</a>";
+					}
+					else
+					{
+						$userinfo['where'] = '<a href="album.php?' . $vbulletin->session->vars['sessionurl'] . "albumid=$albumid\">$albumname</a>";
+					}
 				}
 			}
+			break;
+
+			case 'album_upload':
+			{
+				$userinfo['action'] = $vbphrase['uploading_pictures'];
+				if ($canviewalbum)
+				{
+					$userinfo['where'] = '<a href="album.php?' . $vbulletin->session->vars['sessionurl'] . "albumid=$albumid\">$albumname</a>";
+				}
+			}
+			break;
+
+			case 'album_picture':
+			{
+				$userinfo['action'] = $vbphrase['viewing_picture'];
+				if ($canviewalbum)
+				{
+					if (!empty($userinfo['attachmentid']))
+					{
+						$userinfo['where'] = '<a href="album.php?' . $vbulletin->session->vars['sessionurl'] . "albumid=$albumid&amp;attachmentidid=" . $userinfo['attachmentid'] ."\">$albumname</a>";
+					}
+					else
+					{
+						$userinfo['where'] = '<a href="album.php?' . $vbulletin->session->vars['sessionurl'] . "albumid=$albumid\">$albumname</a>";
+					}
+				}
+			}
+			break;
+
+			case 'album_album':
+			{
+				$userinfo['action'] = $vbphrase['viewing_album'];
+				if ($canviewalbum)
+				{
+					$userinfo['where'] = '<a href="album.php?' . $vbulletin->session->vars['sessionurl'] . "albumid=$albumid\">$albumname</a>";
+				}
+			}
+			break;
+
+			case 'album_user':
+			{
+				$userinfo['action'] = $vbphrase['viewing_users_album'];
+				if ($seeuserid)
+				{
+					$userinfo['where'] = '<a href="album.php?' . $vbulletin->session->vars['sessionurl'] . "userid=$seeuserid\">$username</a>";
+				}
+			}
+			break;
+
+			case 'album_unread_comments':
+				$userinfo['action'] = $vbphrase['viewing_unread_picture_comments'];
+				break;
+
+			case 'album_moderated_comments':
+				$userinfo['action'] = $vbphrase['viewing_picture_comments_awaiting_approval'];
+				break;
+
+			case 'picturecomment_posting':
+				$userinfo['action'] = $vbphrase['posting_picture_comment'];
+				break;
+
+			case 'picturecomment_delete':
+				$userinfo['action'] = $vbphrase['deleting_picture_comment'];
+				break;
+
+			case 'picturecomment_reporting':
+				$userinfo['action'] = $vbphrase['reporting_picture_comment'];
+				break;
+
+			case 'picture_inlinemod':
+				$userinfo['action'] = '<b><i>' . $vbphrase['moderating'] . '</i></b>';
+				break;
+
+			case 'viewing_cms_content':
+				require_once(DIR . '/includes/functions_login.php');
+				$userinfo['action'] = $vbphrase['viewing_cms_content']  ;
+				$userinfo['location'] = fetch_replaced_session_url(stripslashes($userinfo['location']));
+				$userinfo['where'] = "<a href=\"$userinfo[location]\">$userinfo[location]</a>";
+				break;
+
+			case 'viewing_cms_list':
+				require_once(DIR . '/includes/functions_login.php');
+				$userinfo['action'] =$vbphrase['viewing_cms_list'] ;
+				$userinfo['location'] = fetch_replaced_session_url(stripslashes($userinfo['location']));
+				$userinfo['where'] = "<a href=\"$userinfo[location]\">$userinfo[location]</a>";
+				break;
+
+			default:
+				$handled = false;
+				($hook = vBulletinHook::fetch_hook('online_location_unknown')) ? eval($hook) : false;
+
+				if ($handled == false)
+				{
+					if ($vbulletin->userinfo['permissions']['wolpermissions'] & $vbulletin->bf_ugp_wolpermissions['canwhosonlinebad'])
+					{
+						require_once(DIR . '/includes/functions_login.php');
+						$userinfo['location'] = fetch_replaced_session_url(stripslashes($userinfo['location']));
+						$userinfo['where'] = "<a href=\"$userinfo[location]\">$userinfo[location]</a>";
+						$userinfo['action'] = '<b>' . $vbphrase['unknown_location'] . '</b>';
+					}
+					else
+					{
+						// We were unable to parse the location
+						$userinfo['action'] = $vbphrase['viewing_index'];
+						$userinfo['where'] = '<a href="' . fetch_seo_url('forumhome', array()) . '">' .
+							$vbulletin->options['bbtitle'] . "</a>";
+					}
+				}
+		}
 	}
 
 	if ($userinfo['badlocation'] == 1)
 	{ // User received 'no permissions screen'
-		if ($vbulletin->userinfo['permissions']['wolpermissions'] & $vbulletin->bf_ugp_wolpermissions['canwhosonlinebad'] OR $userinfo['userid'] == $vbulletin->userinfo['userid'])
+		if (
+			$vbulletin->userinfo['permissions']['wolpermissions'] & $vbulletin->bf_ugp_wolpermissions['canwhosonlinebad'] OR
+			$userinfo['userid'] == $vbulletin->userinfo['userid']
+		)
 		{
 			$show['nopermission'] = true;
 		}
 		else
 		{
 			$userinfo['action'] = $vbphrase['viewing_index'];
-			$userinfo['where'] = '<a href="' . $vbulletin->options['forumhome'] . '.php' . $vbulletin->session->vars['sessionurl_q'] . '">' . $vbulletin->options['bbtitle'] . "</a>";
+			$userinfo['where'] = '<a href="' . fetch_seo_url('forumhome', array()) . '">' .
+				$vbulletin->options['bbtitle'] . "</a>";
 		}
 	}
 	else if ($userinfo['badlocation'] == 2)
@@ -1209,7 +1292,8 @@ function construct_online_bit($userinfo, $doall = 0)
 		else
 		{
 			$userinfo['action'] = $vbphrase['viewing_index'];
-			$userinfo['where'] = '<a href="' . $vbulletin->options['forumhome'] . '.php' . $vbulletin->session->vars['sessionurl_q'] . '">' . $vbulletin->options['bbtitle'] . "</a>";
+			$userinfo['where'] = '<a href="' . fetch_seo_url('forumhome', array()) . '">' .
+				$vbulletin->options['bbtitle'] . "</a>";
 		}
 	}
 	if (!($vbulletin->userinfo['permissions']['wolpermissions'] & $vbulletin->bf_ugp_wolpermissions['canwhosonlinelocation']))
@@ -1249,12 +1333,15 @@ function construct_online_bit($userinfo, $doall = 0)
 			$show['spider'] = false;
 		}
 
+		$userinfo['spidertype'] = $spidertype;
 		$show['reallocation'] = iif($userinfo['location'], true, false);
 		$show['subscribed'] = iif($wol_thread["$threadid"]['issubscribed'] AND $seetitle, true, false);
 		$show['where'] = iif($userinfo['where'], true, false);
 
-		eval('$onlinebits = "' . fetch_template('whosonlinebit') . '";');
-		return $onlinebits;
+		$userinfo['location'] = htmlspecialchars($userinfo['location']);
+
+		$userinfo['show'] = $show;
+		return $userinfo;
 	}
 	else
 	{
@@ -1265,16 +1352,16 @@ function construct_online_bit($userinfo, $doall = 0)
 // ###################### Start whereonline #######################
 function process_online_location($userinfo, $doall = 0)
 {
-	global $vbulletin, $limitlower, $limitupper;
+	global $vbulletin;
 
-	global $albumids, $attachmentids, $calendarids, $eventids, $forumids, $infractionids, $pictureids;
+	global $albumids, $attachmentids, $calendarids, $eventids, $forumids, $infractionids;
 	global $pmids, $postids, $searchids, $socialgroupids, $threadids, $userids;
 
 	static $count;
 
 	$count++;
 
-	if ($doall == 1 AND ($count > $limitupper OR $count < $limitlower))
+	if (strpos($userinfo['location'], 'route:') === 0)
 	{
 		return $userinfo;
 	}
@@ -1294,7 +1381,7 @@ function process_online_location($userinfo, $doall = 0)
 		$loc = preg_replace('/&s=/', '', $loc);
 	}
 
-	if (strtoupper(substr(PHP_OS, 0, 3) == 'WIN'))
+	if (strtoupper(substr(PHP_OS, 0, 3)) == 'WIN')
 	{
 		$filename = strtolower(strtok($loc, '?'));
 	}
@@ -1302,9 +1389,9 @@ function process_online_location($userinfo, $doall = 0)
 	{
 		$filename = strtok($loc, '?');
 	}
+
 	$token = $filename;
-	$pos = @strrpos($filename, '/');
-	if (!is_string($pos) OR $pos)
+	if (($pos = @strrpos($filename, '/')) !== false)
 	{
 		$filename = substr($filename, $pos + 1);
 	}
@@ -1346,6 +1433,16 @@ function process_online_location($userinfo, $doall = 0)
 		}
 		return $userinfo;
 	}
+	else if ($filename == 'content.php' )
+	{
+		$userinfo['activity'] = 'viewing_cms_content';
+		return $userinfo;
+	}
+	else if ($filename == 'list.php' )
+	{
+		$userinfo['activity'] = 'viewing_cms_list';
+		return $userinfo;
+	}
 
 	unset($values);
 	while ($token !== false)
@@ -1358,7 +1455,7 @@ function process_online_location($userinfo, $doall = 0)
 		}
 	}
 
-	$vbulletin->input->convert_shortvars($values);
+	$vbulletin->input->convert_shortvars($values, false);
 
 	($hook = vBulletinHook::fetch_hook('online_location_preprocess')) ? eval($hook) : false;
 
@@ -1415,11 +1512,6 @@ function process_online_location($userinfo, $doall = 0)
 		$userinfo['albumid'] = intval($values['albumid']);
 		$albumids .= ',' . $userinfo['albumid'];
 	}
-	if (!empty($values['pictureid']))
-	{
-		$userinfo['pictureid'] = intval($values['pictureid']);
-		$pictureids .= ',' . $userinfo['pictureid'];
-	}
 	if (!empty($values['pmid']))
 	{
 		$userinfo['pmid'] = intval($values['pmid']);
@@ -1440,9 +1532,40 @@ function process_online_location($userinfo, $doall = 0)
 		$socialgroupids .= ',' . $userinfo['socialgroupid'];
 	}
 
+	// Process api.php
+	if ($filename == 'api.php')
+	{
+		if ($values['api_m'])
+		{
+			// Usually api method name is filename_doname
+			list($apifilename, $do) = explode('_', $values['api_m']);
+			if (strpos($apifilename, 'cms.') !== false)
+			{
+				// cms
+				if ($apifilename == 'cms.content' )
+				{
+					$userinfo['activity'] = 'viewing_cms_content';
+					return $userinfo;
+				}
+				else if ($filename == 'cms.list' )
+				{
+					$userinfo['activity'] = 'viewing_cms_list';
+					return $userinfo;
+				}
+			}
+			$filename = str_replace('.', '_', $apifilename) . '.php';
+			$values['do'] = $do;
+		}
+	}
+
 // ################################################## Showthread
 	switch($filename)
 	{
+	case 'api.php':
+		// User is calling internal api methods
+		$userinfo['activity'] = 'api';
+		$userinfo['api'] = $values['api_m'];
+		break;
 	case 'login.php':
 		if (in_array($values['do'], array('lostpw', 'emailpassword', 'resetpassword')))
 		{
@@ -1482,8 +1605,8 @@ function process_online_location($userinfo, $doall = 0)
 	case '/':
 	case '':
 	case 'cron.php': // this shouldn't occur but just to be sane
-	case $vbulletin->options['forumhome'] . '.php':
-		$userinfo['activity'] = 'index';
+	case $vbulletin->options['forumhome'] . '.php': //this should be unaffected by subdirectory feature.
+ 		$userinfo['activity'] = 'index';
 		break;
 
 	case 'online.php':
@@ -1867,8 +1990,8 @@ function process_online_location($userinfo, $doall = 0)
 					$userinfo['activity'] = 'modcp_moderatedpcs';
 				}
 				break;
-			case 'viewpics':
-				$userinfo['activity'] = 'modcp_moderatedpictures';
+			case 'viewattachments':
+				$userinfo['activity'] = 'modcp_moderatedattachments';
 				break;
 
 		}
@@ -1935,6 +2058,10 @@ function process_online_location($userinfo, $doall = 0)
 		}
 		break;
 
+	case 'groupsubscription.php':
+		$userinfo['activity'] = 'socialgroups_subscriptions';
+		break;
+
 	case 'reputation.php':
 		$userinfo['activity'] = 'reputation';
 		break;
@@ -1969,6 +2096,10 @@ function process_online_location($userinfo, $doall = 0)
 
 	case '/robots.txt':
 		$userinfo['activity'] = 'spider';
+		break;
+
+	case 'activity.php':
+		$userinfo['activity'] = 'activitystream';
 		break;
 
 	case 'posthistory.php':
@@ -2046,13 +2177,6 @@ function process_online_location($userinfo, $doall = 0)
 			}
 			break;
 
-			case 'addpictures':
-			case 'uploadpictures':
-			{
-				$userinfo['activity'] = 'album_upload';
-			}
-			break;
-
 			case 'unread':
 			{
 				$userinfo['activity'] = 'album_unread_comments';
@@ -2067,11 +2191,7 @@ function process_online_location($userinfo, $doall = 0)
 
 			default:
 			{
-				if(!empty($values['pictureid']))
-				{
-					$userinfo['activity'] = 'album_picture';
-				}
-				elseif (!empty($values['albumid']))
+				if (!empty($values['albumid']))
 				{
 					$userinfo['activity'] = 'album_album';
 				}
@@ -2143,9 +2263,12 @@ function convert_ids_to_titles()
 {
 
 	global $vbulletin;
-	global $albumids, $attachmentids, $calendarids, $eventids, $forumids, $infractionids, $pmids, $postids, $searchids, $socialgroupids, $threadids, $userids;
-	global $wol_album, $wol_attachment, $wol_calendar, $wol_event, $wol_inf, $wol_pm, $wol_post, $wol_search, $wol_socialgroup, $wol_thread, $wol_user;
+	global $albumids, $attachmentids, $calendarids, $eventids, $forumids,
+		$infractionids, $pmids, $postids, $searchids, $socialgroupids, $threadids, $userids;
+	global $wol_album, $wol_attachment, $wol_calendar, $wol_event, $wol_inf, $wol_pm,
+		$wol_post, $wol_search, $wol_socialgroup, $wol_thread, $wol_user;
 
+/*
 	if ($attachmentids)
 	{
 		$postidquery = $vbulletin->db->query_read_slave("
@@ -2159,6 +2282,7 @@ function convert_ids_to_titles()
 			$wol_attachment["$postidqueryr[attachmentid]"] = $postidqueryr['postid'];
 		}
 	}
+*/
 
 	if ($postids)
 	{
@@ -2191,9 +2315,12 @@ function convert_ids_to_titles()
 	if ($albumids)
 	{
 		$albums = $vbulletin->db->query_read_slave("
-			SELECT title, albumid, state, userid
-			FROM " . TABLE_PREFIX . "album
-			WHERE albumid IN (0$albumids)
+			SELECT album.title, album.albumid, album.state, album.userid
+			FROM " . TABLE_PREFIX . "album AS album
+			LEFT JOIN " . TABLE_PREFIX . "profileblockprivacy AS profileblockprivacy ON
+				(profileblockprivacy.userid = album.userid AND profileblockprivacy.blockid = 'albums')
+			WHERE album.albumid IN (0$albumids)
+				AND (profileblockprivacy.requirement = 0 OR profileblockprivacy.requirement IS NULL)
 		");
 
 		while ($album = $vbulletin->db->fetch_array($albums))
@@ -2205,7 +2332,7 @@ function convert_ids_to_titles()
 	if ($threadids)
 	{
 		$threadresults = $vbulletin->db->query_read_slave("
-			SELECT thread.title, thread.threadid, thread.forumid, thread.postuserid, thread.visible
+			SELECT thread.title, thread.prefixid, thread.threadid, thread.forumid, thread.postuserid, thread.visible
 			" . iif($vbulletin->options['threadpreview'] > 0, ",post.pagetext AS preview") . "
 			" . iif($vbulletin->options['threadsubscribed'] AND $vbulletin->userinfo['userid'], ", NOT ISNULL(subscribethread.subscribethreadid) AS issubscribed") . "
 			FROM " . TABLE_PREFIX . "thread AS thread
@@ -2216,6 +2343,7 @@ function convert_ids_to_titles()
 		while ($threadresult = $vbulletin->db->fetch_array($threadresults))
 		{
 			$wol_thread["$threadresult[threadid]"]['title'] = $threadresult['title'];
+			$wol_thread["$threadresult[threadid]"]['prefixid'] = $threadresult['prefixid'];
 			$wol_thread["$threadresult[threadid]"]['forumid'] = $threadresult['forumid'];
 			$wol_thread["$threadresult[threadid]"]['postuserid'] = $threadresult['postuserid'];
 			$wol_thread["$threadresult[threadid]"]['isdeleted'] = ($threadresult['visible'] == 2) ? true : false;
@@ -2322,32 +2450,32 @@ function convert_ids_to_titles()
 
 	if ($searchids AND ($vbulletin->userinfo['permissions']['wolpermissions'] & $vbulletin->bf_ugp_wolpermissions['canwhosonlinefull']))
 	{
+		//rework this to get what the code assumes the array looks like from the new search code.
+		//in particular the searchuser value has been changed from a string to a bool based on usage
+		//and the fact that we don't really have it.
+		require_once(DIR . "/vb/search/core.php");
+		require_once(DIR . '/vb/search/criteria.php');
 		$searchresults = $vbulletin->db->query_read_slave("
-			SELECT searchid, search.userid, query, searchuser, user.userid AS targetuserid
-			FROM " . TABLE_PREFIX . "search AS search
-			LEFT JOIN " . TABLE_PREFIX . "user AS user ON (user.username = search.searchuser)
-			WHERE searchid IN (0$searchids)
+			SELECT searchlog.searchlogid AS searchid, searchlog.userid, searchlog.criteria
+			FROM " . TABLE_PREFIX . "searchlog AS searchlog
+			WHERE searchlog.searchlogid IN (0$searchids)
 		");
 		while ($searchresult = $vbulletin->db->fetch_array($searchresults))
 		{
-			if ($searchresult['searchuser'])
+			if ($searchresult['criteria'])
 			{
-				if (!$searchresult['targetuserid']) // usernames are stored straight in search and htmlspecialchars_uni in user so we have to query for any non-matches
+				$criteria = unserialize($searchresult['criteria']);
+
+				$targetuserid = $criteria->get_target_userid();
+				if ($targetuserid)
 				{
-					$result = $vbulletin->db->query_first_slave("
-						SELECT userid AS targetuserid
-						FROM " . TABLE_PREFIX . "user
-						WHERE username = '" . $vbulletin->db->escape_string(htmlspecialchars_uni($searchresult['searchuser'])) . "'
-					");
+					$userids .= ",$targetuserid";
 				}
-				if ($result['targetuserid'])
-				{
-					$searchresult['targetuserid'] = $result['targetuserid'];
-				}
-				if ($searchresult['targetuserid'])
-				{
-					$userids .= ",$searchresult[targetuserid]";
-				}
+
+				$searchresult['targetuserid'] = $targetuserid;
+				$searchresult['searchuser'] = (bool) $targetuserid;
+				$searchresult['query'] = $criteria->get_raw_keywords();
+				unset($searchresult['criteria']);
 			}
 			$wol_search["$searchresult[searchid]"] = $searchresult;
 		}
@@ -2363,7 +2491,8 @@ function convert_ids_to_titles()
 		while ($userresult = $vbulletin->db->fetch_array($userresults))
 		{
 			fetch_musername($userresult);
-			$wol_user["$userresult[userid]"] = $userresult['musername'];
+			$wol_user["$userresult[userid]"]['musername'] = $userresult['musername'];
+			$wol_user["$userresult[userid]"]['username'] = $userresult['username'];
 		}
 	}
 
@@ -2395,8 +2524,8 @@ function sanitize_perpage($perpage, $max, $default = 25)
 
 /*======================================================================*\
 || ####################################################################
-|| # Downloaded: 16:21, Sat Apr 6th 2013
-|| # CVS: $RCSfile$ - $Revision: 26377 $
+|| # Downloaded: 14:57, Sun Aug 11th 2013
+|| # CVS: $RCSfile$ - $Revision: 63836 $
 || ####################################################################
 \*======================================================================*/
 ?>

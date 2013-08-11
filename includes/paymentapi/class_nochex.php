@@ -1,9 +1,9 @@
 <?php
 /*======================================================================*\
 || #################################################################### ||
-|| # vBulletin 3.7.2 Patch Level 2 - Licence Number VBF2470E4F
+|| # vBulletin 4.2.1 - Licence Number VBC2DDE4FB
 || # ---------------------------------------------------------------- # ||
-|| # Copyright ©2000-2013 Jelsoft Enterprises Ltd. All Rights Reserved. ||
+|| # Copyright ©2000-2013 vBulletin Solutions Inc. All Rights Reserved. ||
 || # This file may not be redistributed in whole or significant part. # ||
 || # ---------------- VBULLETIN IS NOT FREE SOFTWARE ---------------- # ||
 || # http://www.vbulletin.com | http://www.vbulletin.com/license.html # ||
@@ -19,8 +19,8 @@ if (!isset($GLOBALS['vbulletin']->db))
 * Class that provides payment verification and form generation functions
 *
 * @package	vBulletin
-* @version	$Revision: 25144 $
-* @date		$Date: 2007-12-14 05:45:31 -0600 (Fri, 14 Dec 2007) $
+* @version	$Revision: 36023 $
+* @date		$Date: 2010-03-30 13:16:08 -0700 (Tue, 30 Mar 2010) $
 */
 class vB_PaidSubscriptionMethod_nochex extends vB_PaidSubscriptionMethod
 {
@@ -97,7 +97,7 @@ class vB_PaidSubscriptionMethod_nochex extends vB_PaidSubscriptionMethod
 			}
 		}
 
-		if ($result == 'AUTHORISED' AND $vbulletin->GPC['status'] != 'test')
+		if (!empty($this->settings['ncxemail']) AND $result == 'AUTHORISED' AND $vbulletin->GPC['status'] != 'test')
 		{
 			$this->paymentinfo = $this->registry->db->query_first("
 				SELECT paymentinfo.*, user.username
@@ -193,7 +193,7 @@ class vB_PaidSubscriptionMethod_nochex extends vB_PaidSubscriptionMethod
 	*/
 	function generate_form_html($hash, $cost, $currency, $subinfo, $userinfo, $timeinfo)
 	{
-		global $vbphrase, $vbulletin, $stylevar, $show;
+		global $vbphrase, $vbulletin, $show;
 
 		$item = $hash;
 		$currency = strtoupper($currency);
@@ -204,15 +204,19 @@ class vB_PaidSubscriptionMethod_nochex extends vB_PaidSubscriptionMethod
 		// load settings into array so the template system can access them
 		$settings = $this->settings;
 
-		eval('$form[\'hiddenfields\'] .= "' . fetch_template('subscription_payment_nochex') . '";');
+		$templater = vB_Template::create('subscription_payment_nochex');
+			$templater->register('cost', $cost);
+			$templater->register('item', $item);
+			$templater->register('settings', $settings);
+		$form['hiddenfields'] .= $templater->render();
 		return $form;
 	}
 }
 
 /*======================================================================*\
 || ####################################################################
-|| # Downloaded: 16:21, Sat Apr 6th 2013
-|| # CVS: $RCSfile$ - $Revision: 25144 $
+|| # Downloaded: 14:57, Sun Aug 11th 2013
+|| # CVS: $RCSfile$ - $Revision: 36023 $
 || ####################################################################
 \*======================================================================*/
 ?>

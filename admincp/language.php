@@ -1,9 +1,9 @@
 <?php
 /*======================================================================*\
 || #################################################################### ||
-|| # vBulletin 3.7.2 Patch Level 2 - Licence Number VBF2470E4F
+|| # vBulletin 4.2.1 - Licence Number VBC2DDE4FB
 || # ---------------------------------------------------------------- # ||
-|| # Copyright ©2000-2013 Jelsoft Enterprises Ltd. All Rights Reserved. ||
+|| # Copyright ©2000-2013 vBulletin Solutions Inc. All Rights Reserved. ||
 || # This file may not be redistributed in whole or significant part. # ||
 || # ---------------- VBULLETIN IS NOT FREE SOFTWARE ---------------- # ||
 || # http://www.vbulletin.com | http://www.vbulletin.com/license.html # ||
@@ -14,7 +14,7 @@
 error_reporting(E_ALL & ~E_NOTICE);
 
 // ##################### DEFINE IMPORTANT CONSTANTS #######################
-define('CVS_REVISION', '$RCSfile$ - $Revision: 26900 $');
+define('CVS_REVISION', '$RCSfile$ - $Revision: 62098 $');
 define('DEFAULT_FILENAME', 'vbulletin-language.xml');
 
 // #################### PRE-CACHE TEMPLATES AND DATA ######################
@@ -69,9 +69,15 @@ $langglobals = array(
 	'thousandsep'            => TYPE_STR
 );
 
+/*
+//moved to download function -- download is the only place we use this so we 
+//should keep that together so that we don't have to define this everywhere
+//we might want to call the download function.  If we have need of it 
+//elsewhere we may need to change that.
 $default_skipped_groups = array(
 	'cphelptext'
 );
+ */
 
 // #############################################################################
 
@@ -82,6 +88,7 @@ if ($_POST['do'] == 'download')
 		'just_phrases' => TYPE_BOOL,
 		'product'      => TYPE_STR,
 		'custom'       => TYPE_BOOL,
+		'charset'      => TYPE_NOHTML,
 	));
 
 	if (empty($vbulletin->GPC['filename']))
@@ -94,114 +101,16 @@ if ($_POST['do'] == 'download')
 		@set_time_limit(1200);
 	}
 
-	if ($vbulletin->GPC['dolanguageid'] == -1)
+	try
 	{
-		$language['title'] = $vbphrase['master_language'];
+		$doc = get_language_export_xml($vbulletin->GPC['dolanguageid'], $vbulletin->GPC['product'], $vbulletin->GPC['custom'], $vbulletin->GPC['just_phrases'], $vbulletin->GPC['charset'] ? $vbulletin->GPC['charset'] : 'ISO-8859-1');	
 	}
-	else
+	catch (vB_Exception_AdminStopMessage $e)
 	{
-		$language = $db->query_first("SELECT * FROM " . TABLE_PREFIX . "language WHERE languageid = " . $vbulletin->GPC['dolanguageid']);
+		//move print_stop_message calls from install_product so we
+		//can use it places where said calls aren't appropriate.
+		call_user_func_array('print_stop_message', $e->getParams());
 	}
-
-	$title = str_replace('"', '\"', $language['title']);
-	$version = str_replace('"', '\"', $vbulletin->options['templateversion']);
-
-	$phrasetypes = fetch_phrasetypes_array(false);
-
-	$phrases = array();
-	$getphrases = $db->query_read("
-		SELECT phrase.varname, phrase.text, phrase.fieldname, phrase.languageid,
-			phrase.username, phrase.dateline, phrase.version
-			" . (($vbulletin->GPC['dolanguageid'] != -1) ? ", IF(ISNULL(phrase2.phraseid), 1, 0) AS iscustom" : "") . "
-		FROM " . TABLE_PREFIX . "phrase AS phrase
-		" . (($vbulletin->GPC['dolanguageid'] != -1) ? "LEFT JOIN " . TABLE_PREFIX . "phrase AS phrase2 ON (phrase.varname = phrase2.varname AND phrase2.languageid = -1 AND phrase.fieldname = phrase2.fieldname)" : "") . "
-		WHERE phrase.languageid IN (" . $vbulletin->GPC['dolanguageid'] . ($vbulletin->GPC['custom'] ? ", 0" : "") . ")
-			AND (phrase.product = '" . $db->escape_string($vbulletin->GPC['product']) . "'" . iif($vbulletin->GPC['product'] == 'vbulletin', " OR phrase.product = ''") . ")
-			" . (($vbulletin->GPC['dolanguageid'] == -1 AND !empty($default_skipped_groups)) ? "AND fieldname NOT IN ('" . implode("', '", $default_skipped_groups) . "')" : '') . "
-		ORDER BY phrase.languageid, phrase.fieldname, phrase.varname
-	");
-	while ($getphrase = $db->fetch_array($getphrases))
-	{
-		if (!$vbulletin->GPC['custom'] AND $getphrase['iscustom'])
-		{
-			continue;
-		}
-		$phrases["$getphrase[fieldname]"]["$getphrase[varname]"] = $getphrase;
-	}
-	unset($getphrase);
-	$db->free_result($getphrases);
-
-	if (empty($phrases) AND $vbulletin->GPC['just_phrases'])
-	{
-		print_stop_message('download_contains_no_customizations');
-	}
-
-	require_once(DIR . '/includes/class_xml.php');
-	$xml = new vB_XML_Builder($vbulletin);
-
-	$xml->add_group('language', array('name' => $title, 'vbversion' => $version, 'product' => $vbulletin->GPC['product'], 'type' => iif($vbulletin->GPC['dolanguageid'] == -1, 'master', iif($vbulletin->GPC['just_phrases'], 'phrases', 'custom'))));
-
-	if ($vbulletin->GPC['dolanguageid'] != -1 AND !$vbulletin->GPC['just_phrases'])
-	{
-		$xml->add_group('settings');
-		$ignorefields = array('languageid', 'title', 'userselect');
-		foreach ($language AS $fieldname => $value)
-		{
-			if (substr($fieldname, 0, 12) != 'phrasegroup_' AND !in_array($fieldname, $ignorefields))
-			{
-				$xml->add_tag($fieldname, $value, array(), true);
-			}
-		}
-		$xml->close_group();
-	}
-
-	if ($vbulletin->GPC['dolanguageid'] == -1 AND !empty($default_skipped_groups))
-	{
-		$xml->add_group('skippedgroups');
-		foreach ($default_skipped_groups AS $skipped_group)
-		{
-			$xml->add_tag('skippedgroup', $skipped_group);
-		}
-		$xml->close_group();
-	}
-
-	foreach ($phrases AS $_fieldname => $typephrases)
-	{
-		$xml->add_group('phrasetype', array('name' => $phrasetypes["$_fieldname"]['title'], 'fieldname' => $_fieldname));
-		foreach ($typephrases AS $phrase)
-		{
-			$attributes = array(
-				'name' => $phrase['varname']
-			);
-
-			if ($phrase['dateline'])
-			{
-				$attributes['date'] = $phrase['dateline'];
-			}
-			if ($phrase['username'])
-			{
-				$attributes['username'] = $phrase['username'];
-			}
-			if ($phrase['version'])
-			{
-				$attributes['version'] = htmlspecialchars_uni($phrase['version']);
-			}
-			if ($vbulletin->GPC['custom'] AND $phrase['languageid'] == 0)
-			{
-				$attributes['custom'] = 1;
-			}
-
-			$xml->add_tag('phrase', $phrase['text'], $attributes, true);
-		}
-		$xml->close_group();
-	}
-
-	$xml->close_group();
-
-	$doc = "<?xml version=\"1.0\" encoding=\"ISO-8859-1\"?>\r\n\r\n";
-
-	$doc .= $xml->output();
-	$xml = null;
 
 	require_once(DIR . '/includes/functions_file.php');
 	file_download($doc, $vbulletin->GPC['filename'], 'text/xml');
@@ -296,7 +205,35 @@ if ($_POST['do'] == 'update')
 		build_language($vbulletin->GPC['dolanguageid']);
 	}
 
-	define('CP_REDIRECT', "language.php?do=edit&amp;dolanguageid=" . $vbulletin->GPC['dolanguageid'] . "&amp;fieldname=" . $vbulletin->GPC['fieldname'] . "&amp;page=" . $vbulletin->GPC['pagenumber']);
+	if (defined('DEV_AUTOEXPORT') AND DEV_AUTOEXPORT)
+	{
+		//figure out the products of the phrases processed.
+		$products = array();
+		foreach (array_keys($vbulletin->GPC['rvt']) AS $varname)
+		{
+			$products[$vbulletin->GPC['prod']["$varname"]] = 1;
+		}
+
+		foreach (array_keys($vbulletin->GPC['def']) AS $varname)
+		{
+			if ($vbulletin->GPC['def']["$varname"] != $vbulletin->GPC['phr']["$varname"])
+			{
+				$products[$vbulletin->GPC['prod']["$varname"]] = 1;
+			}
+		}
+		$products = array_keys($products);
+
+		//export those products;	
+		require_once(DIR . '/includes/functions_filesystemxml.php');
+		foreach($products as $product)
+		{
+			autoexport_write_language($vbulletin->GPC['dolanguageid'], $product);
+		}
+	}
+
+
+	define('CP_REDIRECT', "language.php?do=edit&amp;dolanguageid=" . $vbulletin->GPC['dolanguageid'] . 
+		"&amp;fieldname=" . $vbulletin->GPC['fieldname'] . "&amp;page=" . $vbulletin->GPC['pagenumber']);
 	print_stop_message('saved_language_successfully');
 }
 
@@ -313,14 +250,18 @@ if ($_POST['do'] == 'upload')
 		'title'        => TYPE_STR,
 		'serverfile'   => TYPE_STR,
 		'anyversion'   => TYPE_BOOL,
+		'readcharset'  => TYPE_BOOL,
 	));
 
 	$vbulletin->input->clean_array_gpc('f', array(
 		'languagefile' => TYPE_FILE
 	));
 
+	($hook = vBulletinHook::fetch_hook('admin_language_import')) ? eval($hook) : false;
+
 	// got an uploaded file?
-	if (file_exists($vbulletin->GPC['languagefile']['tmp_name']))
+	// do not use file_exists here, under IIS it will return false in some cases
+	if (is_uploaded_file($vbulletin->GPC['languagefile']['tmp_name']))
 	{
 		$xml = file_read($vbulletin->GPC['languagefile']['tmp_name']);
 	}
@@ -335,7 +276,7 @@ if ($_POST['do'] == 'upload')
 		print_stop_message('no_file_uploaded_and_no_local_file_found');
 	}
 
-	xml_import_language($xml, $vbulletin->GPC['dolanguageid'], $vbulletin->GPC['title'], $vbulletin->GPC['anyversion']);
+	xml_import_language($xml, $vbulletin->GPC['dolanguageid'], $vbulletin->GPC['title'], $vbulletin->GPC['anyversion'], true, true, $vbulletin->GPC['readcharset']);
 
 	build_language_datastore();
 
@@ -348,14 +289,74 @@ if ($_POST['do'] == 'upload')
 if ($_REQUEST['do'] == 'files')
 {
 	require_once(DIR . '/includes/functions_misc.php');
-	$languages = fetch_language_titles_array('', 1);
-
+	$alllanguages = fetch_languages_array();
+	$languages = array();
+	$charsets = array(
+		'ISO-8859-1' => 'ISO-8859-1'
+	);
+	$jscharsets = array(
+		'-1' => 'ISO-8859-1'
+	);
+	foreach ($alllanguages AS $languageid => $language)
+	{
+		$jscharsets[$languageid] = strtoupper($language['charset']);
+		$languages[$languageid] = $language['title'];
+		if ($languageid == $vbulletin->GPC['dolanguageid'])
+		{
+			$charset = strtoupper($language['charset']);
+			if ($charset != 'ISO-8859-1')
+			{
+				$charsets[$charset] = $charset;
+			}
+		}
+	}
+	?>
+	<script type="text/javascript">
+	<!--
+	function js_set_charset(formobj, languageid)
+	{
+		var charsets = {
+		<?php
+		$output = '';
+		foreach ($jscharsets AS $languageid => $charset)
+		{
+			$output .= "'$languageid' : '$charset',\r\n";
+		}
+		echo rtrim($output, "\r\n,") . "\r\n";
+		?>
+		};
+		var charsetobj = formobj.charset;
+		var charset = charsets[languageid];
+		if (charset == charsetobj.options[0].value) // 'ISO-8859-1' which is always in options[0]
+		{	// Remove second charset item from list since this language is 'ISO-8859-1'
+			if (charsetobj.options.length == 2)
+			{
+				charsetobj.remove(1);
+			}
+		}
+		else
+		{
+			if (charsetobj.options.length == 1)
+			{	// Add an option!
+				var option = document.createElement("option");
+				charsetobj.add(option, null);
+			}
+			// Change the option, maybe to the same thing but that doesn't matter
+			charsetobj.options[1].value = charset;
+			charsetobj.options[1].text = charset;
+		}
+	}
+	// -->
+	</script>
+	<?php	
+	
 	// download form
 	print_form_header('language', 'download', 0, 1, 'downloadform" target="download');
 	print_table_header($vbphrase['download']);
-	print_label_row($vbphrase['language'], '<select name="dolanguageid" tabindex="1" class="bginput">' . iif($vbulletin->debug, '<option value="-1">' . MASTER_LANGUAGE . '</option>') . construct_select_options($languages, $vbulletin->GPC['dolanguageid']) . '</select>', '', 'top', 'languageid');
+	print_label_row($vbphrase['language'], '<select name="dolanguageid" tabindex="1" class="bginput" onchange="js_set_charset(this.form, this.value)">' . ($vbulletin->debug ? '<option value="-1">' . MASTER_LANGUAGE . '</option>' : '') . construct_select_options($languages, $vbulletin->GPC['dolanguageid']) . '</select>', '', 'top', 'languageid');
 	print_select_row($vbphrase['product'], 'product', fetch_product_list());
 	print_input_row($vbphrase['filename'], 'filename', DEFAULT_FILENAME);
+	print_select_row($vbphrase['charset'], 'charset', $charsets);
 	print_yes_no_row($vbphrase['include_custom_phrases'], 'custom', 0);
 	print_yes_no_row($vbphrase['just_fetch_phrases'], 'just_phrases', 0);
 	print_submit_row($vbphrase['download']);
@@ -383,6 +384,7 @@ if ($_REQUEST['do'] == 'files')
 	print_label_row($vbphrase['overwrite_language_dfn'], '<select name="dolanguageid" tabindex="1" class="bginput"><option value="0">(' . $vbphrase['create_new_language'] . ')</option>' . construct_select_options($languages) . '</select>', '', 'top', 'olanguageid');
 	print_input_row($vbphrase['title_for_uploaded_language'], 'title');
 	print_yes_no_row($vbphrase['ignore_language_version'], 'anyversion', 0);
+	print_yes_no_row($vbphrase['read_charset_from_file'], 'readcharset', 1);
 	print_submit_row($vbphrase['import']);
 
 }
@@ -399,7 +401,7 @@ if ($_REQUEST['do'] == 'rebuild')
 
 	echo "<p>&nbsp;</p>
 	<blockquote><form><div class=\"tborder\">
-	<div class=\"tcat\" style=\"padding:4px\" align=\"center\"><div style=\"float:$stylevar[right]\">$help</div><b>" . $vbphrase['rebuild_language_information'] . "</b></div>
+	<div class=\"tcat\" style=\"padding:4px\" align=\"center\"><div style=\"float:" . vB_Template_Runtime::fetchStyleVar('right') . "\">$help</div><b>" . $vbphrase['rebuild_language_information'] . "</b></div>
 	<div class=\"alt1\" style=\"padding:4px\">\n<blockquote>
 	";
 	vbflush();
@@ -1019,8 +1021,8 @@ print_cp_footer();
 
 /*======================================================================*\
 || ####################################################################
-|| # Downloaded: 16:21, Sat Apr 6th 2013
-|| # CVS: $RCSfile$ - $Revision: 26900 $
+|| # Downloaded: 14:57, Sun Aug 11th 2013
+|| # CVS: $RCSfile$ - $Revision: 62098 $
 || ####################################################################
 \*======================================================================*/
 ?>

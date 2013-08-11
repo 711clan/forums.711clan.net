@@ -1,9 +1,9 @@
 <?php
 /*======================================================================*\
 || #################################################################### ||
-|| # vBulletin 3.7.2 Patch Level 2 - Licence Number VBF2470E4F
+|| # vBulletin 4.2.1 - Licence Number VBC2DDE4FB
 || # ---------------------------------------------------------------- # ||
-|| # Copyright ©2000-2013 Jelsoft Enterprises Ltd. All Rights Reserved. ||
+|| # Copyright ©2000-2013 vBulletin Solutions Inc. All Rights Reserved. ||
 || # This file may not be redistributed in whole or significant part. # ||
 || # ---------------- VBULLETIN IS NOT FREE SOFTWARE ---------------- # ||
 || # http://www.vbulletin.com | http://www.vbulletin.com/license.html # ||
@@ -14,7 +14,7 @@
 error_reporting(E_ALL & ~E_NOTICE);
 
 // ##################### DEFINE IMPORTANT CONSTANTS #######################
-define('CVS_REVISION', '$RCSfile$ - $Revision: 25308 $');
+define('CVS_REVISION', '$RCSfile$ - $Revision: 62098 $');
 
 // #################### PRE-CACHE TEMPLATES AND DATA ######################
 $phrasegroups = array('cppermission');
@@ -135,6 +135,7 @@ if ($_POST['do'] == 'update')
 	$admindm->save();
 
 	define('CP_REDIRECT', "adminpermissions.php?" . $vbulletin->session->vars['sessionurl'] . "#user$user[userid]");
+	vB_Cache::instance()->event('permissions_' . $vbulletin->GPC['userid']);
 	print_stop_message('saved_administrator_permissions_successfully');
 }
 
@@ -147,7 +148,7 @@ if ($_REQUEST['do'] == 'edit')
 	construct_hidden_code('userid', $vbulletin->GPC['userid']);
 	construct_hidden_code('oldpermissions', $user['adminpermissions']);
 	print_table_header(construct_phrase($vbphrase['x_y_id_z'], $vbphrase['administrator_permissions'], $user['username'], $user['userid']));
-	print_label_row("$vbphrase[administrator]: <a href=\"user.php?" . $vbulletin->session->vars['sessionurl'] . "do=edit&amp;u=" . $vbulletin->GPC['userid'] . "\">$user[username]</a>", '<div align="' . $stylevar['right'] .'"><input type="button" class="button" value=" ' . $vbphrase['all_yes'] . ' " onclick="js_check_all_option(this.form, 1);" /> <input type="button" class="button" value=" ' . $vbphrase['all_no'] . ' " onclick="js_check_all_option(this.form, 0);" /></div>', 'thead');
+	print_label_row("$vbphrase[administrator]: <a href=\"user.php?" . $vbulletin->session->vars['sessionurl'] . "do=edit&amp;u=" . $vbulletin->GPC['userid'] . "\">$user[username]</a>", '<div align="' . vB_Template_Runtime::fetchStyleVar('right') .'"><input type="button" class="button" value=" ' . $vbphrase['all_yes'] . ' " onclick="js_check_all_option(this.form, 1);" /> <input type="button" class="button" value=" ' . $vbphrase['all_no'] . ' " onclick="js_check_all_option(this.form, 0);" /></div>', 'thead');
 
 	foreach (convert_bits_to_array($user['adminpermissions'], $ADMINPERMISSIONS) AS $field => $value)
 	{
@@ -196,8 +197,8 @@ print_cp_footer();
 
 /*======================================================================*\
 || ####################################################################
-|| # Downloaded: 16:21, Sat Apr 6th 2013
-|| # CVS: $RCSfile$ - $Revision: 25308 $
+|| # Downloaded: 14:57, Sun Aug 11th 2013
+|| # CVS: $RCSfile$ - $Revision: 62098 $
 || ####################################################################
 \*======================================================================*/
 ?>

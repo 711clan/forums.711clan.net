@@ -1,9 +1,9 @@
 <?php
 /*======================================================================*\
 || #################################################################### ||
-|| # vBulletin 3.7.2 Patch Level 2 - Licence Number VBF2470E4F
+|| # vBulletin 4.2.1 - Licence Number VBC2DDE4FB
 || # ---------------------------------------------------------------- # ||
-|| # Copyright ©2000-2013 Jelsoft Enterprises Ltd. All Rights Reserved. ||
+|| # Copyright ©2000-2013 vBulletin Solutions Inc. All Rights Reserved. ||
 || # This file may not be redistributed in whole or significant part. # ||
 || # ---------------- VBULLETIN IS NOT FREE SOFTWARE ---------------- # ||
 || # http://www.vbulletin.com | http://www.vbulletin.com/license.html # ||
@@ -14,8 +14,8 @@
 * Abstracted class that handles User CSS
 *
 * @package	vBulletin
-* @version	$Revision: 25957 $
-* @date		$Date: 2008-03-05 06:15:54 -0600 (Wed, 05 Mar 2008) $
+* @version	$Revision: 62098 $
+* @date		$Date: 2012-05-01 18:21:26 -0700 (Tue, 01 May 2012) $
 */
 class vB_UserCSS
 {
@@ -498,7 +498,7 @@ class vB_UserCSS
 		if ($property == 'background_image')
 		{
 			preg_match("/^([0-9]+),([0-9]+)$/", $value, $picture);
-			$value = "url(picture.php?/*sessionurl*/albumid=$picture[1]&pictureid=$picture[2])";
+			$value = "url(attachment.php?/*sessionurl*/attachmentid=$picture[2])";
 		}
 
 		$css["$selector_list"]["$propertyinfo[cssproperty]"] = $value;
@@ -606,7 +606,7 @@ class vB_UserCSS
 					'border_style',
 					'border_width',
 					'border_color',
-					'color',
+					'color' => 'text',
 					'padding',
 					'linkcolor' => 'main_a',
 					'font_family' => 'text',
@@ -679,8 +679,7 @@ class vB_UserCSS
 					'border_style',
 					'border_width',
 					'border_color',
-					'padding',
-					'color',
+					'padding'
 				)
 			),
 			'main_a' => array(
@@ -694,18 +693,17 @@ class vB_UserCSS
 
 			'text' => array(
 				'selectors'	=> array(
-					'.tcat',
-					'.thead',
-					'.tfoot',
+					'.block',
+					'.blockhead',
+					'h2 .blockhead',
+					'.blocksubhead',
+					'.blockbody',
+					'.blockrow',
+					'.blockfoot',
 					'.alt1',
 					'.alt2',
-					'.wysiwyg',
-					'.vbmenu_control',
-					'.smallfont',
+					'.popupmenu',
 					'legend',
-					'.fieldset',
-					'.vbmenu_option',
-					'.vbmenu_hilite',
 					'td',
 					'th',
 					'p',
@@ -713,6 +711,7 @@ class vB_UserCSS
 				),
 				'properties' => array(
 					'font_family',
+					'color'
 				)
 			),
 
@@ -740,20 +739,23 @@ class vB_UserCSS
 
 			'tableborder' => array(
 				'selectors'	=> array(
-					'.tborder',
-					'.vbmenu_popup'
+					'.block',
+					'.popupmenu',
 				),
 				'properties' => array(
+					'border_style',
+					'border_width',
+					'border_color',
+					'padding',
 					'background_color',
 	 				'background_image',
 	 				'background_repeat',
-					'border_color',
 				)
 			),
 
 			'tabletitle' => array(
 				'selectors'	=> array(
-					'.tcat'
+					'.blockhead'
 				),
 				'properties' => array(
 					'background_color',
@@ -765,7 +767,7 @@ class vB_UserCSS
 			),
 			'tabletitle_a' => array(
 				'selectors'	=> array(
-					'.tcat a'
+					'.blocksubhead a'
 				),
 				'properties' => array(
 					'linkcolor'
@@ -775,8 +777,7 @@ class vB_UserCSS
 
 			'tableheader' => array(
 				'selectors'	=> array(
-					'.thead',
-					'.vbmenu_control'
+					'.blocksubhead',
 				),
 				'properties' => array(
 					'background_color',
@@ -788,8 +789,7 @@ class vB_UserCSS
 			),
 			'tableheader_a' => array(
 				'selectors'	=> array(
-					'.thead a',
-					'.vbmenu_control a'
+					'.blocksubhead a',
 				),
 				'properties' => array(
 					'linkcolor'
@@ -799,7 +799,7 @@ class vB_UserCSS
 
 			'tablefooter' => array(
 				'selectors'	=> array(
-					'.tfoot',
+					'.blockfoot',
 				),
 				'properties' => array(
 					'background_color',
@@ -811,7 +811,7 @@ class vB_UserCSS
 			),
 			'tablefooter_a' => array(
 				'selectors'	=> array(
-					'.tfoot a',
+					'.blockfoot a',
 				),
 				'properties' => array(
 					'linkcolor'
@@ -821,10 +821,7 @@ class vB_UserCSS
 
 			'alternating1' => array(
 				'selectors'	=> array(
-					'.alt1',
-					'.vbmenu_option',
-					'.panel',
-					'.wysiwyg'
+					'.blockrow'
 				),
 				'properties' => array(
 					'background_color',
@@ -835,10 +832,7 @@ class vB_UserCSS
 			),
 			'alternating1_a' => array(
 				'selectors'	=> array(
-					'.alt1 a',
-					'.vbmenu_option a',
-					'.panel a',
-					'.wysiwyg a',
+					'a'
 				),
 				'properties' => array(
 					'linkcolor'
@@ -847,9 +841,7 @@ class vB_UserCSS
 
 			'alternating2' => array(
 				'selectors'	=> array(
-					'.alt2',
-					'.vbmenu_hilite',
-					'.panelsurround'
+					'.alt2'
 				),
 				'properties' => array(
 					'background_color',
@@ -860,9 +852,7 @@ class vB_UserCSS
 			),
 			'alternating2_a' => array(
 				'selectors'	=> array(
-					'.alt2 a',
-					'.vbmenu_hilite a',
-					'.panelsurround a'
+					'.alt2 a'
 				),
 				'properties' => array(
 					'linkcolor'
@@ -871,10 +861,10 @@ class vB_UserCSS
 
 			'inputs' => array(
 				'selectors'	=> array(
-					'.bginput',
-					'select',
-					'textarea',
-					'.button'
+					'.formcontrols input',
+					'.formcontrols select',
+					'.formcontrols textarea',
+					'formcontrols .button'
 					// also styles option and optgroup, but we use a hack to prevent it from applying border styles - see $this->build_css_property()
 				),
 				'properties' => array(
@@ -985,20 +975,28 @@ class vB_UserCSS
 		}
 
 		$foundalbum = preg_match('#albumid=([0-9]+)#', $value, $albumid);
-		$foundpicture = preg_match('#pictureid=([0-9]+)#', $value, $pictureid);
+		$foundpicture = preg_match('#attachmentid=([0-9]+)#', $value, $attachmentid);
+
+		$types = vB_Types::instance();
+		$contenttypeid = intval($types->getContentTypeID('vBForum_Album'));
 
 		if ($foundalbum AND $foundpicture AND $picture = $this->dbobject->query_first("
 			SELECT album.userid
-			FROM " . TABLE_PREFIX . "albumpicture AS albumpicture
-			INNER JOIN " . TABLE_PREFIX . "picture AS picture ON (albumpicture.pictureid = picture.pictureid)
-			INNER JOIN " . TABLE_PREFIX . "album AS album ON (albumpicture.albumid = album.albumid)
-			WHERE albumpicture.albumid = " . intval($albumid[1]) . "
-	 			AND albumpicture.pictureid = " . intval($pictureid[1]) . "
-	 			AND album.state IN ('profile', 'public')
-	 			AND album.userid = " . $this->userid . "
+			FROM " . TABLE_PREFIX . "attachment AS a
+			INNER JOIN " . TABLE_PREFIX . "album AS album ON (a.contentid = album.albumid)
+			WHERE
+				a.attachmentid = " . intval($attachmentid[1]) . "
+	 				AND
+	 			a.contenttypeid = $contenttypeid
+	 				AND
+	 			album.state IN ('profile', 'public')
+	 				AND
+	 			album.userid = " . $this->userid . "
+	 				AND
+	 			album.albumid = " . intval($albumid[1]) . "
 	 	"))
 	 	{
-	 		$value = $albumid[1] . "," . $pictureid[1];
+	 		$value = $albumid[1] . "," . $attachmentid[1];
 	 		return true;
 	 	}
 	 	else
@@ -1070,8 +1068,8 @@ class vB_UserCSS
 
 /*======================================================================*\
 || ####################################################################
-|| # Downloaded: 16:21, Sat Apr 6th 2013
-|| # CVS: $RCSfile$ - $Revision: 25957 $
+|| # Downloaded: 14:57, Sun Aug 11th 2013
+|| # CVS: $RCSfile$ - $Revision: 62098 $
 || ####################################################################
 \*======================================================================*/
 ?>

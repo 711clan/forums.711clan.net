@@ -1,9 +1,9 @@
 <?php
 /*======================================================================*\
 || #################################################################### ||
-|| # vBulletin 3.7.2 Patch Level 2 - Licence Number VBF2470E4F
+|| # vBulletin 4.2.1 - Licence Number VBC2DDE4FB
 || # ---------------------------------------------------------------- # ||
-|| # Copyright ©2000-2013 Jelsoft Enterprises Ltd. All Rights Reserved. ||
+|| # Copyright ©2000-2013 vBulletin Solutions Inc. All Rights Reserved. ||
 || # This file may not be redistributed in whole or significant part. # ||
 || # ---------------- VBULLETIN IS NOT FREE SOFTWARE ---------------- # ||
 || # http://www.vbulletin.com | http://www.vbulletin.com/license.html # ||
@@ -93,8 +93,8 @@ if ($vbulletin->userinfo['userid'])
 			$update = true;
 			if (!$vbulletin->GPC['ajax'])
 			{
-				$vbulletin->url = 'showthread.php?' . $vbulletin->session->vars['sessionurl'] . "t=$threadinfo[threadid]&amp;page=" . $vbulletin->GPC['pagenumber'] . "&amp;pp=" . $vbulletin->GPC['perpage'];
-				eval(print_standard_redirect('redirect_threadrate_update'));
+				$vbulletin->url = fetch_seo_url('thread', $threadinfo, array('page' => $vbulletin->GPC['pagenumber'], 'pp' => $vbulletin->GPC['perpage']));
+				print_standard_redirect('redirect_threadrate_update');  
 			}
 		}
 		else if (!$vbulletin->GPC['ajax'])
@@ -117,8 +117,8 @@ if ($vbulletin->userinfo['userid'])
 
 		if (!$vbulletin->GPC['ajax'])
 		{
-			$vbulletin->url = 'showthread.php?' . $vbulletin->session->vars['sessionurl'] . "t=$threadinfo[threadid]&amp;page=" . $vbulletin->GPC['pagenumber'] . "&amp;pp=" . $vbulletin->GPC['perpage'];
-			eval(print_standard_redirect('redirect_threadrate_add'));
+			$vbulletin->url = fetch_seo_url('thread', $threadinfo, array('page' => $vbulletin->GPC['pagenumber'], 'pp' => $vbulletin->GPC['perpage']));
+			print_standard_redirect('redirect_threadrate_add');  
 		}
 	}
 }
@@ -159,8 +159,8 @@ else
 
 				if (!$vbulletin->GPC['ajax'])
 				{
-					$vbulletin->url = 'showthread.php?' . $vbulletin->session->vars['sessionurl'] . "t=$threadinfo[threadid]&amp;page=" . $vbulletin->GPC['pagenumber'] . "&amp;pp=" . $vbulletin->GPC['perpage'];
-					eval(print_standard_redirect('redirect_threadrate_update'));
+					$vbulletin->url = fetch_seo_url('thread', $threadinfo, array('page' => $vbulletin->GPC['pagenumber'], 'pp' => $vbulletin->GPC['perpage']));
+					print_standard_redirect('redirect_threadrate_update');  
 				}
 			}
 			else if (!$vbulletin->GPC['ajax'])
@@ -184,8 +184,8 @@ else
 
 			if (!$vbulletin->GPC['ajax'])
 			{
-				$vbulletin->url = 'showthread.php?' . $vbulletin->session->vars['sessionurl'] . "t=$threadinfo[threadid]&amp;page=" . $vbulletin->GPC['pagenumber'] . "&amp;pp=" . $vbulletin->GPC['perpage'];
-				eval(print_standard_redirect('redirect_threadrate_add'));
+				$vbulletin->url = fetch_seo_url('thread', $threadinfo, array('page' => $vbulletin->GPC['pagenumber'], 'pp' => $vbulletin->GPC['perpage']));
+				print_standard_redirect('redirect_threadrate_add');  
 			}
 		}
 	}
@@ -202,16 +202,31 @@ if ($update)
 		WHERE threadid = $threadinfo[threadid]
 	");
 
+	$average = $thread['votetotal'] / $thread['votenum'];
+	$rating = round($average);
+	
+	$xml->add_tag('rating_full', vb_number_format($average, 2));
+	$xml->add_tag('rating', $rating);
+	$xml->add_tag('vote_threshold_met', intval($thread['votenum'] >= $vbulletin->options['showvotes']));
+
+/*
+//I don't think we need this any longer.
 	if ($thread['votenum'] >= $vbulletin->options['showvotes'])
 	{	// Show Voteavg
-		$thread['voteavg'] = vb_number_format($thread['votetotal'] / $thread['votenum'], 2);
-		$thread['rating'] = round($thread['votetotal'] / $thread['votenum']);
-		$xml->add_tag('voteavg', process_replacement_vars("$vbphrase[rating]: <img class=\"inlineimg\" src=\"$stylevar[imgdir_rating]/rating_$thread[rating].gif\" alt=\"" . construct_phrase($vbphrase['thread_rating_x_votes_y_average'], $thread['votenum'], $thread['voteavg']) . "\" border=\"0\" />"));
+		$thread['voteavg'] = vb_number_format($average, 2);
+//		$thread['rating'] = round($thread['votetotal'] / $thread['votenum']);
+
+		$html = "$vbphrase[rating]: <img class=\"inlineimg\" src=\"$stylevar[imgdir_rating]/rating_$rating.gif\" alt=\"" . 
+			construct_phrase($vbphrase['thread_rating_x_votes_y_average'], $thread['votenum'], 
+			$thread['voteavg']) . "\" border=\"0\" />";
+
+		$xml->add_tag('voteavg', process_replacement_vars($html));
 	}
 	else
 	{
 		$xml->add_tag('voteavg', '');
 	}
+*/
 
 	if (!function_exists('fetch_phrase'))
 	{
@@ -228,8 +243,8 @@ $xml->print_xml();
 
 /*======================================================================*\
 || ####################################################################
-|| # Downloaded: 16:21, Sat Apr 6th 2013
-|| # CVS: $RCSfile$ - $Revision: 26399 $
+|| # Downloaded: 14:57, Sun Aug 11th 2013
+|| # CVS: $RCSfile$ - $Revision: 50189 $
 || ####################################################################
 \*======================================================================*/
 ?>

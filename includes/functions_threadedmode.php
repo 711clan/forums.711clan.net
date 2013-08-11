@@ -1,9 +1,9 @@
 <?php
 /*======================================================================*\
 || #################################################################### ||
-|| # vBulletin 3.7.2 Patch Level 2 - Licence Number VBF2470E4F
+|| # vBulletin 4.2.1 - Licence Number VBC2DDE4FB
 || # ---------------------------------------------------------------- # ||
-|| # Copyright ©2000-2013 Jelsoft Enterprises Ltd. All Rights Reserved. ||
+|| # Copyright ©2000-2013 vBulletin Solutions Inc. All Rights Reserved. ||
 || # This file may not be redistributed in whole or significant part. # ||
 || # ---------------- VBULLETIN IS NOT FREE SOFTWARE ---------------- # ||
 || # http://www.vbulletin.com | http://www.vbulletin.com/license.html # ||
@@ -57,7 +57,7 @@ function fetch_statusicon_from_child_posts($postid)
 // ###################### Start showPostLink #######################
 function construct_threaded_post_link($post, $imageString, $depth, $haschildren, $highlightpost = false)
 {
-	global $vbulletin, $stylevar, $bgclass, $curpostid, $parent_postids, $morereplies, $threadedmode, $vbphrase, $postattach;
+	global $vbulletin, $bgclass, $curpostid, $parent_postids, $morereplies, $threadedmode, $vbphrase, $postattach;
 	global $threadinfo; // ugly
 	static $lasttitle;
 
@@ -72,11 +72,19 @@ function construct_threaded_post_link($post, $imageString, $depth, $haschildren,
 		$highlightpost = 0;
 	}
 
+	$pageinfo = array(
+		'p' => $post['postid'],
+	);
+	if ($vbulletin->GPC['highlight'])
+	{
+		$pageinfo['highlight'] = urlencode($vbulletin->GPC['highlight']);
+	}
+
 	// write 'more replies below' link
 	if ($vbulletin->options['threaded_listdepth'] != 0 AND $depth == $vbulletin->options['threaded_listdepth'] AND $post['postid'] != $curpostid AND $haschildren AND ($vbulletin->options['threaded_listdepth'] != 0 AND $depth == $vbulletin->options['threaded_listdepth'] AND !strpos(' ,' . $curpostid . $parent_postids . ',' , ',' . $post['postid'] . ',' )))
 	{
 		$morereplies[$post['postid']] = 1;
-		return "writeLink($post[postid], " . fetch_statusicon_from_child_posts($post['postid']) . ", 0, 0, \"$imageString\", \"\", \"more\", \"\", $highlightpost);\n";
+		return "writeLink($post[postid], " . fetch_statusicon_from_child_posts($post['postid']) . ", 0, 0, \"$imageString\", \"\", \"more\", \"\", $highlightpost, \"" .	addslashes_js(fetch_seo_url('thread|js', $threadinfo, $pageinfo) . "#post$post[postid]") . "\");\n";
 	}
 
 	// get time fields
@@ -127,7 +135,7 @@ function construct_threaded_post_link($post, $imageString, $depth, $haschildren,
 
 	($hook = vBulletinHook::fetch_hook('showthread_threaded_construct_link')) ? eval($hook) : false;
 
-	return "writeLink($post[postid], $post[statusicon], $post[paperclip], " . intval($post['userid']) . ", \"$imageString\", \"" . addslashes_js($post['title'], '"') . "\", \"" . addslashes_js($post['date'], '"') . "\", \"" . addslashes_js($post['time'], '"') . "\", $highlightpost);\n";
+	return "writeLink($post[postid], $post[statusicon], $post[paperclip], " . intval($post['userid']) . ", \"$imageString\", \"" . addslashes_js($post['title'], '"') . "\", \"" . addslashes_js($post['date'], '"') . "\", \"" . addslashes_js($post['time'], '"') . "\", $highlightpost, \"" . addslashes_js(fetch_seo_url('thread|js', $threadinfo, $pageinfo) . "#post$post[postid]") . "\");\n";
 
 }
 
@@ -193,7 +201,7 @@ function fetch_threaded_post_image_string($post, $depth)
 // ###################### Start orderPosts #######################
 function sort_threaded_posts($parentid = 0, $depth = 0, $showpost = false)
 {
-	global $vbulletin, $stylevar, $ipostarray, $postarray, $links, $bgclass, $hybridposts;
+	global $vbulletin, $ipostarray, $postarray, $links, $bgclass, $hybridposts;
 	global $postorder, $parent_postids, $currentdepth, $curpostid, $cache_postids, $curpostidkey;
 
 	// make an indent for pretty HTML
@@ -259,8 +267,8 @@ function sort_threaded_posts($parentid = 0, $depth = 0, $showpost = false)
 
 /*======================================================================*\
 || ####################################################################
-|| # Downloaded: 16:21, Sat Apr 6th 2013
-|| # CVS: $RCSfile$ - $Revision: 11894 $
+|| # Downloaded: 14:57, Sun Aug 11th 2013
+|| # CVS: $RCSfile$ - $Revision: 32878 $
 || ####################################################################
 \*======================================================================*/
 ?>

@@ -1,9 +1,9 @@
 <?php
 /*======================================================================*\
 || #################################################################### ||
-|| # vBulletin 3.7.2 Patch Level 2 - Licence Number VBF2470E4F
+|| # vBulletin 4.2.1 - Licence Number VBC2DDE4FB
 || # ---------------------------------------------------------------- # ||
-|| # Copyright ©2000-2013 Jelsoft Enterprises Ltd. All Rights Reserved. ||
+|| # Copyright ©2000-2013 vBulletin Solutions Inc. All Rights Reserved. ||
 || # This file may not be redistributed in whole or significant part. # ||
 || # ---------------- VBULLETIN IS NOT FREE SOFTWARE ---------------- # ||
 || # http://www.vbulletin.com | http://www.vbulletin.com/license.html # ||
@@ -19,8 +19,8 @@ if (!isset($GLOBALS['vbulletin']->db))
 * Postbit optimized for announcements
 *
 * @package 		vBulletin
-* @version		$Revision: 26661 $
-* @date 		$Date: 2008-05-21 04:46:39 -0500 (Wed, 21 May 2008) $
+* @version		$Revision: 63865 $
+* @date 		$Date: 2012-06-25 14:04:44 -0700 (Mon, 25 Jun 2012) $
 *
 */
 class vB_Postbit_Announcement extends vB_Postbit
@@ -140,8 +140,8 @@ class vB_Postbit_Announcement extends vB_Postbit
 * Postbit optimized for private messages
 *
 * @package 		vBulletin
-* @version		$Revision: 26661 $
-* @date 		$Date: 2008-05-21 04:46:39 -0500 (Wed, 21 May 2008) $
+* @version		$Revision: 63865 $
+* @date 		$Date: 2012-06-25 14:04:44 -0700 (Mon, 25 Jun 2012) $
 *
 */
 class vB_Postbit_Pm extends vB_Postbit
@@ -201,8 +201,13 @@ class vB_Postbit_Pm extends vB_Postbit
 
 		$show['postcount'] = false;
 		$show['reputationlink'] = false;
-		$show['reportlink'] = false;
-		$show['spacer'] = false;
+		// report pm icon?
+		$show['reportlink'] = (
+			($this->registry->options['rpforumid'] OR
+			($this->registry->options['enableemail'] AND $this->registry->options['rpemail'])) AND
+			($this->registry->userinfo['userid'] != $this->post['fromuserid'])
+		);
+		$this->post['reportlink'] = 'private.php?' . $this->registry->session->vars['sessionurl'] . 'do=report&amp;pmid=' . $this->post['pmid'];
 	}
 
 	/**
@@ -239,8 +244,8 @@ class vB_Postbit_Pm extends vB_Postbit
 * Postbit optimized for soft deleted posts
 *
 * @package 		vBulletin
-* @version		$Revision: 26661 $
-* @date 		$Date: 2008-05-21 04:46:39 -0500 (Wed, 21 May 2008) $
+* @version		$Revision: 63865 $
+* @date 		$Date: 2012-06-25 14:04:44 -0700 (Mon, 25 Jun 2012) $
 *
 */
 class vB_Postbit_Post_Deleted extends vB_Postbit_Post
@@ -278,12 +283,13 @@ class vB_Postbit_Post_Deleted extends vB_Postbit_Post
 * Postbit optimized for global ignored (tachy'd) posts
 *
 * @package 		vBulletin
-* @version		$Revision: 26661 $
-* @date 		$Date: 2008-05-21 04:46:39 -0500 (Wed, 21 May 2008) $
+* @version		$Revision: 63865 $
+* @date 		$Date: 2012-06-25 14:04:44 -0700 (Mon, 25 Jun 2012) $
 *
 */
 class vB_Postbit_Post_Global_Ignore extends vB_Postbit_Post
 {
+
 	/**
 	* The name of the template that will be used to display this post.
 	*
@@ -317,12 +323,19 @@ class vB_Postbit_Post_Global_Ignore extends vB_Postbit_Post
 * Postbit optimized for regular (ignore list) ignored posts
 *
 * @package 		vBulletin
-* @version		$Revision: 26661 $
-* @date 		$Date: 2008-05-21 04:46:39 -0500 (Wed, 21 May 2008) $
+* @version		$Revision: 63865 $
+* @date 		$Date: 2012-06-25 14:04:44 -0700 (Mon, 25 Jun 2012) $
 *
 */
 class vB_Postbit_Post_Ignore extends vB_Postbit_Post
 {
+
+	public function construct_postbit(&$post)
+	{
+		$post['viewpostlink'] = fetch_seo_url('thread', $this->thread, array('p' => $post['postid'])) . "#post$post[postid]";
+		return parent::construct_postbit($post);
+	}
+
 	/**
 	* The name of the template that will be used to display this post.
 	*
@@ -357,8 +370,8 @@ class vB_Postbit_Post_Ignore extends vB_Postbit_Post
 * Postbit optimized for user notes
 *
 * @package 		vBulletin
-* @version		$Revision: 26661 $
-* @date 		$Date: 2008-05-21 04:46:39 -0500 (Wed, 21 May 2008) $
+* @version		$Revision: 63865 $
+* @date 		$Date: 2012-06-25 14:04:44 -0700 (Mon, 25 Jun 2012) $
 *
 */
 class vB_Postbit_Usernote extends vB_Postbit
@@ -368,9 +381,15 @@ class vB_Postbit_Usernote extends vB_Postbit
 	*/
 	function prep_post_end()
 	{
-		global $show;
+		global $show, $vbulletin;
 
-		$this->post['editlink'] = 'usernote.php?' . $this->registry->session->vars['sessionurl'] . 'do=editnote&amp;usernoteid=' . $this->post['usernoteid'];
+		if ((($this->post['posterid'] == $vbulletin->userinfo['userid']) AND ($vbulletin->userinfo['permissions']['genericpermissions'] & $vbulletin->bf_ugp_genericpermissions['caneditownusernotes']))
+			OR ($this->post['viewself'] AND ($vbulletin->userinfo['permissions']['genericpermissions'] & $vbulletin->bf_ugp_genericpermissions['canmanageownusernotes']))
+			OR (!$this->post['viewself'] AND ($vbulletin->userinfo['permissions']['genericpermissions'] & $vbulletin->bf_ugp_genericpermissions['canmanageothersusernotes'])))
+		{
+			$this->post['editlink'] = 'usernote.php?' . $this->registry->session->vars['sessionurl'] . 'do=editnote&amp;usernoteid=' . $this->post['usernoteid'];
+		}
+
 		$this->post['replylink'] = false;
 		$this->post['forwardlink'] = false;
 
@@ -393,13 +412,12 @@ class vB_Postbit_Usernote extends vB_Postbit
 * Postbit optimized for RSS
 *
 * @package 		vBulletin
-* @version		$Revision: 26661 $
-* @date 		$Date: 2008-05-21 04:46:39 -0500 (Wed, 21 May 2008) $
+* @version		$Revision: 63865 $
+* @date 		$Date: 2012-06-25 14:04:44 -0700 (Mon, 25 Jun 2012) $
 *
 */
 class vB_Postbit_External extends vB_Postbit
 {
-
 	/**
 	* The name of the template that will be used to display this post.
 	*
@@ -420,21 +438,21 @@ class vB_Postbit_External extends vB_Postbit
 		$thread =& $this->thread;
 		$forum =& $this->forum;
 
-		global $show, $vbphrase, $stylevar;
+		global $show, $vbphrase;
 
 		($hook = vBulletinHook::fetch_hook('postbit_display_start')) ? eval($hook) : false;
 
-		$imgdir_attach = $stylevar['imgdir_attach'];
-		if (!preg_match('#^[a-z]+:#siU', $stylevar['imgdir_attach']))
+		$imgdir_attach = vB_Template_Runtime::fetchStyleVar('imgdir_attach');
+		if (!preg_match('#^[a-z]+:#siU', vB_Template_Runtime::fetchStyleVar('imgdir_attach')))
 		{
-			if ($stylevar['imgdir_attach'][0] == '/')
+			if ($imgdir_attach[0] == '/')
 			{
-				$url = parse_url($this->registry->options['bburl']);
-				$stylevar['imgdir_attach'] = 'http://' . $url['host'] . $stylevar['imgdir_attach'];
+				$url = $this->registry->input->parse_url($this->registry->options['bburl']);
+				vB_Template_Runtime::addStyleVar('imgdir_attach', 'http://' . $url['host'] . vB_Template_Runtime::fetchStyleVar('imgdir_attach'), 'imgdir');
 			}
 			else
 			{
-				$stylevar['imgdir_attach'] = $this->registry->options['bburl'] . '/' . $stylevar['imgdir_attach'];
+				vB_Template_Runtime::addStyleVar('imgdir_attach', $this->registry->options['bburl'] . '/' . vB_Template_Runtime::fetchStyleVar('imgdir_attach'), 'imgdir');
 			}
 		}
 
@@ -469,10 +487,18 @@ class vB_Postbit_External extends vB_Postbit
 
 		// evaluate template
 		$postid =& $post['postid'];
-		eval('$retval = "' . fetch_template($this->templatename) . '";');
+
+		$templater = vB_Template::create($this->template_prefix . $this->templatename);
+			$templater->register('ad_location', $ad_location);
+			$templater->register('pageinfo_post', $pageinfo_post);
+			$templater->register('post', $post);
+			$templater->register('postid', $postid);
+			$templater->register('template_hook', $template_hook);
+			$templater->register('thread', $thread);
+		$retval = $templater->render();
 
 		$this->registry->session->vars['sessionurl'] = $sessionurl;
-		$stylevar['imgdir_attach'] = $imgdir_attach;
+		vB_Template_Runtime::addStyleVar('imgdir_attach', $imgdir_attach, 'imgdir');
 
 		return $retval;
 	}
@@ -482,6 +508,8 @@ class vB_Postbit_External extends vB_Postbit
 	*/
 	function parse_bbcode()
 	{
+		$this->bbcode_parser->unsetattach = true;
+		$this->bbcode_parser->attachments = $this->post['attachments'];
 		$this->post['message'] = $this->bbcode_parser->parse($this->post['message'], $this->post['forumid'], false);
 	}
 }
@@ -490,8 +518,8 @@ class vB_Postbit_External extends vB_Postbit
 * Postbit optimized for Auto-Moderated posts
 *
 * @package 		vBulletin
-* @version		$Revision: 26661 $
-* @date 		$Date: 2008-05-21 04:46:39 -0500 (Wed, 21 May 2008) $
+* @version		$Revision: 63865 $
+* @date 		$Date: 2012-06-25 14:04:44 -0700 (Mon, 25 Jun 2012) $
 *
 */
 class vB_Postbit_Post_AutoModerated extends vB_Postbit_Post
@@ -529,8 +557,8 @@ class vB_Postbit_Post_AutoModerated extends vB_Postbit_Post
 
 /*======================================================================*\
 || ####################################################################
-|| # Downloaded: 16:21, Sat Apr 6th 2013
-|| # CVS: $RCSfile$ - $Revision: 26661 $
+|| # Downloaded: 14:57, Sun Aug 11th 2013
+|| # CVS: $RCSfile$ - $Revision: 63865 $
 || ####################################################################
 \*======================================================================*/
 ?>

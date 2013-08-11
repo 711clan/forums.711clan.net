@@ -1,9 +1,9 @@
 <?php
 /*======================================================================*\
 || #################################################################### ||
-|| # vBulletin 3.7.2 Patch Level 2 - Licence Number VBF2470E4F
+|| # vBulletin 4.2.1 - Licence Number VBC2DDE4FB
 || # ---------------------------------------------------------------- # ||
-|| # Copyright ©2000-2013 Jelsoft Enterprises Ltd. All Rights Reserved. ||
+|| # Copyright ©2000-2013 vBulletin Solutions Inc. All Rights Reserved. ||
 || # This file may not be redistributed in whole or significant part. # ||
 || # ---------------- VBULLETIN IS NOT FREE SOFTWARE ---------------- # ||
 || # http://www.vbulletin.com | http://www.vbulletin.com/license.html # ||
@@ -46,11 +46,11 @@ $actiontemplates = array(
 		'postbit',
 		'postbit_wrapper',
 		'postbit_onlinestatus',
-		'postbit_reputation',
 		'bbcode_code',
 		'bbcode_html',
 		'bbcode_php',
 		'bbcode_quote',
+		'bbcode_video',
 	),
 	'edit' => array(
 		'announcement_edit',
@@ -107,8 +107,15 @@ if ($_POST['do'] == 'delete')
 		$anncdata->set_existing($announcementinfo);
 		$anncdata->delete();
 
-		$vbulletin->url = 'forumdisplay.php?' . $vbulletin->session->vars['sessionurl'] . "f=$announcementinfo[forumid]";
-		eval(print_standard_redirect('deleted_announcement'));
+		if ($announcementinfo['forumid'] == -1)
+		{
+			$vbulletin->url =  fetch_seo_url('forumhome', array());
+		}
+		else
+		{
+			$vbulletin->url = fetch_seo_url('forum', array('forumid' => $announcementinfo['forumid'], 'title' => $vbulletin->forumcache["$announcementinfo[forumid]"]));
+		}
+		print_standard_redirect(array('deleted_announcement',$announcementinfo['title']));  
 	}
 	else
 	{
@@ -141,8 +148,9 @@ if ($_POST['do'] == 'update')
 	// unwysiwygify the incoming data
 	if ($vbulletin->GPC['wysiwyg'])
 	{
-		require_once(DIR . '/includes/functions_wysiwyg.php');
-		$vbulletin->GPC['message'] = convert_wysiwyg_html_to_bbcode($vbulletin->GPC['message'], $vbulletin->GPC['options']['allowhtml']);
+		require_once(DIR . '/includes/class_wysiwygparser.php');
+		$html_parser = new vB_WysiwygHtmlParser($vbulletin);
+		$vbulletin->GPC['message'] = $html_parser->parse_wysiwyg_html_to_bbcode($vbulletin->GPC['message'], $vbulletin->GPC['options']['allowhtml']);
 	}
 
 	$anncdata =& datamanager_init('Announcement', $vbulletin, ERRTYPE_STANDARD);
@@ -162,6 +170,10 @@ if ($_POST['do'] == 'update')
 		$anncdata->set('userid', $vbulletin->userinfo['userid']);
 	}
 
+	$vbulletin->GPC['enddate']['hour'] = 23;
+	$vbulletin->GPC['enddate']['minute'] = 59;
+	$vbulletin->GPC['enddate']['second'] = 59;
+
 	$anncdata->set('title', $vbulletin->GPC['title']);
 	$anncdata->set('pagetext', $vbulletin->GPC['message']);
 	$anncdata->set('forumid', $vbulletin->GPC['forumid']);
@@ -175,6 +187,8 @@ if ($_POST['do'] == 'update')
 
 	$announcementid = $anncdata->save();
 
+	clear_autosave_text('vBForum_Announcement', $announcementinfo['announcementid'], 0, $vbulletin->userinfo['userid']);
+
 	if ($announcementinfo)
 	{
 		if ($vbulletin->GPC['reset_views'])
@@ -187,7 +201,7 @@ if ($_POST['do'] == 'update')
 	$title = $anncdata->fetch_field('title');
 
 	$vbulletin->url = 'announcement.php?' . $vbulletin->session->vars['sessionurl'] . "a=$announcementid";
-	eval(print_standard_redirect('saved_announcement'));
+	print_standard_redirect(array('saved_announcement',$title));  
 }
 
 // #############################################################################
@@ -253,6 +267,11 @@ if ($_REQUEST['do'] == 'edit')
 		{
 			$GLOBALS["{$date_type}_month_selected"]["$i"] = ($i == $GLOBALS["{$date_type}_date_array"]['month'] ? ' selected="selected"' : '');
 		}
+
+		for ($i = 1; $i <= 31; $i++)
+		{
+			$GLOBALS["{$date_type}_day_selected"]["$i"] = ($i == $GLOBALS["{$date_type}_date_array"]['day'] ? ' selected="selected"' : '');
+		}
 	}
 
 	// forum choice
@@ -270,22 +289,34 @@ if ($_REQUEST['do'] == 'edit')
 			$optionselected = '';
 			$optionclass = '';
 		}
-		eval('$forum_options .= "' . fetch_template('option') . '";');
+		$forum_options .= render_option_template($optiontitle, $optionvalue, $optionselected, $optionclass);
 	}
 
 	$post =& $announcementinfo;
 
 	// build editor
 	$editorid = construct_edit_toolbar(
-		$announcementinfo['pagetext'],
+		htmlspecialchars_uni($announcementinfo['pagetext']),
 		0, // is html?
 		'announcement', // forumid
 		true, // allow smilies
-		($announcementinfo['announcementoptions'] & $vbulletin->bf_misc_announcementoptions['allowsmilies']) ? 1 : 0 // parse smilies
+		($announcementinfo['announcementoptions'] & $vbulletin->bf_misc_announcementoptions['allowsmilies']) ? 1 : 0, // parse smilies
+		false,
+		'fe',
+		'',
+		array(),
+		'content',
+		'vBForum_Announcement',
+		$announcementinfo['announcementid'],
+		0,
+		false,
+		true,
+		'titlefield'
 	);
 
 	// build navbar
 	$navbits = array();
+	$navbits[fetch_seo_url('forumhome', array())] = $vbphrase['forum'];
 
 	if ($announcementinfo['forumid'] == -1)
 	{
@@ -298,7 +329,7 @@ if ($_REQUEST['do'] == 'edit')
 		foreach ($parentlist AS $forumID)
 		{
 			$forumTitle = $vbulletin->forumcache["$forumID"]['title'];
-			$navbits["forumdisplay.php?" . $vbulletin->session->vars['sessionurl'] . "f=$forumID"] = $forumTitle;
+			$navbits[fetch_seo_url('forum', array('forumid' => $forumID, 'title' => $forumTitle))] = $forumTitle;
 		}
 		$navbits['announcement.php?' . $vbulletin->session->vars['sessionurl'] . "f=$announcementinfo[forumid]"] = $vbphrase['announcements'];
 	}
@@ -315,9 +346,26 @@ if ($_REQUEST['do'] == 'edit')
 
 	$navbits[''] = ($announcementinfo['announcementid'] ? $vbphrase['edit_announcement'] : $vbphrase['post_new_announcement']);
 	$navbits = construct_navbits($navbits);
+	$show['signaturecheckbox'] = ($permissions['genericpermissions'] & $vbulletin->bf_ugp_genericpermissions['canusesignature'] AND  $vbulletin->userinfo['signature']);
 
-	eval('$navbar = "' . fetch_template('navbar') . '";');
-	eval('print_output("' . fetch_template('announcement_edit') . '");');
+	$navbar = render_navbar_template($navbits);
+	$templater = vB_Template::create('announcement_edit');
+		$templater->register_page_templates();
+		$templater->register('announcementinfo', $announcementinfo);
+		$templater->register('checked', $checked);
+		$templater->register('editorid', $editorid);
+		$templater->register('end_date_array', $end_date_array);
+		$templater->register('end_month_selected', $end_month_selected);
+		$templater->register('forum_options', $forum_options);
+		$templater->register('messagearea', $messagearea);
+		$templater->register('navbar', $navbar);
+		$templater->register('start_date_array', $start_date_array);
+		$templater->register('start_month_selected', $start_month_selected);
+		$templater->register('usernamecode', $usernamecode);
+		$templater->register('foruminfo', $foruminfo);
+		$templater->register('start_day_selected', $start_day_selected);
+		$templater->register('end_day_selected', $end_day_selected);
+	print_output($templater->render());
 }
 
 // #############################################################################
@@ -344,7 +392,13 @@ if ($_REQUEST['do'] == 'view')
 		eval(standard_error(fetch_error('invalidid', $vbphrase['announcement'], $vbulletin->options['contactuslink'])));
 	}
 
-	construct_forum_jump();
+	$navpopup = array(
+		'id'    => 'annoucements_navpopup',
+		'title' => $foruminfo['title_clean'],
+		'link'  => fetch_seo_url('forum', $foruminfo),
+	);
+	construct_quick_nav($navpopup);
+
 
 	$hook_query_fields = $hook_query_joins = $hook_query_where = '';
 	($hook = vBulletinHook::fetch_hook('announcement_query')) ? eval($hook) : false;
@@ -406,11 +460,11 @@ if ($_REQUEST['do'] == 'view')
 	$announcebits = '';
 	$announceread = array();
 
-	$postbit_factory =& new vB_Postbit_Factory();
+	$postbit_factory = new vB_Postbit_Factory();
 	$postbit_factory->registry =& $vbulletin;
 	$postbit_factory->forum =& $foruminfo;
 	$postbit_factory->cache = array();
-	$postbit_factory->bbcode_parser =& new vB_BbCodeParser($vbulletin, fetch_tag_list());
+	$postbit_factory->bbcode_parser = new vB_BbCodeParser($vbulletin, fetch_tag_list());
 
 	while ($post = $db->fetch_array($announcements))
 	{
@@ -444,14 +498,16 @@ if ($_REQUEST['do'] == 'view')
 
 	// show add/edit link?
 	$show['post_new_announcement'] = can_moderate($foruminfo['forumid'], 'canannounce');
+	$show['signaturecheckbox'] = ($permissions['genericpermissions'] & $vbulletin->bf_ugp_genericpermissions['canusesignature'] AND $vbulletin->userinfo['signature']);
 
 	// build navbar
 	$navbits = array();
+	$navbits[fetch_seo_url('forumhome', array())] = $vbphrase['forum'];
 
 	if ($announcementinfo['forumid'] == -1)
 	{
 		$navbits["announcement.php?" . $vbulletin->session->vars['sessionurl'] . "a=$announcementinfo[announcementid]"] = $vbphrase['announcements'];
-		$navbits[$vbulletin->options['forumhome']. '.php'] = $announcementinfo['title'];
+		$navbits[''] = $announcementinfo['title'];
 		$show['global'] = true;
 	}
 	else
@@ -460,24 +516,33 @@ if ($_REQUEST['do'] == 'view')
 		foreach ($parentlist AS $forumID)
 		{
 			$forumTitle = $vbulletin->forumcache["$forumID"]['title'];
-			$navbits["forumdisplay.php?" . $vbulletin->session->vars['sessionurl'] . "f=$forumID"] = $forumTitle;
+			$navbits[fetch_seo_url('forum', array('forumid' => $forumID, 'title' => $forumTitle))] = $forumTitle;
 		}
-		$navbits[$vbulletin->options['forumhome']. '.php'] = $vbphrase['announcements'];
+		$navbits[''] = $vbphrase['announcements'];
 	}
 
 	$navbits = construct_navbits($navbits);
 
 	($hook = vBulletinHook::fetch_hook('announcement_complete')) ? eval($hook) : false;
 
-	eval('$navbar = "' . fetch_template('navbar') . '";');
-	eval('print_output("' . fetch_template('announcement') . '");');
+	$navbar = render_navbar_template($navbits);
+	$templater = vB_Template::create('announcement');
+		$templater->register_page_templates();
+		$templater->register('anncount', $anncount);
+		$templater->register('announcebits', $announcebits);
+		$templater->register('foruminfo', $foruminfo);
+		$templater->register('forumjump', $forumjump);
+		$templater->register('navbar', $navbar);
+		$templater->register('spacer_close', $spacer_close);
+		$templater->register('spacer_open', $spacer_open);
+	print_output($templater->render());
 }
 
 
 /*======================================================================*\
 || ####################################################################
-|| # Downloaded: 16:21, Sat Apr 6th 2013
-|| # CVS: $RCSfile$ - $Revision: 26401 $
+|| # Downloaded: 14:57, Sun Aug 11th 2013
+|| # CVS: $RCSfile$ - $Revision: 57655 $
 || ####################################################################
 \*======================================================================*/
 ?>

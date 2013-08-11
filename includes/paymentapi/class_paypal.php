@@ -1,9 +1,9 @@
 <?php
 /*======================================================================*\
 || #################################################################### ||
-|| # vBulletin 3.7.2 Patch Level 2 - Licence Number VBF2470E4F
+|| # vBulletin 4.2.1 - Licence Number VBC2DDE4FB
 || # ---------------------------------------------------------------- # ||
-|| # Copyright ©2000-2013 Jelsoft Enterprises Ltd. All Rights Reserved. ||
+|| # Copyright ©2000-2013 vBulletin Solutions Inc. All Rights Reserved. ||
 || # This file may not be redistributed in whole or significant part. # ||
 || # ---------------- VBULLETIN IS NOT FREE SOFTWARE ---------------- # ||
 || # http://www.vbulletin.com | http://www.vbulletin.com/license.html # ||
@@ -19,8 +19,8 @@ if (!isset($GLOBALS['vbulletin']->db))
 * Class that provides payment verification and form generation functions
 *
 * @package	vBulletin
-* @version	$Revision: 27001 $
-* @date		$Date: 2008-06-23 07:00:46 -0500 (Mon, 23 Jun 2008) $
+* @version	$Revision: 44868 $
+* @date		$Date: 2011-06-21 15:43:39 -0700 (Tue, 21 Jun 2011) $
 */
 class vB_PaidSubscriptionMethod_paypal extends vB_PaidSubscriptionMethod
 {
@@ -53,7 +53,11 @@ class vB_PaidSubscriptionMethod_paypal extends vB_PaidSubscriptionMethod
 
 		$this->transaction_id = $this->registry->GPC['txn_id'];
 
-		$mc_gross = doubleval($this->registry->GPC['mc_gross']);
+		/*
+		 * mc_fee: 	Transaction fee associated with the payment. 
+		 * 			If this amount is negative, it signifies a refund or reversal, and either of those payment statuses can be for the full or partial amount of the original transaction fee.
+		 */
+		$mc_gross = doubleval($this->registry->GPC['mc_gross']+ ($this->registry->GPC['payment_status'] == 'Canceled_Reversal' ? $vbulletin->GPC['mc_fee'] : 0));
 		$tax = doubleval($this->registry->GPC['tax']);
 
 		$query[] = 'cmd=_notify-validate';
@@ -70,7 +74,6 @@ class vB_PaidSubscriptionMethod_paypal extends vB_PaidSubscriptionMethod
 			curl_setopt($ch, CURLOPT_URL, 'http://www.paypal.com/cgi-bin/webscr');
 			curl_setopt($ch, CURLOPT_TIMEOUT, 15);
 			curl_setopt($ch, CURLOPT_POST, true);
-			curl_setopt($ch, CURLOPT_POSTFIELDSIZE, 0);
 			curl_setopt($ch, CURLOPT_POSTFIELDS, $query);
 			curl_setopt($ch, CURLOPT_RETURNTRANSFER, true);
 			curl_setopt($ch, CURLOPT_USERAGENT, 'vBulletin via cURL/PHP');
@@ -104,7 +107,7 @@ class vB_PaidSubscriptionMethod_paypal extends vB_PaidSubscriptionMethod
 			}
 		}
 
-		if ($result == 'VERIFIED' AND (strtolower($this->registry->GPC['business']) == strtolower($this->settings['ppemail']) OR strtolower($this->registry->GPC['receiver_email']) == strtolower($this->settings['primaryemail'])))
+		if (!empty($this->settings['ppemail']) AND $result == 'VERIFIED' AND (strtolower($this->registry->GPC['business']) == strtolower($this->settings['ppemail']) OR strtolower($this->registry->GPC['receiver_email']) == strtolower($this->settings['primaryemail'])))
 		{
 			$this->paymentinfo = $this->registry->db->query_first("
 				SELECT paymentinfo.*, user.username
@@ -141,6 +144,10 @@ class vB_PaidSubscriptionMethod_paypal extends vB_PaidSubscriptionMethod
 				{
 					$this->type = 2;
 				}
+				else if ($this->registry->GPC['payment_status'] == 'Canceled_Reversal')
+				{
+					$this->type = 3;
+				}
 				else
 				{
 					$this->error_code = 'unhandled_payment_status_or_type';
@@ -160,7 +167,7 @@ class vB_PaidSubscriptionMethod_paypal extends vB_PaidSubscriptionMethod
 			}
 			else
 			{
-				header('HTTP/1.1 ' . $status_code);
+				header($_SERVER['SERVER_PROTOCOL'] . ' ' . $status_code);
 			}
 			return ($this->type > 0);
 		}
@@ -178,7 +185,7 @@ class vB_PaidSubscriptionMethod_paypal extends vB_PaidSubscriptionMethod
 		}
 		else
 		{
-			header('HTTP/1.1 ' . $status_code);
+			header($_SERVER['SERVER_PROTOCOL'] . ' ' . $status_code);
 		}
 		return false;
 	}
@@ -198,7 +205,6 @@ class vB_PaidSubscriptionMethod_paypal extends vB_PaidSubscriptionMethod
 			curl_setopt($ch, CURLOPT_URL, 'http://www.paypal.com/cgi-bin/webscr');
 			curl_setopt($ch, CURLOPT_TIMEOUT, 15);
 			curl_setopt($ch, CURLOPT_POST, true);
-			curl_setopt($ch, CURLOPT_POSTFIELDSIZE, 0);
 			curl_setopt($ch, CURLOPT_POSTFIELDS, $query);
 			curl_setopt($ch, CURLOPT_RETURNTRANSFER, true);
 			curl_setopt($ch, CURLOPT_USERAGENT, 'vBulletin via cURL/PHP');
@@ -249,7 +255,7 @@ class vB_PaidSubscriptionMethod_paypal extends vB_PaidSubscriptionMethod
 	*/
 	function generate_form_html($hash, $cost, $currency, $subinfo, $userinfo, $timeinfo)
 	{
-		global $vbphrase, $vbulletin, $stylevar, $show;
+		global $vbphrase, $vbulletin, $show;
 
 		$item = $hash;
 		$currency = strtoupper($currency);
@@ -264,15 +270,24 @@ class vB_PaidSubscriptionMethod_paypal extends vB_PaidSubscriptionMethod
 		// load settings into array so the template system can access them
 		$settings =& $this->settings;
 
-		eval('$form[\'hiddenfields\'] .= "' . fetch_template('subscription_payment_paypal') . '";');
+		$templater = vB_Template::create('subscription_payment_paypal');
+			$templater->register('cost', $cost);
+			$templater->register('currency', $currency);
+			$templater->register('item', $item);
+			$templater->register('no_shipping', $no_shipping);
+			$templater->register('settings', $settings);
+			$templater->register('subinfo', $subinfo);
+			$templater->register('timeinfo', $timeinfo);
+			$templater->register('userinfo', $userinfo);
+		$form['hiddenfields'] .= $templater->render();
 		return $form;
 	}
 }
 
 /*======================================================================*\
 || ####################################################################
-|| # Downloaded: 16:21, Sat Apr 6th 2013
-|| # CVS: $RCSfile$ - $Revision: 27001 $
+|| # Downloaded: 14:57, Sun Aug 11th 2013
+|| # CVS: $RCSfile$ - $Revision: 44868 $
 || ####################################################################
 \*======================================================================*/
 ?>

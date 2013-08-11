@@ -1,9 +1,9 @@
 <?php
 /*======================================================================*\
 || #################################################################### ||
-|| # vBulletin 3.7.2 Patch Level 2 - Licence Number VBF2470E4F
+|| # vBulletin 4.2.1 - Licence Number VBC2DDE4FB
 || # ---------------------------------------------------------------- # ||
-|| # Copyright ©2000-2013 Jelsoft Enterprises Ltd. All Rights Reserved. ||
+|| # Copyright ©2000-2013 vBulletin Solutions Inc. All Rights Reserved. ||
 || # This file may not be redistributed in whole or significant part. # ||
 || # ---------------- VBULLETIN IS NOT FREE SOFTWARE ---------------- # ||
 || # http://www.vbulletin.com | http://www.vbulletin.com/license.html # ||
@@ -14,7 +14,7 @@
 error_reporting(E_ALL & ~E_NOTICE);
 
 // ##################### DEFINE IMPORTANT CONSTANTS #######################
-define('CVS_REVISION', '$RCSfile$ - $Revision: 26425 $');
+define('CVS_REVISION', '$RCSfile$ - $Revision: 63163 $');
 
 // #################### PRE-CACHE TEMPLATES AND DATA ######################
 $phrasegroups = array(
@@ -24,6 +24,7 @@ $phrasegroups = array(
 	'holiday',
 	'cppermission',
 	'cpoption',
+	'cprofilefield', // used for the profilefield option type
 );
 
 $specialtemplates = array(
@@ -105,6 +106,8 @@ if ($_REQUEST['do'] == 'download')
 		'product' => TYPE_STR
 	));
 
+	$doc = get_settings_export_xml($vbulletin->GPC['product']);
+/*
 	$setting = array();
 	$settinggroup = array();
 
@@ -182,7 +185,7 @@ if ($_REQUEST['do'] == 'download')
 
 	$doc .= $xml->output();
 	$xml = null;
-
+ */
 	require_once(DIR . '/includes/functions_file.php');
 	file_download($doc, 'vbulletin-settings.xml', 'text/xml');
 }
@@ -298,8 +301,10 @@ if ($_POST['do'] == 'doimport')
 	{
 		print_cp_message('This function is disabled within demo mode');
 	}
+
 	// got an uploaded file?
-	if (file_exists($vbulletin->GPC['settingsfile']['tmp_name']))
+	// do not use file_exists here, under IIS it will return false in some cases
+	if (is_uploaded_file($vbulletin->GPC['settingsfile']['tmp_name']))
 	{
 		$xml = file_read($vbulletin->GPC['settingsfile']['tmp_name']);
 	}
@@ -374,11 +379,39 @@ if ($_POST['do'] == 'killgroup')
 	));
 
 	// get some info
-	$group = $db->query_first("SELECT * FROM " . TABLE_PREFIX . "settinggroup WHERE grouptitle = '" . $db->escape_string($vbulletin->GPC['title']) . "'");
+	$group = $db->query_first("
+		SELECT *
+		FROM " . TABLE_PREFIX . "settinggroup
+		WHERE grouptitle = '" . $db->escape_string($vbulletin->GPC['title']) . "'"
+	);
+
+
+	//check if the settings have different products from the group.
+	if (defined('DEV_AUTOEXPORT') AND DEV_AUTOEXPORT)
+	{
+		$products_to_export = array();
+		$products_to_export[$group['product']] = 1;
+
+		// query settings from this group
+		$settings = array();
+		$sets = $db->query_read("
+			SELECT product
+			FROM " . TABLE_PREFIX . "setting
+			WHERE grouptitle = '$group[grouptitle]'
+		");
+		while ($set = $db->fetch_array($sets))
+		{
+			$products_to_export[$set['product']] = 1;
+		}
+	}
 
 	// query settings from this group
 	$settings = array();
-	$sets = $db->query_read("SELECT varname FROM " . TABLE_PREFIX . "setting WHERE grouptitle = '$group[grouptitle]'");
+	$sets = $db->query_read("
+		SELECT varname
+		FROM " . TABLE_PREFIX . "setting
+		WHERE grouptitle = '$group[grouptitle]'
+	");
 	while ($set = $db->fetch_array($sets))
 	{
 		$settings[] = $db->escape_string($set['varname']);
@@ -414,6 +447,15 @@ if ($_POST['do'] == 'killgroup')
 
 	build_options();
 
+	if (defined('DEV_AUTOEXPORT') AND DEV_AUTOEXPORT)
+	{
+		require_once(DIR . '/includes/functions_filesystemxml.php');
+		foreach (array_keys($products_to_export) as $product)
+		{
+			autoexport_write_settings_and_language(-1, $product);
+		}
+	}
+
 	define('CP_REDIRECT', 'options.php');
 	print_stop_message('deleted_setting_group_successfully');
 
@@ -435,6 +477,15 @@ if ($_POST['do'] == 'insertgroup')
 	$vbulletin->input->clean_array_gpc('p', array(
 		'group' => TYPE_ARRAY
 	));
+
+	if ($s = $db->query_first("
+		SELECT grouptitle
+		FROM " . TABLE_PREFIX . "settinggroup
+		WHERE grouptitle = '" . $db->escape_string($vbulletin->GPC['group']['grouptitle']) . "'
+	"))
+	{
+		print_stop_message('there_is_already_group_setting_named_x', $vbulletin->GPC['group']['grouptitle']);
+	}
 
 	// insert setting place-holder
 	/*insert query*/
@@ -541,6 +592,13 @@ if ($_POST['do'] == 'updategroup')
 		$db->query_write($q2);
 	}
 
+	if (defined('DEV_AUTOEXPORT') AND DEV_AUTOEXPORT)
+	{
+		require_once(DIR . '/includes/functions_filesystemxml.php');
+		autoexport_write_settings_and_language(-1,
+			array($vbulletin->GPC['oldproduct'], $vbulletin->GPC['group']['product']));
+	}
+
 	define('CP_REDIRECT', 'options.php?do=options&amp;dogroup=' . $vbulletin->GPC['group']['grouptitle']);
 	print_stop_message('saved_setting_group_x_successfully', $vbulletin->GPC['group']['title']);
 }
@@ -618,19 +676,33 @@ if ($_POST['do'] == 'killsetting')
 	));
 
 	// get some info
-	$setting = $db->query_first("SELECT * FROM " . TABLE_PREFIX . "setting WHERE varname = '" . $db->escape_string($vbulletin->GPC['title']) . "'");
+	$setting = $db->query_first("
+		SELECT *
+		FROM " . TABLE_PREFIX . "setting
+		WHERE varname = '" . $db->escape_string($vbulletin->GPC['title']) . "'"
+	);
 
 	// delete phrases
 	$db->query_write("
 		DELETE FROM " . TABLE_PREFIX . "phrase
 		WHERE languageid IN (-1, 0) AND
 			fieldname = 'vbsettings' AND
-			varname IN ('setting_" . $db->escape_string($setting['varname']) . "_title', 'setting_" . $db->escape_string($setting['varname']) . "_desc')
+			varname IN ('setting_" . $db->escape_string($setting['varname']) . "_title',
+				'setting_" . $db->escape_string($setting['varname']) . "_desc')
 	");
 
 	// delete setting
-	$db->query_write("DELETE FROM " . TABLE_PREFIX . "setting WHERE varname = '" . $db->escape_string($setting['varname']) . "'");
+	$db->query_write("
+		DELETE FROM " . TABLE_PREFIX . "setting
+		WHERE varname = '" . $db->escape_string($setting['varname']) . "'"
+	);
 	build_options();
+
+	if (defined('DEV_AUTOEXPORT') AND DEV_AUTOEXPORT)
+	{
+		require_once(DIR . '/includes/functions_filesystemxml.php');
+		autoexport_write_settings_and_language(-1, $setting['product']);
+	}
 
 	define('CP_REDIRECT', 'options.php?do=options&amp;dogroup=' . $setting['grouptitle']);
 	print_stop_message('deleted_setting_successfully');
@@ -660,7 +732,8 @@ if ($_POST['do'] == 'insertsetting')
 		// phrase stuff
 		'title'          => TYPE_STR,
 		'description'    => TYPE_STR,
-		// old product
+		// old product -- this doesn't actually appear to be set on the form
+		//    or used anywhere
 		'oldproduct'     => TYPE_STR
 	));
 
@@ -751,13 +824,23 @@ if ($_POST['do'] == 'updatesetting')
 		// phrase stuff
 		'title'          => TYPE_STR,
 		'description'    => TYPE_STR,
-		// old product
+		// old product -- this doesn't actually appear to be set on the form
+		//    or used anywhere
 		'oldproduct'     => TYPE_STR
 	));
 
 	if (is_demo_mode())
 	{
 		print_cp_message('This function is disabled within demo mode');
+	}
+
+	if (defined('DEV_AUTOEXPORT') AND DEV_AUTOEXPORT)
+	{
+		$old_setting = $db->query_first("
+			SELECT product
+			FROM " . TABLE_PREFIX . "setting
+			WHERE varname = '" . $db->escape_string($vbulletin->GPC['varname']) . "'
+		");
 	}
 
 	$db->query_write("
@@ -822,6 +905,13 @@ if ($_POST['do'] == 'updatesetting')
 	}
 
 	build_options();
+
+	if (defined('DEV_AUTOEXPORT') AND DEV_AUTOEXPORT)
+	{
+		require_once(DIR . '/includes/functions_filesystemxml.php');
+		autoexport_write_settings_and_language(($vbulletin->GPC['volatile'] ? -1 : 0),
+			array($old_setting['product'], $vbulletin->GPC['product']));
+	}
 
 	define('CP_REDIRECT', 'options.php?do=options&amp;dogroup=' . $vbulletin->GPC['grouptitle']);
 	print_stop_message('saved_setting_x_successfully', $vbulletin->GPC['title']);
@@ -975,7 +1065,7 @@ if ($_POST['do'] == 'dooptions')
 	{
 		save_settings($vbulletin->GPC['setting']);
 
-		define('CP_REDIRECT', 'options.php?do=options&amp;dogroup=' . $vbulletin->GPC['dogroup'] . '&amp;advanced= ' . $vbulletin->GPC['advanced']);
+		define('CP_REDIRECT', 'options.php?do=options&amp;dogroup=' . $vbulletin->GPC['dogroup'] . '&amp;advanced=' . $vbulletin->GPC['advanced']);
 		print_stop_message('saved_settings_successfully');
 	}
 	else
@@ -995,7 +1085,7 @@ if ($_REQUEST['do'] == 'options')
 		'expand'   => TYPE_BOOL,
 	));
 
-	echo '<script type="text/javascript" src="../clientscript/vbulletin_cpoptions_scripts.js"></script>';
+	echo '<script type="text/javascript" src="../clientscript/vbulletin_cpoptions_scripts.js?v=' . SIMPLE_VERSION . '"></script>';
 
 	// display links to settinggroups and create settingscache
 	$settingscache = array();
@@ -1014,6 +1104,7 @@ if ($_REQUEST['do'] == 'options')
 	{
 		while ($setting = $db->fetch_array($settings))
 		{
+
 			$settingscache["$setting[grouptitle]"]["$setting[varname]"] = $setting;
 			if ($setting['grouptitle'] != $lastgroup)
 			{
@@ -1031,6 +1122,7 @@ if ($_REQUEST['do'] == 'options')
 	{
 		while ($setting = $db->fetch_array($settings))
 		{
+
 			$settingscache["$setting[grouptitle]"]["$setting[varname]"] = $setting;
 			if ($setting['grouptitle'] != $lastgroup)
 			{
@@ -1098,7 +1190,7 @@ if ($_REQUEST['do'] == 'options')
 		var error_confirmation_phrase = "<?php echo $vbphrase['error_confirmation_phrase']; ?>";
 		//-->
 		</script>
-		<script type="text/javascript" src="../clientscript/vbulletin_settings_validate.js"></script>
+		<script type="text/javascript" src="../clientscript/vbulletin_settings_validate.js?v=<?php echo SIMPLE_VERSION; ?>"></script>
 		<?php
 	}
 }
@@ -1147,131 +1239,55 @@ if ($_REQUEST['do'] == 'searchtype')
 {
 	require_once(DIR . '/includes/class_dbalter.php');
 
-	$db_alter =& new vB_Database_Alter_MySQL($db);
-	$db_alter->fetch_table_info('post');
-	$convertpost = iif($db_alter->fetch_table_type() != 'MYISAM', true, false);
-
-	$db_alter->fetch_table_info('thread');
-	$convertthread = iif($db_alter->fetch_table_type() != 'MYISAM', true, false);
-
-	$warning2 = iif($convertpost OR $convertthread, $vbphrase['your_post_and_thread_table_will_be_converted']);
-
+	$db_alter = new vB_Database_Alter_MySQL($db);
 	print_form_header('options', 'dosearchtype');
 	print_table_header("$vbphrase[search_type]");
-	if ($vbulletin->options['fulltextsearch'])
-	{
-		print_description_row($vbphrase['your_forum_is_currently_using_fulltext_search']);
-		print_yes_no_row($vbphrase['remove_fulltext_indices'], 'deleteindex', true);
-	}
-	else
-	{
-		print_description_row(construct_phrase($vbphrase['your_forum_is_currently_using_default_search'], TABLE_PREFIX, $warning1, $warning2));
-		print_yes_no_row($vbphrase['empty_postindex_and_word'], 'deletepostindex', false);
-	}
-	print_submit_row($vbphrase['go'], 0);
 
+	print_select_row($vbphrase["select_search_implementation"], 'implementation',
+		fetch_search_implementation_list(), $vbulletin->options['searchimplementation']);
+
+	print_description_row($vbphrase['search_reindex_required']);
+	print_submit_row($vbphrase['go'], 0);
 }
 
 // #################### Start Change Search Type #####################
 if ($_POST['do'] == 'dosearchtype')
 {
 	$vbulletin->input->clean_array_gpc('p', array(
-		'deleteindex'     => TYPE_BOOL,
-		'deletepostindex' => TYPE_BOOL
+		'implementation' => TYPE_NOHTML
 	));
 
-	require_once(DIR . '/includes/class_dbalter.php');
-
-	$db_alter =& new vB_Database_Alter_MySQL($db);
-	if ($vbulletin->options['fulltextsearch'])
+	$options = fetch_search_implementation_list();
+	if (!array_key_exists($vbulletin->GPC['implementation'], $options))
 	{
-		if ($vbulletin->GPC['deleteindex'])
-		{
-			if ($db_alter->fetch_table_info('post'))
-			{
-				$db_alter->drop_index('title');
-			}
-			else
-			{
-				print_stop_message('dbalter_' . $db_alter->fetch_error(), $db_alter->fetch_error_message());
-			}
-
-			if ($db_alter->fetch_table_info('thread'))
-			{
-				$db_alter->drop_index('title');
-			}
-			else
-			{
-				print_stop_message('dbalter_' . $db_alter->fetch_error(), $db_alter->fetch_error_message());
-			}
-		}
-	}
-	else
-	{
-		// add indices
-		if ($db_alter->fetch_table_info('post'))
-		{
-			if(!$db_alter->add_index('title', array('title', 'pagetext'), 'fulltext', true))
-			{
-				print_stop_message('dbalter_' . $db_alter->fetch_error(), $db_alter->fetch_error_message());
-			}
-		}
-		else
-		{
-			print_stop_message('dbalter_' . $db_alter->fetch_error(), $db_alter->fetch_error_message());
-		}
-
-		if ($db_alter->fetch_table_info('thread'))
-		{
-			if (!$db_alter->add_index('title', array('title'), 'fulltext', true))
-			{
-				$error = $db_alter->fetch_error();
-				$errormsg = $db_alter->fetch_error_message();
-				// Remove index that was added to post above.
-				if ($db_alter->fetch_table_info('post'))
-				{
-					$db_alter->drop_index('title');
-				}
-				print_stop_message('dbalter_' . $error, $errormsg);
-			}
-		}
-		else
-		{
-			$error = $db_alter->fetch_error();
-			$errormsg = $db_alter->fetch_error_message();
-			// Remove index that was added to post above.
-			if ($db_alter->fetch_table_info('post'))
-			{
-				$db_alter->drop_index('title');
-			}
-			print_stop_message('dbalter_' . $error, $errormsg);
-		}
-
-		// now empty postindex and word if we were given the ok
-		if ($vbulletin->GPC['deletepostindex'])
-		{
-			$db->query_write("TRUNCATE TABLE " . TABLE_PREFIX . "postindex");
-			$db->query_write("TRUNCATE TABLE " . TABLE_PREFIX . "word");
-		}
+		print_stop_message('invalid_search_implementation');
 	}
 
 	$db->query_write("
 		UPDATE " . TABLE_PREFIX . "setting
-		SET value = " . iif($vbulletin->options['fulltextsearch'], 0, 1) . "
-		WHERE varname = 'fulltextsearch'
+		SET value = '" . $db->escape_string($vbulletin->GPC['implementation']) . "'
+		WHERE varname = 'searchimplementation'
 	");
 	build_options();
 	define('CP_REDIRECT', 'index.php');
 	print_stop_message('saved_settings_successfully');
+}
 
+function fetch_search_implementation_list()
+{
+	global $vbphrase;
+	$options['vBDBSearch_Core'] = $vbphrase['db_search_implementation'];
+	//sets any additional options
+  ($hook = vBulletinHook::fetch_hook('admin_search_options')) ? eval($hook) : false;
+	return $options;
 }
 
 print_cp_footer();
 
 /*======================================================================*\
 || ####################################################################
-|| # Downloaded: 16:21, Sat Apr 6th 2013
-|| # CVS: $RCSfile$ - $Revision: 26425 $
+|| # Downloaded: 14:57, Sun Aug 11th 2013
+|| # CVS: $RCSfile$ - $Revision: 63163 $
 || ####################################################################
 \*======================================================================*/
 ?>

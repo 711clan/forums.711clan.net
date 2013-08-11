@@ -1,16 +1,16 @@
 <?php
 /*======================================================================*\
 || #################################################################### ||
-|| # vBulletin 3.7.2 Patch Level 2 - Licence Number VBF2470E4F
+|| # vBulletin 4.2.1 - Licence Number VBC2DDE4FB
 || # ---------------------------------------------------------------- # ||
-|| # Copyright Â©2000-2013 Jelsoft Enterprises Ltd. All Rights Reserved. ||
+|| # Copyright ©2000-2013 vBulletin Solutions Inc. All Rights Reserved. ||
 || # This file may not be redistributed in whole or significant part. # ||
 || # ---------------- VBULLETIN IS NOT FREE SOFTWARE ---------------- # ||
 || # http://www.vbulletin.com | http://www.vbulletin.com/license.html # ||
 || #################################################################### ||
 \*======================================================================*/
 
-if (!class_exists('vB_DataManager'))
+if (!class_exists('vB_DataManager', false))
 {
 	exit;
 }
@@ -19,8 +19,8 @@ if (!class_exists('vB_DataManager'))
 * Class to do data save/delete operations for picture comments
 *
 * @package	vBulletin
-* @version	$Revision: 26601 $
-* @date		$Date: 2008-05-08 10:28:25 -0500 (Thu, 08 May 2008) $
+* @version	$Revision: 63231 $
+* @date		$Date: 2012-06-01 15:13:25 -0700 (Fri, 01 Jun 2012) $
 */
 class vB_DataManager_PictureComment extends vB_DataManager
 {
@@ -30,18 +30,22 @@ class vB_DataManager_PictureComment extends vB_DataManager
 	* @var	array
 	*/
 	var $validfields = array(
-		'commentid'      => array(TYPE_UINT,       REQ_INCR, VF_METHOD, 'verify_nonzero'),
-		'pictureid'      => array(TYPE_UINT,       REQ_YES),
-		'postuserid'     => array(TYPE_UINT,       REQ_NO,   VF_METHOD, 'verify_userid'),
-		'postusername'   => array(TYPE_NOHTMLCOND, REQ_NO,   VF_METHOD, 'verify_username'),
-		'dateline'       => array(TYPE_UNIXTIME,   REQ_AUTO),
-		'state'          => array(TYPE_STR,        REQ_NO),
-		//'title'          => array(TYPE_NOHTMLCOND, REQ_NO,   VF_METHOD),
-		'pagetext'       => array(TYPE_STR,        REQ_YES,  VF_METHOD),
-		'ipaddress'      => array(TYPE_STR,        REQ_AUTO, VF_METHOD),
-		'allowsmilie'    => array(TYPE_UINT,       REQ_NO),
-		'reportthreadid' => array(TYPE_UINT,       REQ_NO),
-		'messageread'    => array(TYPE_BOOL,       REQ_NO),
+		'commentid'           => array(TYPE_UINT,       REQ_INCR, VF_METHOD, 'verify_nonzero'),
+		'filedataid'          => array(TYPE_UINT,       REQ_YES),
+		'userid'              => array(TYPE_UINT,       REQ_YES),
+		'postuserid'          => array(TYPE_UINT,       REQ_NO,   VF_METHOD, 'verify_userid'),
+		'postusername'        => array(TYPE_NOHTMLCOND, REQ_NO,   VF_METHOD, 'verify_username'),
+		'dateline'            => array(TYPE_UNIXTIME,   REQ_AUTO),
+		'state'               => array(TYPE_STR,        REQ_NO),
+		//'title'             => array(TYPE_NOHTMLCOND, REQ_NO,   VF_METHOD),
+		'pagetext'            => array(TYPE_STR,        REQ_YES,  VF_METHOD),
+		'ipaddress'           => array(TYPE_STR,        REQ_AUTO, VF_METHOD),
+		'allowsmilie'         => array(TYPE_UINT,       REQ_NO),
+		'reportthreadid'      => array(TYPE_UINT,       REQ_NO),
+		'messageread'         => array(TYPE_BOOL,       REQ_NO),
+		'sourcecontenttypeid' => array(TYPE_UINT,       REQ_NO),
+		'sourcecontentid'     => array(TYPE_UINT,       REQ_NO),
+		'sourceattachmentid'  => array(TYPE_UINT,       REQ_NO),
 	);
 
 	/**
@@ -130,7 +134,7 @@ class vB_DataManager_PictureComment extends vB_DataManager
 			$akismet = new vB_Akismet($this->registry);
 			$akismet->akismet_board = $this->registry->options['bburl'];
 			$akismet->akismet_key = $this->registry->options['vb_antispam_key'];
-			if ($akismet->verify_text(array('user_ip' => IPADDRESS, 'user_agent' => USER_AGENT, 'comment_type' => 'post', 'comment_author' => ($this->info['user']['userid'] ? $this->info['user']['username'] : $this->fetch_field('postusername')), 'comment_content' => $this->fetch_field('pagetext'))) === 'spam')
+			if ($akismet->verify_text(array('user_ip' => IPADDRESS, 'user_agent' => USER_AGENT, 'comment_type' => 'post', 'comment_author' => ($this->info['user']['userid'] ? $this->info['user']['username'] : $this->fetch_field('postusername')), 'comment_author_email' => $this->info['user']['email'], 'comment_author_url' => $this->info['user']['homepage'], 'comment_content' => $this->fetch_field('pagetext'))) === 'spam')
 			{
 				$this->set('state', 'moderation');
 				$this->spamlog_insert = true;
@@ -165,18 +169,18 @@ class vB_DataManager_PictureComment extends vB_DataManager
 
 			if ($this->info['hard_delete'])
 			{
-				$db->query_write("
-					DELETE FROM " . TABLE_PREFIX . "deletionlog WHERE primaryid = $commentid AND type = 'picturecomment'
-				");
+				$db->query_write("DELETE FROM " . TABLE_PREFIX . "deletionlog WHERE primaryid = $commentid AND type = 'picturecomment'");
+				$db->query_write("DELETE FROM " . TABLE_PREFIX . "picturecomment WHERE commentid = $commentid");
+				$db->query_write("DELETE FROM " . TABLE_PREFIX . "moderation WHERE primaryid = $commentid AND type = 'picturecomment'");
 
-				$db->query_write("
-					DELETE FROM " . TABLE_PREFIX . "picturecomment WHERE commentid = $commentid
-				");
+				// Albums and Social Group photos share comments
+				$activity = new vB_ActivityStream_Manage('socialgroup', 'photocomment');
+				$activity->set('contentid', $commentid);
+				$activity->delete();
 
-				$db->query_write("
-					DELETE FROM " . TABLE_PREFIX . "moderation WHERE primaryid = $commentid AND type = 'picturecomment'
-				");
-
+				$activity = new vB_ActivityStream_Manage('album', 'comment');
+				$activity->set('contentid', $commentid);
+				$activity->delete();
 				// Logging?
 			}
 			else
@@ -203,13 +207,15 @@ class vB_DataManager_PictureComment extends vB_DataManager
 			{
 				build_picture_comment_counters($this->info['picteuser']['userid']);
 			}
-			
+
 			$db->query_write("
 				DELETE FROM " . TABLE_PREFIX . "moderation WHERE primaryid = $commentid AND type = 'picturecomment'
 			");
 
 			return true;
 		}
+
+		$this->post_delete();
 
 		return false;
 	}
@@ -222,6 +228,7 @@ class vB_DataManager_PictureComment extends vB_DataManager
 	function post_delete($doquery = true)
 	{
 		($hook = vBulletinHook::fetch_hook('picturecommentdata_delete')) ? eval($hook) : false;
+		return parent::post_delete($doquery);
 	}
 
 
@@ -236,9 +243,9 @@ class vB_DataManager_PictureComment extends vB_DataManager
 
 		if (!$this->condition)
 		{
-			if ($this->fetch_field('pictureid'))
+			if ($this->fetch_field('filedataid') AND $this->fetch_field('userid'))
 			{
-				$this->insert_dupehash($this->fetch_field('pictureid'));
+				$this->insert_dupehash($this->fetch_field('filedataid'), $this->fetch_field('userid'));
 			}
 
 			if ($this->info['pictureuser'] AND !in_coventry($this->fetch_field('postuserid'), true))
@@ -256,6 +263,31 @@ class vB_DataManager_PictureComment extends vB_DataManager
 				}
 
 				$userdata->save();
+			}
+
+			if ($this->info['pictureinfo']['groupid'])
+			{
+				$section = 'socialgroup';
+				$type = 'photocomment';
+			}
+			else if ($this->info['pictureinfo']['albumid'])
+			{
+				$section = 'album';
+				$type = 'comment';
+			}
+			else
+			{
+				($hook = vBulletinHook::fetch_hook('picturecommentdata_postsave_activitystream')) ? eval($hook) : false;
+			}
+
+			if ($section AND $type)
+			{
+				$activity = new vB_ActivityStream_Manage($section, $type);
+				$activity->set('contentid', $commentid);
+				$activity->set('userid', $this->fetch_field('postuserid'));
+				$activity->set('dateline', $this->fetch_field('dateline'));
+				$activity->set('action', 'create');
+				$activity->save();
 			}
 		}
 
@@ -398,18 +430,21 @@ class vB_DataManager_PictureComment extends vB_DataManager
 		if ($this->fetch_field('dateline') > $dupemintime)
 		{
 			// ### DUPE CHECK ###
-			$dupehash = md5($this->fetch_field('pictureid') . $this->fetch_field('pagetext') . $this->fetch_field('postuserid'));
+			$dupehash = md5($this->fetch_field('filedataid') . '_' . $this->fetch_field('userid') . $this->fetch_field('pagetext') . $this->fetch_field('postuserid'));
 
 			if ($dupe = $this->registry->db->query_first("
-				SELECT hash.pictureid
+				SELECT hash.filedataid, hash.userid
 				FROM " . TABLE_PREFIX . "picturecomment_hash AS hash
-				WHERE hash.postuserid = " . $this->fetch_field('postuserid') . " AND
-					hash.dupehash = '" . $this->registry->db->escape_string($dupehash) . "' AND
+				WHERE
+					hash.postuserid = " . $this->fetch_field('postuserid') . "
+						AND
+					hash.dupehash = '" . $this->registry->db->escape_string($dupehash) . "'
+						AND
 					hash.dateline > " . $dupemintime . "
 			"))
 			{
 				// Do we want to only check for the post for this same user, or for all users???
-				if ($dupe['pictureid'] == $this->fetch_field('pictureid'))
+				if ($dupe['filedataid'] == $this->fetch_field('filedataid') AND $dupe['userid'] == $this->fetch_field('userid'))
 				{
 					$this->error('duplicate_post');
 					return true;
@@ -425,29 +460,29 @@ class vB_DataManager_PictureComment extends vB_DataManager
 	 * @param	integer	Group ID (-1 for current group from DM)
 	 *
 	 */
-	function insert_dupehash($pictureid = -1)
+	function insert_dupehash($filedataid = -1, $userid = -1)
 	{
-		if ($pictureid == -1)
+		if ($filedataid == -1)
 		{
-			$pictureid = $this->fetch_field('pictureid');
+			$filedataid = $this->fetch_field('filedataid');
 		}
 
 		$postuserid = $this->fetch_field('postuserid');
 
-		$dupehash = md5($pictureid . $this->fetch_field('pagetext') . $postuserid);
+		$dupehash = md5($filedataid . '_' . $userid . $this->fetch_field('pagetext') . $postuserid);
 		/*insert query*/
 		$this->dbobject->query_write("
 			INSERT INTO " . TABLE_PREFIX . "picturecomment_hash
-				(postuserid, pictureid, dupehash, dateline)
+				(postuserid, filedataid, userid, dupehash, dateline)
 			VALUES
-				(" . intval($postuserid) . ", " . intval($pictureid) . ", '" . $dupehash . "', " . TIMENOW . ")
+				(" . intval($postuserid) . ", " . intval($filedataid) . ", " . intval($userid) . ", '" . $dupehash . "', " . TIMENOW . ")
 		");
 	}
 }
 /*======================================================================*\
 || ####################################################################
-|| # Downloaded: 16:21, Sat Apr 6th 2013
-|| # CVS: $RCSfile$ - $Revision: 26601 $
+|| # Downloaded: 14:57, Sun Aug 11th 2013
+|| # CVS: $RCSfile$ - $Revision: 63231 $
 || ####################################################################
 \*======================================================================*/
 ?>

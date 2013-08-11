@@ -1,21 +1,21 @@
 <?php
 /*======================================================================*\
 || #################################################################### ||
-|| # vBulletin 3.7.2 Patch Level 2 - Licence Number VBF2470E4F
+|| # vBulletin 4.2.1 - Licence Number VBC2DDE4FB
 || # ---------------------------------------------------------------- # ||
-|| # Copyright ©2000-2013 Jelsoft Enterprises Ltd. All Rights Reserved. ||
+|| # Copyright ©2000-2013 vBulletin Solutions Inc. All Rights Reserved. ||
 || # This file may not be redistributed in whole or significant part. # ||
 || # ---------------- VBULLETIN IS NOT FREE SOFTWARE ---------------- # ||
 || # http://www.vbulletin.com | http://www.vbulletin.com/license.html # ||
 || #################################################################### ||
 \*======================================================================*/
 
-if (!class_exists('vB_DataManager'))
+if (!class_exists('vB_DataManager', false))
 {
 	exit;
 }
 
-define('SALT_LENGTH', 3);
+define('SALT_LENGTH', 30);
 
 /**
 * Class to do data save/delete operations for USERS
@@ -25,8 +25,8 @@ define('SALT_LENGTH', 3);
 * $this->info['override_usergroupid'] - Prevent overwriting of usergroupid (for email validation)
 *
 * @package	vBulletin
-* @version	$Revision: 26665 $
-* @date		$Date: 2008-05-21 06:36:38 -0500 (Wed, 21 May 2008) $
+* @version	$Revision: 63522 $
+* @date		$Date: 2012-06-11 11:53:15 -0700 (Mon, 11 Jun 2012) $
 */
 class vB_DataManager_User extends vB_DataManager
 {
@@ -105,6 +105,10 @@ class vB_DataManager_User extends vB_DataManager
 		'pmtotal'            => array(TYPE_UINT,       REQ_NO),
 		'pmunread'           => array(TYPE_UINT,       REQ_NO),
 
+		'newrepcount'        => array(TYPE_UINT,       REQ_NO),
+
+		'assetposthash'      => array(TYPE_STR,        REQ_NO),
+
 		// socnet counter fields
 		'profilevisits'      => array(TYPE_UINT,       REQ_NO),
 		'friendcount'        => array(TYPE_UINT,       REQ_NO),
@@ -113,6 +117,7 @@ class vB_DataManager_User extends vB_DataManager
 		'vmmoderatedcount'   => array(TYPE_UINT,       REQ_NO),
 		'pcunreadcount'      => array(TYPE_UINT,       REQ_NO),
 		'pcmoderatedcount'   => array(TYPE_UINT,       REQ_NO),
+		'gmmoderatedcount'   => array(TYPE_UINT,       REQ_NO),
 
 		// usertextfield fields
 		'subfolders'         => array(TYPE_NOCLEAN,    REQ_NO,   VF_METHOD, 'verify_serialized'),
@@ -122,6 +127,12 @@ class vB_DataManager_User extends vB_DataManager
 		'ignorelist'         => array(TYPE_NOCLEAN,    REQ_NO,   VF_METHOD, 'verify_spacelist'),
 		'signature'          => array(TYPE_STR,        REQ_NO),
 		'rank'               => array(TYPE_STR,        REQ_NO),
+
+		// facebook fields
+		'fbuserid'           => array(TYPE_STR,        REQ_NO),
+		'fbname'             => array(TYPE_STR,        REQ_NO),
+		'fbjoindate'         => array(TYPE_UINT,       REQ_NO),
+		'logintype'          => array(TYPE_STR,        REQ_NO, 'if (!in_array($data, array(\'vb\', \'fb\'))) { $data = \'vb\'; } return true; ')
 	);
 
 	/**
@@ -225,7 +236,7 @@ class vB_DataManager_User extends vB_DataManager
 	*/
 	function verify_homepage(&$homepage)
 	{
-		return (empty($homepage)) ? true : $this->verify_link($homepage);
+		return (empty($homepage)) ? true : $this->verify_link($homepage, true);
 	}
 
 	/**
@@ -369,10 +380,9 @@ class vB_DataManager_User extends vB_DataManager
 		$username = trim(preg_replace('#[ \r\n\t]+#si', ' ', strip_blank_ascii($username, ' ')));
 		$username_raw = $username;
 
-		global $stylevar;
 		$username = preg_replace(
 			'/&#([0-9]+);/ie',
-			"convert_unicode_char_to_charset('\\1', \$stylevar['charset'])",
+			"convert_unicode_char_to_charset('\\1', vB_Template_Runtime::fetchStyleVar('charset'))",
 			$username
 		);
 
@@ -506,6 +516,8 @@ class vB_DataManager_User extends vB_DataManager
 			$username = preg_replace('/&([a-z0-9#]*)$/i', '', substr($username, 0, $match[1]));
 		}
 
+		$username = trim($username);
+
 		return true;
 	}
 
@@ -545,6 +557,13 @@ class vB_DataManager_User extends vB_DataManager
 
 		// check that all neccessary array keys are set
 		if (!isset($birthday['day']) OR !isset($birthday['month']) OR !isset($birthday['year']))
+		{
+			$this->error('birthdayfield');
+			return false;
+		}
+
+		// check that any entered year is a number
+		if (!empty($birthday['year']) AND !is_numeric($birthday['year']))
 		{
 			$this->error('birthdayfield');
 			return false;
@@ -644,11 +663,12 @@ class vB_DataManager_User extends vB_DataManager
 		// check unique address
 		if ($this->registry->options['requireuniqueemail'] AND $email_changed)
 		{
-			if ($user = $this->dbobject->query_first("
+			if ($user = $this->dbobject->query_first_slave("
 				SELECT userid, username, email
 				FROM " . TABLE_PREFIX . "user
 				WHERE email = '" . $this->dbobject->escape_string($email) . "'
 					" . ($this->condition !== null ? 'AND userid <> ' . intval($this->existing['userid']) : '') . "
+				LIMIT 1
 			"))
 			{
 				if ($this->error_handler == ERRTYPE_CP)
@@ -799,7 +819,7 @@ class vB_DataManager_User extends vB_DataManager
 	*/
 	function verify_skype(&$skype)
 	{
-		if ($skype == '' OR preg_match('#^[\w.,-]{6,32}$#s', $skype))
+		if ($skype == '' OR preg_match('#^[a-z0-9_.,-]{6,32}$#si', $skype))
 		{
 			return true;
 		}
@@ -822,13 +842,23 @@ class vB_DataManager_User extends vB_DataManager
 	*/
 	function verify_password(&$password)
 	{
-		if (!($salt = $this->fetch_field('salt')))
-		{
-			$this->user['salt'] = $salt = $this->fetch_user_salt();
-		}
+		//regenerate the salt when the password is changed.  No reason not to and its
+		//an easy way to increase the size when the user changes their password (doing
+		//it this way avoids having to reset all of the passwords)
+		$this->user['salt'] = $salt = $this->fetch_user_salt();
 
 		// generate the password
 		$password = $this->hash_password($password, $salt);
+
+		if (!defined('ALLOW_SAME_USERNAME_PASSWORD'))
+		{
+			// check if password is same as username; if so, set an error and return false
+			if ($password == md5(md5($this->fetch_field('username')) . $salt))
+			{
+				$this->error('sameusernamepass');
+				return false;
+			}
+		}
 
 		$this->set('passworddate', 'FROM_UNIXTIME(' . TIMENOW . ')', false);
 
@@ -937,6 +967,12 @@ class vB_DataManager_User extends vB_DataManager
 	{
 		$customtitle = $this->existing['customtitle'];
 		$usertitle = $this->existing['usertitle'];
+
+		if ($this->existing['customtitle'] == 2 AND isset($this->existing['musername']))
+		{
+			// fetch_musername has changed this value -- need to undo it
+			$usertitle = unhtmlspecialchars($usertitle);
+		}
 
 		if ($canusecustomtitle)
 		{
@@ -1069,6 +1105,11 @@ class vB_DataManager_User extends vB_DataManager
 		if ($this->fetch_field('userid') AND !isset($this->existing['posts']))
 		{
 			// we don't have enough information, try to fetch it
+			if (isset($GLOBALS['usercache'][$this->fetch_field('userid')]))
+			{
+				unset($GLOBALS['usercache'][$this->fetch_field('userid')]);
+			}
+
 			$user = fetch_userinfo($this->fetch_field('userid'));
 			if ($user)
 			{
@@ -1124,10 +1165,11 @@ class vB_DataManager_User extends vB_DataManager
 	* @param	array	Array of values for profile fields. Example: array('field1' => 'One', 'field2' => array(0 => 'a', 1 => 'b'), 'field2_opt' => 'c')
 	* @param	bool	Whether or not to verify the data actually matches any specified regexes or required fields
 	* @param	string	What type of editable value to apply (admin, register, normal)
+	* @param	bool	Whether or not to skip verification of required fields that are not present, used for linking facebook accounts
 	*
 	* @return	string	Textual description of set profile fields (for email phrase)
 	*/
-	function set_userfields(&$values, $verify = true, $all_fields = 'normal')
+	function set_userfields(&$values, $verify = true, $all_fields = 'normal', $skip_unset_required_fields = false)
 	{
 		global $vbphrase;
 
@@ -1159,8 +1201,8 @@ class vB_DataManager_User extends vB_DataManager
 				break;
 
 			case 'register':
-				# must read all fields in order to set defaults for fields that don't display
-				#$all_fields_sql = "WHERE editable IN (1,2)";
+				// must read all fields in order to set defaults for fields that don't display
+				//$all_fields_sql = "WHERE editable IN (1,2)";
 				$all_fields_sql = '';
 
 				// we need to ensure that each field the user could edit is sent through and processed,
@@ -1192,7 +1234,7 @@ class vB_DataManager_User extends vB_DataManager
 		while ($profilefield = $this->dbobject->fetch_array($profilefields))
 		{
 			$varname = 'field' . $profilefield['profilefieldid'];
-			$value =& $values["$varname"];
+			$value = $values["$varname"];
 			$regex_check = false;
 
 			if ($all_fields != 'admin' AND $profilefield['editable'] == 2 AND !empty($this->existing["$varname"]))
@@ -1296,7 +1338,7 @@ class vB_DataManager_User extends vB_DataManager
 			}
 
 			// check for regex compliance
-			if ($verify AND $profilefield['regex'] AND $regex_check)
+			if ($verify AND $profilefield['regex'] AND $regex_check AND $value)
 			{
 				if (!preg_match('#' . str_replace('#', '\#', $profilefield['regex']) . '#siU', $value))
 				{
@@ -1308,6 +1350,10 @@ class vB_DataManager_User extends vB_DataManager
 			// check for empty required fields
 			if (($profilefield['required'] == 1 OR $profilefield['required'] == 3) AND $value === false AND $verify)
 			{
+				if ($skip_unset_required_fields AND !isset($values["$varname"]))
+				{
+					continue;
+				}
 				$this->error('required_field_x_missing_or_invalid', $profilefield['title']);
 			}
 
@@ -1359,22 +1405,34 @@ class vB_DataManager_User extends vB_DataManager
 	{
 		// on/off fields
 		foreach (array(
-			'invisible'      => 'invisiblemode',
-			'receivepm'      => 'enablepm',
-			'emailonpm'      => 'emailonpm',
-			'showreputation' => 'showreputation',
-			'showvcard'      => 'vcard',
-			'showsignatures' => 'signature',
-			'showavatars'    => 'avatar',
-			'showimages'     => 'image',
-			'vm_enable'      => 'vm_enable',
-			'vm_contactonly' => 'vm_contactonly',
+			'showemail'         => 'receiveemail',
+			'adminemail'        => 'adminemail',
+			'invisible'         => 'invisiblemode',
+			'receivepm'         => 'enablepm',
+			'emailonpm'         => 'emailonpm',
+			'showreputation'    => 'showreputation',
+			'showvcard'         => 'vcard',
+			'showsignatures'    => 'signature',
+			'showavatars'       => 'avatar',
+			'showimages'        => 'image',
+			'vm_enable'         => 'vm_enable',
+			'vm_contactonly'    => 'vm_contactonly',
+			'pmdefaultsavecopy' => 'pmdefaultsavecopy',
 		) AS $optionname => $bitfield)
 		{
-			if (!isset($this->user['options']["$optionname"]))
+			if (!isset($this->user['options'][$this->registry->bf_misc_useroptions[$optionname]]))
 			{
-				$this->set_bitfield('options', $optionname, ($this->registry->bf_misc_regoptions["$bitfield"] & $this->registry->options['defaultregoptions'] ? 1 : 0));
+				$this->set_bitfield('options', $optionname,
+					($this->registry->bf_misc_regoptions["$bitfield"] &
+						$this->registry->options['defaultregoptions'] ? 1 : 0));
 			}
+		}
+
+		//force the default to true (if it not set).  If we decide to make it an
+		//option later, push it into the above loop above.
+		if (!isset($this->user['options']['vbasset_enable']))
+		{
+			$this->set_bitfield('options', 'vbasset_enable', 1);
 		}
 
 		// time fields
@@ -1625,8 +1683,11 @@ class vB_DataManager_User extends vB_DataManager
 							'oldvalue'    => $this->existing["$fieldname"],
 							'newvalue'    => $this->user["$fieldname"],
 							'change_time' => TIMENOW,
-							'change_uniq' => $uniqueid
+							'change_uniq' => $uniqueid,
+							'ipaddress'   => sprintf('%u', ip2long(IPADDRESS)),
 						);
+
+						$this->rawfields['ipaddress'] = true;
 
 						// build the sql query string
 						$sql = $this->fetch_insert_sql(TABLE_PREFIX, 'userchangelog');
@@ -1855,6 +1916,14 @@ class vB_DataManager_User extends vB_DataManager
 					$this->registry->userinfo['membergroupids'] = $this->fetch_field('membergroupids');
 					cache_permissions($this->registry->userinfo);
 				}
+
+				// Expire the CMS cache if relevant
+				if ($this->registry->products['vbcms'])
+				{
+					$expire_cache = array("permissions_$userid");
+					vB_Cache::instance()->event($expire_cache);
+					vB_Cache::instance()->cleanNow();
+				}
 			}
 
 			// if the primary user group has been changed, we need to update any user activation records
@@ -1882,7 +1951,7 @@ class vB_DataManager_User extends vB_DataManager
 		$this->set_admin($userid, $usergroups_changed, $isadmin, $wasadmin);
 
 		// super moderator stuff
-		$this->set_supermod($userid, $usergroups_changed, $issupermod, $wasssupermod);
+		$this->set_supermod($userid, $usergroups_changed, $issupermod, $wassupermod);
 
 		// update birthday datastore
 		$this->update_birthday_datastore($userid);
@@ -1902,6 +1971,13 @@ class vB_DataManager_User extends vB_DataManager
 		// Send parent email
 		if ($this->info['coppauser'] AND $username = $this->fetch_field('username') AND $parentemail = $this->fetch_field('parentemail'))
 		{
+			//this uses in-scope variables in the phrases instead of composing the phrase normally.  It has to do with
+			//the behavior of fetch_email_phrases which doesn't allow variables to be passed directly to the phrase.
+			//$memberlink and $forumhomelink are referenced in the phrase and get interpolated when the phrase text is
+			//eval'd.
+			$memberlink = create_full_url(fetch_seo_url('member|nosession', array('userid' => $userid, 'username' => $username)));
+			$forumhomelink = create_full_url(fetch_seo_url('forumhome|nosession', array()), true);
+
 			if ($password = $this->info['coppapassword'])
 			{
 				eval(fetch_email_phrases('parentcoppa_register'));
@@ -1910,6 +1986,9 @@ class vB_DataManager_User extends vB_DataManager
 			{
 				eval(fetch_email_phrases('parentcoppa_profile'));
 			}
+
+			//$subject and $message are magic variables created by the code returned from fetch_email_phrase
+			//when it gets returned.
 			vbmail($parentemail, $subject, $message, true);
 		}
 
@@ -1970,6 +2049,12 @@ class vB_DataManager_User extends vB_DataManager
 				postusername = '" . $this->dbobject->escape_string($this->existing['username']) . "',
 				postuserid = 0
 			WHERE postuserid = " . $this->existing['userid'] . "
+		");
+		$this->dbobject->query_write("
+			UPDATE " . TABLE_PREFIX . "discussion SET
+				lastposter = '" . $this->dbobject->escape_string($this->existing['username']) . "',
+				lastposterid = 0
+			WHERE lastposterid = " . $this->existing['userid'] . "
 		");
 		$this->dbobject->query_write("
 			UPDATE " . TABLE_PREFIX . "visitormessage SET
@@ -2065,6 +2150,39 @@ class vB_DataManager_User extends vB_DataManager
 			WHERE userid = " . $this->existing['userid'] . "
 		");
 
+		$this->dbobject->query_write("
+			DELETE FROM " . TABLE_PREFIX . "groupread
+			WHERE userid = " . $this->existing['userid'] . "
+		");
+
+		$this->dbobject->query_write("
+			DELETE FROM " . TABLE_PREFIX . "discussionread
+			WHERE userid = " . $this->existing['userid'] . "
+		");
+
+		$this->dbobject->query_write("
+			DELETE FROM " . TABLE_PREFIX . "subscribediscussion
+			WHERE userid = " . $this->existing['userid'] . "
+		");
+
+		$this->dbobject->query_write("
+			DELETE FROM " . TABLE_PREFIX . "subscribegroup
+			WHERE userid = " . $this->existing['userid'] . "
+		");
+
+		$this->dbobject->query_write("
+			DELETE FROM " . TABLE_PREFIX . "profileblockprivacy
+			WHERE userid = " . $this->existing['userid'] . "
+		");
+
+		$this->dbobject->query_write("
+			UPDATE " . TABLE_PREFIX . "activitystream
+			SET
+				userid = 0
+			WHERE
+				userid = " . $this->existing['userid'] . "
+		");
+
 		$pendingfriends = array();
 		$currentfriends = array();
 
@@ -2132,9 +2250,19 @@ class vB_DataManager_User extends vB_DataManager
 
 		if (!empty($groupsowned))
 		{
-			$this->registry->db->query_write("DELETE FROM " . TABLE_PREFIX . "socialgroup WHERE creatoruserid = " . $this->existing['userid']);
-			$this->registry->db->query_write("DELETE FROM " . TABLE_PREFIX . "socialgroupmember WHERE groupid IN (" . implode(',', $groupsowned) . ")");
-			$this->registry->db->query_write("DELETE FROM " . TABLE_PREFIX . "socialgrouppicture WHERE groupid IN (" . implode(',', $groupsowned) . ")");
+			require_once(DIR . '/includes/functions_socialgroup.php');
+			foreach($groupsowned AS $groupowned)
+			{
+				$group = fetch_socialgroupinfo($groupowned);
+				if (!empty($group))
+				{
+					// dm will have problem if the group is invalid, and in all honesty, at this situation,
+					// if the group is no longer present, then we don't need to worry about it anymore.
+					$socialgroupdm = datamanager_init('SocialGroup', $this->registry, ERRTYPE_SILENT);
+					$socialgroupdm->set_existing($group);
+					$socialgroupdm->delete();
+				}
+			}
 		}
 
 		$groupmemberships = $this->registry->db->query_read("
@@ -2151,26 +2279,23 @@ class vB_DataManager_User extends vB_DataManager
 			$socialgroups["$groupmembership[groupid]"] = $groupmembership;
 		}
 
-		$grouppicture_sql = $this->registry->db->query_read("
-			SELECT socialgrouppicture.groupid, socialgrouppicture.pictureid
-			FROM " . TABLE_PREFIX . "picture AS picture
-			INNER JOIN " . TABLE_PREFIX . "socialgrouppicture AS socialgrouppicture ON
-				(socialgrouppicture.pictureid = picture.pictureid)
-			WHERE picture.userid = " . $this->existing['userid'] . "
+		$types = vB_Types::instance();
+
+		$picture_sql = $this->registry->db->query_read("
+			SELECT a.attachmentid, a.filedataid, a.userid
+			FROM " . TABLE_PREFIX . "attachment AS a
+			WHERE
+				a.userid = " . $this->existing['userid'] . "
+					AND
+				a.contenttypeid IN (" . intval($types->getContentTypeID('vBForum_SocialGroup')) . "," . intval($types->getContentTypeID('vBForum_Album')) . ")
 		");
-		$grouppictures = array();
+		$pictures = array();
 
-		while ($grouppicture = $this->registry->db->fetch_array($grouppicture_sql))
+		$attachdm =& datamanager_init('Attachment', $this->registry, ERRTYPE_SILENT, 'attachment');
+		while ($picture = $this->registry->db->fetch_array($picture_sql))
 		{
-			$grouppictures[] = $grouppicture['pictureid'];
-		}
-
-		if (!empty($grouppictures))
-		{
-			$this->registry->db->query_write("
-				DELETE FROM " . TABLE_PREFIX . "socialgrouppicture
-				WHERE pictureid IN (" . implode(',', $grouppictures) . ")
-			");
+			$attachdm->set_existing($picture);
+			$attachdm->delete();
 		}
 
 		if (!empty($socialgroups))
@@ -2200,33 +2325,13 @@ class vB_DataManager_User extends vB_DataManager
 			unset($groupdm);
 		}
 
-		$pictures = array();
-		$picture_sql = $this->registry->db->query_read("
-			SELECT album.albumid, albumpicture.pictureid
-			FROM " . TABLE_PREFIX . "album AS album
-			INNER JOIN " . TABLE_PREFIX . "albumpicture AS albumpicture ON (albumpicture.albumid = album.albumid)
-			WHERE album.userid = " . $this->existing['userid']
+		$this->registry->db->query_write("
+			UPDATE " . TABLE_PREFIX . "socialgroup
+			SET transferowner = 0
+			WHERE transferowner = " . $this->existing['userid']
 		);
-		while ($picture = $this->registry->db->fetch_array($picture_sql))
-		{
-			$pictures[] = $picture['pictureid'];
-		}
-
-		if ($pictures)
-		{
-			$this->registry->db->query_write("
-				DELETE FROM " . TABLE_PREFIX . "albumpicture
-				WHERE pictureid IN (" . implode(',', $pictures) . ")
-			");
-
-			$this->registry->db->query_write("
-				DELETE FROM " . TABLE_PREFIX . "picturecomment
-				WHERE pictureid IN (" . implode(',', $pictures) . ")
-			");
-		}
 
 		$this->registry->db->query_write("DELETE FROM " . TABLE_PREFIX . "album WHERE userid = " . $this->existing['userid']);
-		$this->registry->db->query_write("DELETE FROM " . TABLE_PREFIX . "picture WHERE userid = " . $this->existing['userid']);
 
 		$this->registry->db->query_write("
 			UPDATE " . TABLE_PREFIX . "picturecomment SET
@@ -2351,12 +2456,55 @@ class vB_DataManager_User extends vB_DataManager
 				WHERE userid = $userid
 			");
 
+			// postedithistory 'username'
+			$this->dbobject->query_write("
+				UPDATE " . TABLE_PREFIX . "postedithistory
+				SET username = '" . $this->dbobject->escape_string($username) . "'
+				WHERE userid = $userid
+			");
+
+			// socialgroup 'lastposter'
+			$this->dbobject->query_write("
+				UPDATE " . TABLE_PREFIX . "socialgroup
+				SET lastposter = '" . $this->dbobject->escape_string($username) . "'
+				WHERE lastposterid = $userid
+			");
+
+			// discussion 'lastposter'
+			$this->dbobject->query_write("
+				UPDATE " . TABLE_PREFIX . "discussion
+				SET lastposter = '" . $this->dbobject->escape_string($username) . "'
+				WHERE lastposterid = $userid
+			");
+
+			// groupmessage 'postusername'
+			$this->dbobject->query_write("
+				UPDATE " . TABLE_PREFIX . "groupmessage
+				SET postusername = '" . $this->dbobject->escape_string($username) . "'
+				WHERE postuserid = $userid
+			");
+
+			// visitormessage 'postusername'
+			$this->dbobject->query_write("
+				UPDATE " . TABLE_PREFIX . "visitormessage
+				SET postusername = '" . $this->dbobject->escape_string($username) . "'
+				WHERE postuserid = $userid
+			");
+
+			// picturecomment 'postusername'
+			$this->dbobject->query_write("
+				UPDATE " . TABLE_PREFIX . "picturecomment
+				SET postusername = '" . $this->dbobject->escape_string($username) . "'
+				WHERE postuserid = $userid
+			");
+
 			//  Rebuild newest user information
 			require_once(DIR . '/includes/functions_databuild.php');
 
 			($hook = vBulletinHook::fetch_hook('userdata_update_username')) ? eval($hook) : false;
 
 			build_user_statistics();
+			build_birthdays();
 		}
 	}
 
@@ -2524,7 +2672,7 @@ class vB_DataManager_User extends vB_DataManager
 			");
 			if (!@headers_sent())
 			{
-				vbsetcookie('styleid', '', 1);
+				vbsetcookie('userstyleid', '', 1);
 			}
 		}
 	}
@@ -2862,8 +3010,8 @@ class vB_DataManager_User extends vB_DataManager
 * Class to do data update operations for multiple USERS simultaneously
 *
 * @package	vBulletin
-* @version	$Revision: 26665 $
-* @date		$Date: 2008-05-21 06:36:38 -0500 (Wed, 21 May 2008) $
+* @version	$Revision: 63522 $
+* @date		$Date: 2012-06-11 11:53:15 -0700 (Mon, 11 Jun 2012) $
 */
 class vB_DataManager_User_Multiple extends vB_DataManager_Multiple
 {
@@ -3011,8 +3159,8 @@ class vB_DataManager_User_Multiple extends vB_DataManager_Multiple
 
 /*======================================================================*\
 || ####################################################################
-|| # Downloaded: 16:21, Sat Apr 6th 2013
-|| # CVS: $RCSfile$ - $Revision: 26665 $
+|| # Downloaded: 14:57, Sun Aug 11th 2013
+|| # CVS: $RCSfile$ - $Revision: 63522 $
 || ####################################################################
 \*======================================================================*/
 ?>

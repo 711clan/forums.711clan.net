@@ -1,9 +1,9 @@
 <?php
 /*======================================================================*\
 || #################################################################### ||
-|| # vBulletin 3.7.2 Patch Level 2 - Licence Number VBF2470E4F
+|| # vBulletin 4.2.1 - Licence Number VBC2DDE4FB
 || # ---------------------------------------------------------------- # ||
-|| # Copyright ©2000-2013 Jelsoft Enterprises Ltd. All Rights Reserved. ||
+|| # Copyright ©2000-2013 vBulletin Solutions Inc. All Rights Reserved. ||
 || # This file may not be redistributed in whole or significant part. # ||
 || # ---------------- VBULLETIN IS NOT FREE SOFTWARE ---------------- # ||
 || # http://www.vbulletin.com | http://www.vbulletin.com/license.html # ||
@@ -55,7 +55,7 @@ function construct_ip_usage_table($ipaddress, $prevuserid, $depth = 1)
 		$retdata .= '<li>' .
 			"<a href=\"user.php?" . $vbulletin->session->vars['sessionurl'] . "do=" . iif(VB_AREA == 'ModCP', 'viewuser', 'edit') . "&amp;u=$user[userid]\"><b>$user[username]</b></a> &nbsp;
 			<a href=\"$userscript?" . $vbulletin->session->vars['sessionurl'] . "do=gethost&amp;ip=$user[ipaddress]\" title=\"" . $vbphrase['resolve_address'] . "\">$user[ipaddress]</a> &nbsp; " .
-			construct_link_code($vbphrase['find_posts_by_user'], "../search.php?" . $vbulletin->session->vars['sessionurl'] . "do=finduser&amp;u=$user[userid]", '_blank') .
+			construct_link_code($vbphrase['find_posts_by_user'], "../search.php?" . $vbulletin->session->vars['sessionurl'] . "do=finduser&amp;u=$user[userid]&amp;contenttype=vBForum_Post&amp;showposts=1", '_blank') .
 			construct_link_code($vbphrase['view_other_ip_addresses_for_this_user'], "$userscript?" . $vbulletin->session->vars['sessionurl'] . "do=doips&amp;u=$user[userid]&amp;hash=" . CP_SESSIONHASH) .
 			"</li>\n";
 
@@ -116,7 +116,7 @@ function construct_ip_register_table($ipaddress, $prevuserid, $depth = 1)
 		$retdata .= '<li>' .
 			"<a href=\"user.php?" . $vbulletin->session->vars['sessionurl'] . "do=" . iif(VB_AREA == 'ModCP', 'viewuser', 'edit') . "&amp;u=$user[userid]\"><b>$user[username]</b></a> &nbsp;
 			<a href=\"$userscript?" . $vbulletin->session->vars['sessionurl'] . "do=gethost&amp;ip=$user[ipaddress]\" title=\"" . $vbphrase['resolve_address'] . "\">$user[ipaddress]</a> &nbsp; " .
-			construct_link_code($vbphrase['find_posts_by_user'], "../search.php?" . $vbulletin->session->vars['sessionurl'] . "do=finduser&amp;u=$user[userid]", '_blank') .
+			construct_link_code($vbphrase['find_posts_by_user'], "../search.php?" . $vbulletin->session->vars['sessionurl'] . "do=finduser&amp;u=$user[userid]&amp;contenttype=vBForum_Post&amp;showposts=1", '_blank') .
 			construct_link_code($vbphrase['view_other_ip_addresses_for_this_user'], "$userscript?" . $vbulletin->session->vars['sessionurl'] . "do=doips&amp;u=$user[userid]&amp;hash=" . CP_SESSIONHASH) .
 			"</li>\n";
 
@@ -241,7 +241,7 @@ function construct_style_chooser($title, $name, $selvalue = -1, $extra = '')
 // ###################### Start finduserhtml #######################
 function print_user_search_rows($email = false)
 {
-	global $vbulletin, $vbphrase, $stylevar;
+	global $vbulletin, $vbphrase;
 
 	print_label_row($vbphrase['username'], "
 		<input type=\"text\" class=\"bginput\" name=\"user[username]\" tabindex=\"1\" size=\"35\"
@@ -277,11 +277,12 @@ function print_user_search_rows($email = false)
 		print_membergroup_row($vbphrase['additional_usergroups'], 'user[membergroup]', 2);
 	}
 
-	print_description_row('<div align="' . $stylevar['right'] .'"><input type="submit" class="button" value=" ' . iif($email, $vbphrase['submit'], $vbphrase['find']) . ' " tabindex="1" /></div>');
+	print_description_row('<div align="' . vB_Template_Runtime::fetchStyleVar('right') .'"><input type="submit" class="button" value=" ' . iif($email, $vbphrase['submit'], $vbphrase['find']) . ' " tabindex="1" /></div>');
 	print_input_row($vbphrase['email'], 'user[email]');
 	print_input_row($vbphrase['parent_email_address'], 'user[parentemail]');
 	print_yes_no_other_row($vbphrase['coppa_user'], 'user[coppauser]', $vbphrase['either'], -1);
 	print_input_row($vbphrase['home_page'], 'user[homepage]');
+	print_yes_no_other_row($vbphrase['facebook_connected'], 'user[facebook]', $vbphrase['either'], -1);
 	print_input_row($vbphrase['icq_uin'], 'user[icq]');
 	print_input_row($vbphrase['aim_screen_name'], 'user[aim]');
 	print_input_row($vbphrase['yahoo_id'], 'user[yahoo]');
@@ -310,7 +311,7 @@ function print_user_search_rows($email = false)
 	print_input_row($vbphrase['userid_is_greater_than'], 'user[useridlower]', '', 1, 7);
 	print_input_row($vbphrase['userid_is_less_than'], 'user[useridupper]', '', 1, 7);
 	print_input_row($vbphrase['registration_ip_address'], 'user[ipaddress]');
-	print_description_row('<div align="' . $stylevar['right'] .'"><input type="submit" class="button" value=" ' . iif($email, $vbphrase['submit'], $vbphrase['find']) . ' " tabindex="1" /></div>');
+	print_description_row('<div align="' . vB_Template_Runtime::fetchStyleVar('right') .'"><input type="submit" class="button" value=" ' . iif($email, $vbphrase['submit'], $vbphrase['find']) . ' " tabindex="1" /></div>');
 
 	$forms = array(
 		0 => $vbphrase['edit_your_details'],
@@ -341,10 +342,9 @@ function print_user_search_rows($email = false)
 			$currentform = $profilefield['form'];
 		}
 
-		$profilefield['def'] = 0;
 		print_profilefield_row('profile', $profilefield);
 	}
-	print_description_row('<div align="' . $stylevar['right'] .'"><input type="submit" class="button" value=" ' . iif($email, $vbphrase['submit'], $vbphrase['find']) . ' " tabindex="1" /></div>');
+	print_description_row('<div align="' . vB_Template_Runtime::fetchStyleVar('right') .'"><input type="submit" class="button" value=" ' . iif($email, $vbphrase['submit'], $vbphrase['find']) . ' " tabindex="1" /></div>');
 }
 
 // ###################### Start findusersql #######################
@@ -388,6 +388,8 @@ function fetch_user_search_sql(&$user, &$profile, $prefix = 'user')
 	$condition .= iif($user['parentemail'], " AND {$prefix}parentemail LIKE '%" . $vbulletin->db->escape_string_like($user['parentemail']) . "%'");
 	$condition .= iif($user['coppauser'] == 1, " AND ({$prefix}options & " . $vbulletin->bf_misc_useroptions['coppauser'] . ") = " . $vbulletin->bf_misc_useroptions['coppauser']);
 	$condition .= iif(isset($user['coppauser']) AND $user['coppauser'] == 0, " AND ({$prefix}options & " . $vbulletin->bf_misc_useroptions['coppauser'] . ') = 0');
+	$condition .= iif($user['facebook'] == 1, " AND {$prefix}fbuserid != ''");
+	$condition .= iif(isset($user['facebook']) AND $user['facebook'] == 0, " AND {$prefix}fbuserid = ''");	
 	$condition .= iif($user['homepage'], " AND {$prefix}homepage LIKE '%" . $vbulletin->db->escape_string_like($user['homepage']) . "%'");
 	$condition .= iif($user['icq'], " AND {$prefix}icq LIKE '%" . $vbulletin->db->escape_string_like($user['icq']) . "%'");
 	$condition .= iif($user['aim'], " AND REPLACE({$prefix}aim, ' ', '') LIKE '%" . $vbulletin->db->escape_string_like(str_replace(' ', '', $user['aim'])) . "%'");
@@ -448,8 +450,8 @@ function fetch_user_search_sql(&$user, &$profile, $prefix = 'user')
 
 /*======================================================================*\
 || ####################################################################
-|| # Downloaded: 16:21, Sat Apr 6th 2013
-|| # CVS: $RCSfile$ - $Revision: 25833 $
+|| # Downloaded: 14:57, Sun Aug 11th 2013
+|| # CVS: $RCSfile$ - $Revision: 46971 $
 || ####################################################################
 \*======================================================================*/
 ?>

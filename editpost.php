@@ -1,9 +1,9 @@
 <?php
 /*======================================================================*\
 || #################################################################### ||
-|| # vBulletin 3.7.2 Patch Level 2 - Licence Number VBF2470E4F
+|| # vBulletin 4.2.1 - Licence Number VBC2DDE4FB
 || # ---------------------------------------------------------------- # ||
-|| # Copyright ©2000-2013 Jelsoft Enterprises Ltd. All Rights Reserved. ||
+|| # Copyright ©2000-2013 vBulletin Solutions Inc. All Rights Reserved. ||
 || # This file may not be redistributed in whole or significant part. # ||
 || # ---------------- VBULLETIN IS NOT FREE SOFTWARE ---------------- # ||
 || # http://www.vbulletin.com | http://www.vbulletin.com/license.html # ||
@@ -53,18 +53,19 @@ require_once(DIR . '/includes/functions_newpost.php');
 require_once(DIR . '/includes/functions_bigthree.php');
 require_once(DIR . '/includes/functions_editor.php');
 require_once(DIR . '/includes/functions_log_error.php');
+require_once(DIR . '/includes/functions_prefix.php');
 
 // #######################################################################
 // ######################## START MAIN SCRIPT ############################
 // #######################################################################
 
+verify_forum_url();
+
 // ### STANDARD INITIALIZATIONS ###
 $checked = array();
 $edit = array();
 $postattach = array();
-
-// get decent textarea size for user's browser
-$textareacols = fetch_textarea_width();
+$contenttype = 'vBForum_Post';
 
 // sanity checks...
 if (empty($_REQUEST['do']))
@@ -119,8 +120,8 @@ if ($_REQUEST['do'] == 'deletepost')
 	{
 		if (!$threadinfo['open'])
 		{
-			$vbulletin->url = 'showthread.php?' . $vbulletin->session->vars['sessionurl'] . "t=$postinfo[threadid]";
-			eval(print_standard_redirect('redirect_threadclosed'));
+			$vbulletin->url = fetch_seo_url('thread', $threadinfo);
+			print_standard_redirect('redirect_threadclosed');  
 		}
 		if (!($forumperms & $vbulletin->bf_ugp_forumpermissions['candeletepost']))
 		{
@@ -143,7 +144,7 @@ else
 	{ // check for moderator
 		if (!$threadinfo['open'])
 		{
-			$vbulletin->url = 'showthread.php?' . $vbulletin->session->vars['sessionurl'] . "t=$threadinfo[threadid]";
+			$vbulletin->url = fetch_seo_url('thread', $threadinfo);
 			eval(standard_error(fetch_error('threadclosed')));
 		}
 		if (!($forumperms & $vbulletin->bf_ugp_forumpermissions['caneditpost']))
@@ -193,6 +194,7 @@ if ($_POST['do'] == 'updatepost')
 		'preview'         => TYPE_STR,
 		'folderid'        => TYPE_UINT,
 		'emailupdate'     => TYPE_UINT,
+		'htmlstate'       => TYPE_STR,
 		'ajax'            => TYPE_BOOL,
 		'advanced'        => TYPE_BOOL,
 		'postcount'       => TYPE_UINT,
@@ -202,7 +204,8 @@ if ($_POST['do'] == 'updatepost')
 		'podcastkeywords' => TYPE_STR,
 		'podcastsubtitle' => TYPE_STR,
 		'podcastauthor'   => TYPE_STR,
-
+		'displaymode'     => TYPE_UINT,
+		'return_node'     => TYPE_UINT,
 		'quickeditnoajax' => TYPE_BOOL // true when going from an AJAX edit but not using AJAX
 	));
 	// Make sure the posthash is valid
@@ -217,8 +220,9 @@ if ($_POST['do'] == 'updatepost')
 	// ### PREP INPUT ###
 	if ($vbulletin->GPC['wysiwyg'])
 	{
-		require_once(DIR . '/includes/functions_wysiwyg.php');
-		$edit['message'] = convert_wysiwyg_html_to_bbcode($vbulletin->GPC['message'], $foruminfo['allowhtml']);
+		require_once(DIR . '/includes/class_wysiwygparser.php');
+		$html_parser = new vB_WysiwygHtmlParser($vbulletin);
+		$edit['message'] = $html_parser->parse_wysiwyg_html_to_bbcode($vbulletin->GPC['message'], $foruminfo['allowhtml']);
 	}
 	else
 	{
@@ -281,7 +285,7 @@ if ($_POST['do'] == 'updatepost')
 	{
 		$edit['iconid'] =& $vbulletin->GPC['iconid'];
 		$edit['title'] =& $vbulletin->GPC['title'];
-		$edit['prefixid'] = ($vbulletin->GPC_exists['prefixid'] ? $vbulletin->GPC['prefixid'] : $threadinfo['prefixid']);
+		$edit['prefixid'] = (($vbulletin->GPC_exists['prefixid'] AND can_use_prefix($vbulletin->GPC['prefixid'])) ? $vbulletin->GPC['prefixid'] : $threadinfo['prefixid']);
 
 		$edit['podcasturl'] =& $vbulletin->GPC['podcasturl'];
 		$edit['podcastsize'] =& $vbulletin->GPC['podcastsize'];
@@ -318,6 +322,10 @@ if ($_POST['do'] == 'updatepost')
 			{
 				$edit['emailupdate'] = array_pop($array = array_keys(fetch_emailchecked($threadinfo)));
 			}
+			if ($vbulletin->GPC_exists['htmlstate'] AND $foruminfo['allowhtml'])
+			{
+				$edit['htmlstate'] = array_pop($array = array_keys(fetch_htmlchecked($vbulletin->GPC['htmlstate'])));
+			}
 		}
 	}
 
@@ -327,7 +335,7 @@ if ($_POST['do'] == 'updatepost')
 	($hook = vBulletinHook::fetch_hook('editpost_update_process')) ? eval($hook) : false;
 
 	// set info
-	$dataman->set_info('parseurl', ($foruminfo['allowbbcode'] AND $edit['parseurl']));
+	$dataman->set_info('parseurl', (($vbulletin->options['allowedbbcodes'] & ALLOW_BBCODE_URL) AND $foruminfo['allowbbcode'] AND $edit['parseurl']));
 	$dataman->set_info('posthash', $posthash);
 	$dataman->set_info('forum', $foruminfo);
 	$dataman->set_info('thread', $threadinfo);
@@ -346,6 +354,11 @@ if ($_POST['do'] == 'updatepost')
 	// set options
 	$dataman->setr('showsignature', $edit['signature']);
 	$dataman->setr('allowsmilie', $edit['enablesmilies']);
+	if ($foruminfo['allowhtml'] AND $edit['htmlstate'])
+	{
+
+		$dataman->setr('htmlstate', $edit['htmlstate']);
+	}
 
 	// set data
 	/*$dataman->setr('userid', $vbulletin->userinfo['userid']);
@@ -401,46 +414,40 @@ if ($_POST['do'] == 'updatepost')
 	}
 	else if ($edit['preview'])
 	{
-		$attachs = $db->query_read_slave("
-			SELECT dateline, thumbnail_dateline, filename, filesize, visible, attachmentid, counter,
-				IF(thumbnail_filesize > 0, 1, 0) AS hasthumbnail, thumbnail_filesize,
-				attachmenttype.thumbnail AS build_thumbnail, attachmenttype.newwindow
-			FROM " . TABLE_PREFIX . "attachment
-			LEFT JOIN " . TABLE_PREFIX . "attachmenttype AS attachmenttype USING (extension)
-			WHERE postid = $postinfo[postid]
-			ORDER BY attachmentid
+		require_once(DIR . '/packages/vbattach/attach.php');
+		$attach = new vB_Attach_Display_Content($vbulletin, 'vBForum_Post');
+		
+		// We need all of the postids in this thread that contain attachments sent instead of $postinfo['postid']
+		$idlist = array($postinfo['postid']);
+		$ids = $vbulletin->db->query_read_slave("
+			SELECT postid
+			FROM " . TABLE_PREFIX  . "post
+			WHERE
+				threadid = {$postinfo['threadid']}
+					AND
+				attach > 0
 		");
-		while ($attachment = $db->fetch_array($attachs))
+		while ($id = $vbulletin->db->fetch_array($ids))
 		{
-			if (!$attachment['build_thumbnail'])
-			{
-				$attachment['hasthumbnail'] = false;
-			}
-			$postattach["$attachment[attachmentid]"] = $attachment;
+			$idlist[] = $id['postid'];
 		}
-
-		// Attachments added since the edit began.
-		$attachs = $db->query_read("
-			SELECT dateline, thumbnail_dateline, filename, filesize, visible, attachmentid, counter,
-				IF(thumbnail_filesize > 0, 1, 0) AS hasthumbnail, thumbnail_filesize,
-				attachmenttype.thumbnail AS build_thumbnail, attachmenttype.newwindow
-			FROM " . TABLE_PREFIX . "attachment AS attachment
-			LEFT JOIN " . TABLE_PREFIX . "attachmenttype AS attachmenttype USING (extension)
-			WHERE posthash = '" . $db->escape_string($posthash) . "'
-				AND (userid = " . $vbulletin->userinfo['userid'] . " OR userid = $postinfo[userid])
-			ORDER BY attachmentid
-		");
-		while ($attachment = $db->fetch_array($attachs))
+		$postattach = $attach->fetch_postattach($posthash, $idlist, $postinfo['userid'], true);
+		if ($postattach['bycontent'][0])
 		{
-			if (!$attachment['build_thumbnail'])
+			if ($postattach['bycontent'][$postinfo['postid']])
 			{
-				$attachment['hasthumbnail'] = false;
+				$postattach['bycontent'][$postinfo['postid']] = $postattach['bycontent'][$postinfo['postid']] + $postattach['bycontent'][0];
 			}
-			$postattach["$attachment[attachmentid]"] = $attachment;
+			else
+			{
+				$postattach['bycontent'][$postinfo['postid']] = $postattach['bycontent'][0];
+			}
+			unset($postattach['bycontent'][0]);
 		}
+		$edit['postid'] = $postinfo['postid'];
 
 		// ### PREVIEW POST ###
-		$postpreview = process_post_preview($edit, $postinfo['userid'], $postattach);
+		$postpreview = process_post_preview($edit, $postinfo['userid'], $postattach['bycontent'][$postinfo['postid']], $postattach['byattachment']);
 		$previewpost = true;
 		$_REQUEST['do'] = 'editpost';
 	}
@@ -455,6 +462,7 @@ if ($_POST['do'] == 'updatepost')
 		// ### POST HAS NO ERRORS ###
 
 		$dataman->save();
+		clear_autosave_text('vBForum_Post', $postinfo['postid'], 0, $vbulletin->userinfo['userid']);
 
 		$update_edit_log = true;
 
@@ -528,6 +536,7 @@ if ($_POST['do'] == 'updatepost')
 
 		$threadman =& datamanager_init('Thread', $vbulletin, ERRTYPE_SILENT, 'threadpost');
 		$threadman->set_existing($threadinfo);
+		$threadman->set_info('pagetext', $edit['message']);
 
 		if ($can_update_thread AND $edit['title'] != '')
 		{
@@ -549,7 +558,7 @@ if ($_POST['do'] == 'updatepost')
 				$threadman->set('iconid', $edit['iconid']);
 			}
 
-			if ($vbulletin->GPC_exists['prefixid'])
+			if ($vbulletin->GPC_exists['prefixid'] AND can_use_prefix($vbulletin->GPC['prefixid']))
 			{
 				$threadman->set('prefixid', $vbulletin->GPC['prefixid']);
 				if ($threadman->thread['prefixid'] === '' AND ($foruminfo['options'] & $vbulletin->bf_misc_forumoptions['prefixrequired']))
@@ -645,6 +654,7 @@ if ($_POST['do'] == 'updatepost')
 			require_once(DIR . '/includes/functions_bigthree.php');
 			require_once(DIR . '/includes/class_xml.php');
 
+			$show['threadedmode'] = ($vbulletin->GPC['displaymode'] == 1);
 			$postcount = 0;
 			$thread =& $threadinfo;
 			$forum =& $foruminfo;
@@ -694,32 +704,33 @@ if ($_POST['do'] == 'updatepost')
 
 			$see_deleted = ($forumperms & $vbulletin->bf_ugp_forumpermissions['canseedelnotice'] OR can_moderate($threadinfo['forumid']));
 
-			$postbit_factory =& new vB_Postbit_Factory();
+			$postbit_factory = new vB_Postbit_Factory();
 			$postbit_factory->registry =& $vbulletin;
 			$postbit_factory->forum =& $foruminfo;
 			$postbit_factory->thread =& $thread;
 			$postbit_factory->cache = array();
-			$postbit_factory->bbcode_parser =& new vB_BbCodeParser($vbulletin, fetch_tag_list());
+			$postbit_factory->bbcode_parser = new vB_BbCodeParser($vbulletin, fetch_tag_list());
 
-			if ($postinfo['attach'])
+			// Scan post for [attach] tags
+			$attachid = array();
+			if ($forumperms & $vbulletin->bf_ugp_forumpermissions['canpostattachment'] AND $vbulletin->userinfo['userid'] AND !empty($vbulletin->userinfo['attachmentextensions']))
 			{
-				$attachments = $db->query_read_slave("
-					SELECT dateline, thumbnail_dateline, filename, filesize, visible, attachmentid, counter,
-						postid, IF(thumbnail_filesize > 0, 1, 0) AS hasthumbnail, thumbnail_filesize,
-						attachmenttype.thumbnail AS build_thumbnail, attachmenttype.newwindow
-					FROM " . TABLE_PREFIX . "attachment
-					LEFT JOIN " . TABLE_PREFIX . "attachmenttype AS attachmenttype USING (extension)
-					WHERE postid = $postinfo[postid]
-					ORDER BY attachmentid
-				");
-				while ($attachment = $db->fetch_array($attachments))
+				if (preg_match_all('#\[attach(?:=(right|left|config))?\](\d+)\[/attach\]#i', $post['pagetext'], $matches) AND $matches[2])
 				{
-					if (!$attachment['build_thumbnail'])
+					foreach($matches[2] AS $key => $attachmentid)
 					{
-						$attachment['hasthumbnail'] = false;
-					}
-					$post['attachments']["$attachment[attachmentid]"] = $attachment;
+						$attachid[] = $attachmentid;
+					}			
 				}
+			}			
+			
+			if ($postinfo['attach'] OR $attachid)
+			{
+				require_once(DIR . '/packages/vbattach/attach.php');
+				$attach = new vB_Attach_Display_Content($vbulletin, 'vBForum_Post');
+				$attachments = $attach->fetch_postattach(0, $postinfo['postid'], $postinfo['userid'], true, $attachid);
+				$post['attachments'] = $attachments['byattachment'];
+				$post['allattachments'] = $attachments['bycontent'][$post['postid']];					
 			}
 
 			$postbit = '';
@@ -755,7 +766,7 @@ if ($_POST['do'] == 'updatepost')
 			$show['managepost'] = iif(can_moderate($threadinfo['forumid'], 'candeleteposts') OR can_moderate($threadinfo['forumid'], 'canremoveposts'), true, false);
 			$show['approvepost'] = (can_moderate($threadinfo['forumid'], 'canmoderateposts')) ? true : false;
 			$show['managethread'] = can_moderate($threadinfo['forumid'], 'canmanagethreads') ? true : false;
-			$show['inlinemod'] = ($show['managethread'] OR $show['managepost'] OR $show['approvepost']) ? true : false;
+			$show['inlinemod'] = (!$show['threadedmode'] AND ($show['managethread'] OR $show['managepost'] OR $show['approvepost'])) ? true : false;
 			$show['multiquote_global'] = ($vbulletin->options['multiquote'] AND $vbulletin->userinfo['userid']);
 
 			if ($show['multiquote_global'])
@@ -779,6 +790,41 @@ if ($_POST['do'] == 'updatepost')
 				$fetchtype = 'post';
 			}
 
+			if ($fetchtype == 'post' AND $vbulletin->GPC['return_node'])
+			{
+				$fetchtype = 'cmscomment';
+				$show['return_node'] = $vbulletin->GPC['return_node'];
+				$show['avatar'] = 1;
+				if (!$post['hascustomavatar'] AND !$post['avatarid'])
+				{
+					if ($post['profilepic'])
+					{
+						$post['hascustomavatar'] = 1;
+						$post['avatarid'] = true;
+						if ($vbulletin->options['usefileavatar'])
+						{
+							$post['avatarpath'] = $vbulletin->options['profilepicurl'] . '/profilepic' . $post['userid'] . '_' . $post['profilepicrevision'] . '.gif';
+						}
+						else
+						{
+							$post['avatarpath'] = 'image.php?' . $vbulletin->session->vars['sessionurl'] . 'u=' . $post['userid'] . '&amp;dateline=' . $post['profilepicdateline'] . '&amp;type=profile';
+						}
+						$post['avwidth'] = $post['ppwidth'];
+						$post['avheight'] = $post['ppheight'];
+					}
+					else
+					{
+						$post['hascustomavatar'] = 1;
+						$post['avatarid'] = true;
+						// explicity setting avatarurl to allow guests comments to show unknown avatar
+						$post['avatarurl'] = $post['avatarpath'] = vB_Template_Runtime::fetchStyleVar('imgdir_misc') . '/unknown.gif';
+						$post['avwidth'] = 60;
+						$post['avheight'] = 60;
+					}
+				}				
+				$postbit_factory->bbcode_parser->set_quote_template('vbcms_bbcode_quote');
+			}
+			
 			($hook = vBulletinHook::fetch_hook('showthread_postbit_create')) ? eval($hook) : false;
 
 			$show['spacer'] = false;
@@ -795,8 +841,24 @@ if ($_POST['do'] == 'updatepost')
 		}
 		else
 		{
-			$vbulletin->url = 'showthread.php?' . $vbulletin->session->vars['sessionurl'] . "p=$postinfo[postid]#post$postinfo[postid]";
-			eval(print_standard_redirect('redirect_editthanks'));
+			if ($can_update_thread AND ($edit['title'] != $postinfo['title']))
+			{
+				$threadinfo['title'] = $edit['title'];
+			}
+
+			// if we are editing a CMS article comment, redirect to the article
+			if ($vbulletin->GPC_exists['return_node'] AND intval($vbulletin->GPC['return_node']))
+			{
+				$url = vBCms_Route_Content::getURL(array('node' => $vbulletin->GPC['return_node']));
+				$join_char = strpos($url,'?') ? '&' : '?';
+				$url .= $join_char . "postid=" . $postinfo['postid'] . "#comments_$postinfo[postid]";
+				exec_header_redirect($url);
+			}
+			else
+			{
+				$vbulletin->url = fetch_seo_url('thread', $threadinfo, array('p' => $postinfo['postid'])) . "#post$postinfo[postid]";
+				print_standard_redirect('redirect_editthanks');  
+			}
 		}
 	}
 }
@@ -805,6 +867,9 @@ if ($_POST['do'] == 'updatepost')
 if ($_REQUEST['do'] == 'editpost')
 {
 	($hook = vBulletinHook::fetch_hook('editpost_edit_start')) ? eval($hook) : false;
+	$vbulletin->input->clean_array_gpc('r', array(
+		'return_node'     => TYPE_UINT,
+	));
 
 	// get message
 	if ($edit['message'] != '')
@@ -830,6 +895,14 @@ if ($_REQUEST['do'] == 'editpost')
 		$checked['parseurl'] = 'checked="checked"';
 		$checked['signature'] = ($postinfo['showsignature']) ? 'checked="checked"' : '';
 		$checked['disablesmilies'] = (!$postinfo['allowsmilie']) ? 'checked="checked"' : '';
+	}
+
+	if ($foruminfo['allowhtml'])
+	{
+		$htmlchecked = fetch_htmlchecked($previewpost ? $edit['htmlstate'] : $postinfo['htmlstate']);
+		$templater = vB_Template::create('newpost_html');
+			$templater->register('htmlchecked', $htmlchecked);
+		$htmloption = $templater->render();
 	}
 
 	// Are we editing someone else's post? If so load that users folders and subscription info for this thread.
@@ -920,21 +993,8 @@ if ($_REQUEST['do'] == 'editpost')
 	$postinfo['posttime'] = vbdate($vbulletin->options['timeformat'], $postinfo['dateline']);
 
 	// find out if first post
-	$getpost = $db->query_first("
-		SELECT postid
-		FROM " . TABLE_PREFIX . "post
-		WHERE threadid = $threadinfo[threadid]
-		ORDER BY dateline
-		LIMIT 1
-	");
-	if ($getpost['postid'] == $postinfo['postid'])
-	{
-		$isfirstpost = true;
-	}
-	else
-	{
-		$isfirstpost = false;
-	}
+	$isfirstpost = $postinfo['postid'] == $threadinfo['firstpostid'] ? true : false;
+	
 	if ($isfirstpost AND $postinfo['title'] == '' AND ($postinfo['dateline'] + $vbulletin->options['editthreadtitlelimit'] * 60) > TIMENOW)
 	{
 		$postinfo['title'] = $threadinfo['title'];
@@ -952,8 +1012,7 @@ if ($_REQUEST['do'] == 'editpost')
 	// load prefix stuff if necessary
 	if ($can_update_thread)
 	{
-		require_once(DIR . '/includes/functions_prefix.php');
-		$prefix_options = fetch_prefix_html($foruminfo['forumid'], (isset($edit['prefixid']) ? $edit['prefixid'] : $threadinfo['prefixid']));
+		$prefix_options = fetch_prefix_html($foruminfo['forumid'], (isset($edit['prefixid']) ? $edit['prefixid'] : $threadinfo['prefixid']), true);
 		$show['empty_prefix_option'] = ($threadinfo['prefixid'] == '' OR !($foruminfo['options'] & $vbulletin->bf_misc_forumoptions['prefixrequired']));
 	}
 	else
@@ -976,98 +1035,45 @@ if ($_REQUEST['do'] == 'editpost')
 		$posticons = construct_icons($postinfo['iconid'], $foruminfo['allowicons']);
 	}
 
-	$attach_editor = array();
-	$attachment_js = '';
-
 	// edit / add attachment
 	if ($forumperms & $vbulletin->bf_ugp_forumpermissions['canpostattachment'] AND $vbulletin->userinfo['userid'] AND !empty($vbulletin->userinfo['attachmentextensions']))
 	{
-		require_once(DIR . '/includes/functions_file.php');
-		$inimaxattach = fetch_max_upload_size();
-		$maxattachsize = vb_number_format($inimaxattach, 1, true);
-
-		if (!$posthash OR !$poststarttime)
-		{
-			$poststarttime = TIMENOW;
-			$posthash = md5($poststarttime . $vbulletin->userinfo['userid'] . $vbulletin->userinfo['salt']);
-
-		}
-
-		if (empty($postattach))
-		{
-			// <-- This is done in two queries since Mysql will not use an index on an OR query which gives a full table scan of the attachment table
-			// A poor man's UNION
-			// Attachments that existed before the edit began.
-			$currentattaches1 = $db->query_read_slave("
-				SELECT dateline, filename, filesize, attachmentid
-				FROM " . TABLE_PREFIX . "attachment
-				WHERE postid = $postinfo[postid]
-				ORDER BY attachmentid
-			");
-			// Attachments added since the edit began. Used when editpost is reloaded due to an error on the user side
-			$currentattaches2 = $db->query_read_slave("
-				SELECT dateline, filename, filesize, attachmentid
-				FROM " . TABLE_PREFIX . "attachment
-				WHERE posthash = '" . $db->escape_string($posthash) . "'
-					AND userid = " . $vbulletin->userinfo['userid'] . "
-				ORDER BY attachmentid
-			");
-			$attachcount = 0;
-			for ($x = 1; $x <= 2; $x++)
-			{
-				$currentattaches =& ${currentattaches . $x};
-				while ($attach = $db->fetch_array($currentattaches))
-				{
-					$postattach["$attach[attachmentid]"] = $attach;
-				}
-			}
-		}
-		// DON'T PUT AN ELSE HERE! OR ELSE!! ;)
-		if (!empty($postattach))
-		{
-			foreach($postattach AS $attachmentid => $attach)
-			{
-				$attachcount++;
-				$attach['filename'] = htmlspecialchars_uni($attach['filename']);
-				$attach['filesize'] = vb_number_format($attach['filesize'], 1, true);
-				$attach['extension'] = strtolower(file_extension($attach['filename']));
-				$attach['imgpath'] = "$stylevar[imgdir_attach]/$attach[extension].gif";
-				$show['attachmentlist'] = true;
-				eval('$attachments .= "' . fetch_template('newpost_attachmentbit') . '";');
-
-				$attachment_js .= construct_attachment_add_js($attachmentid, $attach['filename'], $attach['filesize'], $attach['extension']);
-
-				$attach_editor["$attachmentid"] = $attach['filename'];
-			}
-		}
-
+		$values = "values[p]=$postinfo[postid]&amp;editpost=1";
+		require_once(DIR . '/packages/vbattach/attach.php');
+		$attach = new vB_Attach_Display_Content($vbulletin, 'vBForum_Post');
+		$attachmentoption = $attach->fetch_edit_attachments($posthash, $poststarttime, $postattach['bycontent'][$postid], $postid, $values, $editorid, $attachcount, $postinfo['userid']);
+		$contenttypeid = $attach->fetch_contenttypeid();
 		if (!$foruminfo['allowposting'] AND $attachcount == 0)
 		{
 			$attachmentoption = '';
-			$attach_editor = array();
-		}
-		else
-		{
-			$attachurl = "p=$postinfo[postid]&amp;editpost=1";
-			$newpost_attachmentbit = prepare_newpost_attachmentbit();
-			eval('$attachmentoption = "' . fetch_template('newpost_attachment') . '";');
-
-			$attach_editor['hash'] = $postinfo['postid'];
-			$attach_editor['url'] = "newattachment.php?$session[sessionurl]p=$postinfo[postid]&amp;editpost=1&amp;poststarttime=$poststarttime&amp;posthash=$posthash";
 		}
 	}
 	else
 	{
 		$attachmentoption = '';
+		$contenttypeid = 0;
 	}
+
+	require_once(DIR . '/includes/functions_file.php');
+	$attachinfo = fetch_attachmentinfo($posthash, $poststarttime, $contenttypeid, array('p' => $postinfo['postid']));
 
 	$editorid = construct_edit_toolbar(
 		$newpost['message'],
 		0,
 		$foruminfo['forumid'],
-		iif($foruminfo['allowsmilies'], 1, 0),
+		$foruminfo['allowsmilies'] ? 1 : 0,
 		($postinfo['allowsmilie'] AND !$edit['disablesmilies']) ? 1 : 0,
-		($forumperms & $vbulletin->bf_ugp_forumpermissions['canpostattachment'] AND $vbulletin->userinfo['userid'] AND $postinfo['userid'] AND !empty($vbulletin->userinfo['attachmentextensions']))
+		($forumperms & $vbulletin->bf_ugp_forumpermissions['canpostattachment'] AND $vbulletin->userinfo['userid'] AND $postinfo['userid'] AND !empty($vbulletin->userinfo['attachmentextensions'])),
+		'fe',
+		'',
+		$attachinfo,
+		'content',
+		'vBForum_Post',
+		$postinfo['postid'],
+		0,
+		$previewpost,
+		true,
+		'titlefield'
 	);
 
 	if ($isfirstpost AND can_moderate($threadinfo['forumid'], 'canmanagethreads'))
@@ -1133,7 +1139,9 @@ if ($_REQUEST['do'] == 'editpost')
 	{
 		$show['closethread'] = iif($threadinfo['open'], true, false);
 		$show['unstickthread'] = iif($threadinfo['sticky'], true, false);
-		eval('$threadmanagement = "' . fetch_template('newpost_threadmanage') . '";');
+		$templater = vB_Template::create('newpost_threadmanage');
+			$templater->register('checked', $checked);
+		$threadmanagement = $templater->render();
 	}
 	else
 	{
@@ -1146,28 +1154,70 @@ if ($_REQUEST['do'] == 'editpost')
 
 	construct_forum_rules($foruminfo, $forumperms);
 
-	eval('$usernamecode = "' . fetch_template('newpost_usernamecode') . '";');
+	$templater = vB_Template::create('newpost_usernamecode');
+		$templater->register('_SERVER', $_SERVER);
+	$usernamecode = $templater->render();
 
 	// draw nav bar
 	$navbits = array();
+	$navbits[fetch_seo_url('forumhome', array())] = $vbphrase['forum'];
 	$parentlist = array_reverse(explode(',', substr($foruminfo['parentlist'], 0, -3)));
 	foreach ($parentlist AS $forumID)
 	{
 		$forumTitle =& $vbulletin->forumcache["$forumID"]['title'];
-		$navbits['forumdisplay.php?' . $vbulletin->session->vars['sessionurl'] . "f=$forumID"] = $forumTitle;
+		$navbits[fetch_seo_url('forum', array('forumid' => $forumID, 'title' => $forumTitle))] = $forumTitle;
 	}
-	$navbits['showthread.php?' . $vbulletin->session->vars['sessionurl'] . "p=$postinfo[postid]#post$postinfo[postid]"] = $threadinfo['prefix_plain_html'] . ' ' . $threadinfo['title'];
+	$pageinfo = array('p' => $postinfo['postid']);
+	$navbits[fetch_seo_url('thread', $threadinfo) . "#post$postinfo[postid]"] = $threadinfo['prefix_plain_html'] . ' ' . $threadinfo['title'];
 	$navbits[''] = $vbphrase['edit_post'];
 	$navbits = construct_navbits($navbits);
-	eval('$navbar = "' . fetch_template('navbar') . '";');
+	$navbar = render_navbar_template($navbits);
 
-	$show['parseurl'] = $foruminfo['allowbbcode'];
-	$show['misc_options'] = ($vbulletin->userinfo['signature'] != '' OR $show['parseurl'] OR !empty($disablesmiliesoption));
+	$show['signaturecheckbox'] = ($permissions['genericpermissions'] & $vbulletin->bf_ugp_genericpermissions['canusesignature'] AND $vbulletin->userinfo['signature']);
+	$show['parseurl'] = (($vbulletin->options['allowedbbcodes'] & ALLOW_BBCODE_URL) AND $foruminfo['allowbbcode']);
+	$show['misc_options'] = ($show['signaturecheckbox'] OR $show['parseurl'] OR !empty($disablesmiliesoption));
+	$show['lightbox'] = ($vbulletin->options['lightboxenabled'] AND $vbulletin->options['usepopups']);
 
 	($hook = vBulletinHook::fetch_hook('editpost_edit_complete')) ? eval($hook) : false;
 
 	$url =& $vbulletin->url;
-	eval('print_output("' . fetch_template('editpost') . '");');
+	$templater = vB_Template::create('editpost');
+		$templater->register_page_templates();
+		$templater->register('attachmentoption', $attachmentoption);
+		$templater->register('checked', $checked);
+		$templater->register('disablesmiliesoption', $disablesmiliesoption);
+		$templater->register('editorid', $editorid);
+		$templater->register('emailchecked', $emailchecked);
+		$templater->register('explicitchecked', $explicitchecked);
+		$templater->register('folderbits', $folderbits);
+		$templater->register('forumrules', $forumrules);
+		$templater->register('messagearea', $messagearea);
+		$templater->register('navbar', $navbar);
+		$templater->register('newpost', $newpost);
+		$templater->register('onload', $onload);
+		$templater->register('pageinfo', $pageinfo);
+		$templater->register('podcastauthor', $podcastauthor);
+		$templater->register('podcastkeywords', $podcastkeywords);
+		$templater->register('podcastsize', $podcastsize);
+		$templater->register('podcastsubtitle', $podcastsubtitle);
+		$templater->register('podcasturl', $podcasturl);
+		$templater->register('posthash', $posthash);
+		$templater->register('posticons', $posticons);
+		$templater->register('postid', $postid);
+		$templater->register('postinfo', $postinfo);
+		$templater->register('postpreview', $postpreview);
+		$templater->register('poststarttime', $poststarttime);
+		$templater->register('prefix_options', $prefix_options);
+		$templater->register('selectedicon', $selectedicon);
+		$templater->register('threadinfo', $threadinfo);
+		$templater->register('threadmanagement', $threadmanagement);
+		$templater->register('title', $title);
+		$templater->register('url', $url);
+		$templater->register('usernamecode', $usernamecode);
+		$templater->register('htmloption', $htmloption);
+		$templater->register('return_node', $vbulletin->GPC['return_node']);
+
+	print_output($templater->render());
 
 }
 
@@ -1179,6 +1229,7 @@ if ($_POST['do'] == 'deletepost')
 		'deletepost'      => TYPE_STR,
 		'reason'          => TYPE_STR,
 		'keepattachments' => TYPE_BOOL,
+		'return_node'     => TYPE_UINT,
 	));
 
 	($hook = vBulletinHook::fetch_hook('editpost_delete_start')) ? eval($hook) : false;
@@ -1190,15 +1241,7 @@ if ($_POST['do'] == 'deletepost')
 
 	if ($vbulletin->GPC['deletepost'] != '')
 	{
-		//get first post in thread
-		$getfirst = $db->query_first_slave("
-			SELECT postid, dateline
-			FROM " . TABLE_PREFIX . "post
-			WHERE threadid = $postinfo[threadid]
-			ORDER BY dateline
-			LIMIT 1
-		");
-		if ($getfirst['postid'] == $postinfo['postid'])
+		if ($threadinfo['firstpostid'] == $postinfo['postid'])
 		{
 			// delete thread
 			if ($forumperms & $vbulletin->bf_ugp_forumpermissions['candeletethread'] OR can_moderate($threadinfo['forumid'], 'canmanagethreads'))
@@ -1236,8 +1279,8 @@ if ($_POST['do'] == 'deletepost')
 
 				($hook = vBulletinHook::fetch_hook('editpost_delete_complete')) ? eval($hook) : false;
 
-				$vbulletin->url = 'forumdisplay.php?' . $vbulletin->session->vars['sessionurl'] . "f=$threadinfo[forumid]";
-				eval(print_standard_redirect('redirect_deletethread'));
+				$vbulletin->url = fetch_seo_url('forum', $foruminfo);
+				print_standard_redirect('redirect_deletethread');  
 			}
 			else
 			{
@@ -1261,6 +1304,17 @@ if ($_POST['do'] == 'deletepost')
 			$postman->delete($foruminfo['countposts'], $threadinfo['threadid'], $removaltype, array('userid' => $vbulletin->userinfo['userid'], 'username' => $vbulletin->userinfo['username'], 'reason' => $vbulletin->GPC['reason'], 'keepattachments' => $vbulletin->GPC['keepattachments']));
 			unset($postman);
 
+			if ($node = get_nodeFromThreadid($threadinfo['threadid']))
+			{
+				// Expire any CMS comments cache entries.
+				$expire_cache = array('cms_comments_change');
+				$expire_cache[] = 'cms_comments_add_' . $node;
+				$expire_cache[] = 'cms_comments_change_' . $threadinfo['threadid'];
+
+				vB_Cache::instance()->eventPurge($expire_cache);
+				vB_Cache::instance()->cleanNow();
+			}
+
 			build_thread_counters($threadinfo['threadid']);
 
 			if ($foruminfo['lastthreadid'] != $threadinfo['threadid'])
@@ -1281,6 +1335,12 @@ if ($_POST['do'] == 'deletepost')
 
 			($hook = vBulletinHook::fetch_hook('editpost_delete_complete')) ? eval($hook) : false;
 
+ 			if ($vbulletin->GPC_exists['return_node'] AND intval($vbulletin->GPC['return_node']))
+			{
+				$url = vBCms_Route_Content::getURL(array('node' => $vbulletin->GPC['return_node']));
+				exec_header_redirect($url);
+			}
+			
 			$url = unhtmlspecialchars($vbulletin->url);
 			if (preg_match('/\?([^#]*)(#.*)?$/s', $url, $match))
 			{
@@ -1299,27 +1359,29 @@ if ($_POST['do'] == 'deletepost')
 				$vbulletin->url = '';
 			}
 
+			// This is always going to execute when mod_rewrite SEO is enabled since showthread.php won't be in the url
 			if (!stristr($vbulletin->url, 'showthread.php')) // no referring url?
 			{
-				$vbulletin->url = 'showthread.php?' . $vbulletin->session->vars['sessionurl'] . 't=' . $threadinfo['threadid'];
+				$vbulletin->url = fetch_seo_url('thread', $threadinfo);
 			}
 
-			eval(print_standard_redirect('redirect_deletepost'));
+			print_standard_redirect('redirect_deletepost');  
 		}
 	}
 	else
 	{
 		($hook = vBulletinHook::fetch_hook('editpost_delete_complete')) ? eval($hook) : false;
 
-		$vbulletin->url = 'showthread.php?' . $vbulletin->session->vars['sessionurl'] . "p=$postinfo[postid]#post$postinfo[postid]";
-		eval(print_standard_redirect('redirect_nodelete'));
+		$pageinfo = array('p' => $postinfo['postid']);
+		$vbulletin->url = fetch_seo_url('thread', $threadinfo, $pageinfo) . "#post$postinfo[postid]";
+		print_standard_redirect('redirect_nodelete');  
 	}
 }
 
 /*======================================================================*\
 || ####################################################################
-|| # Downloaded: 16:21, Sat Apr 6th 2013
-|| # CVS: $RCSfile$ - $Revision: 26636 $
+|| # Downloaded: 14:57, Sun Aug 11th 2013
+|| # CVS: $RCSfile$ - $Revision: 60958 $
 || ####################################################################
 \*======================================================================*/
 ?>

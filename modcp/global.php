@@ -1,9 +1,9 @@
 <?php
 /*======================================================================*\
 || #################################################################### ||
-|| # vBulletin 3.7.2 Patch Level 2 - Licence Number VBF2470E4F
+|| # vBulletin 4.2.1 - Licence Number VBC2DDE4FB
 || # ---------------------------------------------------------------- # ||
-|| # Copyright ©2000-2013 Jelsoft Enterprises Ltd. All Rights Reserved. ||
+|| # Copyright ©2000-2013 vBulletin Solutions Inc. All Rights Reserved. ||
 || # This file may not be redistributed in whole or significant part. # ||
 || # ---------------- VBULLETIN IS NOT FREE SOFTWARE ---------------- # ||
 || # http://www.vbulletin.com | http://www.vbulletin.com/license.html # ||
@@ -12,6 +12,12 @@
 
 // identify where we are
 define('VB_AREA', 'ModCP');
+
+//this should technically be the name of the script file being run, but
+//it really just needs to be set to something to pass the include checks
+//and figuring out how to set it correctly from $_SERVER information is
+//proving to be more trouble than it is  worth
+define('VB_ENTRY', 'ModCP');
 define('IN_CONTROL_PANEL', true);
 
 if (!isset($phrasegroups) OR !is_array($phrasegroups))
@@ -38,18 +44,10 @@ require_once(DIR . '/includes/functions_calendar.php');
 // ###################### Start headers #######################
 exec_nocache_headers();
 
-// Emulate IE7 rendering in IE8
-if ($vbulletin->options['ie8render7'])
-{
-	@header('X-UA-Compatible: IE=7');
-}
-
-
 if ($vbulletin->userinfo['cssprefs'] != '')
 {
 	$vbulletin->options['cpstylefolder'] = $vbulletin->userinfo['cssprefs'];
 }
-
 
 // ###################### Get date / time info #######################
 // override date/time settings if specified
@@ -60,7 +58,7 @@ fetch_time_data();
 // initialize $vbphrase and set language constants
 $vbphrase = init_language();
 $_tmp = NULL;
-$stylevar = fetch_stylevars($_tmp, $vbulletin->userinfo);
+fetch_stylevars($_tmp, $vbulletin->userinfo);
 
 $permissions = cache_permissions($vbulletin->userinfo, true);
 $vbulletin->userinfo['permissions'] =& $permissions;
@@ -101,8 +99,8 @@ if ((!can_moderate() AND !can_moderate_calendar()) OR ($vbulletin->options['time
 
 /*======================================================================*\
 || ####################################################################
-|| # Downloaded: 16:21, Sat Apr 6th 2013
-|| # CVS: $RCSfile$ - $Revision: 26608 $
+|| # Downloaded: 14:57, Sun Aug 11th 2013
+|| # CVS: $RCSfile$ - $Revision: 62099 $
 || ####################################################################
 \*======================================================================*/
 ?>

@@ -1,9 +1,9 @@
 <?php
 /*======================================================================*\
 || #################################################################### ||
-|| # vBulletin 3.7.2 Patch Level 2 - Licence Number VBF2470E4F
+|| # vBulletin 4.2.1 - Licence Number VBC2DDE4FB
 || # ---------------------------------------------------------------- # ||
-|| # Copyright ©2000-2013 Jelsoft Enterprises Ltd. All Rights Reserved. ||
+|| # Copyright 2000-2013 vBulletin Solutions Inc. All Rights Reserved. ||
 || # This file may not be redistributed in whole or significant part. # ||
 || # ---------------- VBULLETIN IS NOT FREE SOFTWARE ---------------- # ||
 || # http://www.vbulletin.com | http://www.vbulletin.com/license.html # ||
@@ -30,8 +30,8 @@ define('BB_PARSER_TAG_OPENED', 3);
 * Stack based BB code parser.
 *
 * @package 		vBulletin
-* @version		$Revision: 26966 $
-* @date 		$Date: 2008-06-18 04:38:54 -0500 (Wed, 18 Jun 2008) $
+* @version		$Revision: 63865 $
+* @date 		$Date: 2012-06-25 14:04:44 -0700 (Mon, 25 Jun 2012) $
 *
 */
 class vB_BbCodeParser
@@ -50,6 +50,13 @@ class vB_BbCodeParser
 	* @var	array
 	*/
 	var $stack = array();
+
+	/**
+	* Holder for the output of the BB code parser while it is being built.
+	*
+	* @var	string
+	*/
+	var $parse_output = '';
 
 	/**
 	* Used alongside the stack. Holds a reference to the node on the stack that is
@@ -90,7 +97,7 @@ class vB_BbCodeParser
 	*
 	* @var	array
 	*/
-	var $attachments = array();
+	var $attachments = null;
 
 	/**
 	* Whether this parser unsets attachment info in $this->attachments when an inline attachment is found
@@ -98,6 +105,20 @@ class vB_BbCodeParser
 	* @var	bool
 	*/
 	var $unsetattach = false;
+
+	/**
+	 * Id of the forum the source string is in for permissions
+	 *
+	 * @var integer
+	 */
+	var $forumid = 0;
+
+	/**
+	 * Id of the outer container, if applicable
+	 *
+	 * @var mixed
+	 */
+	var $containerid = 0;
 
 	/**
 	* True if custom tags have been fetched
@@ -124,6 +145,13 @@ class vB_BbCodeParser
 	var $parse_userinfo = array();
 
 	/**
+	* Global override for space stripping
+	*
+	* @var	bool
+	*/
+	var $strip_space_after = true;
+
+	/**
 	* The number that is the maximum node when parsing for tags. count(nodes)
 	*
 	* @var	int
@@ -137,6 +165,43 @@ class vB_BbCodeParser
 	* @var	int
 	*/
 	var $node_num = 0;
+
+	/**
+	 * When set, look for tags with this option to disable at runtime (for the wysiwyg parser)
+	 * For tags defined at runtime (plugins)
+	 *
+	 * @var boolean
+	 */
+	var $handle_wysiwyg_no_parse = false;
+
+	/** Template for generating quote links. We need to override for cms comments" **/
+	protected $quote_printable_template = 'bbcode_quote_printable';
+
+	/** Template for generating quote links. We need to override for cms comments" **/
+	protected $quote_template =  'bbcode_quote';
+
+	/**Additional parameter(s) for the quote template. We need for cms comments **/
+	protected $quote_vars = false;
+
+	/**
+	* Object to provide the implementation of the table helper to use.
+	* See setTableHelper and getTableHelper.
+	*
+	* @var	vBForum_BBCodeHelper_Table
+	*/
+	protected $table_helper = null;
+
+	/**
+	*	Display full size image attachment if an image is [attach] using without =config, otherwise display a thumbnail
+	*
+	*/
+	protected $displayimage = false;
+
+	/**
+	*	Tags that won't be parsed, can be set at any time prior to parsing.
+	*
+	*/
+	public $invalid_tags = array();
 
 	/**
 	* Constructor. Sets up the tag list.
@@ -177,13 +242,12 @@ class vB_BbCodeParser
 				$has_option = $customtag['twoparams'] ? 'option' : 'no_option';
 				$customtag['bbcodetag'] = strtolower($customtag['bbcodetag']);
 
-
 				$this->tag_list["$has_option"]["$customtag[bbcodetag]"] = array(
-					'html' 			=> $customtag['bbcodereplacement'],
-					'strip_empty' 		=> $customtag['strip_empty'],
-					'stop_parse'		=> $customtag['stop_parse'],
-					'disable_smilies'	=> $customtag['disable_smilies'],
-					'disable_wordwrap'	=> $customtag['disable_wordwrap'],
+					'html'             => $customtag['bbcodereplacement'],
+					'strip_empty'      => (intval($customtag['options']) & $this->registry->bf_misc['bbcodeoptions']['strip_empty']) ? 1 : 0 ,
+					'stop_parse'       => (intval($customtag['options']) & $this->registry->bf_misc['bbcodeoptions']['stop_parse']) ? 1 : 0,
+					'disable_smilies'  => (intval($customtag['options']) & $this->registry->bf_misc['bbcodeoptions']['disable_smilies']) ? 1 : 0,
+					'disable_wordwrap' => (intval($customtag['options']) & $this->registry->bf_misc['bbcodeoptions']['disable_wordwrap']) ? 1 : 0,
 				);
 			}
 		}
@@ -198,13 +262,13 @@ class vB_BbCodeParser
 			while ($customtag = $this->registry->db->fetch_array($bbcodes))
 			{
 				$has_option = $customtag['twoparams'] ? 'option' : 'no_option';
-
+				$customtag['bbcodetag'] = strtolower($customtag['bbcodetag']);
 				$this->tag_list["$has_option"]["$customtag[bbcodetag]"] = array(
-					'html' 			=> $customtag['bbcodereplacement'],
-					'strip_empty'		=> (intval($customtag['options']) & $this->registry->bf_misc['bbcodeoptions']['strip_empty']) ? 1 : 0 ,
-					'stop_parse' 		=> (intval($customtag['options']) & $this->registry->bf_misc['bbcodeoptions']['stop_parse']) ? 1 : 0 ,
-					'disable_smilies'	=> (intval($customtag['options']) & $this->registry->bf_misc['bbcodeoptions']['disable_smilies']) ? 1 : 0 ,
-					'disable_wordwrap'	=> (intval($customtag['options']) & $this->registry->bf_misc['bbcodeoptions']['disable_wordwrap']) ? 1 : 0
+					'html'             => $customtag['bbcodereplacement'],
+					'strip_empty'      => (intval($customtag['options']) & $this->registry->bf_misc['bbcodeoptions']['strip_empty']) ? 1 : 0 ,
+					'stop_parse'       => (intval($customtag['options']) & $this->registry->bf_misc['bbcodeoptions']['stop_parse']) ? 1 : 0 ,
+					'disable_smilies'  => (intval($customtag['options']) & $this->registry->bf_misc['bbcodeoptions']['disable_smilies']) ? 1 : 0 ,
+					'disable_wordwrap' => (intval($customtag['options']) & $this->registry->bf_misc['bbcodeoptions']['disable_wordwrap']) ? 1 : 0
 				);
 
 				$this->registry->bbcodecache["$customtag[bbcodeid]"] = $customtag;
@@ -229,6 +293,17 @@ class vB_BbCodeParser
 	}
 
 	/**
+	* Override each tag's default strip_space_after setting ..
+	* We don't want to strip spaces when parsing bbcode for the editor
+	*
+	* @param	bool
+	*/
+	function set_strip_space($value)
+	{
+		$this->strip_space_after = $value;
+	}
+
+	/**
 	* Collect parser options and misc data and fully parse the string into an HTML version
 	*
 	* @param	string	Unparsed text
@@ -238,12 +313,15 @@ class vB_BbCodeParser
 	* @param	string	Preparsed text ([img] tags should not be parsed)
 	* @param	int		Whether the preparsed text has images
 	* @param	bool	Whether the parsed post is cachable
+	* @param	string	Switch for dealing with nl2br
 	*
 	* @return	string	Parsed text
 	*/
-	function parse($text, $forumid = 0, $allowsmilie = true, $isimgcheck = false, $parsedtext = '', $parsedhasimages = 3, $cachable = false)
+	function parse($text, $forumid = 0, $allowsmilie = true, $isimgcheck = false, $parsedtext = '', $parsedhasimages = 3, $cachable = false, $htmlstate = null)
 	{
 		global $calendarinfo;
+
+		$this->forumid = $forumid;
 
 		$donl2br = true;
 
@@ -252,6 +330,8 @@ class vB_BbCodeParser
 			$forumid = 'nonforum';
 		}
 
+		$this->set_invalid_tags($forumid);
+
 		switch($forumid)
 		{
 			// Parse Calendar
@@ -259,6 +339,7 @@ class vB_BbCodeParser
 				$dohtml = $calendarinfo['allowhtml'];
 				$dobbcode = $calendarinfo['allowbbcode'];
 				$dobbimagecode = $calendarinfo['allowimgcode'];
+				$dobbvideocode = $calendarinfo['allowvideocode'];
 				$dosmilies = $calendarinfo['allowsmilies'];
 				break;
 
@@ -267,6 +348,7 @@ class vB_BbCodeParser
 				$dohtml = $this->registry->options['privallowhtml'];
 				$dobbcode = $this->registry->options['privallowbbcode'];
 				$dobbimagecode = $this->registry->options['privallowbbimagecode'];
+				$dobbvideocode = $this->registry->options['privallowbbvideocode'];
 				$dosmilies = $this->registry->options['privallowsmilies'];
 				break;
 
@@ -275,6 +357,7 @@ class vB_BbCodeParser
 				$dohtml = $this->registry->options['unallowhtml'];
 				$dobbcode = $this->registry->options['unallowvbcode'];
 				$dobbimagecode = $this->registry->options['unallowimg'];
+				$dobbvideocode = $this->registry->options['unallowvideo'];
 				$dosmilies = $this->registry->options['unallowsmilies'];
 				break;
 
@@ -285,16 +368,27 @@ class vB_BbCodeParser
 					$dohtml = ($this->parse_userinfo['permissions']['signaturepermissions'] & $this->registry->bf_ugp_signaturepermissions['allowhtml']);
 					$dobbcode = ($this->parse_userinfo['permissions']['signaturepermissions'] & $this->registry->bf_ugp_signaturepermissions['canbbcode']);
 					$dobbimagecode = ($this->parse_userinfo['permissions']['signaturepermissions'] & $this->registry->bf_ugp_signaturepermissions['allowimg']);
+					$dobbvideocode = ($this->parse_userinfo['permissions']['signaturepermissions'] & $this->registry->bf_ugp_signaturepermissions['allowvideo']);
 					$dosmilies = ($this->parse_userinfo['permissions']['signaturepermissions'] & $this->registry->bf_ugp_signaturepermissions['allowsmilies']);
 					break;
 				}
 				// else fall through to nonforum
+
+			case 'article_comment':
+			case 'article':
+				$dohtml = false;
+				$dobbcode = true;
+				$dobbimagecode = true;
+				$dobbvideocode = true;
+				$dosmilies = $allowsmilie;
+				break;
 
 			// parse non-forum item
 			case 'nonforum':
 				$dohtml = $this->registry->options['allowhtml'];
 				$dobbcode = $this->registry->options['allowbbcode'];
 				$dobbimagecode = $this->registry->options['allowbbimagecode'];
+				$dobbvideocode = $this->registry->options['allowbbvideocode'];
 				$dosmilies = $this->registry->options['allowsmilies'];
 				break;
 
@@ -308,6 +402,7 @@ class vB_BbCodeParser
 				}
 				$dobbcode = ($post['announcementoptions'] & $this->registry->bf_misc_announcementoptions['allowbbcode']);
 				$dobbimagecode = ($post['announcementoptions'] & $this->registry->bf_misc_announcementoptions['allowbbcode']);
+				$dobbvideocode = ($post['announcementoptions'] & $this->registry->bf_misc_announcementoptions['allowbbcode']);
 				$dosmilies = $allowsmilie;
 				break;
 
@@ -319,6 +414,7 @@ class vB_BbCodeParser
 				$dohtml = $this->registry->options['allowhtml'];
 				$dobbcode = $this->registry->options['allowbbcode'];
 				$dobbimagecode = true; // this tag can be disabled manually; leaving as true means old usages remain (as documented)
+				$dobbvideocode = true; // this tag can be disabled manually; leaving as true means old usages remain (as documented)
 				$dosmilies = $this->registry->options['allowsmilies'];
 				break;
 
@@ -329,6 +425,7 @@ class vB_BbCodeParser
 					$forum = fetch_foruminfo($forumid);
 					$dohtml = $forum['allowhtml'];
 					$dobbimagecode = $forum['allowimages'];
+					$dobbvideocode = $forum['allowvideos'];
 					$dosmilies = $forum['allowsmilies'];
 					$dobbcode = $forum['allowbbcode'];
 				}
@@ -343,7 +440,7 @@ class vB_BbCodeParser
 
 		($hook = vBulletinHook::fetch_hook('bbcode_parse_start')) ? eval($hook) : false;
 
-		if (!empty($parsedtext))
+		if (!empty($parsedtext) AND !VB_API)
 		{
 			if ($parsedhasimages)
 			{
@@ -356,7 +453,25 @@ class vB_BbCodeParser
 		}
 		else
 		{
-			return $this->do_parse($text, $dohtml, $dosmilies, $dobbcode, $dobbimagecode, $donl2br, $cachable);
+			return $this->do_parse($text, $dohtml, $dosmilies, $dobbcode, $dobbimagecode, $donl2br, $cachable, $htmlstate, false, $dobbvideocode);
+		}
+	}
+
+	/**
+	 *	Set tags invalid for whatever reason ..
+	 *
+	 * @param <type> $forumid
+	 */
+	function set_invalid_tags($forumid)
+	{
+		$this->invalid_tags = array();
+
+		if ($forumid != 'article')
+		{
+			$this->invalid_tags = array(
+				'page',
+				'prbreak',
+			);
 		}
 	}
 
@@ -370,24 +485,44 @@ class vB_BbCodeParser
 	* @param	bool	Whether to parse the [img] BB code (independent of $do_bbcode)
 	* @param	bool	Whether to automatically replace new lines with HTML line breaks
 	* @param	bool	Whether the post text is cachable
+	* @param	string	Switch for dealing with nl2br
+	* @param	boolean	do minimal required actions to parse bbcode
+	* @param	boolean	Whether to parse the [video] bbcode
 	*
 	* @return	string	Parsed text
 	*/
-	function do_parse($text, $do_html = false, $do_smilies = true, $do_bbcode = true , $do_imgcode = true, $do_nl2br = true, $cachable = false)
+	function do_parse($text, $do_html = false, $do_smilies = true, $do_bbcode = true , $do_imgcode = true, $do_nl2br = true, $cachable = false, $htmlstate = null, $minimal = false, $do_videocode = true)
 	{
 		global $html_allowed;
 
+		if ($htmlstate)
+		{
+			switch ($htmlstate)
+			{
+				case 'on':
+					$do_nl2br = false;
+					break;
+				case 'off':
+					$do_html = false;
+					break;
+				case 'on_nl2br':
+					$do_nl2br = true;
+					break;
+			}
+		}
+
 		$this->options = array(
-			'do_html'    => $do_html,
-			'do_smilies' => $do_smilies,
-			'do_bbcode'  => $do_bbcode,
-			'do_imgcode' => $do_imgcode,
-			'do_nl2br'   => $do_nl2br,
-			'cachable'   => $cachable
+			'do_html'      => $do_html,
+			'do_smilies'   => $do_smilies,
+			'do_bbcode'    => $do_bbcode,
+			'do_imgcode'   => $do_imgcode,
+			'do_videocode' => $do_videocode,
+			'do_nl2br'     => $do_nl2br,
+			'cachable'     => $cachable
 		);
 		$this->cached = array('text' => '', 'has_images' => 0);
 
-		//$text = $this->do_word_wrap($text);
+		$fulltext = $text;
 
 		// ********************* REMOVE HTML CODES ***************************
 		if (!$do_html)
@@ -396,26 +531,32 @@ class vB_BbCodeParser
 		}
 		$html_allowed = $do_html;
 
-		$text = $this->parse_whitespace_newlines($text, $do_nl2br);
+		if (!$minimal)
+		{
+			$text = $this->parse_whitespace_newlines($text, $do_nl2br);
+		}
 
 		// ********************* PARSE BBCODE TAGS ***************************
 		if ($do_bbcode)
 		{
-			$text = $this->parse_bbcode($text, $do_smilies, $do_html);
+			$text = $this->parse_bbcode($text, $do_smilies, $do_videocode, $do_html);
 		}
 		else if ($do_smilies)
 		{
 			$text = $this->parse_smilies($text, $do_html);
 		}
 
-		// parse out nasty active scripting codes
-		static $global_find = array('/javascript:/si', '/about:/si', '/vbscript:/si', '/&(?![a-z0-9#]+;)/si');
-		static $global_replace = array('javascript<b></b>:', 'about<b></b>:', 'vbscript<b></b>:', '&amp;');
-		$text = preg_replace($global_find, $global_replace, $text);
+		if (!$minimal)
+		{
+			// parse out nasty active scripting codes
+			static $global_find = array('/(javascript):/si', '/(about):/si', '/(vbscript):/si', '/&(?![a-z0-9#]+;)/si');
+			static $global_replace = array('\\1<b></b>:', '\\1<b></b>:', '\\1<b></b>:', '&amp;');
+			$text = preg_replace($global_find, $global_replace, $text);
 
-		// run the censor
-		$text = fetch_censored_text($text);
-		$has_img_tag = ($do_bbcode ? $this->contains_bbcode_img_tags($text) : 0);
+			// run the censor
+			$text = fetch_censored_text($text);
+			$has_img_tag = ($do_bbcode ? max(array($this->contains_bbcode_img_tags($fulltext), $this->contains_bbcode_img_tags($text))) : 0);
+		}
 
 		($hook = vBulletinHook::fetch_hook('bbcode_parse_complete_precache')) ? eval($hook) : false;
 
@@ -429,7 +570,7 @@ class vB_BbCodeParser
 		// do [img] tags if the item contains images
 		if(($do_bbcode OR $do_imgcode) AND $has_img_tag)
 		{
-			$text = $this->handle_bbcode_img($text, $do_imgcode, $has_img_tag);
+			$text = $this->handle_bbcode_img($text, $do_imgcode, $has_img_tag, $fulltext);
 		}
 
 		($hook = vBulletinHook::fetch_hook('bbcode_parse_complete')) ? eval($hook) : false;
@@ -438,6 +579,210 @@ class vB_BbCodeParser
 	}
 
 	/**
+	 * This is copied from the blog bbcode parser. We either have a specific
+	 * amount of text, or [PRBREAK][/PRBREAK].
+	 *
+	 * @param	array	Fixed tokens
+	 * @param	integer	Length of the text before parsing (optional)
+	 *
+	 * @return	array	Tokens, chopped to the right length.
+	 */
+	public function get_preview($pagetext, $initial_length = 0, $do_html = false, $do_nl2br = true, $htmlstate = null, $strip_quotes = true)
+	{
+		if ($htmlstate)
+		{
+			switch ($htmlstate)
+			{
+				case 'on':
+					$do_nl2br = false;
+					break;
+				case 'off':
+					$do_html = false;
+					break;
+				case 'on_nl2br':
+					$do_nl2br = true;
+					break;
+			}
+		}
+
+		$this->options = array(
+			'do_html'      => $do_html,
+			'do_smilies'   => false,
+			'do_bbcode'    => true,
+			'do_imgcode'   => false,
+			'do_videocode' => false,
+			'do_nl2br'     => $do_nl2br,
+			'cachable'     => true
+		);
+
+		global $html_allowed;
+		$html_allowed = $do_html;
+
+		if (!$do_html)
+		{
+			$pagetext = htmlspecialchars_uni($pagetext);
+		}
+
+		if ($strip_quotes)
+		{
+			$pagetext = strip_quotes($pagetext);
+		}
+
+		$html_count = 0;
+		$pagetext = $this->parse_whitespace_newlines(trim($pagetext), $do_nl2br);
+
+		if ($html_allowed)
+		{
+			// Count the number of html tag chars
+			$html_count = strlen($pagetext) - strlen(strip_tags($pagetext));
+		}
+
+		$tokens = $this->fix_tags($this->build_parse_array($pagetext));
+
+		$counter = 0;
+		$stack = array();
+		$new = array();
+		$over_threshold = false;
+
+		if (strpos($pagetext, '[PRBREAK][/PRBREAK]'))
+		{
+			$this->snippet_length = strlen($pagetext);
+		}
+		else if (intval($initial_length))
+		{
+			$this->snippet_length = $initial_length;
+			$this->snippet_length += $html_count;
+		}
+		else
+		{
+			$this->snippet_length = $this->default_previewlen;
+			$this->snippet_length += $html_count;
+		}
+
+		$noparse = false;
+		$video = false;
+		$in_page = false;
+
+		foreach ($tokens AS $tokenid => $token)
+		{
+			if (($token['name'] == 'noparse') AND $do_html)
+			{
+				//can't parse this. We don't know what's inside.
+				$new[] = $token;
+				$noparse = ! $noparse;
+
+			}
+			else if ($token['name'] == 'video')
+			{
+				$video = !$token['closing'];
+				continue;
+
+			}
+			else if ($token['name'] == 'page')
+			{
+				$in_page = !$token['closing'];
+				continue;
+
+			}
+			else if ($video OR $in_page)
+			{
+				continue;
+			}
+			// only count the length of text entries
+			else if ($token['type'] == 'text')
+			{
+
+				if (!$noparse)
+				{
+					//If this has [ATTACH] or [IMG] or VIDEO then we nuke it.
+					$pagetext =preg_replace('#\[ATTACH.*?\[/ATTACH\]#si', '', $token['data']);
+					$pagetext = preg_replace('#\[IMG.*?\[/IMG\]#si', '', $pagetext);
+					$pagetext = preg_replace('#\[video.*?\[/video\]#si', '', $pagetext);
+					if ($pagetext == '')
+					{
+						continue;
+					}
+					$token['data'] = $pagetext;
+				}
+				$length = vbstrlen($token['data']);
+
+				// uninterruptable means that we will always show until this tag is closed
+				$uninterruptable = (isset($stack[0]) AND isset($this->uninterruptable["$stack[0]"]));
+
+				if ((($counter + $length) < $this->snippet_length )OR $uninterruptable OR $noparse)
+				{
+					// this entry doesn't push us over the threshold
+					$new[] = $token;
+					$counter += $length;
+				}
+				else
+				{
+					// a text entry that pushes us over the threshold
+					$over_threshold = true;
+					$last_char_pos = $this->snippet_length - $counter - 1; // this is the threshold char; -1 means look for a space at it
+					if ($last_char_pos < 0)
+					{
+						$last_char_pos = 0;
+					}
+
+					if (preg_match('#\s#s', $token['data'], $match, PREG_OFFSET_CAPTURE, $last_char_pos))
+					{
+						$token['data'] = substr($token['data'], 0, $match[0][1]); // chop to offset of whitespace
+						if (substr($token['data'], -3) == '<br')
+						{
+							// we cut off a <br /> code, so just take this out
+							$token['data'] = substr($token['data'], 0, -3);
+						}
+
+						$new[] = $token;
+					}
+					else
+					{
+						$new[] = $token;
+					}
+
+					break;
+				}
+			}
+			else
+			{
+				// not a text entry
+				if ($token['type'] == 'tag')
+				{
+					//If we have a prbreak we are done.
+					if (($token['name'] == 'prbreak') AND isset($tokens[intval($tokenid) + 1])
+						AND ($tokens[intval($tokenid) + 1]['name'] == 'prbreak')
+						AND ($tokens[intval($tokenid) + 1]['closing']))
+					{
+						$over_threshold == true;
+						break;
+					}
+					// build a stack of open tags
+					if ($token['closing'] == true)
+					{
+						// by now, we know the stack is sane, so just remove the first entry
+						array_shift($stack);
+					}
+					else
+					{
+						array_unshift($stack, $token['name']);
+					}
+				}
+
+				$new[] = $token;
+			}
+		}
+		// since we may have cut the text, close any tags that we left open
+		foreach ($stack AS $tag_name)
+		{
+			$new[] = array('type' => 'tag', 'name' => $tag_name, 'closing' => true);
+		}
+
+		$this->createdsnippet = (sizeof($new) != sizeof($tokens) OR $over_threshold); // we did something, so we made a snippet
+
+		$result = $this->parse_array($new, true, true, $do_html);
+		return $result;
+	}	/**
 	* Word wraps the text if enabled.
 	*
 	* @param	string	Text to wrap
@@ -545,11 +890,11 @@ class vB_BbCodeParser
 				// if you change this HTML tag, make sure you change the smilie remover in code/php/html tag handlers!
 				if ($this->is_wysiwyg())
 				{
-					$replace = "<img src=\"$smilie[smiliepath]\" border=\"0\" alt=\"\" title=\"$smilie[title]\" smilieid=\"$smilie[smilieid]\" class=\"inlineimg\" />";
+					$replace = "<img src=\"$smilie[smiliepath]\" border=\"0\" alt=\"\" title=\"" . htmlspecialchars_uni($smilie['title']) . "\" smilieid=\"$smilie[smilieid]\" class=\"inlineimg\" />";
 				}
 				else
 				{
-					$replace = "<img src=\"$smilie[smiliepath]\" border=\"0\" alt=\"\" title=\"$smilie[title]\" class=\"inlineimg\" />";
+					$replace = "<img src=\"$smilie[smiliepath]\" border=\"0\" alt=\"\" title=\"" . htmlspecialchars_uni($smilie['title']) . "\" class=\"inlineimg\" />";
 				}
 
 				$sc["$find"] = $replace;
@@ -581,11 +926,11 @@ class vB_BbCodeParser
 				// if you change this HTML tag, make sure you change the smilie remover in code/php/html tag handlers!
 				if ($this->is_wysiwyg())
 				{
-					$replace = "<img src=\"$smilie[smiliepath]\" border=\"0\" alt=\"\" title=\"$smilie[title]\" smilieid=\"$smilie[smilieid]\" class=\"inlineimg\" />";
+					$replace = "<img src=\"$smilie[smiliepath]\" border=\"0\" alt=\"\" title=\"" . htmlspecialchars_uni($smilie['title']) . "\" smilieid=\"$smilie[smilieid]\" class=\"inlineimg\" />";
 				}
 				else
 				{
-					$replace = "<img src=\"$smilie[smiliepath]\" border=\"0\" alt=\"\" title=\"$smilie[title]\" class=\"inlineimg\" />";
+					$replace = "<img src=\"$smilie[smiliepath]\" border=\"0\" alt=\"\" title=\"" . htmlspecialchars_uni($smilie['title']) . "\" class=\"inlineimg\" />";
 				}
 
 				$sc["$find"] = $replace;
@@ -608,9 +953,9 @@ class vB_BbCodeParser
 	function parse_whitespace_newlines($text, $do_nl2br = true)
 	{
 		// this replacement is equivalent to removing leading whitespace via this regex:
-		// '#(? >(\r\n|\n|\r)?( )+)(\[(\*\]|/?list|indent))#si'
+		// '#(? >(\r\n|\n|\r)?( )+)(\[(\*\]|/list|/indent))#si'
 		// however, it's performance is much better! (because the tags occur less than the whitespace)
-		foreach (array('[*]', '[list', '[/list', '[indent') AS $search_string)
+		foreach (array('[*]', '[/list', '[/indent') AS $search_string)
 		{
 			$start_pos = 0;
 			while (($tag_pos = stripos($text, $search_string, $start_pos)) !== false)
@@ -638,7 +983,8 @@ class vB_BbCodeParser
 				$start_pos = $tag_pos + 1 - $length;
 			}
 		}
-		$text = preg_replace('#(/list\]|/indent\])(?> *)(\r\n|\n|\r)?#si', '$1', $text);
+
+		$text = preg_replace('#(/list\]|/indent\])(?> *)?#si', '$1', $text);
 
 		if ($do_nl2br)
 		{
@@ -649,19 +995,88 @@ class vB_BbCodeParser
 	}
 
 	/**
+	* External method to set/change the table helper implementation if necessary.
+	* Generally won't be used.
+	*
+	* @param	vBForum_BBCodeHelper_Table	Alternative helper
+	*/
+	public function setTableHelper(vBForum_BBCodeHelper_Table $helper)
+	{
+		$this->table_helper = $helper;
+	}
+
+	/**
 	* Parse an input string with BB code to a final output string of HTML
 	*
 	* @param	string	Input Text (BB code)
 	* @param	bool	Whether to parse smilies
+	* @param	bool	Whether to parse video
 	* @param	bool	Whether to allow HTML (for smilies)
+	* @param	bool	Whether to parse video
 	*
 	* @return	string	Ouput Text (HTML)
 	*/
-	function parse_bbcode($input_text, $do_smilies, $do_html = false)
+	function parse_bbcode($input_text, $do_smilies, $do_videocode, $do_html = false)
 	{
-		return $this->parse_array($this->fix_tags($this->build_parse_array($input_text)), $do_smilies, $do_html);
+		return $this->parse_array($this->fix_tags($this->build_parse_array($input_text)), $do_smilies, $do_videocode, $do_html);
 	}
 
+	/**
+	* Fetches the table helper in use. It also acts as a lazy initializer.
+	* If no table helper has been explicitly set, it will instantiate
+	* the class's default.
+	*
+	* @return	vBForum_BBCodeHelper_Table	Table helper object
+	*/
+	public function getTableHelper()
+	{
+		if (!$this->table_helper)
+		{
+			require_once DIR . '/packages/vbforum/bbcodehelper/table.php';
+			$this->table_helper = new vBForum_BBCodeHelper_Table($this);
+		}
+
+		return $this->table_helper;
+	}
+
+	/**
+	*	[page] not supported in the general parser...
+	*
+	* @param	string	Page title
+	*
+	* @return	string	Output of the page header in multi page views, nothing in single page views
+	*/
+	protected function parsePageTag($page_title)
+	{
+		return '';
+	}
+
+	/**
+	 * 	[previewbreak] not supported in the general parser...
+	 *
+	 * @return	string	The value to set when parsing previewbreak tag
+	 */
+	protected function parsePreviewBreakTag()
+	{
+		return '';
+	}
+
+	/**
+	* Parses the [table] tag and returns the necessary HTML representation.
+	* TRs and TDs are parsed by this function (they are not real BB codes).
+	* Classes are pushed down to inner tags (TRs and TDs) and TRs are automatically
+	* valigned top.
+	*
+	* @param	string	Content within the table tag
+	* @param	string	Optional set of parameters in an unparsed format. Parses "param: value, param: value" form.
+	*
+	* @return	string	HTML representation of the table and its contents.
+	*/
+	protected function parseTableTag($content, $params = '')
+	{
+		$helper = $this->getTableHelper();
+		return $helper->parseTableTag($content, $params);
+	}
 
 	/**
 	* Takes a raw string and builds an array of tokens for parsing.
@@ -749,7 +1164,8 @@ class vB_BbCodeParser
 					{
 						// no option, so the ] is the end of the tag
 						// check to see if this tag name is valid
-						$tag_name = strtolower(substr($text, $start_pos, $tag_close_pos - $start_pos));
+						$tag_name_orig = substr($text, $start_pos, $tag_close_pos - $start_pos);
+						$tag_name = strtolower($tag_name_orig);
 
 						// if this is a closing tag, we don't know whether we had an option
 						$has_option = $closing_tag ? null : false;
@@ -759,6 +1175,7 @@ class vB_BbCodeParser
 							$output[] = array(
 								'type' => 'tag',
 								'name' => $tag_name,
+								'name_orig' => $tag_name_orig,
 								'option' => false,
 								'closing' => $closing_tag
 							);
@@ -776,7 +1193,8 @@ class vB_BbCodeParser
 					else
 					{
 						// check to see if this tag name is valid
-						$tag_name = strtolower(substr($text, $start_pos, $tag_opt_start_pos - $start_pos));
+						$tag_name_orig = substr($text, $start_pos, $tag_opt_start_pos - $start_pos);
+						$tag_name = strtolower($tag_name_orig);
 
 						if (!$this->is_valid_tag($tag_name, true))
 						{
@@ -824,6 +1242,7 @@ class vB_BbCodeParser
 							$output[] = array(
 								'type' => 'tag',
 								'name' => $tag_name,
+								'name_orig' => $tag_name_orig,
 								'option' => $tag_option,
 								'delimiter' => $delimiter,
 								'closing' => false
@@ -842,7 +1261,6 @@ class vB_BbCodeParser
 					break;
 			}
 		}
-
 		return $output;
 	}
 
@@ -870,7 +1288,7 @@ class vB_BbCodeParser
 				// opening a tag
 				if ($noparse !== null)
 				{
-					$output[] = array('type' => 'text', 'data' => '[' . $node['name'] . ($node['option'] !== false ? "=$node[delimiter]$node[option]$node[delimiter]" : '') . ']');
+					$output[] = array('type' => 'text', 'data' => '[' . $node['name_orig'] . ($node['option'] !== false ? "=$node[delimiter]$node[option]$node[delimiter]" : '') . ']');
 					continue;
 				}
 
@@ -892,7 +1310,7 @@ class vB_BbCodeParser
 				if ($noparse !== null AND $node['name'] != 'noparse')
 				{
 					// closing a tag but we're in a noparse - treat as text
-					$output[] = array('type' => 'text', 'data' => '[/' . $node['name'] . ']');
+					$output[] = array('type' => 'text', 'data' => '[/' . $node['name_orig'] . ']');
 				}
 				else if (($key = $this->find_first_tag($node['name'], $stack)) !== false)
 				{
@@ -927,7 +1345,7 @@ class vB_BbCodeParser
 						// this is bad nesting, so fix it by closing tags early
 						for ($i = 0; $i < $key; $i++)
 						{
-							$output[] = array('type' => 'tag', 'name' => $stack["$i"]['name'], 'closing' => true);
+							$output[] = array('type' => 'tag', 'name' => $stack["$i"]['name'], 'name_orig' => $stack["$i"]['name_orig'], 'closing' => true);
 							$max_key++;
 							$stack["$i"]['added_list'][] = $max_key;
 						}
@@ -954,7 +1372,7 @@ class vB_BbCodeParser
 				else
 				{
 					// we tried to close a tag which wasn't open, to just make this text
-					$output[] = array('type' => 'text', 'data' => '[/' . $node['name'] . ']');
+					$output[] = array('type' => 'text', 'data' => '[/' . $node['name_orig'] . ']');
 				}
 			}
 		}
@@ -970,7 +1388,7 @@ class vB_BbCodeParser
 			}
 			$output["$open[my_key]"] = array(
 				'type' => 'text',
-				'data' => '[' . $open['name'] . (!empty($open['option']) ? '=' . $open['delimiter'] . $open['option'] . $open['delimiter'] : '') . ']'
+				'data' => '[' . $open['name_orig'] . (!empty($open['option']) ? '=' . $open['delimiter'] . $open['option'] . $open['delimiter'] : '') . ']'
 			);
 		}
 
@@ -978,7 +1396,7 @@ class vB_BbCodeParser
 		// automatically close any tags that remain open
 		foreach (array_reverse($stack) AS $open)
 		{
-			$output[] = array('type' => 'tag', name => $open['name'], 'closing' => true);
+			$output[] = array('type' => 'tag', 'name' => $open['name'], 'name_orig' => $open['name_orig'], 'closing' => true);
 		}
 		*/
 
@@ -991,22 +1409,24 @@ class vB_BbCodeParser
 	*
 	* @param	array	Parse array
 	* @param	bool	Whether to parse smilies
+	* @param	bool	Whether to parse video
 	* @param	bool	Whether to allow HTML (for smilies)
 	*
 	* @return	string	Final HTML
 	*/
-	function parse_array($preparsed, $do_smilies, $do_html = false)
+	function parse_array($preparsed, $do_smilies, $do_videocode, $do_html = false)
 	{
-		$output = '';
+		$this->parse_output = '';
+		$output =& $this->parse_output;
 
 		$this->stack = array();
 		$stack_size = 0;
 
 		// holds options to disable certain aspects of parsing
 		$parse_options = array(
-			'no_parse' => 0,
-			'no_wordwrap' => 0,
-			'no_smilies' => 0,
+			'no_parse'          => 0,
+			'no_wordwrap'       => 0,
+			'no_smilies'        => 0,
 			'strip_space_after' => 0
 		);
 
@@ -1029,16 +1449,16 @@ class vB_BbCodeParser
 					$parse_options['strip_space_after'] = 0;
 				}
 
-				// do word wrap
-				if (!$parse_options['no_wordwrap'])
-				{
-					$pending_text = $this->do_word_wrap($pending_text);
-				}
-
 				// parse smilies
 				if ($do_smilies AND !$parse_options['no_smilies'])
 				{
 					$pending_text = $this->parse_smilies($pending_text, $do_html);
+				}
+
+				// do word wrap
+				if (!$parse_options['no_wordwrap'])
+				{
+					$pending_text = $this->do_word_wrap($pending_text);
 				}
 
 				if ($parse_options['no_parse'])
@@ -1077,7 +1497,7 @@ class vB_BbCodeParser
 				}
 				else
 				{
-					$pending_text = '&#91;' . $node['name'] . ($node['option'] !== false ? "=$node[delimiter]$node[option]$node[delimiter]" : '') . '&#93;';
+					$pending_text = '&#91;' . $node['name_orig'] . ($node['option'] !== false ? "=$node[delimiter]$node[option]$node[delimiter]" : '') . '&#93;';
 				}
 			}
 			else
@@ -1109,37 +1529,53 @@ class vB_BbCodeParser
 								if (!empty($tag_info['parse_option']) AND strpos($open['option'], '[') !== false)
 								{
 									$old_stack = $this->stack;
-									$open['option'] = $this->parse_bbcode($open['option'], $do_smilies);
+									$open['option'] = $this->parse_bbcode($open['option'], $do_smilies, $do_videocode);
 									$this->stack = $old_stack;
 									$this->current_tag =& $open;
 									unset($old_stack);
+								}
+
+								if ($this->handle_wysiwyg_no_parse AND $tag_info['wysiwyg_no_parse'])
+								{
+									$tag_info['callback'] = 'handle_wysiwyg_unparsable';
+									unset($tag_info['html'], $tag_info['strip_space_after']);
 								}
 
 								// now do the actual replacement
 								if (isset($tag_info['html']))
 								{
 									// this is a simple HTML replacement
-									$pending_text = sprintf($tag_info['html'], $open['data'], $open['option']);
+									// removing bad fix per Freddie.
+									//$search = array("'", '=');
+									//$replace = array('&#039;', '&#0061;');
+									//$open['data'] = str_replace($search, $replace, $open['data']);
+									//$open['option'] = str_replace($search, $replace, $open['option']);
+									$pending_text = sprintf($tag_info['html'], $open['data'], $open['option'], htmlspecialchars_uni($this->registry->input->fetch_relpath()));
 								}
 								else if (isset($tag_info['callback']))
 								{
 									// call a callback function
-									$pending_text = $this->$tag_info['callback']($open['data'], $open['option']);
-								}
+									if ($tag_info['callback'] == 'handle_bbcode_video' AND !$do_videocode)
+									{
+										$tag_info['callback'] = 'handle_bbcode_url';
+										$open['option'] = '';
+									}
+
+									$pending_text = $this->$tag_info['callback']($open['data'], $open['option']);								}
 							}
 							else
 							{
 								// oh, we didn't match our regex, just print the tag out raw
 								$pending_text =
-									'&#91;' . $open['name'] .
+									'&#91;' . $open['name_orig'] .
 									($open['option'] !== false ? "=$open[delimiter]$open[option]$open[delimiter]" : '') .
-									'&#93;' . $open['data'] . '&#91;/' . $node['name'] . '&#93;'
+									'&#93;' . $open['data'] . '&#91;/' . $node['name_orig'] . '&#93;'
 								;
 							}
 						}
 
 						// undo effects of various tag options
-						if (!empty($tag_info['strip_space_after']))
+						if (!empty($tag_info['strip_space_after']) AND ($this->strip_space_after OR $tag_info['ignore_global_strip_space_after']))
 						{
 							$parse_options['strip_space_after'] = $tag_info['strip_space_after'];
 						}
@@ -1159,7 +1595,7 @@ class vB_BbCodeParser
 					else
 					{
 						// this tag appears to be invalid, so just print it out as text
-						$pending_text = '&#91;' . $open['name'] . ($open['option'] !== false ? "=$open[delimiter]$open[option]$open[delimiter]" : '') . '&#93;';
+						$pending_text = '&#91;' . $open['name_orig'] . ($open['option'] !== false ? "=$open[delimiter]$open[option]$open[delimiter]" : '') . '&#93;';
 					}
 
 					// pop the tag off the stack
@@ -1171,7 +1607,7 @@ class vB_BbCodeParser
 				else
 				{
 					// wasn't there - we tried to close a tag which wasn't open, so just output the text
-					$pending_text = '&#91;/' . $node['name'] . '&#93;';
+					$pending_text = '&#91;/' . $node['name_orig'] . '&#93;';
 				}
 			}
 
@@ -1190,7 +1626,7 @@ class vB_BbCodeParser
 		// check for tags that are stil open at the end and display them
 		foreach (array_reverse($this->stack) AS $open)
 		{
-			$output .= '[' . $open['name'];
+			$output .= '[' . $open['name_orig'];
 			if ($open['option'])
 			{
 				$output .= '=' . $open['delimiter'] . $open['option'] . $open['delimiter'];
@@ -1222,6 +1658,11 @@ class vB_BbCodeParser
 		if ($tag_name[0] == '/')
 		{
 			$tag_name = substr($tag_name, 1);
+		}
+
+		if (in_array($tag_name, $this->invalid_tags))
+		{
+			return false;
 		}
 
 		if ($has_option === null)
@@ -1327,7 +1768,7 @@ class vB_BbCodeParser
 	*/
 	function handle_bbcode_email($text, $link = '')
 	{
-		$rightlink = trim($link);
+		$rightlink = trim(preg_replace('/<br ?\/?>/si', '', $link));
 		if (empty($rightlink))
 		{
 			// no option -- use param
@@ -1337,10 +1778,10 @@ class vB_BbCodeParser
 
 		if (!trim($link) OR $text == $rightlink)
 		{
-			$tmp = unhtmlspecialchars($rightlink);
+			$tmp = unhtmlspecialchars($text);
 			if (vbstrlen($tmp) > 55 AND $this->is_wysiwyg() == false)
 			{
-				$text = htmlspecialchars_uni(substr($tmp, 0, 36) . '...' . substr($tmp, -14));
+				$text = htmlspecialchars_uni(vbchop($tmp, 36) . '...' . substr($tmp, -14));
 			}
 		}
 
@@ -1358,6 +1799,27 @@ class vB_BbCodeParser
 		}
 	}
 
+	function handle_bbcode_h($text, $option)
+	{
+		if (preg_match('#^[1-6]$#', $option))
+		{
+			if ($this->forumid == 'article')
+			{
+				return "<h{$option}>$text</h{$option}>";
+			}
+			else
+			{
+				return "<b>{$text}</b><br /><br />";
+			}
+		}
+		else
+		{
+			return $text;
+		}
+
+		return $text;
+	}
+
 	/**
 	* Handles a [quote] tag. Displays a string in an area indicating it was quoted from someone/somewhere else.
 	*
@@ -1368,11 +1830,11 @@ class vB_BbCodeParser
 	*/
 	function handle_bbcode_quote($message, $username = '')
 	{
-		global $vbulletin, $vbphrase, $stylevar, $show;
+		global $vbulletin, $vbphrase, $show;
 
 		// remove smilies from username
 		$username = $this->strip_smilies($username);
-		if (preg_match('/^(.+)(?<!&#[0-9]{3}|&#[0-9]{4}|&#[0-9]{5});\s*(\d+)\s*$/U', $username, $match))
+		if (preg_match('/^(.+)(?<!&#[0-9]{3}|&#[0-9]{4}|&#[0-9]{5}|&amp|&quot|&gt|&lt);\s*(\d+)\s*$/U', $username, $match))
 		{
 			$username = $match[1];
 			$postid = $match[2];
@@ -1397,9 +1859,12 @@ class vB_BbCodeParser
 			$show['iewidthfix'] = false;
 		}
 
-		$template = $this->printable ? 'bbcode_quote_printable' : 'bbcode_quote';
-		eval('$html = "' . fetch_template($template) . '";');
-		return $html;
+		$templater = vB_Template::create($this->printable ? $this->quote_printable_template : $this->quote_template, true);
+			$templater->register('message', $message);
+			$templater->register('postid', $postid);
+			$templater->register('username', $username);
+			$templater->register('quote_vars', $this->quote_vars);
+		return $templater->render();
 	}
 
 	/**
@@ -1411,7 +1876,7 @@ class vB_BbCodeParser
 	*/
 	function handle_bbcode_php($code)
 	{
-		global $vbulletin, $vbphrase, $stylevar, $show;
+		global $vbulletin, $vbphrase, $show;
 		static $codefind1, $codereplace1, $codefind2, $codereplace2;
 
 		$code = $this->strip_front_back_whitespace($code, 1);
@@ -1486,9 +1951,11 @@ class vB_BbCodeParser
 
 		$code = preg_replace('/&amp;#([0-9]+);/', '&#$1;', $code); // allow unicode entities back through
 		$code = str_replace(array('[', ']'), array('&#91;', '&#93;'), $code);
-		$template = $this->printable ? 'bbcode_php_printable' : 'bbcode_php';
-		eval('$html = "' . fetch_template($template) . '";');
-		return $html;
+
+		$templater = vB_Template::create($this->printable ? 'bbcode_php_printable' : 'bbcode_php', true);
+			$templater->register('blockheight', $blockheight);
+			$templater->register('code', $code);
+		return $templater->render();
 	}
 
 	/**
@@ -1512,6 +1979,36 @@ class vB_BbCodeParser
 	}
 
 	/**
+	* Handles a [video] tag. Displays a movie.
+	*
+	* @param	string	The code to display
+	*
+	* @return	string	HTML representation of the tag.
+	*/
+	function handle_bbcode_video($url, $option)
+	{
+		global $vbulletin, $vbphrase, $show;
+
+		$params = array();
+		$options = explode(';', $option, 2);
+		$provider = strtolower($options[0]);
+		$code = $options[1];
+
+		if (!$code OR !$provider)
+		{
+			return '[video=' . $option . ']' . $url . '[/video]';
+		}
+
+		$templater = vB_Template::create('bbcode_video', true);
+			$templater->register('url', $url);
+			$templater->register('provider', $provider);
+			$templater->register('code', $code);
+			$templater->register('wmode', $vbulletin->options['player_wmode']);
+
+		return $templater->render();
+	}
+
+	/**
 	* Handles a [code] tag. Displays a preformatted string.
 	*
 	* @param	string	The code to display
@@ -1520,7 +2017,7 @@ class vB_BbCodeParser
 	*/
 	function handle_bbcode_code($code)
 	{
-		global $vbulletin, $vbphrase, $stylevar, $show;
+		global $vbulletin, $vbphrase, $show;
 
 		// remove unnecessary line breaks and escaped quotes
 		$code = str_replace(array('<br>', '<br />'), array('', ''), $code);
@@ -1538,8 +2035,10 @@ class vB_BbCodeParser
 			$template = 'bbcode_code';
 		}
 
-		eval('$html = "' . fetch_template($template) . '";');
-		return $html;
+		$templater = vB_Template::create($template, true);
+			$templater->register('blockheight', $blockheight);
+			$templater->register('code', $code);
+		return $templater->render();
 	}
 
 	/**
@@ -1551,7 +2050,7 @@ class vB_BbCodeParser
 	*/
 	function handle_bbcode_html($code)
 	{
-		global $vbulletin, $vbphrase, $stylevar, $show, $html_allowed;
+		global $vbulletin, $vbphrase, $show, $html_allowed;
 		static $regexfind, $regexreplace;
 
 		$code = $this->strip_front_back_whitespace($code, 1);
@@ -1599,8 +2098,10 @@ class vB_BbCodeParser
 			$template = 'bbcode_html';
 		}
 
-		eval('$html = "' . fetch_template($template) . '";');
-		return $html;
+		$templater = vB_Template::create($template, true);
+			$templater->register('blockheight', $blockheight);
+			$templater->register('code', $code);
+		return $templater->render();
 	}
 
 	/**
@@ -1700,6 +2201,27 @@ class vB_BbCodeParser
 	}
 
 	/**
+	* Handles an [indent] tag.
+	*
+	* @param	string	The text to indent
+	* @param	string	Indentation level
+	*
+	* @return	string	HTML representation of the tag.
+	*/
+	function handle_bbcode_indent($text, $type = '')
+	{
+		$type = intval($type);
+		if (!$type)
+		{
+			$type = 1;
+		}
+		$indent = $type * EDITOR_INDENT;
+
+		$dir = $this->registry->stylevars['textdirection']['string'] == 'rtl' ? 'right' : 'left';
+		return '<div style="margin-' . $dir . ':' . $indent .'px">' . $text . '</div>';
+	}
+
+	/**
 	* Handles a [list] tag. Makes a bulleted or ordered list.
 	*
 	* @param	string	The body of the list.
@@ -1711,24 +2233,46 @@ class vB_BbCodeParser
 	{
 		if ($type)
 		{
-			switch ($type)
+			$options = explode('|', $type);
+			if ($options[0])
 			{
-				case 'A':
-					$listtype = 'upper-alpha';
-					break;
-				case 'a':
-					$listtype = 'lower-alpha';
-					break;
-				case 'I':
-					$listtype = 'upper-roman';
-					break;
-				case 'i':
-					$listtype = 'lower-roman';
-					break;
-				case '1': //break missing intentionally
-				default:
-					$listtype = 'decimal';
-					break;
+				switch ($options[0])
+				{
+					case 'A':
+						$listtype = 'upper-alpha';
+						break;
+					case 'a':
+						$listtype = 'lower-alpha';
+						break;
+					case 'I':
+						$listtype = 'upper-roman';
+						break;
+					case 'i':
+						$listtype = 'lower-roman';
+						break;
+					case '1': //break missing intentionally
+					default:
+						$listtype = 'decimal';
+						break;
+				}
+			}
+			else
+			{
+				$listtype = '';
+			}
+
+			if ($options[1])
+			{
+				$indentoption = explode('=', $options[1]);
+
+				if (strtolower($indentoption[0]) == 'indent')
+				{
+					if ($indentcount = intval($indentoption[1]))
+					{
+						$dir = $this->registry->stylevars['textdirection']['string'] == 'rtl' ? 'right' : 'left';
+						$indent = ' style="margin-' . $dir . ':' . ($indentcount * EDITOR_INDENT) . 'px"';
+					}
+				}
 			}
 		}
 		else
@@ -1739,25 +2283,67 @@ class vB_BbCodeParser
 		// emulates ltrim after nl2br
 		$text = preg_replace('#^(\s|<br>|<br />)+#si', '', $text);
 
-		$bullets = preg_split('#\s*\[\*\]#s', $text, -1, PREG_SPLIT_NO_EMPTY);
+		//$bullets = preg_split('#\s*(\[\*(?:=[0-9]+)?\])#s', $text, -1, PREG_SPLIT_NO_EMPTY | PREG_SPLIT_DELIM_CAPTURE);
+		$bullets = preg_split('#\s*(\[\*(?:=[0-9]+(?:\|(?:right|center|left))?|=(?:right|center|left)(?:\|[0-9]+)?)?\])#si', $text, -1, PREG_SPLIT_NO_EMPTY | PREG_SPLIT_DELIM_CAPTURE);
+
+		if (count($bullets) == 1)
+		{
+			// this situation means that there was no [*] entries, just text between the list tags
+			array_unshift($bullets, '[*]');
+		}
+
 		if (empty($bullets))
 		{
 			return "\n\n";
 		}
 
+		$align = '';
+		$liindent = 0;
 		$output = '';
 		foreach ($bullets AS $bullet)
 		{
-			$output .= $this->handle_bbcode_list_element($bullet);
+			preg_match('#\s*(\[\*(?:=([0-9]+)(?:\|(right|center|left))?|=(right|center|left)(?:\|([0-9]+))?)?\])#si', $bullet, $matches);
+
+			if ($matches)
+			{
+				if ($matches[2])
+				{
+					$liindent = EDITOR_INDENT * $matches[2];
+				}
+				else if ($matches[5])
+				{
+					$liindent = EDITOR_INDENT * $matches[5];
+				}
+				if ($matches[3])
+				{
+					$align = $matches[3];
+				}
+				else if ($matches[4])
+				{
+					$align = $matches[4];
+				}
+			}
+			else
+			{
+				$output .= $this->handle_bbcode_list_element($bullet, $liindent, $align);
+				$align = '';
+				$liindent = 0;
+			}
+		}
+
+		// No valid bullets
+		if (!$output)
+		{
+			return "\n\n";
 		}
 
 		if ($listtype)
 		{
-			return '<ol style="list-style-type: ' . $listtype . '">' . $output . '</ol>';
+			return '<ol class="' . $listtype . '"' . $indent . '>' . $output . '</ol>';
 		}
 		else
 		{
-			return "<ul>$output</ul>";
+			return "<ul{$indent}>$output</ul>";
 		}
 	}
 
@@ -1765,12 +2351,36 @@ class vB_BbCodeParser
 	* Handles a single bullet of a list
 	*
 	* @param	string	Text of bullet
+	* @param	int		Indent Value
+	* @param	string	Align
 	*
 	* @return	string	HTML for bullet
 	*/
-	function handle_bbcode_list_element($text)
+	function handle_bbcode_list_element($text, $indentvalue = 0, $align = '')
 	{
-		return "<li>$text</li>\n";
+		$indent = '';
+		$indentvalue = intval($indentvalue);
+		$styleattr = array();
+		if ($indentvalue)
+		{
+			$dir = $this->registry->stylevars['textdirection']['string'] == 'rtl' ? 'right' : 'left';
+			$styleattr[] = "margin-{$dir}: {$indentvalue}px";
+		}
+		if ($align)
+		{
+			$styleattr[] = "text-align: {$align}";
+		}
+
+		$style = ' style="' . implode("; ", $styleattr) . '"';
+
+		if ($style)
+		{
+			return "<li{$style}>$text</li>";
+		}
+		else
+		{
+			return "<li>$text</li>";
+		}
 	}
 
 	/**
@@ -1778,12 +2388,14 @@ class vB_BbCodeParser
 	*
 	* @param	string	If tag has option, the displayable name. Else, the URL.
 	* @param	string	If tag has option, the URL.
+	* @param	bool	If this is for an image, just return the link
 	*
 	* @return	string	HTML representation of the tag.
 	*/
-	function handle_bbcode_url($text, $link)
+	function handle_bbcode_url($text, $link, $image = false)
 	{
 		$rightlink = trim($link);
+
 		if (empty($rightlink))
 		{
 			// no option -- use param
@@ -1804,7 +2416,7 @@ class vB_BbCodeParser
 			$tmp = unhtmlspecialchars($rightlink);
 			if (vbstrlen($tmp) > 55 AND $this->is_wysiwyg() == false)
 			{
-				$text = htmlspecialchars_uni(substr($tmp, 0, 36) . '...' . substr($tmp, -14));
+				$text = htmlspecialchars_uni(vbchop($tmp, 36) . '...' . substr($tmp, -14));
 			}
 			else
 			{
@@ -1813,8 +2425,206 @@ class vB_BbCodeParser
 			}
 		}
 
-		// standard URL hyperlink
-		return "<a href=\"$rightlink\" target=\"_blank\">$text</a>";
+		static $current_url, $current_host, $allowed, $friendlyurls = array();
+		if (!isset($current_url))
+		{
+			$current_url = $this->registry->input->parse_url($this->registry->options['bburl']);
+		}
+		$is_external = $this->registry->options['url_nofollow'];
+
+		if ($this->registry->options['url_nofollow'])
+		{
+			if (!isset($current_host))
+			{
+				$current_host = preg_replace('#:(\d)+$#', '', VB_HTTP_HOST);
+
+				$allowed = preg_split('#\s+#', $this->registry->options['url_nofollow_whitelist'], -1, PREG_SPLIT_NO_EMPTY);
+				$allowed[] = preg_replace('#^www\.#i', '', $current_host);
+				$allowed[] = preg_replace('#^www\.#i', '', $current_url['host']);
+			}
+
+			$target_url = preg_replace('#^([a-z0-9]+:(//)?)#', '', $rightlink);
+
+			foreach ($allowed AS $host)
+			{
+				if (stripos($target_url, $host) !== false)
+				{
+					$is_external = false;
+				}
+			}
+		}
+		// API need to convert link to vb:action/param1=val1/param2=val2...
+		if (defined('VB_API') AND VB_API === true)
+		{
+			$current_link = $this->registry->input->parse_url($rightlink);
+			if ($current_link !== false)
+			{
+				$current_link['host'] = strtolower($current_link['host']);
+				$current_url['host'] = strtolower($current_url['host']);
+				if (
+					(
+						$current_link['host'] == $current_url['host']
+						OR 'www.' . $current_link['host'] == $current_url['host']
+						OR $current_link['host'] == 'www.' . $current_url['host']
+					)
+					AND
+					(!$current_url['path'] OR stripos($current_link['path'], $current_url['path']) !== false)
+				)
+				{
+					// This is a vB link.
+					if (
+						$current_link['path'] == $current_url['path']
+						OR $current_link['path'] . '/' == $current_url['path']
+						OR $current_link['path'] == $current_url['path'] . '/'
+					)
+					{
+						$rightlink = 'vb:index';
+					}
+					else
+					{
+						// Get a list of declared friendlyurl classes
+						if (!$friendlyurls)
+						{
+							require_once(DIR . '/includes/class_friendly_url.php');
+							$classes = get_declared_classes();
+							foreach ($classes as $classname)
+							{
+								if (strpos($classname, 'vB_Friendly_Url_') !== false)
+								{
+									$reflect = new ReflectionClass($classname);
+									$props = $reflect->getdefaultProperties();
+
+									if ($classname == 'vB_Friendly_Url_vBCms')
+									{
+										$props['idvar'] = $props['ignorelist'][] = $this->registry->options['route_requestvar'];
+										$props['script'] = 'content.php';
+										$props['rewrite_segment'] = 'content';
+									}
+
+									if ($props['idvar'])
+									{
+										$friendlyurls[$classname]['idvar'] = $props['idvar'];
+										$friendlyurls[$classname]['idkey'] = $props['idkey'];
+										$friendlyurls[$classname]['titlekey'] = $props['titlekey'];
+										$friendlyurls[$classname]['ignorelist'] = $props['ignorelist'];
+										$friendlyurls[$classname]['script'] = $props['script'];
+										$friendlyurls[$classname]['rewrite_segment'] = $props['rewrite_segment'];
+									}
+								}
+
+								$friendlyurls['vB_Friendly_Url_vBCms']['idvar'] = $this->registry->options['route_requestvar'];
+								$friendlyurls['vB_Friendly_Url_vBCms']['ignorelist'][] = $this->registry->options['route_requestvar'];
+								$friendlyurls['vB_Friendly_Url_vBCms']['script'] = 'content.php';
+								$friendlyurls['vB_Friendly_Url_vBCms']['rewrite_segment'] = 'content';
+
+								$friendlyurls['vB_Friendly_Url_vBCms2']['idvar'] = $this->registry->options['route_requestvar'];
+								$friendlyurls['vB_Friendly_Url_vBCms2']['ignorelist'][] = $this->registry->options['route_requestvar'];
+								$friendlyurls['vB_Friendly_Url_vBCms2']['script'] = 'list.php';
+								$friendlyurls['vB_Friendly_Url_vBCms2']['rewrite_segment'] = 'list';
+							}
+						}
+
+						/*
+						* 	FRIENDLY_URL_OFF
+						*	showthread.php?t=1234&p=2
+						*
+						*	FRIENDLY_URL_BASIC
+						*	showthread.php?1234-Thread-Title/page2&pp=2
+						*
+						*	FRIENDLY_URL_ADVANCED
+						*	showthread.php/1234-Thread-Title/page2?pp=2
+						*
+						*	FRIENDLY_URL_REWRITE
+						*	/threads/1234-Thread-Title/page2?pp=2
+						*/
+
+						// Try to get the script name
+						// FRIENDLY_URL_OFF, FRIENDLY_URL_BASIC or FRIENDLY_URL_ADVANCED
+						$scriptname = '';
+						if (preg_match('#([^/]+)\.php#si', $current_link['path'], $matches))
+						{
+							$scriptname = $matches[1];
+						}
+						else
+						{
+							// Build a list of rewrite_segments
+							foreach ($friendlyurls as $v)
+							{
+								$rewritesegments .= "|$v[rewrite_segment]";
+							}
+							$pat = '#/(' . substr($rewritesegments, 1) . ')/#si';
+							if (preg_match($pat, $current_link['path'], $matches))
+							{
+								$uri = $matches[1];
+							}
+							// Decide the type of the url
+							$urltype = null;
+							foreach ($friendlyurls as $v)
+							{
+								if ($v['rewrite_segment'] == $uri)
+								{
+									$urltype = $v;
+									break;
+								}
+							}
+
+							// Convert $uri back to correct scriptname
+							$scriptname = str_replace('.php', '', $urltype['script']);
+						}
+
+						if ($scriptname)
+						{
+							$oldrightlink = $rightlink;
+
+							$rightlink = "vb:$scriptname";
+
+							// Check if it's FRIENDLY_URL_BASIC or FRIENDLY_URL_ADVANCED
+							if (preg_match('#(?:\?|/)(\d+).*?(?:/page(\d+)|$)#si', $oldrightlink, $matches))
+							{
+								// Decide the type of the url
+								$urltype = null;
+								foreach ($friendlyurls as $v)
+								{
+									if ($v['script'] == $scriptname . '.php')
+									{
+										$urltype = $v;
+										break;
+									}
+								}
+
+								if ($urltype)
+								{
+									$rightlink .= "/$urltype[idvar]=$matches[1]";
+								}
+
+								if ($matches[2])
+								{
+									$rightlink .= "/page=2";
+								}
+							}
+							if (preg_match_all('#([a-z0-9_]+)=([a-z0-9_\+]+)#si', $current_link['query'], $matches))
+							{
+								foreach ($matches[0] as $match)
+								{
+									$rightlink .= "/$match";
+								}
+
+							}
+						}
+					}
+				}
+			}
+		}
+
+		if ($image)
+		{
+			return array('link' => $rightlink, 'nofollow' => $is_external);
+		}
+		else
+		{
+			// standard URL hyperlink
+			return "<a href=\"$rightlink\" target=\"_blank\"" . ($is_external ? ' rel="nofollow"' : '') . ">$text</a>";
+		}
 	}
 
 	/**
@@ -1825,12 +2635,35 @@ class vB_BbCodeParser
 	*
 	* @return	string	HTML representation of the tag.
 	*/
-	function handle_bbcode_img($bbcode, $do_imgcode, $has_img_code = false)
+	function handle_bbcode_img($bbcode, $do_imgcode, $has_img_code = false, $fulltext = '')
 	{
 		global $vbphrase;
 
-		if (($has_img_code & BBCODE_HAS_ATTACH) AND preg_match_all('#\[attach(?:=(right|left))?\](\d+)\[/attach\]#i', $bbcode, $matches))
+		/* Do search on $fulltext, which would be the entire article, not just a page of the article which would be in $page */
+		if (!$fulltext)
 		{
+			$fulltext = $bbcode;
+		}
+
+		if (($has_img_code & BBCODE_HAS_ATTACH) AND preg_match_all('#\[attach(?:=(right|left|config))?\](\d+)\[/attach\]#i', $fulltext, $matches))
+		{
+			// This forumid check needs to be moved out to an extended thread class...
+			if ($this->forumid AND $this->forumid != "blog_entry")
+			{
+				$forumperms = fetch_permissions($this->forumid);
+				$cangetattachment = ($forumperms & $this->registry->bf_ugp_forumpermissions['cangetattachment']);
+				$canseethumbnails = ($forumperms & $this->registry->bf_ugp_forumpermissions['canseethumbnails']);
+			}
+			else
+			{
+				$cangetattachment = true;
+				$canseethumbnails = true;
+			}
+
+			$stc = ( $this->registry->vbcms['content_type'] == 'Article' ? '&amp;stc=1' : '' );
+
+			$unsetlist = array();
+			$attachcount = sizeof($this->attachments);
 			foreach($matches[2] AS $key => $attachmentid)
 			{
 				$align = $matches[1]["$key"];
@@ -1840,25 +2673,36 @@ class vB_BbCodeParser
 				if (!empty($this->attachments["$attachmentid"]))
 				{
 					$attachment =& $this->attachments["$attachmentid"];
-					if (!$attachment['visible'] AND $attachment['userid'] != $this->registry->userinfo['userid'])
+					if (!empty($attachment['settings']) AND strtolower($align) == 'config')
+					{
+						$settings = unserialize($attachment['settings']);
+					}
+					else
+					{
+						$settings = '';
+					}
+
+					if ($attachment['state'] != 'visible' AND $attachment['userid'] != $this->registry->userinfo['userid'])
 					{	// Don't show inline unless the poster is viewing the post (post preview)
 						continue;
 					}
 
-					if ($attachment['thumbnail_filesize'] == $attachment['filesize'] AND ($this->registry->options['viewattachedimages'] OR $this->registry->options['attachthumbs']))
+					$forceimage = 0;
+					if ($cangetattachment AND $canseethumbnails AND $attachment['thumbnail_filesize'] == $attachment['filesize'])
 					{
 						$attachment['hasthumbnail'] = false;
-						$forceimage = true;
+						$forceimage = $this->registry->options['viewattachedimages'];
+					}
+					else if (!$canseethumbnails)
+					{
+						$attachment['hasthumbnail'] = false;
 					}
 
-					$addtarget = ($attachment['newwindow']) ? 'target="_blank"' : '';
-					/** doesn't need to be added to the link, should just be added to the image
-					$addtarget .= !empty($align) ? " style=\"float: $align\" " : '';
-					*/
-
-					$attachment['filename'] = fetch_censored_text(htmlspecialchars_uni($attachment['filename']));
+					$attachment['filename'] = fetch_censored_text(htmlspecialchars_uni($attachment['filename'], false));
 					$attachment['extension'] = strtolower(file_extension($attachment['filename']));
 					$attachment['filesize'] = vb_number_format($attachment['filesize'], 1, true);
+
+					$lightbox_extensions = array('gif', 'jpg', 'jpeg', 'jpe', 'png', 'bmp');
 
 					switch($attachment['extension'])
 					{
@@ -1872,47 +2716,234 @@ class vB_BbCodeParser
 						case 'tif':
 						case 'psd':
 						case 'pdf':
-								if ($this->registry->options['attachthumbs'] AND $attachment['hasthumbnail'] AND $this->registry->userinfo['showimages'])
-								{	// Display a thumbnail
-									$replace[] = "<a href=\"{$this->registry->options['bburl']}/attachment.php?{$this->registry->session->vars['sessionurl']}attachmentid=\\1&amp;d=$attachment[dateline]\" rel=\"Lightbox\" id=\"attachment\\1\" $addtarget><img src=\"{$this->registry->options['bburl']}/attachment.php?{$this->registry->session->vars['sessionurl']}attachmentid=\\1&amp;thumb=1&amp;d=$attachment[thumbnail_dateline]\" class=\"thumbnail\" border=\"0\" alt=\""
-									. construct_phrase($vbphrase['image_larger_version_x_y_z'], $attachment['filename'], $attachment['counter'], $attachment['filesize'], $attachment['attachmentid'])
-									. "\" " . (!empty($align) ? " style=\"float: $align; margin: 2px\"" : 'style="margin: 2px"') . " /></a>";
+							$imgclass = array();
+							$fullsize = false;
+							$alt_text = $title_text = $caption_tag = $styles = '';
+							if ($settings)
+							{
+								if ($settings['alignment'])
+								{
+									switch ($settings['alignment'])
+									{
+										case 'left':
+											$imgclass[] = 'align_left';
+											break;
+										case 'center':
+											$imgclass[] = 'align_center';
+											break;
+										case 'right':
+											$imgclass[] = 'align_right';
+											break;
+									}
 								}
-								else if ($this->registry->userinfo['showimages'] AND ($forceimage OR $this->registry->options['viewattachedimages']) AND !in_array($attachment['extension'], array('tiff', 'tif', 'psd', 'pdf')))
-								{	// Display the attachment with no link to bigger image
-									$replace[] = "<img src=\"{$this->registry->options['bburl']}/attachment.php?{$this->registry->session->vars['sessionurl']}attachmentid=\\1&amp;d=$attachment[dateline]\" border=\"0\" alt=\""
-									. construct_phrase($vbphrase['image_x_y_z'], $attachment['filename'], $attachment['counter'], $attachment['filesize'])
-									. "\" " . (!empty($align) ? " style=\"float: $align; margin: 2px\"" : 'style="margin: 2px"') . " />";
+								if ($settings['size'] AND !$forceimage)
+								{
+									if (isset($settings['size']))
+									{
+										switch ($settings['size'])
+										{
+											case 'thumbnail':
+												$imgclass[] = 'size_thumbnail';
+												break;
+											case 'medium':
+												$imgclass[] = 'size_medium';
+												break;
+											case 'large':
+												$imgclass[] = 'size_large';
+												break;
+											case 'fullsize':
+												$fullsize = true;
+												break;
+										}
+									}
+								}
+								if ($settings['caption'])
+								{
+									$caption_tag = "<p class=\"caption $size_class\">$settings[caption]</p>";
+								}
+								$alt_text = $settings['description'];
+								$description_text = $settings['description'];
+								$title_text = $settings['title'];
+								$styles = $settings['styles'];
+							}
+
+							$nofollow = false;
+							$nolink = false;
+							if ($this->registry->userinfo['showimages'] AND $this->registry->options['viewattachedimages'] > 0 AND ($attachment['hasthumbnail'] OR $forceimage) AND ($settings OR $this->registry->options['viewattachedimages'] == 1 OR ($this->registry->options['viewattachedimages'] == 2 AND $attachcount > 1)))
+							{
+								$addnewwindow = $attachment['newwindow'];
+								$lightbox = (!$fullsize AND !$forceimage AND $cangetattachment AND in_array($attachment['extension'], $lightbox_extensions));
+								$href = "{$this->registry->options['bburl']}/attachment.php?{$this->registry->session->vars['sessionurl']}attachmentid=\\1&amp;d=$attachment[dateline]";
+								if ($settings['link'] == 1)
+								{
+									$linkinfo = $this->handle_bbcode_url('', $settings['linkurl'], true);
+									if ($linkinfo['link'] AND $linkinfo['link'] != 'http://')
+									{
+										$href = $linkinfo['link'];
+										$lightbox = false;
+										$nofollow = $linkinfo['nofollow'];
+										if ($settings['linktarget'])
+										{
+											$addnewwindow = true;
+										}
+									}
+								}
+								else if ($settings['link'] == 2)
+								{
+									$forceimage = true;
+								}
+
+								$hrefbits = array(
+									'href'   => $href,
+									'id'     => 'attachment\\1',
+								);
+								if ($nofollow)
+								{
+									$hrefbits["rel"] = "nofollow";
+								}
+
+								if ($lightbox)
+								{
+									$hrefbits["rel"] = 'Lightbox_' . $this->containerid;
 								}
 								else
-								{	// Display a link
-									$replace[] = "<a href=\"{$this->registry->options['bburl']}/attachment.php?{$this->registry->session->vars['sessionurl']}attachmentid=\\1&amp;d=$attachment[dateline]\" $addtarget>$attachment[filename]</a>";
+								{
+									$hrefbits["rel"] = "nofollow";
 								}
+								if ($addnewwindow)
+								{
+									$hrefbits['target'] = '_blank';
+								}
+								$atag = '';
+								foreach ($hrefbits AS $tag => $value)
+								{
+									$atag .= "$tag=\"$value\" ";
+								}
+
+								$imgbits = array(
+									'src'    => "{$this->registry->options['bburl']}/attachment.php?{$this->registry->session->vars['sessionurl']}attachmentid=\\1&amp;d=$attachment[thumbnail_dateline]$stc",
+									'border' => '0',
+									'alt'    => $alt_text ? $alt_text : ((($fullsize OR $forceimage) AND $cangetattachment) ? construct_phrase($vbphrase['image_x_y_z'], $attachment['filename'], $attachment['counter'], $attachment['filesize']) : construct_phrase($vbphrase['image_larger_version_x_y_z'], $attachment['filename'], $attachment['counter'], $attachment['filesize'], $attachment['attachmentid']))
+								);
+
+								if (
+									$attachment['hasthumbnail']
+										AND
+										(!$this->displayimage AND (!$settings OR !$cangetattachment))
+											OR
+										(!in_array($attachment['extension'], $lightbox_extensions))
+									)
+								{
+									$imgbits['src'] .= '&amp;thumb=1';
+								}
+
+								if (!empty($imgclass))
+								{
+									$imgbits['class'] = implode(' ', $imgclass);
+								}
+								else
+								{
+									$imgbits['class'] = 'thumbnail';
+								}
+								if ($title_text)
+								{
+									$imgbits['title'] = $title_text;
+								}
+								else if ($description_text)
+								{
+									$imgbits['title'] = $description_text;
+								}
+
+								if ($description_text)
+								{
+									$imgbits['description'] = $description_text;
+								}
+
+								if ($styles)
+								{
+									$imgbits['style'] = $styles;
+								}
+								else if (!$settings AND $align AND $align != 'config')
+								{
+									$imgbits['style'] = "float:$align";
+								}
+								$imgtag = '';
+								foreach ($imgbits AS $tag => $value)
+								{
+									$imgtag .= "$tag=\"$value\" ";
+								}
+
+								if (($fullsize OR $forceimage) AND $cangetattachment)
+								{
+									$replace[] = ($fullsize ? '<div class="size_fullsize">' : '') .
+										 "<img $imgtag/>" . ($fullsize ? '</div>' : '');
+								}
+								else
+								{
+									if (isset($settings['alignment']) && $settings['alignment'] == 'center')
+									{
+										$replace[] = "<div class=\"img_align_center " .
+											($fullsize ? 'size_fullsize' : '') .
+											"\"><a $atag><img $imgtag/></a></div>";
+									}
+									else
+									{
+										$replace[] = ($fullsize ? '<div class="size_fullsize">' : '') .
+										"<a $atag><img $imgtag/></a>" . ($fullsize ? '</div>' : '');
+									}
+								}
+
+							}
+							else if ($this->registry->userinfo['showimages'] AND ($forceimage OR $this->registry->options['viewattachedimages'] == 3 OR ($this->registry->options['viewattachedimages'] == 2 AND $attachcount == 1)) AND !in_array($attachment['extension'], array('tiff', 'tif', 'psd', 'pdf')))
+							{	// Display the attachment with no link to bigger image
+								$replace[] = ($fullsize ? '<div class="size_fullsize">' : '') .
+									"<img src=\"{$this->registry->options['bburl']}/attachment.php?{$this->registry->session->vars['sessionurl']}attachmentid=\\1&amp;d=$attachment[dateline]$stc\" border=\"0\" alt=\""
+								. construct_phrase($vbphrase['image_x_y_z'], $attachment['filename'], $attachment['counter'], $attachment['filesize'])
+								. "\" " . ((!empty($align) AND $align != 'config') ? " style=\"float: $align\"" : '') . " />";
+								($fullsize ? '</div>' : '');
+							}
+							else
+							{	// Display a link
+								$replace[] = ($fullsize ? '<div class="size_fullsize">' : '') .
+									"<a href=\"{$this->registry->options['bburl']}/attachment.php?{$this->registry->session->vars['sessionurl']}attachmentid=\\1&amp;d=$attachment[dateline]\" $addtarget title=\""
+								. construct_phrase($vbphrase['image_x_y_z'], $attachment['filename'], $attachment['counter'], $attachment['filesize'])
+									. "\">$attachment[filename]</a>" .
+									($fullsize ? '</div>' : '') ;
+							}
 							break;
 						default:
-							$replace[] = "<a href=\"{$this->registry->options['bburl']}/attachment.php?{$this->registry->session->vars['sessionurl']}attachmentid=\\1&amp;d=$attachment[dateline]\" $addtarget>$attachment[filename]</a>";
+							$replace[] = ($fullsize  ? '<div class="size_fullsize">' : '') .
+								"<a href=\"{$this->registry->options['bburl']}/attachment.php?{$this->registry->session->vars['sessionurl']}attachmentid=\\1&amp;d=$attachment[dateline]\" $addtarget title=\""
+							. construct_phrase($vbphrase['image_x_y_z'], $attachment['filename'], $attachment['counter'], $attachment['filesize'])
+								. "\">$attachment[filename]</a>" .
+								($fullsize? '</div>' : '') ;
 					}
 				}
 				else
 				{	// Belongs to another post so we know nothing about it ... or we are not displying images so always show a link
-					$addtarget = (empty($this->attachments["$attachmentid"]) OR $attachment['newwindow']) ? 'target="_blank"' : '';
-					/** doesn't need to be added to the link, should just be added to the image
-					$addtarget .= !empty($align) ? " style=\"float: $align\" " : '';
-					*/
-					$replace[] = "<a href=\"{$this->registry->options['bburl']}/attachment.php?{$this->registry->session->vars['sessionurl']}attachmentid=\\1" . (!empty($attachment['dateline']) ? "&amp;d=$attachment[dateline]" : "") . "\" $addtarget>$vbphrase[attachment] \\1</a>";
+					$addtarget = ($attachment['newwindow']) ? 'target="_blank"' : '';
+					$replace[] = ($fullsize ? '<div class="size_fullsize">' : '') .
+						"<a href=\"{$this->registry->options['bburl']}/attachment.php?{$this->registry->session->vars['sessionurl']}attachmentid=\\1" . (!empty($attachment['dateline']) ? "&amp;d=$attachment[dateline]" : "") . "\" $addtarget title=\""
+					. construct_phrase($vbphrase['image_x_y_z'], $attachment['filename'], $attachment['counter'], $attachment['filesize'])
+					. "\">$vbphrase[attachment] \\1</a>" . ($fullsize ? '</div>' : '');
 				}
+
 
 				// remove attachment from array
 				if ($this->unsetattach)
 				{
-					unset($this->attachments["$attachmentid"]);
+					$unsetlist[] = $attachmentid;
 				}
+			}
+
+			foreach($unsetlist AS $attachmentid)
+			{
+				unset($this->attachments["$attachmentid"]);
 			}
 
 			$bbcode = preg_replace($search, $replace, $bbcode);
 		}
 
-		// If you wanted to be able to edit [img] when editing a post instead of seeing the image, add the get_class() check from above
 		if ($has_img_code & BBCODE_HAS_IMG)
 		{
 			if ($do_imgcode AND ($this->registry->userinfo['userid'] == 0 OR $this->registry->userinfo['showimages']))
@@ -1931,6 +2962,10 @@ class vB_BbCodeParser
 			$bbcode = preg_replace('#\[sigpic\](.*)\[/sigpic\]#siUe', "\$this->handle_bbcode_sigpic('\\1')", $bbcode);
 		}
 
+		if ($has_img_code & BBCODE_HAS_RELPATH)
+		{
+			$bbcode = str_replace('[relpath][/relpath]', htmlspecialchars_uni($this->registry->input->fetch_relpath()), $bbcode);
+		}
 
 		return $bbcode;
 	}
@@ -1942,14 +2977,18 @@ class vB_BbCodeParser
 	*
 	* @return	string	HTML representation of the tag.
 	*/
-	function handle_bbcode_img_match($link)
+	function handle_bbcode_img_match($link, $fullsize = false)
 	{
 		$link = $this->strip_smilies(str_replace('\\"', '"', $link));
 
 		// remove double spaces -- fixes issues with wordwrap
 		$link = str_replace(array('  ', '"'), '', $link);
 
-		return '<img src="' .  $link . '" border="0" alt="" />';
+		$retval = ($fullsize ? '<div class="size_fullsize">' : '')  . '<img src="' .  $link . '" border="0" alt="" />' . ($fullsize ? '</div>' : '');
+
+		($hook = vBulletinHook::fetch_hook('bbcode_img_match')) ? eval($hook) : false;
+
+		return $retval;
 	}
 
 	/**
@@ -2089,6 +3128,11 @@ class vB_BbCodeParser
 			}
 		}
 
+		if (stripos($text, '[/relpath]') !== false)
+		{
+			$hasimage += BBCODE_HAS_RELPATH;
+		}
+
 		return $hasimage;
 		//return preg_match('#(\[img\]|\[/attach\])#i', $text);
 		//return (stripos($text, '[img]') !== false OR stripos($text, '[/attach]') !== false) ? true : false;
@@ -2102,7 +3146,7 @@ class vB_BbCodeParser
 	*
 	* @param	string	Block of text to find the height of
 	*
-	* @return	int		Height of block in pixels
+	* @return	int		Number of lines
 	*/
 	function fetch_block_height($code)
 	{
@@ -2121,7 +3165,7 @@ class vB_BbCodeParser
 		}
 
 		// return height in pixels
-		return ($numlines) * 16 + 18;
+		return ($numlines); // removed multiplier
 	}
 
 	/**
@@ -2154,6 +3198,134 @@ class vB_BbCodeParser
 	{
 		return false;
 	}
+
+	/**
+	 * Chops a set of (fixed) BB code tokens to a specified length or slightly over.
+	 * It will search for the first whitespace after the snippet length.
+	 *
+	 * @param	array	Fixed tokens
+	 * @param	integer	Length of the text before parsing (optional)
+	 *
+	 * @return	array	Tokens, chopped to the right length.
+	 */
+	function make_snippet($tokens, $initial_length = 0)
+	{
+		// no snippet to make, or our original text was short enough
+		if ($this->snippet_length == 0 OR ($initial_length AND $initial_length < $this->snippet_length))
+		{
+			$this->createdsnippet = false;
+			return $tokens;
+}
+
+		$counter = 0;
+		$stack = array();
+		$new = array();
+		$over_threshold = false;
+
+		foreach ($tokens AS $tokenid => $token)
+		{
+			// only count the length of text entries
+			if ($token['type'] == 'text')
+			{
+				$length = vbstrlen($token['data']);
+
+				// uninterruptable means that we will always show until this tag is closed
+				$uninterruptable = (isset($stack[0]) AND isset($this->uninterruptable["$stack[0]"]));
+
+				if ($counter + $length < $this->snippet_length OR $uninterruptable)
+				{
+					// this entry doesn't push us over the threshold
+					$new["$tokenid"] = $token;
+					$counter += $length;
+				}
+				else
+				{
+					// a text entry that pushes us over the threshold
+					$over_threshold = true;
+					$last_char_pos = $this->snippet_length - $counter - 1; // this is the threshold char; -1 means look for a space at it
+					if ($last_char_pos < 0)
+					{
+						$last_char_pos = 0;
+					}
+
+					if (preg_match('#\s#s', $token['data'], $match, PREG_OFFSET_CAPTURE, $last_char_pos))
+					{
+						$token['data'] = substr($token['data'], 0, $match[0][1]); // chop to offset of whitespace
+						if (substr($token['data'], -3) == '<br')
+						{
+							// we cut off a <br /> code, so just take this out
+							$token['data'] = substr($token['data'], 0, -3);
+						}
+
+						$new["$tokenid"] = $token;
+					}
+					else
+					{
+						$new["$tokenid"] = $token;
+					}
+
+					break;
+				}
+			}
+			else
+			{
+				// not a text entry
+				if ($token['type'] == 'tag')
+				{
+					// build a stack of open tags
+					if ($token['closing'] == true)
+					{
+						// by now, we know the stack is sane, so just remove the first entry
+						array_shift($stack);
+					}
+					else
+					{
+						array_unshift($stack, $token['name']);
+					}
+				}
+
+				$new["$tokenid"] = $token;
+			}
+		}
+
+		// since we may have cut the text, close any tags that we left open
+		foreach ($stack AS $tag_name)
+		{
+			$new[] = array('type' => 'tag', 'name' => $tag_name, 'closing' => true);
+		}
+
+		$this->createdsnippet = (sizeof($new) != sizeof($tokens) OR $over_threshold); // we did something, so we made a snippet
+
+		return $new;
+	}
+
+	/** Sets the template to be used for generating quotes
+	*
+	* @param	string	the template name
+	***/
+	public function set_quote_template($template_name)
+	{
+		$this->quote_template = $template_name;
+	}
+
+	/** Sets the template to be used for generating quotes
+	 *
+	 * @param	string	the template name
+	 ***/
+	public function set_quote_printable_template($template_name)
+	{
+		$this->quote_printable_template = $template_name;
+	}
+
+	/** Sets variables to be passed to the quote template
+	 *
+	 * @param	string	the template name
+	 ***/
+	public function set_quote_vars($var_array)
+	{
+		$this->quote_vars = $var_array;
+	}
+
 }
 
 // ####################################################################
@@ -2197,54 +3369,142 @@ function fetch_tag_list($prepend_path = '', $force_all = false)
 
 	if (empty($tag_list))
 	{
+		//set up some variable for later on to take into account the optional vbforum_url
+		//we don't use the seo urls here because they don't play nice with the bbcode
+		//processing.
+		//
+		//forum_path is the prefix for the forum based urls.  If provided we use it as the base.
+		//if it is not an absolute url we also use the prepend_path (which is, itself, used to
+		//make the url's absolute where needed).
+		//forum_path_full is the same, however its always made absolute using the bburl when
+		//it is not an absolute url.  This follows existing usage except for inserting the vbforum_url
+		$forum_path = '';
+		if ($vbulletin->options['vbforum_url'])
+		{
+			$forum_path = rtrim($vbulletin->options['vbforum_url'], '/') . '/';
+		}
+
+		$forum_path_full = $forum_path;
+		if (strpos($forum_path, '://') === false)
+		{
+			$forum_path = $prepend_path . $forum_path;
+			$forum_path_full =  rtrim($vbulletin->options['bburl'], '/') . '/' . $forum_path_full;
+		}
 		$tag_list = array();
 
 		// [QUOTE]
 		$tag_list['no_option']['quote'] = array(
-			'callback' => 'handle_bbcode_quote',
-			'strip_empty' => true,
+			'callback'          => 'handle_bbcode_quote',
+			'strip_empty'       => true,
 			'strip_space_after' => 2
 		);
 
 		// [QUOTE=XXX]
 		$tag_list['option']['quote'] = array(
-			'callback' => 'handle_bbcode_quote',
-			'strip_empty' => true,
+			'callback'          => 'handle_bbcode_quote',
+			'strip_empty'       => true,
 			'strip_space_after' => 2,
-			'parse_option' => true
 		);
 
 		// [HIGHLIGHT]
 		$tag_list['no_option']['highlight'] = array(
-			'html' => '<span class="highlight">%1$s</span>',
+			'html'        => '<span class="highlight">%1$s</span>',
 			'strip_empty' => true
 		);
 
 		// [NOPARSE]-- doesn't need a callback, just some flags
 		$tag_list['no_option']['noparse'] = array(
-			'html' => '%1$s',
-			'strip_empty' => true,
-			'stop_parse' => true,
+			'html'            => '%1$s',
+			'strip_empty'     => true,
+			'stop_parse'      => true,
 			'disable_smilies' => true
+		);
+
+		// [VIDEO]
+		$tag_list['option']['video'] = array(
+			'callback' => 'handle_bbcode_video',
+			'strip_empty'     => true,
+			'disable_smilies' => true,
+		);
+
+		$tag_list['no_option']['video'] = array(
+			'callback'    => 'handle_bbcode_url',
+			'strip_empty' => true
 		);
 
 		if (($vbulletin->options['allowedbbcodes'] & ALLOW_BBCODE_BASIC) OR $force_all)
 		{
 			// [B]
 			$tag_list['no_option']['b'] = array(
-				'html' => '<b>%1$s</b>',
+				'html'        => '<b>%1$s</b>',
 				'strip_empty' => true
 			);
 
 			// [I]
 			$tag_list['no_option']['i'] = array(
-				'html' => '<i>%1$s</i>',
+				'html'        => '<i>%1$s</i>',
 				'strip_empty' => true
 			);
 
 			// [U]
 			$tag_list['no_option']['u'] = array(
-				'html' => '<u>%1$s</u>',
+				'html'        => '<u>%1$s</u>',
+				'strip_empty' => true
+			);
+
+			// [H=1]
+			$tag_list['option']['h'] = array(
+				'callback' => 'handle_bbcode_h',
+				'strip_space_after' => 2,
+				'strip_empty' => true
+			);
+
+			// [PAGE]
+			$tag_list['no_option']['page'] = array(
+				'callback' => 'parsePageTag',
+				'strip_space_after' => 2,
+				'stop_parse' => true,
+				'disable_smilies' => true,
+				'strip_empty' => false
+			);
+
+			// [TABLE]
+			$tag_list['no_option']['table'] = array(
+				'callback' => 'parseTableTag',
+				'ignore_global_strip_space_after' => true,
+				'strip_space_after' => 1,
+				'strip_empty' => true
+			);
+
+			// [TABLE=]
+			$tag_list['option']['table'] = array(
+				'callback' => 'parseTableTag',
+				'ignore_global_strip_space_after' => true,
+				'strip_space_after' => 1,
+				'strip_empty' => true
+			);
+
+			// [HR]
+			$tag_list['no_option']['hr'] = array(
+				'html' => '<hr />%1$s',
+				'strip_empty' => false
+			);
+
+			// [PRBREAK]
+			$tag_list['no_option']['prbreak'] = array(
+				'callback' => 'parsePreviewBreakTag',
+				'strip_empty' => false
+			);
+
+			// [SUB]
+			$tag_list['no_option']['sub'] = array(
+				'html' => '<sub>%1$s</sub>',
+				'strip_empty' => true
+			);
+
+			// [SUP]
+			$tag_list['no_option']['sup'] = array(
+				'html' => '<sup>%1$s</sup>',
 				'strip_empty' => true
 			);
 		}
@@ -2253,9 +3513,9 @@ function fetch_tag_list($prepend_path = '', $force_all = false)
 		{
 			// [COLOR=XXX]
 			$tag_list['option']['color'] = array(
-				'html' => '<font color="%2$s">%1$s</font>',
+				'html'         => '<font color="%2$s">%1$s</font>',
 				'option_regex' => '#^\#?\w+$#',
-				'strip_empty' => true
+				'strip_empty'  => true
 			);
 		}
 
@@ -2263,9 +3523,9 @@ function fetch_tag_list($prepend_path = '', $force_all = false)
 		{
 			// [SIZE=XXX]
 			$tag_list['option']['size'] = array(
-				'html' => '<font size="%2$s">%1$s</font>',
+				'html'         => '<font size="%2$s">%1$s</font>',
 				'option_regex' => '#^[0-9\+\-]+$#',
-				'strip_empty' => true
+				'strip_empty'  => true
 			);
 		}
 
@@ -2273,9 +3533,9 @@ function fetch_tag_list($prepend_path = '', $force_all = false)
 		{
 			// [FONT=XXX]
 			$tag_list['option']['font'] = array(
-				'html' => '<font face="%2$s">%1$s</font>',
+				'html'         => '<span style="font-family: %2$s">%1$s</span>',
 				'option_regex' => '#^[^["`\':]+$#',
-				'strip_empty' => true
+				'strip_empty'  => true
 			);
 		}
 
@@ -2283,29 +3543,39 @@ function fetch_tag_list($prepend_path = '', $force_all = false)
 		{
 			// [LEFT]
 			$tag_list['no_option']['left'] = array(
-				'html' => '<div align="left">%1$s</div>',
-				'strip_empty' => true,
+				'html'              => '<div style="text-align: left;">%1$s</div>',
+				'ignore_global_strip_space_after' => true,
+				'strip_empty'       => true,
 				'strip_space_after' => 1
 			);
 
 			// [CENTER]
 			$tag_list['no_option']['center'] = array(
-				'html' => '<div align="center">%1$s</div>',
-				'strip_empty' => true,
+				'html'              => '<div style="text-align: center;">%1$s</div>',
+				'ignore_global_strip_space_after' => true,
+				'strip_empty'       => true,
 				'strip_space_after' => 1
 			);
 
 			// [RIGHT]
 			$tag_list['no_option']['right'] = array(
-				'html' => '<div align="right">%1$s</div>',
-				'strip_empty' => true,
+				'html'              => '<div style="text-align: right;">%1$s</div>',
+				'ignore_global_strip_space_after' => true,
+				'strip_empty'       => true,
 				'strip_space_after' => 1
 			);
 
-			// [INDENT]
+			// [INDENT=XXX]
 			$tag_list['no_option']['indent'] = array(
-				'html' => '<blockquote>%1$s</blockquote>',
-				'strip_empty' => true,
+				'callback'          => 'handle_bbcode_indent',
+				'strip_empty'       => true,
+				'strip_space_after' => 1
+			);
+
+			// [INDENT=XXX]
+			$tag_list['option']['indent'] = array(
+				'callback'          => 'handle_bbcode_indent',
+				'strip_empty'       => true,
 				'strip_space_after' => 1
 			);
 		}
@@ -2314,20 +3584,27 @@ function fetch_tag_list($prepend_path = '', $force_all = false)
 		{
 			// [LIST]
 			$tag_list['no_option']['list'] = array(
-				'callback' => 'handle_bbcode_list',
+				'callback'    => 'handle_bbcode_list',
 				'strip_empty' => true
 			);
 
 			// [LIST=XXX]
 			$tag_list['option']['list'] = array(
-				'callback' => 'handle_bbcode_list',
+				'callback'    => 'handle_bbcode_list',
 				'strip_empty' => true
 			);
 
-			// [INDENT]
+			// [INDENT=XXX]
 			$tag_list['no_option']['indent'] = array(
-				'html' => '<blockquote>%1$s</blockquote>',
-				'strip_empty' => true,
+				'callback'          => 'handle_bbcode_indent',
+				'strip_empty'       => true,
+				'strip_space_after' => 1
+			);
+
+			// [INDENT=XXX]
+			$tag_list['option']['indent'] = array(
+				'callback'          => 'handle_bbcode_indent',
+				'strip_empty'       => true,
 				'strip_space_after' => 1
 			);
 		}
@@ -2336,66 +3613,80 @@ function fetch_tag_list($prepend_path = '', $force_all = false)
 		{
 			// [EMAIL]
 			$tag_list['no_option']['email'] = array(
-				'callback' => 'handle_bbcode_email',
+				'callback'    => 'handle_bbcode_email',
 				'strip_empty' => true
 			);
 
 			// [EMAIL=XXX]
 			$tag_list['option']['email'] = array(
-				'callback' => 'handle_bbcode_email',
+				'callback'    => 'handle_bbcode_email',
 				'strip_empty' => true
 			);
 
 			// [URL]
 			$tag_list['no_option']['url'] = array(
-				'callback' => 'handle_bbcode_url',
+				'callback'    => 'handle_bbcode_url',
 				'strip_empty' => true
 			);
 
 			// [URL=XXX]
 			$tag_list['option']['url'] = array(
-				'callback' => 'handle_bbcode_url',
+				'callback'    => 'handle_bbcode_url',
 				'strip_empty' => true
 			);
 
 			// [THREAD]
 			$tag_list['no_option']['thread'] = array(
-				'html' => '<a href="' . $prepend_path . 'showthread.php?' . $vbulletin->session->vars['sessionurl'] . 't=%1$s">' . $vbulletin->options['bburl'] . '/showthread.php?t=%1$s</a>',
-				'data_regex' => '#^\d+$#',
+				'html'        => '<a href="' . $forum_path . 'showthread.php?' . $vbulletin->session->vars['sessionurl'] . 't=%1$s"' .
+					($vbulletin->options['friendlyurl'] ? ' rel="nofollow"' : '') . '>' . $forum_path_full . 'showthread.php?t=%1$s</a>',
+				'data_regex'  => '#^\d+$#',
 				'strip_empty' => true
 			);
 
 			// [THREAD=XXX]
 			$tag_list['option']['thread'] = array(
-				'html' => '<a href="' . $prepend_path . 'showthread.php?' . $vbulletin->session->vars['sessionurl'] . 't=%2$s" title="' . htmlspecialchars_uni($vbulletin->options['bbtitle']) . ' - ' . $vbphrase['thread'] . ' %2$s">%1$s</a>',
+				'html'         => '<a href="' . $forum_path . 'showthread.php?' . $vbulletin->session->vars['sessionurl'] . 't=%2$s"' .
+					($vbulletin->options['friendlyurl'] ? ' rel="nofollow"' : '') .
+					' title="' . htmlspecialchars_uni($vbulletin->options['bbtitle']) . ' - ' . $vbphrase['thread'] . ' %2$s">%1$s</a>',
 				'option_regex' => '#^\d+$#',
-				'strip_empty' => true
+				'strip_empty'  => true
 			);
 
 			// [POST]
 			$tag_list['no_option']['post'] = array(
-				'html' => '<a href="' . $prepend_path . 'showthread.php?' . $vbulletin->session->vars['sessionurl'] . 'p=%1$s#post%1$s">' . $vbulletin->options['bburl'] . '/showthread.php?p=%1$s</a>',
-				'data_regex' => '#^\d+$#',
+				'html'        => '<a href="' . $forum_path . 'showthread.php?' . $vbulletin->session->vars['sessionurl'] . 'p=%1$s#post%1$s"' .
+					($vbulletin->options['friendlyurl'] ? ' rel="nofollow"' : '') . '>' . $forum_path_full . 'showthread.php?p=%1$s</a>',
+				'data_regex'  => '#^\d+$#',
 				'strip_empty' => true
 			);
 
 			// [POST=XXX]
 			$tag_list['option']['post'] = array(
-				'html' => '<a href="' . $prepend_path . 'showthread.php?' . $vbulletin->session->vars['sessionurl'] . 'p=%2$s#post%2$s" title="' . htmlspecialchars_uni($vbulletin->options['bbtitle']) . ' - ' . $vbphrase['post'] . ' %2$s">%1$s</a>',
+				'html'         => '<a href="' . $forum_path . 'showthread.php?' . $vbulletin->session->vars['sessionurl'] . 'p=%2$s#post%2$s"' .
+					($vbulletin->options['friendlyurl'] ? ' rel="nofollow"' : '') .
+					' title="' . htmlspecialchars_uni($vbulletin->options['bbtitle']) . ' - ' . $vbphrase['post'] . ' %2$s">%1$s</a>',
 				'option_regex' => '#^\d+$#',
-				'strip_empty' => true
+				'strip_empty'  => true
 			);
+
+			if (defined('VB_API') AND VB_API === true)
+			{
+				$tag_list['no_option']['thread']['html'] = '<a href="vb:showthread/t=%1$s">' . $vbulletin->options['bburl'] . '/showthread.php?t=%1$s</a>';
+				$tag_list['option']['thread']['html'] = '<a href="vb:showthread/t=%2$s">%1$s</a>';
+				$tag_list['no_option']['post']['html'] = '<a href="vb:showthread/p=%1$s">' . $vbulletin->options['bburl'] . '/showthread.php?p=%1$s</a>';
+				$tag_list['option']['post']['html'] = '<a href="vb:showthread/p=%2$s">%1$s</a>';
+			}
 		}
 
 		if (($vbulletin->options['allowedbbcodes'] & ALLOW_BBCODE_PHP) OR $force_all)
 		{
 			// [PHP]
 			$tag_list['no_option']['php'] = array(
-				'callback' => 'handle_bbcode_php',
-				'strip_empty' => true,
-				'stop_parse' => true,
-				'disable_smilies' => true,
-				'disable_wordwrap' => true,
+				'callback'          => 'handle_bbcode_php',
+				'strip_empty'       => true,
+				'stop_parse'        => true,
+				'disable_smilies'   => true,
+				'disable_wordwrap'  => true,
 				'strip_space_after' => 2
 			);
 		}
@@ -2404,10 +3695,10 @@ function fetch_tag_list($prepend_path = '', $force_all = false)
 		{
 			//[CODE]
 			$tag_list['no_option']['code'] = array(
-				'callback' => 'handle_bbcode_code',
-				'strip_empty' => true,
-				'disable_smilies' => true,
-				'disable_wordwrap' => true,
+				'callback'          => 'handle_bbcode_code',
+				'strip_empty'       => true,
+				'disable_smilies'   => true,
+				'disable_wordwrap'  => true,
 				'strip_space_after' => 2
 			);
 		}
@@ -2416,11 +3707,11 @@ function fetch_tag_list($prepend_path = '', $force_all = false)
 		{
 			// [HTML]
 			$tag_list['no_option']['html'] = array(
-				'callback' => 'handle_bbcode_html',
-				'strip_empty' => true,
-				'stop_parse' => true,
-				'disable_smilies' => true,
-				'disable_wordwrap' => true,
+				'callback'          => 'handle_bbcode_html',
+				'strip_empty'       => true,
+				'stop_parse'        => true,
+				'disable_smilies'   => true,
+				'disable_wordwrap'  => true,
 				'strip_space_after' => 2
 			);
 		}
@@ -2443,8 +3734,7 @@ function fetch_tag_list($prepend_path = '', $force_all = false)
 
 /*======================================================================*\
 || ####################################################################
-|| # Downloaded: 16:21, Sat Apr 6th 2013
-|| # CVS: $RCSfile$ - $Revision: 26966 $
+|| # Downloaded: 14:57, Sun Aug 11th 2013
+|| # CVS: $RCSfile$ - $Revision: 63865 $
 || ####################################################################
 \*======================================================================*/
-?>

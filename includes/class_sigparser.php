@@ -1,9 +1,9 @@
 <?php
 /*======================================================================*\
 || #################################################################### ||
-|| # vBulletin 3.7.2 Patch Level 2 - Licence Number VBF2470E4F
+|| # vBulletin 4.2.1 - Licence Number VBC2DDE4FB
 || # ---------------------------------------------------------------- # ||
-|| # Copyright ©2000-2013 Jelsoft Enterprises Ltd. All Rights Reserved. ||
+|| # Copyright ©2000-2013 vBulletin Solutions Inc. All Rights Reserved. ||
 || # This file may not be redistributed in whole or significant part. # ||
 || # ---------------- VBULLETIN IS NOT FREE SOFTWARE ---------------- # ||
 || # http://www.vbulletin.com | http://www.vbulletin.com/license.html # ||
@@ -21,8 +21,8 @@ require_once(DIR . '/includes/class_bbcode.php');
 * Stack based BB code parser.
 *
 * @package 		vBulletin
-* @version		$Revision: 25833 $
-* @date 		$Date: 2008-02-22 08:10:39 -0600 (Fri, 22 Feb 2008) $
+* @version		$Revision: 57655 $
+* @date 		$Date: 2012-01-09 12:08:39 -0800 (Mon, 09 Jan 2012) $
 *
 */
 class vB_SignatureParser extends vB_BbCodeParser
@@ -152,8 +152,9 @@ class vB_SignatureParser extends vB_BbCodeParser
 		$dosmilies = ($sig_perms & $global_sig_perms['allowsmilies']);
 		$dobbcode = ($sig_perms & $global_sig_perms['canbbcode']);
 		$dobbimagecode = ($sig_perms & $global_sig_perms['allowimg']);
+		$dobbvideocode = ($sig_perms & $global_sig_perms['allowvideo']);
 
-		return $this->do_parse($text, $dohtml, $dosmilies, $dobbcode, $dobbimagecode, false, false);
+		return $this->do_parse($text, $dohtml, $dosmilies, $dobbcode, $dobbimagecode, false, false, null, false, $dobbvideocode);
 	}
 
 	/**
@@ -240,11 +241,13 @@ class vB_SignatureParser extends vB_BbCodeParser
 	*/
 	function check_bbcode_sigpic($alt_text)
 	{
-		if (!$this->registry->db->query_first("SELECT userid FROM " . TABLE_PREFIX . "sigpic WHERE userid = " . $this->userid)
-		)
+		if (!$this->registry->db->query_first("SELECT userid FROM " . TABLE_PREFIX . "sigpic WHERE userid = " . $this->userid))
 		{
 			// guests can't have sigs (let alone sig pics) so why are we even here?
-			$this->errors[] = 'no_sig_pic_to_use';
+			if (!in_array('no_sig_pic_to_use', $this->errors))
+			{
+				$this->errors[] = 'no_sig_pic_to_use';
+			}
 			return 'sigpic';
 		}
 
@@ -253,7 +256,10 @@ class vB_SignatureParser extends vB_BbCodeParser
 		if ($sigpic_used == true)
 		{
 			// can only use the sigpic once in a signature
-			$this->errors[] = 'sig_pic_already_used';
+			if (!in_array('sig_pic_already_used', $this->errors))
+			{
+				$this->errors[] = 'sig_pic_already_used';
+			}
 			return 'sigpic';
 		}
 
@@ -266,8 +272,8 @@ class vB_SignatureParser extends vB_BbCodeParser
 
 /*======================================================================*\
 || ####################################################################
-|| # Downloaded: 16:21, Sat Apr 6th 2013
-|| # CVS: $RCSfile$ - $Revision: 25833 $
+|| # Downloaded: 14:57, Sun Aug 11th 2013
+|| # CVS: $RCSfile$ - $Revision: 57655 $
 || ####################################################################
 \*======================================================================*/
 

@@ -1,9 +1,9 @@
 <?php
 /*======================================================================*\
 || #################################################################### ||
-|| # vBulletin 3.7.2 Patch Level 2 - Licence Number VBF2470E4F
+|| # vBulletin 4.2.1 - Licence Number VBC2DDE4FB
 || # ---------------------------------------------------------------- # ||
-|| # Copyright ©2000-2013 Jelsoft Enterprises Ltd. All Rights Reserved. ||
+|| # Copyright ©2000-2013 vBulletin Solutions Inc. All Rights Reserved. ||
 || # This file may not be redistributed in whole or significant part. # ||
 || # ---------------- VBULLETIN IS NOT FREE SOFTWARE ---------------- # ||
 || # http://www.vbulletin.com | http://www.vbulletin.com/license.html # ||
@@ -20,7 +20,7 @@ define('GET_EDIT_TEMPLATES', 'report,update');
 
 // ################### PRE-CACHE TEMPLATES AND DATA ######################
 // get special phrase groups
-$phrasegroups = array('infraction', 'infractionlevel', 'pm', 'posting', 'banning');
+$phrasegroups = array('infraction', 'infractionlevel', 'pm', 'posting', 'banning', 'user');
 
 // get special data templates from the datastore
 $specialtemplates = array('smiliecache', 'bbcodecache');
@@ -200,7 +200,7 @@ if ($_REQUEST['do'] == 'report' OR $_POST['do'] == 'update')
 	$infractionban = $pointsban = false;
 	$totalinfractions = 0;
 	$infcache = array();
-	$userinfractions = $db->query_read_slave("
+	$userinfractions = $db->query_read("
 		SELECT *
 		FROM " . TABLE_PREFIX . "infraction
 		WHERE userid = " . $userinfo['userid'] . "
@@ -270,7 +270,12 @@ if ($_REQUEST['do'] == 'report' OR $_POST['do'] == 'update')
 			default: $period = '';
 		}
 		$ban['liftdate'] = convert_date_to_timestamp($ban['period']);
-		eval('$banbits .= "' . fetch_template('userinfraction_banbit') . '";');
+		$templater = vB_Template::create('userinfraction_banbit');
+			$templater->register('bangroup', $bangroup);
+			$templater->register('infractions', $infractions);
+			$templater->register('period', $period);
+			$templater->register('points', $points);
+		$banbits .= $templater->render();
 
 		$banlist[] = $ban;
 	}
@@ -335,7 +340,7 @@ if ($_POST['do'] == 'reverse')
 
 			($hook = vBulletinHook::fetch_hook('infraction_reverse_complete')) ? eval($hook) : false;
 
-			eval(print_standard_redirect('redirect_infraction_reversed'));
+			print_standard_redirect('redirect_infraction_reversed');  
 		}
 		else
 		{
@@ -413,8 +418,6 @@ if ($_REQUEST['do'] == 'view')
 
 	if ($vbulletin->userinfo['permissions']['genericpermissions'] & $vbulletin->bf_ugp_genericpermissions['canreverseinfraction'] AND $infractioninfo['action'] != 2)
 	{
-		require_once(DIR . '/includes/functions_editor.php');
-		$textareacols = fetch_textarea_width();
 		$show['reverseoption'] = true;
 	}
 	else
@@ -484,27 +487,48 @@ if ($_REQUEST['do'] == 'view')
 		$show['disthread'] = false;
 	}
 
+	$pageinfo = array('p' => $postinfo['postid']);
+
 	// draw nav bar
 	$navbits = array();
+	$navbits[fetch_seo_url('forumhome', array())] = $vbphrase['forum'];
 	$parentlist = array_reverse(explode(',', $foruminfo['parentlist']));
 	foreach ($parentlist AS $forumID)
 	{
 		$forumTitle = $vbulletin->forumcache["$forumID"]['title'];
-		$navbits['forumdisplay.php?' . $vbulletin->session->vars['sessionurl'] . "f=$forumID"] = $forumTitle;
+		$navbits[fetch_seo_url('forum', array('forumid' => $forumID, 'title' => $forumTitle))] = $forumTitle;
 	}
 	if ($postinfo['postid'])
 	{
-		$navbits['showthread.php?' . $vbulletin->session->vars['sessionurl'] . "p=$postinfo[postid]#post$postinfo[postid]"] = $threadinfo['prefix_plain_html'] . ' ' . $threadinfo['title'];
+		$navbits[fetch_seo_url('thread', $threadinfo, $pageinfo) . "#post$postinfo[postid]"] = $threadinfo['prefix_plain_html'] . ' ' . $threadinfo['title'];
 	}
+	else
+	{
+		$navbits[fetch_seo_url('member', $userinfo)] = construct_phrase($vbphrase['xs_profile'], $userinfo['username']);
+	}
+
 	$navbits[''] = construct_phrase($vbphrase['user_infraction_for_x'], $userinfo['username']);
 	$navbits = construct_navbits($navbits);
 
-	eval('$navbar = "' . fetch_template('navbar') . '";');
+	$navbar = render_navbar_template($navbits);
 
 	($hook = vBulletinHook::fetch_hook('infraction_view_complete')) ? eval($hook) : false;
 
 	$url =& $vbulletin->url;
-	eval('print_output("' . fetch_template('userinfraction_view') . '");');
+	$templater = vB_Template::create('userinfraction_view');
+		$templater->register_page_templates();
+		$templater->register('disthreadinfo', $disthreadinfo);
+		$templater->register('forumrules', $forumrules);
+		$templater->register('infractioninfo', $infractioninfo);
+		$templater->register('navbar', $navbar);
+		$templater->register('onload', $onload);
+		$templater->register('pageinfo', $pageinfo);
+		$templater->register('postid', $postid);
+		$templater->register('postinfo', $postinfo);
+		$templater->register('threadinfo', $threadinfo);
+		$templater->register('url', $url);
+		$templater->register('userinfo', $userinfo);
+	print_output($templater->render());
 }
 
 // ######################### UPDATE INFRACTION ############################
@@ -655,8 +679,9 @@ if ($_POST['do'] == 'update')
 	// unwysiwygify the incoming data
 	if ($vbulletin->GPC['wysiwyg'])
 	{
-		require_once(DIR . '/includes/functions_wysiwyg.php');
-		$vbulletin->GPC['message'] = convert_wysiwyg_html_to_bbcode($vbulletin->GPC['message'], $vbulletin->options['privallowhtml']);
+		require_once(DIR . '/includes/class_wysiwygparser.php');
+		$html_parser = new vB_WysiwygHtmlParser($vbulletin);
+		$vbulletin->GPC['message'] = $html_parser->parse_wysiwyg_html_to_bbcode($vbulletin->GPC['message'], $vbulletin->options['privallowhtml']);
 	}
 
 	// parse URLs in message text
@@ -706,7 +731,7 @@ if ($_POST['do'] == 'update')
 			}
 			else
 			{
-				$infraction['post'] = $vbulletin->options['bburl'] . "/showthread.php?p=$postinfo[postid]#post$postinfo[postid]";
+				$infraction['post'] = $vbulletin->options['bburl'] . '/' . fetch_seo_url('thread', $threadinfo, array('p' => $postinfo['postid'])) . "#post$postinfo[postid]";
 			}
 			$emailphrase = $emailsubphrase . '_post';
 			$infraction['pagetext'] =& $postinfo['pagetext'];
@@ -770,6 +795,8 @@ if ($_POST['do'] == 'update')
 		{
 			// everything's good!
 			$pmdm->save();
+
+			clear_autosave_text('vBForum_Infraction', 0, $userinfo['userid'], $vbulletin->userinfo['userid']);
 			($hook = vBulletinHook::fetch_hook('private_insertpm_complete')) ? eval($hook) : false;
 
 			$postmessage =& $vbulletin->GPC['message'];
@@ -796,7 +823,7 @@ if ($_POST['do'] == 'update')
 		else
 		{	// Email User
 			require_once(DIR . '/includes/class_bbcode_alt.php');
-			$plaintext_parser =& new vB_BbCodeParser_PlainText($vbulletin, fetch_tag_list());
+			$plaintext_parser = new vB_BbCodeParser_PlainText($vbulletin, fetch_tag_list());
 			$plaintext_parser->set_parsing_language($touserinfo['languageid']);
 
 			$infraction = array(
@@ -811,7 +838,7 @@ if ($_POST['do'] == 'update')
 			// if we have a specific post we can link to, link to it
 			if (!empty($postinfo))
 			{
-				$infraction['post'] = $vbulletin->options['bburl'] . "/showthread.php?p=$postinfo[postid]#post$postinfo[postid]";
+				$infraction['post'] = $vbulletin->options['bburl'] . '/' . fetch_seo_url('thread', $threadinfo, array('p' => $postinfo['postid'])) . "#post$postinfo[postid]";
 				$infraction['pagetext'] =& $postinfo['pagetext'];
 				$emailphrase = $emailsubphrase . '_post';
 			}
@@ -854,7 +881,8 @@ if ($_POST['do'] == 'update')
 		$infdata->save();
 
 		// Ban
-		if (!empty($banlist) AND $points = $infdata->fetch_field('points'))
+		require_once(DIR . '/includes/adminfunctions.php');
+		if (!empty($banlist) AND $points = $infdata->fetch_field('points') AND !is_unalterable_user($userinfo['userid']))
 		{
 			if ($banusergroupid)
 			{
@@ -910,12 +938,12 @@ if ($_POST['do'] == 'update')
 
 		if ($postinfo['postid'])
 		{
-			$vbulletin->url = 'showthread.php?' . $vbulletin->session->vars['sessionurl'] . "p=$postinfo[postid]#post$postinfo[postid]";
-			eval(print_standard_redirect('redirect_infraction_added'));
+			$vbulletin->url = fetch_seo_url('thread', $threadinfo, array('p' => $postinfo['postid'])) . "#post$postinfo[postid]";
+			print_standard_redirect('redirect_infraction_added');  
 		}
 		else
 		{
-			eval(print_standard_redirect('redirect_infraction_added'));
+			print_standard_redirect('redirect_infraction_added');  
 		}
 	}
 	else
@@ -936,7 +964,6 @@ if ($_POST['do'] == 'update')
 // ######################### REPORT INFRACTION ############################
 if ($_REQUEST['do'] == 'report')
 {
-
 	($hook = vBulletinHook::fetch_hook('infraction_report_start')) ? eval($hook) : false;
 
 	$infraction_ordering = array();
@@ -1039,7 +1066,14 @@ if ($_REQUEST['do'] == 'report')
 				$show['ban'] = false;
 			}
 
-			eval('$infractionbits .= "' . fetch_template('userinfractionbit') . '";');
+			$templater = vB_Template::create('userinfractionbit');
+				$templater->register('checked_inf', $checked_inf);
+				$templater->register('checked_warn', $checked_warn);
+				$templater->register('count', $count);
+				$templater->register('expires', $expires);
+				$templater->register('infraction', $infraction);
+				$templater->register('title', $title);
+			$infractionbits .= $templater->render();
 		}
 	}
 
@@ -1071,15 +1105,17 @@ if ($_REQUEST['do'] == 'report')
 		foreach ($parentlist AS $forumID)
 		{
 			$forumTitle = $vbulletin->forumcache["$forumID"]['title'];
-			$navbits['forumdisplay.php?' . $vbulletin->session->vars['sessionurl'] . "f=$forumID"] = $forumTitle;
+			$navbits[fetch_seo_url('forum', array('forumid' => $forumID, 'title' => $forumTitle))] = $forumTitle;
 		}
-		$navbits['showthread.php?' . $vbulletin->session->vars['sessionurl'] . "p=$postid"] = $threadinfo['prefix_plain_html'] . ' ' . $threadinfo['title'];
+		$navbits[fetch_seo_url('thread', $threadinfo, array('p' => $postinfo['postid'])) . "#post$postinfo[postid]"] = $threadinfo['prefix_plain_html'] . ' ' . $threadinfo['title'];
 	}
+	else
+	{
+		$navbits[fetch_seo_url('member', $userinfo)] = construct_phrase($vbphrase['xs_profile'], $userinfo['username']);
+	}
+
 	$navbits[''] = construct_phrase($vbphrase['user_infraction_for_x'], $userinfo['username']);
 	$navbits = construct_navbits($navbits);
-
-	require_once(DIR . '/includes/functions_editor.php');
-	$textareacols = fetch_textarea_width();
 
 	if ($show['pm'])
 	{
@@ -1107,20 +1143,44 @@ if ($_REQUEST['do'] == 'report')
 
 		$posticons = construct_icons($pm['iconid'], $vbulletin->options['privallowicons']);
 
-		$editorid = construct_edit_toolbar($pm['message'], 0, 'privatemessage', iif($vbulletin->options['privallowsmilies'], 1, 0));
+		require_once(DIR . '/includes/functions_editor.php');
+		$editorid = construct_edit_toolbar(
+			$pm['message'],
+			0,
+			'privatemessage',
+			$vbulletin->options['privallowsmilies'] ? 1 : 0,
+			true,
+			false,
+			'fe',
+			'',
+			array(),
+			'content',
+			'vBForum_Infraction',
+			0,
+			$userinfo['userid'],
+			defined('PMPREVIEW')
+		);
 
 		$show['parseurl'] = $vbulletin->options['privallowbbcode'];
 
 		// build forum rules
-		$bbcodeon = iif($vbulletin->options['privallowbbcode'], $vbphrase['on'], $vbphrase['off']);
-		$imgcodeon = iif($vbulletin->options['privallowbbimagecode'], $vbphrase['on'], $vbphrase['off']);
-		$htmlcodeon = iif($vbulletin->options['privallowhtml'], $vbphrase['on'], $vbphrase['off']);
-		$smilieson = iif($vbulletin->options['privallowsmilies'], $vbphrase['on'], $vbphrase['off']);
+		$bbcodeon = ($vbulletin->options['privallowbbcode'] ? $vbphrase['on'] : $vbphrase['off']);
+		$imgcodeon = ($vbulletin->options['privallowbbimagecode'] ? $vbphrase['on'] : $vbphrase['off']);
+		$videocodeon = ($vbulletin->options['privallowbbvideocode'] ? $vbphrase['on'] : $vbphrase['off']);
+		$htmlcodeon = ($vbulletin->options['privallowhtml'] ? $vbphrase['on'] : $vbphrase['off']);
+		$smilieson = ($vbulletin->options['privallowsmilies'] ? $vbphrase['on'] : $vbphrase['off']);
 
 		// only show posting code allowances in forum rules template
 		$show['codeonly'] = true;
 
-		eval('$forumrules = "' . fetch_template('forumrules') . '";');
+		$templater = vB_Template::create('forumrules');
+			$templater->register('bbcodeon', $bbcodeon);
+			$templater->register('can', $can);
+			$templater->register('htmlcodeon', $htmlcodeon);
+			$templater->register('imgcodeon', $imgcodeon);
+			$templater->register('videocodeon', $videocodeon);
+			$templater->register('smilieson', $smilieson);
+		$forumrules = $templater->render();
 
 	}
 	else if ($showemail)
@@ -1155,7 +1215,10 @@ if ($_REQUEST['do'] == 'report')
 				$show['moregroups'] = true;
 				$grouptitle = $vbulletin->usergroupcache["$pgroup[orusergroupid]"]['title'];
 				$points = $pgroup['pointlevel'];
-				eval('$moregroups .= "' . fetch_template('userinfraction_groupbit') . '";');
+				$templater = vB_Template::create('userinfraction_groupbit');
+					$templater->register('grouptitle', $grouptitle);
+					$templater->register('points', $points);
+				$moregroups .= $templater->render();
 			}
 			else
 			{
@@ -1166,18 +1229,50 @@ if ($_REQUEST['do'] == 'report')
 		}
 	}
 
-	eval('$navbar = "' . fetch_template('navbar') . '";');
+	$show['signaturecheckbox'] = ($permissions['genericpermissions'] & $vbulletin->bf_ugp_genericpermissions['canusesignature'] AND $vbulletin->userinfo['signature']);
+
+	$navbar = render_navbar_template($navbits);
 
 	($hook = vBulletinHook::fetch_hook('infraction_report_complete')) ? eval($hook) : false;
 
 	$url =& $vbulletin->url;
-	eval('print_output("' . fetch_template('userinfraction') . '");');
+	$templater = vB_Template::create('userinfraction');
+		$templater->register_page_templates();
+		$templater->register('banbits', $banbits);
+		$templater->register('banreason', $banreason);
+		$templater->register('checked', $checked);
+		$templater->register('checked_inf', $checked_inf);
+		$templater->register('customexpires', $customexpires);
+		$templater->register('custompoints', $custompoints);
+		$templater->register('customreason', $customreason);
+		$templater->register('disablesmiliesoption', $disablesmiliesoption);
+		$templater->register('editorid', $editorid);
+		$templater->register('firstgroup', $firstgroup);
+		$templater->register('firstpoints', $firstpoints);
+		$templater->register('foruminfo', $foruminfo);
+		$templater->register('forumrules', $forumrules);
+		$templater->register('infractionbits', $infractionbits);
+		$templater->register('infractiongroups', $infractiongroups);
+		$templater->register('messagearea', $messagearea);
+		$templater->register('moregroups', $moregroups);
+		$templater->register('navbar', $navbar);
+		$templater->register('note', $note);
+		$templater->register('periodselected', $periodselected);
+		$templater->register('posticons', $posticons);
+		$templater->register('postinfo', $postinfo);
+		$templater->register('postmessage', $postmessage);
+		$templater->register('postpreview', $postpreview);
+		$templater->register('selectedicon', $selectedicon);
+		$templater->register('totalinfractions', $totalinfractions);
+		$templater->register('url', $url);
+		$templater->register('userinfo', $userinfo);
+	print_output($templater->render());
 }
 
 /*======================================================================*\
 || ####################################################################
-|| # Downloaded: 16:21, Sat Apr 6th 2013
-|| # CVS: $RCSfile$ - $Revision: 26399 $
+|| # Downloaded: 14:57, Sun Aug 11th 2013
+|| # CVS: $RCSfile$ - $Revision: 62098 $
 || ####################################################################
 \*======================================================================*/
 ?>
