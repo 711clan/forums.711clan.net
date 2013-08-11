@@ -1,8 +1,2 @@
 ErrorDocument 404 /error/404.php
 ErrorDocument 500 /error/500.php
-
-#php_flag display_startup_errors on
-php_flag display_errors off
-#php_flag html_errors on
-php_flag log_errors on
-php_value error_log  /home/clan711site/logs_custom/php_error.log
