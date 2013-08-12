@@ -1,9 +1,9 @@
 <?php
 /*======================================================================*\
 || #################################################################### ||
-|| # vBulletin 3.7.2 Patch Level 2 - Licence Number VBF2470E4F
+|| # vBulletin 3.8.7 Patch Level 3 - Licence Number VBC2DDE4FB
 || # ---------------------------------------------------------------- # ||
-|| # Copyright ©2000-2013 Jelsoft Enterprises Ltd. All Rights Reserved. ||
+|| # Copyright ©2000-2013 vBulletin Solutions, Inc. All Rights Reserved. ||
 || # This file may not be redistributed in whole or significant part. # ||
 || # ---------------- VBULLETIN IS NOT FREE SOFTWARE ---------------- # ||
 || # http://www.vbulletin.com | http://www.vbulletin.com/liceNse.html # ||
@@ -19,8 +19,8 @@ if (!class_exists('vB_Datastore'))
 * Class for fetching and initializing the vBulletin datastore from eAccelerator
 *
 * @package	vBulletin
-* @version	$Revision: 26074 $
-* @date		$Date: 2008-03-13 10:44:45 -0500 (Thu, 13 Mar 2008) $
+* @version	$Revision: 39862 $
+* @date		$Date: 2010-10-18 18:16:44 -0700 (Mon, 18 Oct 2010) $
 */
 class vB_Datastore_eAccelerator extends vB_Datastore
 {
@@ -138,8 +138,8 @@ class vB_Datastore_eAccelerator extends vB_Datastore
 * Class for fetching and initializing the vBulletin datastore from a Memcache Server
 *
 * @package	vBulletin
-* @version	$Revision: 26074 $
-* @date		$Date: 2008-03-13 10:44:45 -0500 (Thu, 13 Mar 2008) $
+* @version	$Revision: 39862 $
+* @date		$Date: 2010-10-18 18:16:44 -0700 (Mon, 18 Oct 2010) $
 */
 class vB_Datastore_Memcached extends vB_Datastore
 {
@@ -360,8 +360,8 @@ class vB_Datastore_Memcached extends vB_Datastore
 * Class for fetching and initializing the vBulletin datastore from APC
 *
 * @package	vBulletin
-* @version	$Revision: 26074 $
-* @date		$Date: 2008-03-13 10:44:45 -0500 (Thu, 13 Mar 2008) $
+* @version	$Revision: 39862 $
+* @date		$Date: 2010-10-18 18:16:44 -0700 (Mon, 18 Oct 2010) $
 */
 class vB_Datastore_APC extends vB_Datastore
 {
@@ -480,8 +480,8 @@ class vB_Datastore_APC extends vB_Datastore
 * Class for fetching and initializing the vBulletin datastore from XCache
 *
 * @package	vBulletin
-* @version	$Revision: 26074 $
-* @date		$Date: 2008-03-13 10:44:45 -0500 (Thu, 13 Mar 2008) $
+* @version	$Revision: 39862 $
+* @date		$Date: 2010-10-18 18:16:44 -0700 (Mon, 18 Oct 2010) $
 */
 class vB_Datastore_XCache extends vB_Datastore
 {
@@ -606,8 +606,8 @@ class vB_Datastore_XCache extends vB_Datastore
 * Class for fetching and initializing the vBulletin datastore from files
 *
 * @package	vBulletin
-* @version	$Revision: 26074 $
-* @date		$Date: 2008-03-13 10:44:45 -0500 (Thu, 13 Mar 2008) $
+* @version	$Revision: 39862 $
+* @date		$Date: 2010-10-18 18:16:44 -0700 (Mon, 18 Oct 2010) $
 */
 class vB_Datastore_Filecache extends vB_Datastore
 {
@@ -901,8 +901,8 @@ class vB_Datastore_Filecache extends vB_Datastore
 
 /*======================================================================*\
 || ####################################################################
-|| # Downloaded: 16:21, Sat Apr 6th 2013
-|| # CVS: $RCSfile$ - $Revision: 26074 $
+|| # Downloaded: 20:50, Sun Aug 11th 2013
+|| # CVS: $RCSfile$ - $Revision: 39862 $
 || ####################################################################
 \*======================================================================*/
 ?>

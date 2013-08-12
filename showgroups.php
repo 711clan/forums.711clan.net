@@ -1,9 +1,9 @@
 <?php
 /*======================================================================*\
 || #################################################################### ||
-|| # vBulletin 3.7.2 Patch Level 2 - Licence Number VBF2470E4F
+|| # vBulletin 3.8.7 Patch Level 3 - Licence Number VBC2DDE4FB
 || # ---------------------------------------------------------------- # ||
-|| # Copyright ©2000-2013 Jelsoft Enterprises Ltd. All Rights Reserved. ||
+|| # Copyright ©2000-2013 vBulletin Solutions, Inc. All Rights Reserved. ||
 || # This file may not be redistributed in whole or significant part. # ||
 || # ---------------- VBULLETIN IS NOT FREE SOFTWARE ---------------- # ||
 || # http://www.vbulletin.com | http://www.vbulletin.com/license.html # ||
@@ -11,7 +11,7 @@
 \*======================================================================*/
 
 // ####################### SET PHP ENVIRONMENT ###########################
-error_reporting(E_ALL & ~E_NOTICE);
+error_reporting(E_ALL & ~E_NOTICE & ~8192);
 
 // #################### DEFINE IMPORTANT CONSTANTS #######################
 define('THIS_SCRIPT', 'showgroups');
@@ -38,6 +38,7 @@ $actiontemplates = array();
 
 // ######################### REQUIRE BACK-END ############################
 require_once('./global.php');
+require_once(DIR . '/includes/functions_bigthree.php');
 
 // #######################################################################
 // ######################## START MAIN SCRIPT ############################
@@ -48,15 +49,23 @@ if (!$vbulletin->options['forumleaders'])
 	print_no_permission();
 }
 
-$show['locationfield'] = true;
+// 2 is the default location field and the one we always use in the template
+$show['locationfield'] = $db->query_first("
+	SELECT profilefieldid
+	FROM " . TABLE_PREFIX . "profilefield
+	WHERE profilefieldid = 2
+");
+
+$show['contactinfo'] = (bool)$vbulletin->userinfo['userid'];
+
 function process_showgroups_userinfo($user)
 {
 	global $vbulletin, $permissions, $stylevar, $show;
 
-	$post =& $user;
-	$datecut = TIMENOW - $vbulletin->options['cookietimeout'];
+	$user = array_merge($user, convert_bits_to_array($user['options'], $vbulletin->bf_misc_useroptions));
+	$user = array_merge($user, convert_bits_to_array($user['adminoptions'], $vbulletin->bf_misc_adminoptions));
+	cache_permissions($user, false);
 
-	require_once(DIR . '/includes/functions_bigthree.php');
 	fetch_online_status($user, true);
 
 	if ((!$user['invisible'] OR $permissions['genericpermissions'] & $vbulletin->bf_ugp_genericpermissions['canseehidden']))
@@ -71,20 +80,6 @@ function process_showgroups_userinfo($user)
 	fetch_musername($user);
 
 	return $user;
-}
-
-function print_users($usergroupid, $userarray)
-{
-	global $bgclass, $vbphrase;
-	$out = '';
-	uksort($userarray, 'strnatcasecmp'); // alphabetically sort usernames
-	foreach ($userarray AS $user)
-	{
-		exec_switch_bg();
-		$user = process_showgroups_userinfo($user);
-		eval('$out .= "' . fetch_template('showgroups_adminbit') . '";');
-	}
-	return $out;
 }
 
 if (!($permissions & $vbulletin->bf_ugp_forumpermissions['canview']))
@@ -102,8 +97,11 @@ construct_forum_jump();
 // get usergroups who should be displayed on showgroups
 // Scans too many rows. Usergroup Rows * User Rows
 $users = $db->query_read_slave("
-	SELECT user.*, usergroup.usergroupid, usergroup.title, user.options, usertextfield.*, userfield.*,
-	IF(displaygroupid=0, user.usergroupid, displaygroupid) AS displaygroupid, infractiongroupid
+	SELECT user.*,
+		usergroup.usergroupid, usergroup.title,
+		user.options, usertextfield.buddylist,
+		" . ($show['locationfield'] ? 'userfield.field2,' : '') . "
+		IF(user.displaygroupid = 0, user.usergroupid, user.displaygroupid) AS displaygroupid
 	FROM " . TABLE_PREFIX . "user AS user
 	LEFT JOIN " . TABLE_PREFIX . "usergroup AS usergroup ON(usergroup.usergroupid = user.usergroupid OR FIND_IN_SET(usergroup.usergroupid, user.membergroupids))
 	LEFT JOIN " . TABLE_PREFIX . "userfield AS userfield ON(userfield.userid = user.userid)
@@ -114,16 +112,9 @@ $users = $db->query_read_slave("
 $groupcache = array();
 while ($user = $db->fetch_array($users))
 {
-	$user = array_merge($user , convert_bits_to_array($user['options'], $vbulletin->bf_misc_useroptions));
-	$user = array_merge($user , convert_bits_to_array($user['adminoptions'] , $vbulletin->bf_misc_adminoptions));
-	cache_permissions($user, false);
-
-	if ($user['userid'])
-	{
-		$t = strtoupper($user['title']);
-		$u = strtoupper($user['username']);
-		$groupcache["$t"]["$u"] = $user;
-	}
+	$t = strtoupper($user['title']);
+	$u = strtoupper($user['username']);
+	$groupcache["$t"]["$u"] = $user;
 }
 
 $usergroups = '';
@@ -139,10 +130,21 @@ if (sizeof($groupcache) >= 1)
 			exec_switch_bg();
 			$user = process_showgroups_userinfo($user);
 
-			if ($vbulletin->options['enablepms'] AND $vbulletin->userinfo['permissions']['pmquota'] AND ($vbulletin->userinfo['permissions']['adminpermissions'] & $vbulletin->bf_ugp_adminpermissions['cancontrolpanel']
-	 				OR ($user['receivepm'] AND $user['permissions']['pmquota']
-	 				AND (!$user['receivepmbuddies'] OR can_moderate() OR strpos(" $user[buddylist] ", ' ' . $vbulletin->userinfo['userid'] . ' ') !== false))
-	 		))
+			if (
+				$vbulletin->options['enablepms']
+					AND
+				$vbulletin->userinfo['permissions']['pmquota']
+					AND
+				(
+					$vbulletin->userinfo['permissions']['pmpermissions'] & $vbulletin->bf_ugp_pmpermissions['canignorequota']
+	 					OR
+	 				(
+	 					$user['receivepm']
+	 						AND
+	 					$user['permissions']['pmquota']
+	 						AND
+	 					(!$user['receivepmbuddies'] OR can_moderate() OR strpos(" $user[buddylist] ", ' ' . $vbulletin->userinfo['userid'] . ' ') !== false))
+	 			))
 			{
 				$show['pmlink'] = true;
 			}
@@ -151,7 +153,7 @@ if (sizeof($groupcache) >= 1)
 				$show['pmlink'] = false;
 			}
 
-			if ($user['showemail'] AND $vbulletin->options['displayemails'] AND (!$vbulletin->options['secureemail'] OR ($vbulletin->options['secureemail'] AND $vbulletin->options['enableemail'])) AND $vbulletin->userinfo['permissions']['genericpermissions'] & $vbulletin->bf_ugp_genericpermissions['canemailmember'])
+			if ($user['showemail'] AND $vbulletin->options['displayemails'] AND (!$vbulletin->options['secureemail'] OR ($vbulletin->options['secureemail'] AND $vbulletin->options['enableemail'])) AND $vbulletin->userinfo['permissions']['genericpermissions'] & $vbulletin->bf_ugp_genericpermissions['canemailmember'] AND $vbulletin->userinfo['userid'])
 			{
 				$show['emaillink'] = true;
 			}
@@ -169,12 +171,17 @@ if (sizeof($groupcache) >= 1)
 	}
 }
 
+unset($groupcache);
+
 if ($vbulletin->options['forumleaders'] == 1)
 {
 	// get moderators **********************************************************
 	$moderators = $db->query_read_slave("
-		SELECT user.*, moderator.forumid, usertextfield.*, userfield.*,
-		IF(displaygroupid=0, user.usergroupid, displaygroupid) AS displaygroupid, infractiongroupid
+		SELECT user.*,
+			moderator.forumid,
+			usertextfield.buddylist,
+			" . ($show['locationfield'] ? 'userfield.field2,' : '') . "
+			IF(user.displaygroupid = 0, user.usergroupid, user.displaygroupid) AS displaygroupid
 		FROM " . TABLE_PREFIX . "moderator AS moderator
 		INNER JOIN " . TABLE_PREFIX . "user AS user USING(userid)
 		INNER JOIN " . TABLE_PREFIX . "userfield AS userfield ON(userfield.userid = user.userid)
@@ -220,9 +227,6 @@ if ($vbulletin->options['forumleaders'] == 1)
 				eval('$modforums[] = "' . fetch_template('showgroups_forumbit') . '";');
 			}
 			$user = $moderator;
-			$user = array_merge($user , convert_bits_to_array($user['options'], $vbulletin->bf_misc_useroptions));
-			$user = array_merge($user , convert_bits_to_array($user['adminoptions'] , $vbulletin->bf_misc_adminoptions));
-			cache_permissions($user, false);
 
 			$user = process_showgroups_userinfo($user);
 			$user['forumbits'] = implode(",\n", $modforums);
@@ -239,7 +243,7 @@ if ($vbulletin->options['forumleaders'] == 1)
 				$show['pmlink'] = false;
 			}
 
-			if ($user['showemail'] AND $vbulletin->options['displayemails'] AND (!$vbulletin->options['secureemail'] OR ($vbulletin->options['secureemail'] AND $vbulletin->options['enableemail'])) AND $vbulletin->userinfo['permissions']['genericpermissions'] & $vbulletin->bf_ugp_genericpermissions['canemailmember'])
+			if ($user['showemail'] AND $vbulletin->options['displayemails'] AND (!$vbulletin->options['secureemail'] OR ($vbulletin->options['secureemail'] AND $vbulletin->options['enableemail'])) AND $vbulletin->userinfo['permissions']['genericpermissions'] & $vbulletin->bf_ugp_genericpermissions['canemailmember'] AND $vbulletin->userinfo['userid'])
 			{
 				$show['emaillink'] = true;
 			}
@@ -267,8 +271,8 @@ eval('print_output("' . fetch_template('SHOWGROUPS') . '");');
 
 /*======================================================================*\
 || ####################################################################
-|| # Downloaded: 16:21, Sat Apr 6th 2013
-|| # CVS: $RCSfile$ - $Revision: 26399 $
+|| # Downloaded: 20:50, Sun Aug 11th 2013
+|| # CVS: $RCSfile$ - $Revision: 39862 $
 || ####################################################################
 \*======================================================================*/
 ?>

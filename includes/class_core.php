@@ -1,18 +1,18 @@
 <?php
 /*======================================================================*\
 || #################################################################### ||
-|| # vBulletin 3.7.2 Patch Level 2 - Licence Number VBF2470E4F
+|| # vBulletin 3.8.7 Patch Level 3 - Licence Number VBC2DDE4FB
 || # ---------------------------------------------------------------- # ||
-|| # Copyright ©2000-2013 Jelsoft Enterprises Ltd. All Rights Reserved. ||
+|| # Copyright ©2000-2013 vBulletin Solutions, Inc. All Rights Reserved. ||
 || # This file may not be redistributed in whole or significant part. # ||
 || # ---------------- VBULLETIN IS NOT FREE SOFTWARE ---------------- # ||
 || # http://www.vbulletin.com | http://www.vbulletin.com/license.html # ||
 || #################################################################### ||
 \*======================================================================*/
 
-define('FILE_VERSION', '3.7.2'); // this should match install.php
-define('SIMPLE_VERSION', '372'); // see vB_Datastore::check_options()
-define('YUI_VERSION', '2.5.2'); // define the YUI version we bundle
+define('FILE_VERSION', '3.8.7'); // this should match install.php
+define('SIMPLE_VERSION', '387'); // see vB_Datastore::check_options()
+define('YUI_VERSION', '2.9.0'); // define the YUI version we bundle, used for external YUI
 
 /**#@+
 * The maximum sizes for the "small" profile avatars
@@ -72,8 +72,8 @@ define('DBARRAY_NUM',   2);
 * This class also handles data replication between a master and slave(s) servers
 *
 * @package	vBulletin
-* @version	$Revision: 27007 $
-* @date		$Date: 2008-06-24 04:40:46 -0500 (Tue, 24 Jun 2008) $
+* @version	$Revision: 43870 $
+* @date		$Date: 2011-05-26 14:52:39 -0700 (Thu, 26 May 2011) $
 */
 class vB_Database
 {
@@ -508,7 +508,7 @@ class vB_Database
 		$queryresult = $this->execute_query(true, $this->connection_recent);
 		$returnarray = $this->fetch_array($queryresult, DBARRAY_NUM);
 		$this->free_result($queryresult);
-		
+
 		return intval($returnarray[0]);
 	}
 
@@ -1003,7 +1003,7 @@ class vB_Database
 				log_vbulletin_error($message, 'database');
 			}
 
-			if (1==2 AND $technicalemail != '' AND !$vbulletin->options['disableerroremail'] AND verify_email_vbulletin_error($this->errno, 'database'))
+			if ($technicalemail != '' AND !$vbulletin->options['disableerroremail'] AND verify_email_vbulletin_error($this->errno, 'database'))
 			{
 				// If vBulletinHook is defined then we know that options are loaded, so we can then use vbmail
 				if (class_exists('vBulletinHook'))
@@ -1058,8 +1058,8 @@ class vB_Database
 * This class also handles data replication between a master and slave(s) servers
 *
 * @package	vBulletin
-* @version	$Revision: 27007 $
-* @date		$Date: 2008-06-24 04:40:46 -0500 (Tue, 24 Jun 2008) $
+* @version	$Revision: 43870 $
+* @date		$Date: 2011-05-26 14:52:39 -0700 (Thu, 26 May 2011) $
 */
 class vB_Database_MySQLi extends vB_Database
 {
@@ -1233,8 +1233,8 @@ class vB_Database_MySQLi extends vB_Database
 * Class for fetching and initializing the vBulletin datastore from the database
 *
 * @package	vBulletin
-* @version	$Revision: 27007 $
-* @date		$Date: 2008-06-24 04:40:46 -0500 (Tue, 24 Jun 2008) $
+* @version	$Revision: 43870 $
+* @date		$Date: 2011-05-26 14:52:39 -0700 (Thu, 26 May 2011) $
 */
 class vB_Datastore
 {
@@ -1492,8 +1492,8 @@ define('FILE',       TYPE_FILE);
 * Class to handle and sanitize variables from GET, POST and COOKIE etc
 *
 * @package	vBulletin
-* @version	$Revision: 27007 $
-* @date		$Date: 2008-06-24 04:40:46 -0500 (Tue, 24 Jun 2008) $
+* @version	$Revision: 43870 $
+* @date		$Date: 2011-05-26 14:52:39 -0700 (Thu, 26 May 2011) $
 */
 class vB_Input_Cleaner
 {
@@ -1580,6 +1580,13 @@ class vB_Input_Cleaner
 	* @var	vB_Registry
 	*/
 	var $registry = null;
+
+	/**
+	* Keep track of variables that have already been cleaned
+	*
+	* @var	array
+	*/
+	var $cleaned_vars = array();
 
 	/**
 	* Constructor
@@ -1765,7 +1772,8 @@ class vB_Input_Cleaner
 
 		foreach ($variables AS $varname => $vartype)
 		{
-			if (!isset($this->registry->GPC["$varname"])) // limit variable to only being "cleaned" once to avoid potential corruption
+			// clean a variable only once unless its a different type
+			if (!isset($this->cleaned_vars["$varname"]) OR $this->cleaned_vars["$varname"] != $vartype)
 			{
 				$this->registry->GPC_exists["$varname"] = isset($sg["$varname"]);
 				$this->registry->GPC["$varname"] =& $this->clean(
@@ -1773,6 +1781,7 @@ class vB_Input_Cleaner
 					$vartype,
 					isset($sg["$varname"])
 				);
+				$this->cleaned_vars["$varname"] = $vartype;
 			}
 		}
 	}
@@ -1788,7 +1797,8 @@ class vB_Input_Cleaner
 	*/
 	function &clean_gpc($source, $varname, $vartype = TYPE_NOCLEAN)
 	{
-		if (!isset($this->registry->GPC["$varname"])) // limit variable to only being "cleaned" once to avoid potential corruption
+		// clean a variable only once unless its a different type
+		if (!isset($this->cleaned_vars["$varname"]) OR $this->cleaned_vars["$varname"] != $vartype)
 		{
 			$sg =& $GLOBALS[$this->superglobal_lookup["$source"]];
 
@@ -1798,6 +1808,7 @@ class vB_Input_Cleaner
 				$vartype,
 				isset($sg["$varname"])
 			);
+			$this->cleaned_vars["$varname"] = $vartype;
 		}
 
 		return $this->registry->GPC["$varname"];
@@ -2029,11 +2040,10 @@ class vB_Input_Cleaner
 	function xss_clean($var)
 	{
 		static
-			$preg_find    = array('#javascript#i', '#vbscript#i'),
+			$preg_find    = array('#^javascript#i', '#^vbscript#i'),
 			$preg_replace = array('java script',   'vb script');
 
-		$var = preg_replace($preg_find, $preg_replace, htmlspecialchars_uni($var));
-		return $var;
+		return preg_replace($preg_find, $preg_replace, htmlspecialchars(trim($var)));
 	}
 
 	/**
@@ -2264,10 +2274,33 @@ class vB_Input_Cleaner
 		}
 		else if (isset($_SERVER['HTTP_X_FORWARDED_FOR']) AND preg_match_all('#\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3}#s', $_SERVER['HTTP_X_FORWARDED_FOR'], $matches))
 		{
-			// make sure we dont pick up an internal IP defined by RFC1918
+			// try to avoid using an internal IP address, its probably a proxy
+			$ranges = array(
+				'10.0.0.0/8' => array(ip2long('10.0.0.0'), ip2long('10.255.255.255')),
+				'127.0.0.0/8' => array(ip2long('127.0.0.0'), ip2long('127.255.255.255')),
+				'169.254.0.0/16' => array(ip2long('169.254.0.0'), ip2long('169.254.255.255')),
+				'172.16.0.0/12' => array(ip2long('172.16.0.0'), ip2long('172.31.255.255')),
+				'192.168.0.0/16' => array(ip2long('192.168.0.0'), ip2long('192.168.255.255')),
+			);
 			foreach ($matches[0] AS $ip)
 			{
-				if (!preg_match('#^(10|172\.16|192\.168)\.#', $ip))
+				$ip_long = ip2long($ip);
+				if ($ip_long === false OR $ip_long == -1)
+				{
+					continue;
+				}
+
+				$private_ip = false;
+				foreach ($ranges AS $range)
+				{
+					if ($ip_long >= $range[0] AND $ip_long <= $range[1])
+					{
+						$private_ip = true;
+						break;
+					}
+				}
+
+				if (!$private_ip)
 				{
 					$alt_ip = $ip;
 					break;
@@ -2290,8 +2323,8 @@ class vB_Input_Cleaner
 * Class to store commonly-used variables
 *
 * @package	vBulletin
-* @version	$Revision: 27007 $
-* @date		$Date: 2008-06-24 04:40:46 -0500 (Tue, 24 Jun 2008) $
+* @version	$Revision: 43870 $
+* @date		$Date: 2011-05-26 14:52:39 -0700 (Thu, 26 May 2011) $
 */
 class vB_Registry
 {
@@ -2452,6 +2485,7 @@ class vB_Registry
 	var $bf_misc_languageoptions;
 	var $bf_misc_moderatorpermissions;
 	var $bf_misc_useroptions;
+	var $bf_misc_hvcheck;
 	/**#@-*/
 
 	/**#@+
@@ -2515,7 +2549,7 @@ class vB_Registry
 		$this->noheader = defined('NOHEADER') ? true : false;
 
 		// initialize the input handler
-		$this->input = new vB_Input_Cleaner($this);
+		$this->input =& new vB_Input_Cleaner($this);
 
 		// initialize the shutdown handler
 		$this->shutdown = vB_Shutdown::init();
@@ -2590,8 +2624,8 @@ class vB_Registry
 * Creates, updates, and validates sessions; retrieves user info of browsing user
 *
 * @package	vBulletin
-* @version	$Revision: 27007 $
-* @date		$Date: 2008-06-24 04:40:46 -0500 (Tue, 24 Jun 2008) $
+* @version	$Revision: 43870 $
+* @date		$Date: 2011-05-26 14:52:39 -0700 (Thu, 26 May 2011) $
 */
 class vB_Session
 {
@@ -2907,7 +2941,7 @@ class vB_Session
 	*/
 	function fetch_sessionhash()
 	{
-		return md5(TIMENOW . SCRIPTPATH . SESSION_IDHASH . SESSION_HOST . vbrand(1, 1000000));
+		return md5(uniqid(microtime(), true));
 	}
 
 	/**
@@ -3113,9 +3147,9 @@ class vB_Session
 * Class to handle shutdown
 *
 * @package	vBulletin
-* @version	$Revision: 27007 $
+* @version	$Revision: 43870 $
 * @author	Scott
-* @date		$Date: 2008-06-24 04:40:46 -0500 (Tue, 24 Jun 2008) $
+* @date		$Date: 2011-05-26 14:52:39 -0700 (Thu, 26 May 2011) $
 */
 class vB_Shutdown
 {
@@ -3175,6 +3209,12 @@ class vB_Shutdown
 				unset($this->shutdown[$key]);
 			}
 		}
+	}
+
+	// called if unserialized
+	function __wakeup()
+	{
+		$this->shutdown = array();
 	}
 }
 
@@ -3302,8 +3342,8 @@ function htmlspecialchars_uni($text, $entities = true)
 
 /*======================================================================*\
 || ####################################################################
-|| # Downloaded: 16:21, Sat Apr 6th 2013
-|| # CVS: $RCSfile$ - $Revision: 27007 $
+|| # Downloaded: 20:50, Sun Aug 11th 2013
+|| # CVS: $RCSfile$ - $Revision: 43870 $
 || ####################################################################
 \*======================================================================*/
 ?>

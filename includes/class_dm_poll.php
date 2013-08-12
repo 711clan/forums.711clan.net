@@ -1,9 +1,9 @@
 <?php
 /*======================================================================*\
 || #################################################################### ||
-|| # vBulletin 3.7.2 Patch Level 2 - Licence Number VBF2470E4F
+|| # vBulletin 3.8.7 Patch Level 3 - Licence Number VBC2DDE4FB
 || # ---------------------------------------------------------------- # ||
-|| # Copyright ©2000-2013 Jelsoft Enterprises Ltd. All Rights Reserved. ||
+|| # Copyright ©2000-2013 vBulletin Solutions, Inc. All Rights Reserved. ||
 || # This file may not be redistributed in whole or significant part. # ||
 || # ---------------- VBULLETIN IS NOT FREE SOFTWARE ---------------- # ||
 || # http://www.vbulletin.com | http://www.vbulletin.com/license.html # ||
@@ -38,8 +38,8 @@ if (!class_exists('vB_DataManager'))
 * $poll->save();
 *
 * @package	vBulletin
-* @version	$Revision: 25978 $
-* @date		$Date: 2008-03-05 23:49:13 -0600 (Wed, 05 Mar 2008) $
+* @version	$Revision: 39862 $
+* @date		$Date: 2010-10-18 18:16:44 -0700 (Mon, 18 Oct 2010) $
 */
 class vB_DataManager_Poll extends vB_DataManager
 {
@@ -128,6 +128,8 @@ class vB_DataManager_Poll extends vB_DataManager
 		{
 			return false;
 		}
+		
+		$option_text = preg_replace('#\|\|(?=\|)#s', '|| ', $option_text);
 
 		end($this->poll_options);
 		$max_option = key($this->poll_options);
@@ -170,51 +172,6 @@ class vB_DataManager_Poll extends vB_DataManager
 	}
 
 	/**
-	* Returns the text at a given position or the position of a given option
-	*
-	* @param	mixed	The option text to find or the position to return
-	* @param	bool 	Default true, if true then $lookup is an int and the position, else the option text
-	*
-	* @return 	boolean	Returns true if user exists
-	*/
-	function get_option($lookup, $position = true)
-	{
-		if ($position)
-		{
-			// Is it NULL or 0 that its looking for ?
-			if ($lookup === NULL)
-			{
-
-				// No such option
-				return false;
-			}
-			else
-			{
-				// If its not there its going to be null
-				return $this->poll_options["$lookup"];
-			}
-		}
-
-		if ($found = array_search($lookup, $this->poll_options))
-		{
-			return $found;
-		}
-		else
-		{
-			return NULL;
-		}
-	}
-
-	/**
-	* Resets the options and votes.
-	*/
-	function clear_options()
-	{
-		$this->poll_options = array();
-		$this->poll_votes = array();
-	}
-
-	/**
 	* Setting the vote for an option
 	*
 	* @param	int		The position that the vote should be set for
@@ -251,40 +208,6 @@ class vB_DataManager_Poll extends vB_DataManager
 	}
 
 	/**
-	* Get a vote for an option
-	*
-	* @param	mixed	The numeric position or text of the option
-	* @param	bool 	Indicates if it is a position or a option text to look up
-	*
-	* @return 	boolean	Returns true if user exists
-	*/
-	function get_vote($lookup, $position = true)
-	{
-		if ($position)
-		{
-			// Is it NULL or 0 that its looking for ?
-			if ($lookup === NULL)
-			{
-				// No such option
-				return false;
-			}
-			else
-			{
-				// If its not there its going to be null
-				return $this->poll_votes[$lookup];
-			}
-		}
-		else if ($found = array_search($lookup, $this->poll_options))
-		{
-			return $this->poll_votes[$found];
-		}
-		else
-		{
-			return NULL;
-		}
-	}
-
-	/**
 	* Format the data for saving
 	*
 	* @param	bool
@@ -309,7 +232,7 @@ class vB_DataManager_Poll extends vB_DataManager
 
 		$this->do_set('numberoptions', $pollcount);
 
-		$polloptions = implode('|||', $this->poll_options);
+		$polloptions = implode(' |||', $this->poll_options);
 		$this->do_set('options', $polloptions);
 
 		$pollvotes = implode('|||', $this->poll_votes);
@@ -392,7 +315,7 @@ class vB_DataManager_Poll extends vB_DataManager
 	*/
 	function verify_poll_options(&$poll_options)
 	{
-		return (count($this->poll_options) >= 2 ? true : false);
+		return (count($this->poll_options) >= 2);
 	}
 
 	/**
@@ -404,15 +327,7 @@ class vB_DataManager_Poll extends vB_DataManager
 	*/
 	function verify_poll_votes(&$vote)
 	{
-		// Check there is at least one seperator
-		if(!substr($vote, '|||')) { return false; }
-
-		$votes = explode('|||', $vote);
-
-		//Check that there is at least 2 votes
-		if (count($votes) < 2) { return false; }
-
-		return true;
+		return (substr_count($vote, '|||') >= 1);
 	}
 
 	function set_existing(&$existing)
@@ -427,6 +342,7 @@ class vB_DataManager_Poll extends vB_DataManager
 		if (isset($existing['options']))
 		{
 			$this->poll_options = explode('|||', $existing['options']);
+			$this->poll_options = array_map('rtrim', $this->poll_options);
 		}
 	}
 
@@ -434,8 +350,8 @@ class vB_DataManager_Poll extends vB_DataManager
 
 /*======================================================================*\
 || ####################################################################
-|| # Downloaded: 16:21, Sat Apr 6th 2013
-|| # CVS: $RCSfile$ - $Revision: 25978 $
+|| # Downloaded: 20:50, Sun Aug 11th 2013
+|| # CVS: $RCSfile$ - $Revision: 39862 $
 || ####################################################################
 \*======================================================================*/
 ?>

@@ -1,9 +1,9 @@
 <?php
 /*======================================================================*\
 || #################################################################### ||
-|| # vBulletin 3.7.2 Patch Level 2 - Licence Number VBF2470E4F
+|| # vBulletin 3.8.7 Patch Level 3 - Licence Number VBC2DDE4FB
 || # ---------------------------------------------------------------- # ||
-|| # Copyright ©2000-2013 Jelsoft Enterprises Ltd. All Rights Reserved. ||
+|| # Copyright ©2000-2013 vBulletin Solutions, Inc. All Rights Reserved. ||
 || # This file may not be redistributed in whole or significant part. # ||
 || # ---------------- VBULLETIN IS NOT FREE SOFTWARE ---------------- # ||
 || # http://www.vbulletin.com | http://www.vbulletin.com/license.html # ||
@@ -40,8 +40,8 @@ define('POST_SHOW_INFRACTION', 4);
 * Postbit factory object
 *
 * @package 		vBulletin
-* @version		$Revision: 26661 $
-* @date 		$Date: 2008-05-21 04:46:39 -0500 (Wed, 21 May 2008) $
+* @version		$Revision: 39862 $
+* @date 		$Date: 2010-10-18 18:16:44 -0700 (Mon, 18 Oct 2010) $
 *
 */
 class vB_Postbit_Factory
@@ -164,8 +164,8 @@ class vB_Postbit_Factory
 * Generic Postbit object. This is abstract. You may not instantiate it directly.
 *
 * @package 		vBulletin
-* @version		$Revision: 26661 $
-* @date 		$Date: 2008-05-21 04:46:39 -0500 (Wed, 21 May 2008) $
+* @version		$Revision: 39862 $
+* @date 		$Date: 2010-10-18 18:16:44 -0700 (Mon, 18 Oct 2010) $
 *
 */
 class vB_Postbit
@@ -282,6 +282,7 @@ class vB_Postbit
 			$this->process_unregistered_user();
 		}
 
+		$this->bbcode_parser->containerid = $this->post['postid'];
 		$this->parse_bbcode();
 
 		$this->process_attachments();
@@ -291,6 +292,12 @@ class vB_Postbit
 
 		// execute hook
 		($hook = vBulletinHook::fetch_hook('postbit_display_complete')) ? eval($hook) : false;
+
+		if ($post['isfirstshown'])
+		{
+			eval('$ad_location[\'ad_showthread_firstpost_start\'] = "' . fetch_template('ad_showthread_firstpost_start') . '";');
+			eval('$ad_location[\'ad_showthread_firstpost_sig\'] = "' . fetch_template('ad_showthread_firstpost_sig') . '";');
+		}
 
 		// evaluate template
 		$postid =& $post['postid'];
@@ -384,6 +391,8 @@ class vB_Postbit
 		global $stylevar, $show, $vbphrase;
 		$post =& $this->post; // for the templates
 
+		$forumperms = fetch_permissions($this->thread['forumid']);
+
 		if (is_array($this->post['attachments']))
 		{
 			$show['modattachmentlink'] = (can_moderate($this->forum['forumid'], 'canmoderateattachments') OR $this->post['userid'] == $this->registry->userinfo['userid']);
@@ -406,7 +415,7 @@ class vB_Postbit
 				{
 					// This is an image that is already thumbnail sized..
 					$attachment['hasthumbnail'] = 0;
-					$attachment['forceimage'] = 1;
+					$attachment['forceimage'] = $this->registry->userinfo['showimages'];
 				}
 
 				$show['newwindow'] = $attachment['newwindow'];
@@ -433,6 +442,8 @@ class vB_Postbit
 					{
 						$show['views'] = true;
 					}
+
+					$lightbox_extensions = array('gif', 'jpg', 'jpeg', 'jpe', 'png', 'bmp');
 					switch($attachment['attachmentextension'])
 					{
 						case 'gif':
@@ -473,6 +484,8 @@ class vB_Postbit
 									{
 										$show['br'] = false;
 									}
+
+									$show['cangetattachment'] = (($forumperms & $this->registry->bf_ugp_forumpermissions['cangetattachment']) AND in_array($attachment['attachmentextension'], $lightbox_extensions));
 									eval('$this->post[\'thumbnailattachments\'] .= "' . fetch_template('postbit_attachmentthumbnail') . '";');
 									$show['thumbnailattachment'] = true;
 								}
@@ -536,7 +549,7 @@ class vB_Postbit
 	{
 		global $show;
 
-		if ($this->post['edit_userid'])
+		if (!is_null($this->post['edit_userid']))
 		{
 			$this->post['edit_date'] = vbdate($this->registry->options['dateformat'], $this->post['edit_dateline'], true);
 			$this->post['edit_time'] = vbdate($this->registry->options['timeformat'], $this->post['edit_dateline']);
@@ -711,11 +724,24 @@ class vB_Postbit
 					$this->registry->options['secureemail'] AND $this->registry->options['enableemail']
 				)
 			) AND $this->registry->userinfo['permissions']['genericpermissions'] & $this->registry->bf_ugp_genericpermissions['canemailmember']
+			AND $this->registry->userinfo['userid']
 		);
 		$show['homepage'] = ($this->post['homepage'] != '' AND $this->post['homepage'] != 'http://');
-		$show['pmlink'] = ($this->registry->options['enablepms'] AND $this->registry->userinfo['permissions']['pmquota'] AND ($this->registry->userinfo['permissions']['adminpermissions'] & $this->registry->bf_ugp_adminpermissions['cancontrolpanel']
-	 					OR ($this->post['receivepm'] AND $this->cache['perms'][$this->post['userid']]['pmquota'])
-	 				)) ? true : false;
+		$show['pmlink'] = (
+			$this->registry->options['enablepms']
+				AND
+			$this->registry->userinfo['permissions']['pmquota']
+				AND
+			(
+				$this->registry->userinfo['permissions']['pmpermissions'] & $this->registry->bf_ugp_pmpermissions['canignorequota']
+	 				OR
+	 			(
+	 				$this->post['receivepm']
+	 					AND
+	 				$this->cache['perms'][$this->post['userid']]['pmquota']
+	 			)
+	 			)
+	 		) ? true : false;
 
 		// Generate Age
 		if ($this->registry->options['postelements'] & POST_SHOW_AGE AND ($this->post['showbirthday'] == 1 OR $this->post['showbirthday'] == 2))
@@ -921,8 +947,8 @@ class vB_Postbit
 * Postbit optimized for regular posts
 *
 * @package 		vBulletin
-* @version		$Revision: 26661 $
-* @date 		$Date: 2008-05-21 04:46:39 -0500 (Wed, 21 May 2008) $
+* @version		$Revision: 39862 $
+* @date 		$Date: 2010-10-18 18:16:44 -0700 (Mon, 18 Oct 2010) $
 *
 */
 class vB_Postbit_Post extends vB_Postbit
@@ -1209,8 +1235,8 @@ function construct_im_icons(&$userinfo, $ignore_off_setting = false)
 
 /*======================================================================*\
 || ####################################################################
-|| # Downloaded: 16:21, Sat Apr 6th 2013
-|| # CVS: $RCSfile$ - $Revision: 26661 $
+|| # Downloaded: 20:50, Sun Aug 11th 2013
+|| # CVS: $RCSfile$ - $Revision: 39862 $
 || ####################################################################
 \*======================================================================*/
 ?>

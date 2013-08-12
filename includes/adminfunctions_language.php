@@ -1,16 +1,16 @@
 <?php
 /*======================================================================*\
 || #################################################################### ||
-|| # vBulletin 3.7.2 Patch Level 2 - Licence Number VBF2470E4F
+|| # vBulletin 3.8.7 Patch Level 3 - Licence Number VBC2DDE4FB
 || # ---------------------------------------------------------------- # ||
-|| # Copyright ©2000-2013 Jelsoft Enterprises Ltd. All Rights Reserved. ||
+|| # Copyright ©2000-2013 vBulletin Solutions, Inc. All Rights Reserved. ||
 || # This file may not be redistributed in whole or significant part. # ||
 || # ---------------- VBULLETIN IS NOT FREE SOFTWARE ---------------- # ||
 || # http://www.vbulletin.com | http://www.vbulletin.com/license.html # ||
 || #################################################################### ||
 \*======================================================================*/
 
-error_reporting(E_ALL & ~E_NOTICE);
+error_reporting(E_ALL & ~E_NOTICE & ~8192);
 
 /**
 * Fetches either the entire languages array, or a single language
@@ -894,7 +894,7 @@ function fetch_varname_fieldname($key, &$varname, &$fieldname)
 {
 	$firstatsignpos = strpos($key, '@');
 
-	$varname = substr($key, 0, $firstatsignpos);
+	$varname = urldecode(substr($key, 0, $firstatsignpos));
 	$fieldname = substr($key, $firstatsignpos + 1);
 }
 
@@ -941,8 +941,8 @@ function add_phrase_type($phrasegroup_name, $phrasegroup_title, $productid = 'vb
 
 /*======================================================================*\
 || ####################################################################
-|| # Downloaded: 16:21, Sat Apr 6th 2013
-|| # CVS: $RCSfile$ - $Revision: 26153 $
+|| # Downloaded: 20:50, Sun Aug 11th 2013
+|| # CVS: $RCSfile$ - $Revision: 39862 $
 || ####################################################################
 \*======================================================================*/
 ?>

@@ -1,9 +1,9 @@
 <?php
 /*======================================================================*\
 || #################################################################### ||
-|| # vBulletin 3.7.2 Patch Level 2 - Licence Number VBF2470E4F
+|| # vBulletin 3.8.7 Patch Level 3 - Licence Number VBC2DDE4FB
 || # ---------------------------------------------------------------- # ||
-|| # Copyright ©2000-2013 Jelsoft Enterprises Ltd. All Rights Reserved. ||
+|| # Copyright ©2000-2013 vBulletin Solutions, Inc. All Rights Reserved. ||
 || # This file may not be redistributed in whole or significant part. # ||
 || # ---------------- VBULLETIN IS NOT FREE SOFTWARE ---------------- # ||
 || # http://www.vbulletin.com | http://www.vbulletin.com/license.html # ||
@@ -11,7 +11,7 @@
 \*======================================================================*/
 
 // ####################### SET PHP ENVIRONMENT ###########################
-error_reporting(E_ALL & ~E_NOTICE);
+error_reporting(E_ALL & ~E_NOTICE & ~8192);
 
 // #################### DEFINE IMPORTANT CONSTANTS #######################
 define('THIS_SCRIPT', 'search');
@@ -144,7 +144,7 @@ if ($_POST['do'] == 'process')
 }
 
 // workaround for 3.6 bug 1229 - 'find all threads started by x' + captcha
-if ($_REQUEST['do'] == 'process' AND !$vbulletin->userinfo['userid'] AND $vbulletin->options['hvcheck_search'] AND $vbulletin->options['hv_type'] AND !isset($_POST['humanverify']))
+if ($_REQUEST['do'] == 'process' AND fetch_require_hvcheck('search') AND !isset($_POST['humanverify']))
 {
 	// guest user has come from a do=process link that does not include human verification
 	$_REQUEST['do'] = 'intro';
@@ -156,7 +156,7 @@ $navbits = array('search.php' . $vbulletin->session->vars['sessionurl_q'] => $vb
 $errors = array();
 
 // #############################################################################
-if (in_array($_REQUEST['do'], array('intro', 'showresults', 'doprefs')) == false)
+if ((in_array($_REQUEST['do'], array('intro', 'showresults', 'doprefs')) == false) AND $vbulletin->options['searchfloodtime'] AND !($permissions['adminpermissions'] & $vbulletin->bf_ugp_adminpermissions['cancontrolpanel']) AND !can_moderate())
 {
 	// get last search for this user and check floodcheck
 	if ($prevsearch = $db->query_first("
@@ -166,7 +166,7 @@ if (in_array($_REQUEST['do'], array('intro', 'showresults', 'doprefs')) == false
 		ORDER BY dateline DESC LIMIT 1
 	"))
 	{
-		if (($timepassed = TIMENOW - $prevsearch['dateline']) < $vbulletin->options['searchfloodtime'] AND $vbulletin->options['searchfloodtime'] != 0 AND !($permissions['adminpermissions'] & $vbulletin->bf_ugp_adminpermissions['cancontrolpanel']) AND !can_moderate())
+		if (($timepassed = TIMENOW - $prevsearch['dateline']) < $vbulletin->options['searchfloodtime'])
 		{
 			if ($_REQUEST['do'] == 'process')
 			{
@@ -179,6 +179,10 @@ if (in_array($_REQUEST['do'], array('intro', 'showresults', 'doprefs')) == false
 		}
 	}
 }
+
+// #############################################################################
+// allows an alternative processing branch to be executed
+($hook = vBulletinHook::fetch_hook('search_before_process')) ? eval($hook) : false;
 
 // #############################################################################
 if ($_REQUEST['do'] == 'process')
@@ -238,7 +242,7 @@ if ($_REQUEST['do'] == 'process')
 		$errors[] = 'searchspecifyterms';
 	}
 
-	if (!$vbulletin->userinfo['userid'] AND $vbulletin->options['hvcheck_search'])
+	if (fetch_require_hvcheck('search'))
 	{
 		require_once(DIR . '/includes/class_humanverify.php');
 		$verify =& vB_HumanVerify::fetch_library($vbulletin);
@@ -1359,7 +1363,7 @@ if ($_REQUEST['do'] == 'process')
 					// Limit forums that are searched since we are going to return a very small result set in most cases.
 					foreach ($vbulletin->userinfo['forumpermissions'] AS $forumid => $fperms)
 					{
-						if (!($fperms & $vbulletin->bf_ugp_forumpermissions['canview']) OR !($fperms & $vbulletin->bf_ugp_forumpermissions['cansearch']) OR !verify_forum_password($forumid, $forum['password'], false) OR !($vbulletin->forumcache["$forumid"]['options'] & $vbulletin->bf_misc_forumoptions['indexposts']))
+						if (!($fperms & $vbulletin->bf_ugp_forumpermissions['canview']) OR !($fperms & $vbulletin->bf_ugp_forumpermissions['cansearch']) OR !verify_forum_password($forumid, $vbulletin->forumcache["$forumid"]['password'], false) OR !($vbulletin->forumcache["$forumid"]['options'] & $vbulletin->bf_misc_forumoptions['indexposts']))
 						{
 							$excludelist .= ",$forumid";
 						}
@@ -2152,7 +2156,7 @@ if ($_REQUEST['do'] == 'intro')
 	$show['tag_option'] = $vbulletin->options['threadtagging'];
 
 	// image verification
-	if (!$vbulletin->userinfo['userid'] AND $vbulletin->options['hvcheck_search'])
+	if (fetch_require_hvcheck('search'))
 	{
 		require_once(DIR . '/includes/class_humanverify.php');
 		$verification =& vB_HumanVerify::fetch_library($vbulletin);
@@ -2373,7 +2377,7 @@ if ($_REQUEST['do'] == 'showresults')
 
 			$tachycolumns = '
 				IF(tachythreadcounter.userid IS NULL, thread.replycount, thread.replycount + tachythreadcounter.replycount) AS replycount,
-				IF(views<=IF(tachythreadcounter.userid IS NULL, thread.replycount, thread.replycount + tachythreadcounter.replycount), IF(tachythreadcounter.userid IS NULL, thread.replycount, thread.replycount + tachythreadcounter.replycount)+1, views) AS views,
+				IF(thread.views<=IF(tachythreadcounter.userid IS NULL, thread.replycount, thread.replycount + tachythreadcounter.replycount), IF(tachythreadcounter.userid IS NULL, thread.replycount, thread.replycount + tachythreadcounter.replycount)+1, thread.views) AS views,
 				IF(tachythreadpost.userid IS NULL, thread.lastpost, tachythreadpost.lastpost) AS lastpost,
 				IF(tachythreadpost.userid IS NULL, thread.lastposter, tachythreadpost.lastposter) AS lastposter,
 				IF(tachythreadpost.userid IS NULL, thread.lastpostid, tachythreadpost.lastpostid) AS lastpostid
@@ -2384,7 +2388,7 @@ if ($_REQUEST['do'] == 'showresults')
 			$tachyjoin = '';
 
 			$tachycolumns = '
-				replycount, IF(views<=replycount, replycount+1, views) AS views,
+				thread.replycount, IF(thread.views<=thread.replycount, replycount+1, thread.views) AS views,
 				thread.lastpost, thread.lastposter, thread.lastpostid
 			';
 		}
@@ -2612,7 +2616,10 @@ if ($_REQUEST['do'] == 'showresults')
 		$items = $db->query_read_slave($dataQuery);
 		$itemidname = iif($search['showposts'], 'postid', 'threadid');
 
-		$dotthreads = fetch_dot_threads_array($ids);
+		if (!$search['showposts'])
+		{
+			$dotthreads = fetch_dot_threads_array($ids);
+		}
 	}
 
 	// end search timer
@@ -2727,7 +2734,7 @@ if ($_REQUEST['do'] == 'showresults')
 		$announcements = $db->query_read_slave("
 			SELECT announcementid, startdate, title, announcement.views, forumid,
 				user.username, user.userid, user.usertitle, user.customtitle, user.usergroupid,
-				IF(displaygroupid=0, user.usergroupid, displaygroupid) AS displaygroupid, infractiongroupid
+				IF(user.displaygroupid=0, user.usergroupid, user.displaygroupid) AS displaygroupid, infractiongroupid
 			FROM " . TABLE_PREFIX . "announcement AS announcement
 			LEFT JOIN " . TABLE_PREFIX . "user AS user USING (userid)
 			WHERE announcementid IN ($search[announceids])
@@ -2907,6 +2914,7 @@ if ($_REQUEST['do'] == 'showresults')
 				$post['del_username'] =& $post['pdel_username'];
 				$post['del_userid'] =& $post['pdel_userid'];
 				$post['del_reason'] = fetch_censored_text($post['pdel_reason']);
+				$post['del_phrase'] = $vbphrase['message_deleted_by_x'];
 				$show['deleted'] = true;
 			}
 			else if ($post['tdel_userid'])
@@ -2914,6 +2922,7 @@ if ($_REQUEST['do'] == 'showresults')
 				$post['del_username'] =& $post['tdel_username'];
 				$post['del_userid'] =& $post['tdel_userid'];
 				$post['del_reason'] = fetch_censored_text($post['tdel_reason']);
+				$post['del_phrase'] = $vbphrase['thread_deleted_by_x'];
 				$show['deleted'] = true;
 			}
 			else
@@ -3714,7 +3723,7 @@ if ($_POST['do'] == 'doprefs')
 			}
 			else
 			{
-				$vbulletin->url .= $varname . '[]=' . urlencode($vbulletin->GPC["$varname"]) . '&amp;';
+				$vbulletin->url .= $varname . '=' . urlencode($vbulletin->GPC["$varname"]) . '&amp;';
 			}
 		}
 		$vbulletin->url = substr($vbulletin->url, 0, -5);
@@ -3750,8 +3759,8 @@ if ($templatename != '')
 
 /*======================================================================*\
 || ####################################################################
-|| # Downloaded: 16:21, Sat Apr 6th 2013
-|| # CVS: $RCSfile$ - $Revision: 26900 $
+|| # Downloaded: 20:50, Sun Aug 11th 2013
+|| # CVS: $RCSfile$ - $Revision: 39862 $
 || ####################################################################
 \*======================================================================*/
 ?>

@@ -1,9 +1,9 @@
 <?php
 /*======================================================================*\
 || #################################################################### ||
-|| # vBulletin 3.7.2 Patch Level 2 - Licence Number VBF2470E4F
+|| # vBulletin 3.8.7 Patch Level 3 - Licence Number VBC2DDE4FB
 || # ---------------------------------------------------------------- # ||
-|| # Copyright ©2000-2013 Jelsoft Enterprises Ltd. All Rights Reserved. ||
+|| # Copyright ©2000-2013 vBulletin Solutions, Inc. All Rights Reserved. ||
 || # This file may not be redistributed in whole or significant part. # ||
 || # ---------------- VBULLETIN IS NOT FREE SOFTWARE ---------------- # ||
 || # http://www.vbulletin.com | http://www.vbulletin.com/license.html # ||
@@ -11,7 +11,7 @@
 \*======================================================================*/
 
 // ####################### SET PHP ENVIRONMENT ###########################
-error_reporting(E_ALL & ~E_NOTICE);
+error_reporting(E_ALL & ~E_NOTICE & ~8192);
 
 // #################### DEFINE IMPORTANT CONSTANTS #######################
 define('THIS_SCRIPT', 'faq');
@@ -22,7 +22,7 @@ define('CSRF_PROTECTION', true);
 $phrasegroups = array('fronthelp');
 
 // get special data templates from the datastore
-$specialtemplates = array();
+$specialtemplates = array('products');
 
 // pre-cache templates used by all actions
 $globaltemplates = array(
@@ -66,8 +66,8 @@ $navbits[''] = $vbphrase['faq'];
 if ($_REQUEST['do'] == 'search')
 {
 	$vbulletin->input->clean_array_gpc('r', array(
-		'q' => TYPE_STR,
-		'match' => TYPE_STR,
+		'q'          => TYPE_STR,
+		'match'      => TYPE_STR,
 		'titlesonly' => TYPE_BOOL
 	));
 
@@ -132,12 +132,24 @@ if ($_REQUEST['do'] == 'search')
 		$whereText[] = "text LIKE('%" . $db->escape_string_like($word) . "%')";
 	}
 
+	$activeproducts = array(
+		'', 'vbulletin'
+	);
+	foreach ($vbulletin->products AS $product => $active)
+	{
+		if ($active)
+		{
+			$activeproducts[] = $product;
+		}
+	}
+
 	if (!empty($whereText))
 	{
 		$phrases = $db->query_read_slave("
 			SELECT varname AS faqname, fieldname
 			FROM " . TABLE_PREFIX . "phrase AS phrase
 			WHERE phraseid IN(" . implode(', ', $phraseIds) . ")
+				AND product IN ('" . implode('\', \'', $activeproducts) . "')
 				AND (" . implode($matchSql, $whereText) . ")
 		");
 		if (!$db->num_rows($phrases))
@@ -239,7 +251,7 @@ if ($_REQUEST['do'] == 'main')
 		$navbits['faq.php' . $vbulletin->session->vars['sessionurl_q']] = $vbphrase['faq'];
 	}
 
-	cache_ordered_faq();
+	cache_ordered_faq(false, true);
 
 	// get bits for faq text cache
 	$faqtext = array();
@@ -322,8 +334,8 @@ eval('print_output("' . fetch_template('FAQ') . '");');
 
 /*======================================================================*\
 || ####################################################################
-|| # Downloaded: 16:21, Sat Apr 6th 2013
-|| # CVS: $RCSfile$ - $Revision: 26523 $
+|| # Downloaded: 20:50, Sun Aug 11th 2013
+|| # CVS: $RCSfile$ - $Revision: 39862 $
 || ####################################################################
 \*======================================================================*/
 ?>

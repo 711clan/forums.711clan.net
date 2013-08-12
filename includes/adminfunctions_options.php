@@ -1,16 +1,16 @@
 <?php
 /*======================================================================*\
 || #################################################################### ||
-|| # vBulletin 3.7.2 Patch Level 2 - Licence Number VBF2470E4F
+|| # vBulletin 3.8.7 Patch Level 3 - Licence Number VBC2DDE4FB
 || # ---------------------------------------------------------------- # ||
-|| # Copyright ©2000-2013 Jelsoft Enterprises Ltd. All Rights Reserved. ||
+|| # Copyright ©2000-2013 vBulletin Solutions, Inc. All Rights Reserved. ||
 || # This file may not be redistributed in whole or significant part. # ||
 || # ---------------- VBULLETIN IS NOT FREE SOFTWARE ---------------- # ||
 || # http://www.vbulletin.com | http://www.vbulletin.com/license.html # ||
 || #################################################################### ||
 \*======================================================================*/
 
-error_reporting(E_ALL & ~E_NOTICE);
+error_reporting(E_ALL & ~E_NOTICE & ~8192);
 
 /**
 * Prints a setting group for use in options.php?do=options
@@ -526,6 +526,8 @@ function save_settings($settings)
 				case 'activememberoptions':
 					if ($oldsetting['value'] != $newvalue)
 					{
+						$vbulletin->options["$oldsetting[varname]"] = $newvalue;
+
 						require_once(DIR . '/includes/functions_databuild.php');
 						build_birthdays();
 					}
@@ -535,6 +537,8 @@ function save_settings($settings)
 				case 'showholidays':
 					if ($oldsetting['value'] != $newvalue)
 					{
+						$vbulletin->options["$oldsetting[varname]"] = $newvalue;
+
 						require_once(DIR . '/includes/functions_calendar.php');
 						build_events();
 					}
@@ -578,7 +582,7 @@ function save_settings($settings)
 				}
 				break;
 
-				case 'view_tagcloud_as_usergroup':
+				case 'tagcloud_usergroup':
 				{
 					build_datastore('tagcloud', serialize(''), 1);
 				}
@@ -600,6 +604,14 @@ function save_settings($settings)
 				}
 				break;
 
+				case 'album_recentalbumdays':
+				{
+					if ($oldsetting['value'] > $newvalue)
+					{
+						require_once(DIR . '/includes/functions_album.php');
+						exec_rebuild_album_updates();
+					}
+				}
 				default:
 				{
 					($hook = vBulletinHook::fetch_hook('admin_options_processing_build')) ? eval($hook) : false;
@@ -716,7 +728,7 @@ function validate_setting_value(&$value, $datatype, $bool_as_int = true, $userna
 				{
 					$value =  0;
 				}
-				else if ($userinfo = $vbulletin->db->query_first("SELECT userid FROM " . TABLE_PREFIX . "user WHERE username = '" . $vbulletin->db->escape_string(htmlspecialchars($value)) . "'"))
+				else if ($userinfo = $vbulletin->db->query_first("SELECT userid FROM " . TABLE_PREFIX . "user WHERE username = '" . $vbulletin->db->escape_string(htmlspecialchars_uni($value)) . "'"))
 				{
 					$value = $userinfo['userid'];
 				}
@@ -1104,8 +1116,8 @@ function fetch_piped_options($piped_data)
 
 /*======================================================================*\
 || ####################################################################
-|| # Downloaded: 16:21, Sat Apr 6th 2013
-|| # CVS: $RCSfile$ - $Revision: 26800 $
+|| # Downloaded: 20:50, Sun Aug 11th 2013
+|| # CVS: $RCSfile$ - $Revision: 39862 $
 || ####################################################################
 \*======================================================================*/
 ?>

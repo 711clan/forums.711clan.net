@@ -1,9 +1,9 @@
 <?php
 /*======================================================================*\
 || #################################################################### ||
-|| # vBulletin 3.7.2 Patch Level 2 - Licence Number VBF2470E4F
+|| # vBulletin 3.8.7 Patch Level 3 - Licence Number VBC2DDE4FB
 || # ---------------------------------------------------------------- # ||
-|| # Copyright ©2000-2013 Jelsoft Enterprises Ltd. All Rights Reserved. ||
+|| # Copyright ©2000-2013 vBulletin Solutions, Inc. All Rights Reserved. ||
 || # This file may not be redistributed in whole or significant part. # ||
 || # ---------------- VBULLETIN IS NOT FREE SOFTWARE ---------------- # ||
 || # http://www.vbulletin.com | http://www.vbulletin.com/license.html # ||
@@ -11,7 +11,7 @@
 \*======================================================================*/
 
 // ####################### SET PHP ENVIRONMENT ###########################
-error_reporting(E_ALL & ~E_NOTICE);
+error_reporting(E_ALL & ~E_NOTICE & ~8192);
 
 // #################### DEFINE IMPORTANT CONSTANTS #######################
 define('THIS_SCRIPT', 'forumdisplay');
@@ -113,6 +113,16 @@ require_once(DIR . '/includes/functions_prefix.php');
 // ############################### start mark forums read ###############################
 if ($_REQUEST['do'] == 'markread')
 {
+	// Prevent CSRF. See #32785
+	$vbulletin->input->clean_array_gpc('r', array(
+		'markreadhash' => TYPE_STR,
+	));
+
+	if (!verify_security_token($vbulletin->GPC['markreadhash'], $vbulletin->userinfo['securitytoken_raw']))
+	{
+		eval(standard_error(fetch_error('security_token_invalid', $vbulletin->options['contactuslink'])));
+	}
+
 	require_once(DIR . '/includes/functions_misc.php');
 	$mark_read_result = mark_forums_read($foruminfo['forumid']);
 
@@ -310,8 +320,9 @@ if (($vbulletin->options['showforumusers'] == 1 OR $vbulletin->options['showforu
 {
 	$datecut = TIMENOW - $vbulletin->options['cookietimeout'];
 	$forumusers = $db->query_read_slave("
-		SELECT user.username, (user.options & " . $vbulletin->bf_misc_useroptions['invisible'] . ") AS invisible, user.usergroupid, session.userid, session.inforum, session.lastactivity,
-			IF(displaygroupid=0, user.usergroupid, displaygroupid) AS displaygroupid, infractiongroupid
+		SELECT user.username, (user.options & " . $vbulletin->bf_misc_useroptions['invisible'] . ") AS invisible, user.usergroupid,
+			session.userid, session.inforum, session.lastactivity, session.badlocation,
+			IF(user.displaygroupid=0, user.usergroupid, user.displaygroupid) AS displaygroupid, infractiongroupid
 		FROM " . TABLE_PREFIX . "session AS session
 		LEFT JOIN " . TABLE_PREFIX . "user AS user ON(user.userid = session.userid)
 		WHERE session.lastactivity > $datecut
@@ -349,6 +360,11 @@ if (($vbulletin->options['showforumusers'] == 1 OR $vbulletin->options['showforu
 	// this require the query to have lastactivity ordered by DESC so that the latest location will be the first encountered.
 	while ($loggedin = $db->fetch_array($forumusers))
 	{
+		if ($loggedin['badlocation'])
+		{
+			continue;
+		}
+
 		if (empty($doneuser["$loggedin[userid]"]))
 		{
 			if (in_array($loggedin['inforum'], $foruminfo['childlist']) AND $loggedin['inforum'] != -1)
@@ -470,7 +486,7 @@ if ($foruminfo['cancontainthreads'])
 	}
 	else
 	{
-		$threadadmin_imod_thread_menu = '';
+		$threadadmin_imod_menu_thread = '';
 	}
 
 	// get announcements
@@ -498,7 +514,7 @@ if ($foruminfo['cancontainthreads'])
 		SELECT
 			announcement.announcementid, startdate, title, announcement.views,
 			user.username, user.userid, user.usertitle, user.customtitle, user.usergroupid,
-			IF(displaygroupid=0, user.usergroupid, displaygroupid) AS displaygroupid, infractiongroupid
+			IF(user.displaygroupid=0, user.usergroupid, user.displaygroupid) AS displaygroupid, infractiongroupid
 			" . (($vbulletin->userinfo['userid']) ? ", NOT ISNULL(announcementread.announcementid) AS readannounce" : "") . "
 			$hook_query_fields
 		FROM " . TABLE_PREFIX . "announcement AS announcement
@@ -813,14 +829,14 @@ if ($foruminfo['cancontainthreads'])
 			IF(tachythreadpost.userid IS NULL, thread.lastposter, tachythreadpost.lastposter) AS lastposter,
 			IF(tachythreadpost.userid IS NULL, thread.lastpostid, tachythreadpost.lastpostid) AS lastpostid,
 			IF(tachythreadcounter.userid IS NULL, thread.replycount, thread.replycount + tachythreadcounter.replycount) AS replycount,
-			IF(views<=IF(tachythreadcounter.userid IS NULL, thread.replycount, thread.replycount + tachythreadcounter.replycount), IF(tachythreadcounter.userid IS NULL, thread.replycount, thread.replycount + tachythreadcounter.replycount)+1, views) AS views
+			IF(thread.views<=IF(tachythreadcounter.userid IS NULL, thread.replycount, thread.replycount + tachythreadcounter.replycount), IF(tachythreadcounter.userid IS NULL, thread.replycount, thread.replycount + tachythreadcounter.replycount)+1, thread.views) AS views
 		";
 
 	}
 	else
 	{
 		$tachyjoin = '';
-		$tachy_columns = 'thread.lastpost, thread.lastposter, thread.lastpostid, replycount, IF(views<=replycount, replycount+1, views) AS views';
+		$tachy_columns = 'thread.lastpost, thread.lastposter, thread.lastpostid, thread.replycount, IF(thread.views<=thread.replycount, thread.replycount+1, thread.views) AS views';
 	}
 
 	$hook_query_fields = $hook_query_joins = $hook_query_where = '';
@@ -896,7 +912,7 @@ if ($foruminfo['cancontainthreads'])
 	unset($ids);
 
 	// prepare sort things for column header row:
-	$sorturl = 'forumdisplay.php?' . $vbulletin->session->vars['sessionurl'] . "f=$forumid&amp;daysprune=$daysprune";
+	$sorturl = 'forumdisplay.php?' . $vbulletin->session->vars['sessionurl'] . "f=$forumid&amp;daysprune=$daysprune". (!empty($vbulletin->GPC['prefixid']) ? "&amp;prefixid=" . $vbulletin->GPC['prefixid'] : '');
 	$oppositesort = iif($vbulletin->GPC['sortorder'] == 'asc', 'desc', 'asc');
 
 	if ($totalthreads > 0 OR $stickyids)
@@ -1000,12 +1016,12 @@ if ($foruminfo['cancontainthreads'])
 	unset($threads, $dotthreads);
 
 	// get colspan for bottom bar
-	$foruminfo['bottomcolspan'] = 6;
+	$foruminfo['bottomcolspan'] = 5;
 	if ($foruminfo['allowicons'])
 	{
 		$foruminfo['bottomcolspan']++;
 	}
-	if ($foruminfo['allowratings'])
+	if ($show['inlinemod'])
 	{
 		$foruminfo['bottomcolspan']++;
 	}
@@ -1020,7 +1036,7 @@ else
 }
 /////////////////////////////////
 
-if ($newthreads < 1 AND $unreadchildforums < 1)
+if (!$vbulletin->GPC['prefixid'] AND $newthreads < 1 AND $unreadchildforums < 1)
 {
 	mark_forum_read($foruminfo, $vbulletin->userinfo['userid'], TIMENOW);
 }
@@ -1042,8 +1058,8 @@ eval('print_output("' . fetch_template('FORUMDISPLAY') . '");');
 
 /*======================================================================*\
 || ####################################################################
-|| # Downloaded: 16:21, Sat Apr 6th 2013
-|| # CVS: $RCSfile$ - $Revision: 26926 $
+|| # Downloaded: 20:50, Sun Aug 11th 2013
+|| # CVS: $RCSfile$ - $Revision: 39862 $
 || ####################################################################
 \*======================================================================*/
 ?>

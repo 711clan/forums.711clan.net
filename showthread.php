@@ -1,9 +1,9 @@
 <?php
 /*======================================================================*\
 || #################################################################### ||
-|| # vBulletin 3.7.2 Patch Level 2 - Licence Number VBF2470E4F
+|| # vBulletin 3.8.7 Patch Level 3 - Licence Number VBC2DDE4FB
 || # ---------------------------------------------------------------- # ||
-|| # Copyright ©2000-2013 Jelsoft Enterprises Ltd. All Rights Reserved. ||
+|| # Copyright ©2000-2013 vBulletin Solutions, Inc. All Rights Reserved. ||
 || # This file may not be redistributed in whole or significant part. # ||
 || # ---------------- VBULLETIN IS NOT FREE SOFTWARE ---------------- # ||
 || # http://www.vbulletin.com | http://www.vbulletin.com/license.html # ||
@@ -11,7 +11,7 @@
 \*======================================================================*/
 
 // ####################### SET PHP ENVIRONMENT ###########################
-error_reporting(E_ALL & ~E_NOTICE);
+error_reporting(E_ALL & ~E_NOTICE & ~8192);
 
 // #################### DEFINE IMPORTANT CONSTANTS #######################
 define('THIS_SCRIPT', 'showthread');
@@ -39,6 +39,8 @@ $specialtemplates = array(
 $globaltemplates = array(
 	'ad_showthread_beforeqr',
 	'ad_showthread_firstpost',
+	'ad_showthread_firstpost_start',
+	'ad_showthread_firstpost_sig',
 	'forumdisplay_loggedinuser',
 	'forumrules',
 	'im_aim',
@@ -634,11 +636,13 @@ if ($thread['pollid'])
 	");
 
 	require_once(DIR . '/includes/class_bbcode.php');
-	$bbcode_parser =& new vB_BbCodeParser($vbulletin, fetch_tag_list());
+	$bbcode_parser = new vB_BbCodeParser($vbulletin, fetch_tag_list());
 
 	$pollinfo['question'] = $bbcode_parser->parse(unhtmlspecialchars($pollinfo['question']), $forum['forumid'], true);
 
 	$splitoptions = explode('|||', $pollinfo['options']);
+	$splitoptions = array_map('rtrim', $splitoptions);
+
 	$splitvotes = explode('|||', $pollinfo['votes']);
 
 	$showresults = 0;
@@ -821,8 +825,9 @@ if (
 		($vbulletin->userinfo['userid'] == $threadinfo['postuserid'] AND $forumperms & $vbulletin->bf_ugp_forumpermissions['canreplyown'])
 		OR
 		($vbulletin->userinfo['userid'] != $threadinfo['postuserid'] AND $forumperms & $vbulletin->bf_ugp_forumpermissions['canreplyothers'])
-	) AND
-	($thread['open'] OR can_moderate($threadinfo['forumid'], 'canopenclose'))
+	)
+	AND ($thread['open'] OR can_moderate($threadinfo['forumid'], 'canopenclose'))
+	AND (!fetch_require_hvcheck('post'))
 )
 {
 	$show['quickreply'] = true;
@@ -993,7 +998,7 @@ if ($threadedmode == 0)
 			postparsed.pagetext_html, postparsed.hasimages,
 			sigparsed.signatureparsed, sigparsed.hasimages AS sighasimages,
 			sigpic.userid AS sigpic, sigpic.dateline AS sigpicdateline, sigpic.width AS sigpicwidth, sigpic.height AS sigpicheight,
-			IF(displaygroupid=0, user.usergroupid, displaygroupid) AS displaygroupid, infractiongroupid
+			IF(user.displaygroupid=0, user.usergroupid, user.displaygroupid) AS displaygroupid, infractiongroupid
 			" . iif(!($permissions['genericpermissions'] & $vbulletin->bf_ugp_genericpermissions['canseehiddencustomfields']), $vbulletin->profilefield['hidden']) . "
 			$hook_query_fields
 		FROM " . TABLE_PREFIX . "post AS post
@@ -1013,10 +1018,14 @@ if ($threadedmode == 0)
 		ORDER BY post.dateline $postorder
 	");
 
+	if (!($forumperms & $vbulletin->bf_ugp_forumpermissions['canseethumbnails']) AND !($forumperms & $vbulletin->bf_ugp_forumpermissions['cangetattachment']))
+	{
+		$vbulletin->options['attachthumbs'] = 0;
+	}
+
 	if (!($forumperms & $vbulletin->bf_ugp_forumpermissions['cangetattachment']))
 	{
 		$vbulletin->options['viewattachedimages'] = 0;
-		$vbulletin->options['attachthumbs'] = 0;
 	}
 
 	$postcount = ($vbulletin->GPC['pagenumber'] - 1) * $perpage;
@@ -1029,12 +1038,12 @@ if ($threadedmode == 0)
 	$counter = 0;
 	$postbits = '';
 
-	$postbit_factory =& new vB_Postbit_Factory();
+	$postbit_factory = new vB_Postbit_Factory();
 	$postbit_factory->registry =& $vbulletin;
 	$postbit_factory->forum =& $foruminfo;
 	$postbit_factory->thread =& $thread;
 	$postbit_factory->cache = array();
-	$postbit_factory->bbcode_parser =& new vB_BbCodeParser($vbulletin, fetch_tag_list());
+	$postbit_factory->bbcode_parser = new vB_BbCodeParser($vbulletin, fetch_tag_list());
 
 	while ($post = $db->fetch_array($posts))
 	{
@@ -1083,14 +1092,15 @@ if ($threadedmode == 0)
 		$postbit_obj->cachable = $post_cachable;
 
 		$post['islastshown'] = ($post['postid'] == $lastpostid);
+		$post['isfirstshown'] = ($counter == 1 AND $fetchtype == 'post' AND $post['visible'] == 1);
 		$post['attachments'] =& $postattach["$post[postid]"];
 
 		$parsed_postcache = array('text' => '', 'images' => 1, 'skip' => false);
 
 		$postbits .= $postbit_obj->construct_postbit($post);
 
-		// Only show after the first post, counter isn't incremented for deleted posts
-		if ($counter == 1 AND $fetchtype == 'post')
+		// Only show after the first post, counter isn't incremented for deleted/moderated posts
+		if ($post['isfirstshown'])
 		{
 			eval('$postbits .= "' . fetch_template('ad_showthread_firstpost') . '";');
 		}
@@ -1319,7 +1329,7 @@ else
 	{
 		if ($userid)
 		{
-			$userjs .= "pu[$userid] = \"$username\";\n";
+			$userjs .= "pu[$userid] = \"" . addslashes_js($username) . "\";\n";
 		}
 	}
 	unset($userarray, $userid, $username);
@@ -1467,7 +1477,7 @@ else
 			postparsed.pagetext_html, postparsed.hasimages,
 			sigparsed.signatureparsed, sigparsed.hasimages AS sighasimages,
 			sigpic.userid AS sigpic, sigpic.dateline AS sigpicdateline, sigpic.width AS sigpicwidth, sigpic.height AS sigpicheight,
-			IF(displaygroupid=0, user.usergroupid, displaygroupid) AS displaygroupid, infractiongroupid
+			IF(user.displaygroupid=0, user.usergroupid, user.displaygroupid) AS displaygroupid, infractiongroupid
 			" . iif(!($permissions['genericpermissions'] & $vbulletin->bf_ugp_genericpermissions['canseehiddencustomfields']), $vbulletin->profilefield['hidden']) . "
 			$hook_query_fields
 		FROM " . TABLE_PREFIX . "post AS post
@@ -1505,12 +1515,12 @@ else
 	$saveparsed = '';
 	$jspostbits = '';
 
-	$postbit_factory =& new vB_Postbit_Factory();
+	$postbit_factory = new vB_Postbit_Factory();
 	$postbit_factory->registry =& $vbulletin;
 	$postbit_factory->forum =& $foruminfo;
 	$postbit_factory->thread =& $thread;
 	$postbit_factory->cache = array();
-	$postbit_factory->bbcode_parser =& new vB_BbCodeParser($vbulletin, fetch_tag_list());
+	$postbit_factory->bbcode_parser = new vB_BbCodeParser($vbulletin, fetch_tag_list());
 
 	foreach (explode(',', $cache_postids) AS $id)
 	{
@@ -1732,7 +1742,7 @@ if (($vbulletin->options['showthreadusers'] == 1 OR $vbulletin->options['showthr
 	// Don't put the inthread value in the WHERE clause as it might not be the newest location!
 	$threadusers = $db->query_read_slave("
 		SELECT user.username, user.usergroupid, user.membergroupids,
-			session.userid, session.inthread, session.lastactivity,
+			session.userid, session.inthread, session.lastactivity, session.badlocation,
 			IF(user.displaygroupid = 0, user.usergroupid, user.displaygroupid) AS displaygroupid, infractiongroupid,
 			IF(user.options & " . $vbulletin->bf_misc_useroptions['invisible'] . ", 1, 0) AS invisible
 		FROM " . TABLE_PREFIX . "session AS session
@@ -1768,6 +1778,11 @@ if (($vbulletin->options['showthreadusers'] == 1 OR $vbulletin->options['showthr
 	// this requires the query to have lastactivity ordered by DESC so that the latest location will be the first encountered.
 	while ($loggedin = $db->fetch_array($threadusers))
 	{
+		if ($loggedin['badlocation'])
+		{
+			continue;
+		}
+
 		if (empty($doneuser["$loggedin[userid]"]))
 		{
 			if ($loggedin['inthread'] == $threadinfo['threadid'])
@@ -2050,6 +2065,7 @@ $show['deleteposts'] = can_moderate($threadinfo['forumid'], 'candeleteposts') ? 
 $show['editthread'] = can_moderate($threadinfo['forumid'], 'caneditthreads') ? true : false;
 $show['movethread'] = (can_moderate($threadinfo['forumid'], 'canmanagethreads') OR ($forumperms & $vbulletin->bf_ugp_forumpermissions['canmove'] AND $threadinfo['postuserid'] == $vbulletin->userinfo['userid'])) ? true : false;
 $show['openclose'] = (can_moderate($threadinfo['forumid'], 'canopenclose') OR ($forumperms & $vbulletin->bf_ugp_forumpermissions['canopenclose'] AND $threadinfo['postuserid'] == $vbulletin->userinfo['userid'])) ? true : false;
+$show['moderatethread'] = (can_moderate($threadinfo['forumid'], 'canmoderateposts') ? true : false);
 $show['deletethread'] = (($threadinfo['visible'] != 2 AND can_moderate($threadinfo['forumid'], 'candeleteposts')) OR can_moderate($threadinfo['forumid'], 'canremoveposts') OR ($forumperms & $vbulletin->bf_ugp_forumpermissions['candeletepost'] AND $forumperms & $vbulletin->bf_ugp_forumpermissions['candeletethread'] AND $vbulletin->userinfo['userid'] == $threadinfo['postuserid'] AND ($vbulletin->options['edittimelimit'] == 0 OR $threadinfo['dateline'] > (TIMENOW - ($vbulletin->options['edittimelimit'] * 60))))) ? true : false;
 $show['adminoptions'] = ($show['editpoll'] OR $show['movethread'] OR $show['deleteposts'] OR $show['editthread'] OR $show['managethread'] OR $show['openclose'] OR $show['deletethread']) ? true : false;
 
@@ -2093,7 +2109,7 @@ if (
 	{
 		$bookmarksite['link'] = str_replace(
 			array('{URL}', '{TITLE}'),
-			array(urlencode($vbulletin->options['bburl'] . '/showthread.php?t=' . $thread['threadid']), urlencode($thread['title'])),
+			array(urlencode($vbulletin->options['bburl'] . '/showthread.php?t=' . $thread['threadid']), urlencode(($bookmarksite['utf8encode'])?utf8_encode($thread['title']):$thread['title'])),
 			$bookmarksite['url']
 		);
 
@@ -2119,15 +2135,17 @@ eval('$navbar = "' . fetch_template('navbar') . '";');
 // #############################################################################
 // setup $show variables
 $show['lightbox'] = ($vbulletin->options['lightboxenabled'] AND $vbulletin->options['usepopups']);
-$show['search'] = (!$show['search_engine'] AND $forumperms & $vbulletin->bf_ugp_forumpermissions['cansearch'] AND $vbulletin->options['enablesearches'] AND ($vbulletin->userinfo['userid'] OR !$vbulletin->options['hvcheck_search'] OR !$vbulletin->options['hv_type']));
+$show['search'] = (!$show['search_engine'] AND $forumperms & $vbulletin->bf_ugp_forumpermissions['cansearch'] AND $vbulletin->options['enablesearches'] AND (!fetch_require_hvcheck('search')));
 $show['subscribed'] = iif($threadinfo['issubscribed'], true, false);
 $show['threadrating'] = iif($forum['allowratings'] AND $forumperms & $vbulletin->bf_ugp_forumpermissions['canthreadrate'], true, false);
 $show['ratethread'] = iif($show['threadrating'] AND (!$threadinfo['vote'] OR $vbulletin->options['votechange']), true, false);
 $show['closethread'] = iif($threadinfo['open'], true, false);
+$show['approvethread'] = ($threadinfo['visible'] == 0 ? true : false);
 $show['unstick'] = iif($threadinfo['sticky'], true, false);
 $show['reputation'] = ($vbulletin->options['reputationenable']
 	AND $vbulletin->userinfo['userid']
 	AND $vbulletin->userinfo['permissions']['genericoptions'] & $vbulletin->bf_ugp_genericoptions['isnotbannedgroup']);
+$show['sendtofriend'] = ($forumperms & $vbulletin->bf_ugp_forumpermissions['canemail']);
 
 // next/prev links don't work for search engines or non-lastpost sort orders
 $show['next_prev_links'] = (!$show['search_engine']
@@ -2154,8 +2172,8 @@ eval('print_output("' . fetch_template('SHOWTHREAD') . '");');
 
 /*======================================================================*\
 || ####################################################################
-|| # Downloaded: 16:21, Sat Apr 6th 2013
-|| # CVS: $RCSfile$ - $Revision: 26399 $
+|| # Downloaded: 20:50, Sun Aug 11th 2013
+|| # CVS: $RCSfile$ - $Revision: 39862 $
 || ####################################################################
 \*======================================================================*/
 ?>

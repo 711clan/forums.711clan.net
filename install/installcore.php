@@ -1,9 +1,9 @@
 <?php
 /*======================================================================*\
 || #################################################################### ||
-|| # vBulletin 3.7.2 Patch Level 2 - Licence Number VBF2470E4F
+|| # vBulletin 3.8.7 Patch Level 3 - Licence Number VBC2DDE4FB
 || # ---------------------------------------------------------------- # ||
-|| # Copyright ©2000-2013 Jelsoft Enterprises Ltd. All Rights Reserved. ||
+|| # Copyright ©2000-2013 vBulletin Solutions, Inc. All Rights Reserved. ||
 || # This file may not be redistributed in whole or significant part. # ||
 || # ---------------- VBULLETIN IS NOT FREE SOFTWARE ---------------- # ||
 || # http://www.vbulletin.com | http://www.vbulletin.com/license.html # ||
@@ -11,8 +11,13 @@
 \*======================================================================*/
 
 // ######################## SET PHP ENVIRONMENT ###########################
-error_reporting(E_ALL & ~E_NOTICE);
+error_reporting(E_ALL & ~E_NOTICE & ~8192);
 ignore_user_abort(true);
+// Force PHP 5.3.0+ to take time zone information from OS 
+if (version_compare(phpversion(), '5.3.0', '>='))
+{ 
+	@date_default_timezone_set(date_default_timezone_get());
+}
 
 // ##################### DEFINE IMPORTANT CONSTANTS #######################
 define('NO_IMPORT_DOTS', true);
@@ -101,7 +106,7 @@ function verify_vb3_enviroment()
 		if (ini_get('enable_dl') AND !SAFEMODE)
 		{
 			$extension_dir = ini_get('extension_dir');
-			if (strtoupper(substr(PHP_OS, 0, 3) == 'WIN'))
+			if (strtoupper(substr(PHP_OS, 0, 3)) == 'WIN')
 			{
 				$extension_file = 'php_xml.dll';
 			}
@@ -195,7 +200,7 @@ function print_upgrade_header($steptitle = '')
 <body style="margin:0px">
 <table cellpadding="4" cellspacing="0" border="0" width="100%" class="navbody" style="border:outset 2px">
 <tr>
-	<td width="160"><img src="../cpstyles/vBulletin_3_Silver/cp_logo.gif" alt="" title="vBulletin 3 &copy;2000 - <?php echo date('Y'); ?> Jelsoft Enterprises Ltd." /></td>
+	<td width="160"><img src="../cpstyles/vBulletin_3_Silver/cp_logo.gif" alt="" title="vBulletin 3 &copy;2000 - <?php echo date('Y'); ?> vBulletin Solutions, Inc." /></td>
 	<td style="padding-left:100px">
 		<b><?php echo $installcore_phrases['vb3_install_script']; ?></b><br />
 		<?php echo $installcore_phrases['may_take_some_time']; ?><br />
@@ -257,7 +262,7 @@ function print_next_page($delay = 1)
 	<input type="hidden" name="startat" value="<?php echo $vbulletin->GPC['startat']; ?>" />
 	<table cellpadding="4" cellspacing="0" border="0" width="100%" class="navbody" style="padding:4px; border:outset 2px;">
 	<tr align="center">
-		<td><b><?php echo $installcore_phrases['batch_complete']; ?></b><br />vBulletin &copy;2000 - <?php echo date('Y'); ?> Jelsoft Enterprises Ltd.</td>
+		<td><b><?php echo $installcore_phrases['batch_complete']; ?></b><br />vBulletin &copy;2000 - <?php echo date('Y'); ?> vBulletin Solutions, Inc.</td>
 		<td><input type="submit" class="button" accesskey="s" value="<?php echo $upgradecore_phrases['next_batch']; ?>" /></td>
 	</tr>
 	</table>
@@ -313,7 +318,7 @@ function print_next_step()
 	<?php foreach($hiddenfields AS $varname => $value) { echo "<input type=\"hidden\" name=\"" . htmlspecialchars_uni($varname) . "\" value=\"" . htmlspecialchars_uni($value) . "\" />\r\n"; } ?>
 	<table cellpadding="4" cellspacing="0" border="0" width="100%" class="navbody" style="padding:4px; border:outset 2px;">
 	<tr align="center">
-		<td><?php if (!defined('HIDEPROCEED')) { ?><b><?php echo $installcore_phrases['click_button_to_proceed']; ?></b><br /><?php } ?>vBulletin &copy;2000 - <?php echo date('Y'); ?> Jelsoft Enterprises Ltd.</td>
+		<td><?php if (!defined('HIDEPROCEED')) { ?><b><?php echo $installcore_phrases['click_button_to_proceed']; ?></b><br /><?php } ?>vBulletin &copy;2000 - <?php echo date('Y'); ?> vBulletin Solutions, Inc.</td>
 		<td><?php if (!defined('HIDEPROCEED')) { ?><input type="submit" class="button" accesskey="s" value="<?php echo $buttonvalue; ?>" title="<?php echo $buttontitle; ?>" /><?php } ?></td>
 	</tr>
 	</table>
@@ -434,8 +439,8 @@ function build_forum_child_lists()
 
 /*======================================================================*\
 || ####################################################################
-|| # Downloaded: 16:21, Sat Apr 6th 2013
-|| # CVS: $RCSfile$ - $Revision: 25957 $
+|| # Downloaded: 20:50, Sun Aug 11th 2013
+|| # CVS: $RCSfile$ - $Revision: 39862 $
 || ####################################################################
 \*======================================================================*/
 ?>

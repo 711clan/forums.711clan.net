@@ -1,9 +1,9 @@
 <?php
 /*======================================================================*\
 || #################################################################### ||
-|| # vBulletin 3.7.2 Patch Level 2 - Licence Number VBF2470E4F
+|| # vBulletin 3.8.7 Patch Level 3 - Licence Number VBC2DDE4FB
 || # ---------------------------------------------------------------- # ||
-|| # Copyright ©2000-2013 Jelsoft Enterprises Ltd. All Rights Reserved. ||
+|| # Copyright ©2000-2013 vBulletin Solutions, Inc. All Rights Reserved. ||
 || # This file may not be redistributed in whole or significant part. # ||
 || # ---------------- VBULLETIN IS NOT FREE SOFTWARE ---------------- # ||
 || # http://www.vbulletin.com | http://www.vbulletin.com/license.html # ||
@@ -440,6 +440,21 @@ function construct_edit_toolbar($text = '', $ishtml = false, $forumid = 0, $allo
 			$editor_template_name = 'showthread_quickreply';
 			break;
 
+		case 'qr_pm':
+			if ($force_editorid == '')
+			{
+				$editorid = 'vB_Editor_QR';
+			}
+			else
+			{
+				$editorid = $force_editorid;
+			}
+
+			$editor_height = 120;
+
+			$editor_template_name = 'pm_quickreply';
+			break;
+
 		case 'qe':
 			if ($force_editorid == '')
 			{
@@ -453,6 +468,21 @@ function construct_edit_toolbar($text = '', $ishtml = false, $forumid = 0, $allo
 			$editor_height = 200;
 
 			$editor_template_name = 'postbit_quickedit';
+			break;
+
+		case 'qenr':
+			if ($force_editorid == '')
+			{
+				$editorid = 'vB_Editor_QE';
+			}
+			else
+			{
+				$editorid = $force_editorid;
+			}
+
+			$editor_height = 200;
+
+			$editor_template_name = 'memberinfo_quickedit';
 			break;
 
 		default:
@@ -611,7 +641,7 @@ function construct_edit_toolbar($text = '', $ishtml = false, $forumid = 0, $allo
 					$bits = array();
 					while ($smilie = $vbulletin->db->fetch_array($smilies) AND $i++ < $vbulletin->options['smtotal'])
 					{
-						$smiliehtml = "<img src=\"$smilie[smiliepath]\" id=\"{$editorid}_smilie_$smilie[smilieid]\" alt=\"" . htmlspecialchars_uni($smilie['smilietext']) . "\" title=\"$smilie[title]\" border=\"0\" class=\"inlineimg\" />";
+						$smiliehtml = "<img src=\"$smilie[smiliepath]\" id=\"{$editorid}_smilie_$smilie[smilieid]\" alt=\"" . htmlspecialchars_uni($smilie['smilietext']) . "\" title=\"" . htmlspecialchars_uni($smilie['title']) . "\" border=\"0\" class=\"inlineimg\" />";
 						eval('$bits[] = "' . fetch_template('editor_smilie') . '";');
 
 						if (sizeof($bits) == $vbulletin->options['smcolumns'])
@@ -695,8 +725,8 @@ function construct_editor_extra_buttons($editorid, $allow_custom_bbcode = true)
 
 /*======================================================================*\
 || ####################################################################
-|| # Downloaded: 16:21, Sat Apr 6th 2013
-|| # CVS: $RCSfile$ - $Revision: 26141 $
+|| # Downloaded: 20:50, Sun Aug 11th 2013
+|| # CVS: $RCSfile$ - $Revision: 39862 $
 || ####################################################################
 \*======================================================================*/
 ?>

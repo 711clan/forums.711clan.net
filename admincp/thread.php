@@ -1,9 +1,9 @@
 <?php
 /*======================================================================*\
 || #################################################################### ||
-|| # vBulletin 3.7.2 Patch Level 2 - Licence Number VBF2470E4F
+|| # vBulletin 3.8.7 Patch Level 3 - Licence Number VBC2DDE4FB
 || # ---------------------------------------------------------------- # ||
-|| # Copyright ©2000-2013 Jelsoft Enterprises Ltd. All Rights Reserved. ||
+|| # Copyright ©2000-2013 vBulletin Solutions, Inc. All Rights Reserved. ||
 || # This file may not be redistributed in whole or significant part. # ||
 || # ---------------- VBULLETIN IS NOT FREE SOFTWARE ---------------- # ||
 || # http://www.vbulletin.com | http://www.vbulletin.com/license.html # ||
@@ -11,10 +11,10 @@
 \*======================================================================*/
 
 // ######################## SET PHP ENVIRONMENT ###########################
-error_reporting(E_ALL & ~E_NOTICE);
+error_reporting(E_ALL & ~E_NOTICE & ~8192);
 
 // ##################### DEFINE IMPORTANT CONSTANTS #######################
-define('CVS_REVISION', '$RCSfile$ - $Revision: 26900 $');
+define('CVS_REVISION', '$RCSfile$ - $Revision: 39862 $');
 define('NOZIP', 1);
 
 // #################### PRE-CACHE TEMPLATES AND DATA ######################
@@ -46,7 +46,10 @@ log_admin_action(iif(!empty($vbulletin->GPC['forumid']), "forum id = " . $vbulle
 // ######################### START MAIN SCRIPT ############################
 // ########################################################################
 
-print_cp_header($vbphrase['thread_manager']);
+if ($_POST['do'] != 'tagclear' AND $_POST['do'] != 'tagkill' AND $_POST['do'] != 'tagdomerge')
+{
+	print_cp_header($vbphrase['thread_manager']);
+}
 
 // ###################### Do who voted ####################
 if ($_POST['do'] == 'dovotes')
@@ -72,6 +75,7 @@ if ($_POST['do'] == 'dovotes')
 	");
 
 	$options = explode('|||', $poll['options']);
+	$options = array_map('rtrim', $options);
 
 	$lastoption = 0;
 	$users = '';
@@ -162,6 +166,37 @@ t = new Array();
 
 // ########################################################################
 
+if ($_POST['do'] == 'taginsert' OR $_REQUEST['do'] == 'tags' OR $_POST['do'] == 'tagclear' OR $_POST['do'] == 'tagkill' OR $_POST['do'] == 'tagmerge' OR $_POST['do'] == 'tagdomerge')
+{
+	$vbulletin->input->clean_array_gpc('r', array(
+		'pagenumber' => TYPE_UINT,
+		'sort'       => TYPE_NOHTML
+	));
+
+	if ($_POST['do'] == 'tagkill' OR $_POST['do'] == 'tagmerge' OR $_POST['do'] == 'tagdomerge')
+	{
+		$vbulletin->input->clean_array_gpc('p', array(
+			'tag'               => TYPE_ARRAY_KEYS_INT
+		));
+
+		$vbulletin->input->clean_array_gpc('c', array(
+			'vbulletin_inlinetag' => TYPE_STR,
+		));
+
+		$taglist = $vbulletin->GPC['tag'];
+
+		if (!empty($vbulletin->GPC['vbulletin_inlinetag']))
+		{
+			$cookielist = explode('-', $vbulletin->GPC['vbulletin_inlinetag']);
+			$cookielist = $vbulletin->input->clean($cookielist, TYPE_ARRAY_UINT);
+
+			$taglist = array_unique(array_merge($taglist, $cookielist));
+		}
+	}
+}
+
+// ########################################################################
+
 if ($_POST['do'] == 'taginsert')
 {
 	$vbulletin->input->clean_array_gpc('p', array(
@@ -195,24 +230,157 @@ if ($_POST['do'] == 'taginsert')
 		");
 	}
 
-	define('CP_REDIRECT', 'thread.php?do=tags');
+	define('CP_REDIRECT', 'thread.php?do=tags&page=' . $vbulletin->GPC['pagenumber'] . '&sort=' . $vbulletin->GPC['sort']);
 	print_stop_message('tag_saved');
+}
+
+// ########################################################################
+
+if ($_POST['do'] == 'tagclear')
+{
+	setcookie('vbulletin_inlinetag', '', TIMENOW - 3600, '/');
+
+	print_cp_header($vbphrase['thread_manager']);
+
+	$_REQUEST['do'] = 'tags';
+}
+
+// ########################################################################
+
+if ($_POST['do'] == 'tagmerge' OR $_POST['do'] == 'tagdomerge')
+{
+	if (!sizeof($taglist))
+	{
+		print_stop_message('no_tags_selected');
+	}
+}
+
+// ########################################################################
+
+if ($_POST['do'] == 'tagdomerge')
+{
+	$vbulletin->input->clean_array_gpc('p', array(
+		'tagtext' => TYPE_NOHTML
+	));
+
+	$tagtext = $vbulletin->GPC['tagtext'];
+
+	// check if target already exists
+	$target = false;
+	if ($target = $db->query_first("
+		SELECT tagid
+		FROM " . TABLE_PREFIX . "tag
+		WHERE tagtext = '" . $db->escape_string($tagtext) . "'
+	"))
+	{
+		$target = $target['tagid'];
+
+		// check if source and target are the same
+		if ($target AND (sizeof($taglist) == 1) AND in_array($target, $taglist))
+		{
+			 print_stop_message('no_changes_made');
+		}
+	}
+	else
+	{
+		// create new tag
+		require_once(DIR . '/includes/functions_newpost.php');
+		$valid = fetch_valid_tags(array(), array($vbulletin->GPC['tagtext']), $errors, false);
+
+		if ($errors)
+		{
+			print_stop_message('generic_error_x', implode('<br /><br />', $errors));
+		}
+
+		if (!empty($valid))
+		{
+			$db->query_write("
+				INSERT IGNORE INTO " . TABLE_PREFIX . "tag
+					(tagtext, dateline)
+				VALUES
+					('" . $db->escape_string($valid[0]) . "', " . TIMENOW . ")
+			");
+
+			$target = $db->insert_id();
+			$tagtext = $valid[0];
+		}
+		else
+		{
+			print_stop_message('invalid_tag_specified');
+		}
+	}
+
+	if (false !== ($selected = array_search($target, $taglist)))
+	{
+		// ensure target is not in taglist
+		unset($taglist[$selected]);
+	}
+
+	// get affected threads
+	$replace_threads = $threadtaglists = array();
+	$result = $db->query_read("
+		SELECT DISTINCT(tagthread.threadid), thread.taglist
+		FROM " . TABLE_PREFIX . "tagthread AS tagthread
+		INNER JOIN " . TABLE_PREFIX . "thread AS thread ON (thread.threadid = tagthread.threadid)
+		WHERE tagid IN (" . implode(',', $taglist) . ")
+	");
+
+	if ($db->num_rows($result))
+	{
+		while (list($thread, $threadtaglist) = $db->fetch_row($result))
+		{
+			$threadtaglists[$thread] = $threadtaglist;
+			$replace_threads[] = "($target, $thread, " . $vbulletin->userinfo['userid'] . ", " . TIMENOW . ")";
+		}
+	}
+	$db->free_result($result);
+
+	// add new tag to affected threads
+	if (sizeof($replace_threads))
+	{
+		$db->query_write("
+			REPLACE INTO " . TABLE_PREFIX . "tagthread (tagid, threadid, userid, dateline) VALUES " .
+			implode(',', $replace_threads) . "
+		");
+	}
+
+	// update thread taglists
+	foreach ($threadtaglists as $threadid => $threadtaglist)
+	{
+		$found = false;
+		foreach(explode(',', $threadtaglist) AS $tag)
+		{
+			if (trim($tag) == $tagtext)
+			{
+				$found = true;
+				break;
+			}
+		}
+
+		if (!$found)
+		{
+			$db->query_write("
+				UPDATE " . TABLE_PREFIX . "thread
+				SET taglist = '" . $db->escape_string($threadtaglist . ', ' . $tagtext) . "'
+				WHERE threadid = $threadid
+			");
+		}
+	}
+
+	// delete old tags
+	$_POST['do'] = 'tagkill';
 }
 
 // ########################################################################
 
 if ($_POST['do'] == 'tagkill')
 {
-	$vbulletin->input->clean_array_gpc('p', array(
-		'tag' => TYPE_ARRAY_KEYS_INT
-	));
-
-	if ($vbulletin->GPC['tag'])
+	if (sizeof($taglist))
 	{
 		$tags_result = $vbulletin->db->query_read("
 			SELECT tagtext
 			FROM " . TABLE_PREFIX . "tag
-			WHERE tagid IN (" . implode(',', $vbulletin->GPC['tag']) . ")
+			WHERE tagid IN (" . implode(',', $taglist) . ")
 		");
 
 		$tagstodelete = array();
@@ -230,7 +398,7 @@ if ($_POST['do'] == 'tagkill')
 				SELECT DISTINCT thread.*
 				FROM " . TABLE_PREFIX . "tagthread AS tagthread
 				INNER JOIN " . TABLE_PREFIX . "thread AS thread ON (thread.threadid = tagthread.threadid)
-				WHERE tagthread.tagid IN (" . implode(',', $vbulletin->GPC['tag']) . ")
+				WHERE tagthread.tagid IN (" . implode(',', $taglist) . ")
 			");
 			while ($thread = $vbulletin->db->fetch_array($threads_result))
 			{
@@ -261,12 +429,12 @@ if ($_POST['do'] == 'tagkill')
 
 		$db->query_write("
 			DELETE FROM " . TABLE_PREFIX . "tag
-			WHERE tagid IN (" . implode(',', $vbulletin->GPC['tag']) . ")
+			WHERE tagid IN (" . implode(',', $taglist) . ")
 		");
 
 		$db->query_write("
 			DELETE FROM " . TABLE_PREFIX . "tagthread
-			WHERE tagid IN (" . implode(',', $vbulletin->GPC['tag']) . ")
+			WHERE tagid IN (" . implode(',', $taglist) . ")
 		");
 
 		// need to invalidate the search and tag cloud caches
@@ -274,19 +442,57 @@ if ($_POST['do'] == 'tagkill')
 		build_datastore('searchcloud', '', 1);
 	}
 
-	define('CP_REDIRECT', 'thread.php?do=tags');
+	setcookie('vbulletin_inlinetag', '', TIMENOW - 3600, '/');
+
+	print_cp_header($vbphrase['thread_manager']);
+
+	define('CP_REDIRECT', 'thread.php?do=tags&page=' . $vbulletin->GPC['pagenumber'] . '&sort=' . $vbulletin->GPC['sort']);
 	print_stop_message('tags_edited_successfully');
+}
+
+// ########################################################################
+
+if ($_POST['do'] == 'tagmerge')
+{
+	$tags = $db->query_read("
+		SELECT tagid, tagtext
+		FROM " . TABLE_PREFIX . "tag
+		WHERE tagid IN (" . implode(',', $taglist) . ")
+		ORDER BY tagtext ASC
+	");
+
+	if (!($tag_count = $db->num_rows($tags)))
+	{
+		print_stop_message('no_tags_selected');
+	}
+
+	print_form_header();
+	print_table_header($vbphrase['merge_tags'], 3);
+
+	$columns = array('','','');
+	$counter = 0;
+	while ($tag = $db->fetch_array($tags))
+	{
+		$column = floor($counter++ / ceil($tag_count / 3));
+		$columns[$column] .= '<strong>' . $tag['tagtext'] . "</strong><br />\n";
+	}
+
+	print_description_row($vbphrase['tag_merge_description'], false, 3, '', $stylevar[left]);
+	print_cells_row($columns, false, false, -3);
+	print_table_footer();
+
+	construct_hidden_code('page', $vbulletin->GPC['pagenumber']);
+	construct_hidden_code('sort', $vbulletin->GPC['sort']);
+
+	print_form_header('thread', 'tagdomerge');
+	print_input_row($vbphrase['new_tag'], 'tagtext');
+	print_submit_row($vbphrase['merge'], false, 3, $vbphrase['go_back']);
 }
 
 // ########################################################################
 
 if ($_REQUEST['do'] == 'tags')
 {
-	$vbulletin->input->clean_array_gpc('r', array(
-		'pagenumber' => TYPE_UINT,
-		'sort'       => TYPE_NOHTML
-	));
-
 	if ($vbulletin->GPC['pagenumber'] < 1)
 	{
 		$vbulletin->GPC['pagenumber'] = 1;
@@ -298,15 +504,21 @@ if ($_REQUEST['do'] == 'tags')
 	$perpage = $column_count * $max_per_column;
 	$start = ($vbulletin->GPC['pagenumber'] - 1) * $perpage;
 
+	list($tag_count) = $db->query_first("SELECT COUNT(*) AS total FROM " . TABLE_PREFIX . "tag", DBARRAY_NUM);
+
+	if ($start >= $tag_count)
+	{
+		$start = max(0, $tag_count - $perpage);
+	}
+
 	$tags = $db->query_read("
 		SELECT *
 		FROM " . TABLE_PREFIX . "tag
 		ORDER BY " . ($vbulletin->GPC['sort'] == 'dateline' ? 'dateline DESC' : 'tagtext') . "
 		LIMIT $start, $perpage
 	");
-	list($tag_count) = $db->query_first("SELECT COUNT(*) AS total FROM " . TABLE_PREFIX . "tag", DBARRAY_NUM);
 
-	print_form_header('thread', 'tagkill');
+	print_form_header('thread', '', false, true, 'tagsform');
 	print_table_header($vbphrase['tag_list'], 3);
 	if ($db->num_rows($tags))
 	{
@@ -354,7 +566,7 @@ if ($_REQUEST['do'] == 'tags')
 		while ($tag = $db->fetch_array($tags))
 		{
 			$columnid = floor($counter++ / $max_per_column);
-			$columns["$columnid"][] = '<label for="tag' . $tag['tagid'] . '_1"><input type="checkbox" name="tag[' . $tag['tagid'] . ']" id="tag' . $tag['tagid'] . '_1" value="1" tabindex="1" /> ' . $tag['tagtext'] . '</label>';
+			$columns["$columnid"][] = '<div id="tag' . $tag['tagid'] . '" class="alt1" style="float:' . $stylevar[left] . ';clear:' . $stylevar[left] . '"><label for="taglist_' . $tag['tagid'] . '"><input type="checkbox" name="tag[' . $tag['tagid'] . ']" id="taglist_' . $tag['tagid'] . '" value="1" tabindex="1" /> ' . $tag['tagtext'] . '</label></div>';
 		}
 
 		// make column values printable
@@ -377,13 +589,42 @@ if ($_REQUEST['do'] == 'tags')
 			'width: 34%'
 		));
 		print_cells_row($cells, false, false, -3);
-		print_submit_row($vbphrase['delete_selected'], '', 3);
+
+		?>
+		<tr>
+			<td colspan="<?php echo $column_count; ?>" align="center" class="tfoot">
+				<select id="select_tags" name="do">
+					<option value="tagmerge" id="select_tags_merge"><?php echo $vbphrase[merge_rename_selected]; ?></option>
+					<option value="tagkill" id="select_tags_delete"><?php echo $vbphrase[delete_selected]; ?></option>
+					<optgroup label="____________________">
+						<option value="tagclear"><?php echo $vbphrase[deselect_all_tags]; ?></option>
+					</optgroup>
+				</select>
+				<input type="hidden" name="page" value="<?php echo $vbulletin->GPC['pagenumber']; ?>" />
+				<input type="hidden" name="sort" value="<?php echo $vbulletin->GPC['sort']; ?>" />
+				<input type="submit" value="<?php echo $vbphrase[go]; ?>" id="tag_inlinego" class="button" />
+			</td>
+		</tr>
+		</table>
+
+		<script type="text/javascript" src="../clientscript/vbulletin_inlinemod.js?v=<?php echo $vboptions[simpleversion]; ?>"></script>
+		<script type="text/javascript">
+			<!--
+			inlineMod_tags = new vB_Inline_Mod('inlineMod_tags', 'tag', 'tagsform', '<?php echo $vbphrase[go_x]; ?>', 'vbulletin_inline', 'tag');
+			/* vBmenu.register("inlinemodsel"); */
+			//-->
+		</script>
+		</form>
+		<?php
 	}
 	else
 	{
 		print_description_row($vbphrase['no_tags_defined'], false, 3, '', 'center');
 		print_table_footer();
 	}
+
+	construct_hidden_code('page', $vbulletin->GPC['pagenumber']);
+	construct_hidden_code('sort', $vbulletin->GPC['sort']);
 
 	print_form_header('thread', 'taginsert');
 	print_input_row($vbphrase['add_tag'], 'tagtext');
@@ -657,7 +898,7 @@ if ($_POST['do'] == 'dopruneuser')
 			$threadinfo = fetch_threadinfo($threadid);
 
 			// 3.5.1 Bug 1803: Make sure we have smth. to delete
-			if ($threadinfo === false)
+			if (!is_array($threadinfo))
 			{
 				continue;
 			}
@@ -681,7 +922,7 @@ if ($_POST['do'] == 'dopruneuser')
 			$postinfo = fetch_postinfo($postid);
 
 			// 3.5.1 Bug 1803: Make sure we have smth. to delete
-			if ($postinfo === false)
+			if (!is_array($postinfo))
 			{
 				continue;
 			}
@@ -735,7 +976,73 @@ if ($_REQUEST['do'] == 'move')
 	print_submit_row($vbphrase['move_threads']);
 }
 
+// ###################### Start Prune Post Edit History #######################
+if ($_REQUEST['do'] == 'pruneedit')
+{
+	print_form_header('', '');
+	print_table_header($vbphrase['prune_post_edit_history_manager']);
+	print_description_row($vbphrase['pruning_many_histories_is_a_server_intensive_process']);
+	print_table_footer();
+
+	print_form_header('thread', 'doposthistories');
+	construct_hidden_code('type', 'prune');
+	print_prune_edit_history_rows();
+	print_submit_row($vbphrase['prune_post_edit_history']);
+}
+
+// ###################### Start pruneedithistoryrows #######################
+function print_prune_edit_history_rows()
+{
+	global $vbphrase;
+	print_description_row($vbphrase['date_options'], 0, 2, 'thead', 'center');
+		print_input_row($vbphrase['last_post_edit_date_is_at_least_xx_days_ago'], 'postedit[originaldaysolder]', 0, 1, 5);
+		print_input_row($vbphrase['last_post_edit_date_is_at_most_xx_days_ago'] . '<dfn>' . construct_phrase($vbphrase['note_leave_x_specify_no_limit'], '0') . '</dfn>', 'postedit[originaldaysnewer]', 0, 1, 5);
+		print_input_row($vbphrase['last_post_in_thread_is_at_least_xx_days_ago'], 'thread[lastdaysolder]', 0, 1, 5);
+		print_input_row($vbphrase['last_post_in_thread_is_at_most_xx_days_ago'] . '<dfn>' . construct_phrase($vbphrase['note_leave_x_specify_no_limit'], '0') . '</dfn>', 'thread[lastdaysnewer]', 0, 1, 5);
+
+	print_description_row($vbphrase['other_options'], 0, 2, 'thead', 'center');
+		print_input_row($vbphrase['thread_title'], 'thread[titlecontains]');
+		print_forum_chooser($vbphrase['forum'], 'thread[forumid]', -1, $vbphrase['all_forums'], true);
+		print_yes_no_row($vbphrase['include_child_forums'], 'thread[subforums]');
+}
+
 /************ GENERAL MOVE/PRUNE HANDLING CODE ******************/
+
+// ###################### Helper function to prune post edit histories and update them #######################
+function do_prune_post_edit_histories($histories)
+{
+	global $vbphrase, $db;
+	$postids = array();
+	echo '<p><b>' . $vbphrase['deleting_post_edit_histories'] . '</b>';
+	while ($history = $db->fetch_array($histories))
+	{
+		$postids[] = $history['postid'];
+	}
+	while(count($postids))
+	{
+		// work in batches of 1000 at a time
+		$to_delete = array_slice($postids, 0, 1000);
+		$delete_query = "
+			DELETE FROM " . TABLE_PREFIX . "postedithistory
+			WHERE postid IN ( " . implode(',', $to_delete) . " )
+		";
+		$db->query_write($delete_query);
+
+		// Remove the history links
+		$update_query = "
+			UPDATE " . TABLE_PREFIX . "editlog
+			SET hashistory = 0
+			WHERE hashistory != 0
+			AND postid IN ( " . implode(',', $to_delete) . " )
+		";
+		$db->query_write($update_query);
+		echo ".";
+		vbflush();
+
+		// remove the 1000 from our $postids array
+		$postids = array_splice($postids, 1000);
+	}
+}
 
 // ###################### Start makeprunemoveboxes #######################
 function print_move_prune_rows()
@@ -783,6 +1090,58 @@ function print_move_prune_rows()
 		{
 			print_label_row($vbphrase['prefix'], '<select name="thread[prefixid]" class="bginput">' . $prefix_options . '</select>', '', 'top', 'prefixid');
 		}
+}
+
+// ###################### Start genpruneedithistoryquery #######################
+function fetch_post_history_prune_sql($thread, $postedit)
+{
+	global $db, $vbphrase;
+
+	$thread['forumid'] = intval($thread['forumid']);
+	$query = '1=1';
+
+	// original post
+	if (intval($postedit['originaldaysolder']))
+	{
+		$query .= ' AND editlog.dateline <= ' . (TIMENOW - ($postedit['originaldaysolder'] * 86400));
+	}
+	if (intval($postedit['originaldaysnewer']))
+	{
+		$query .= ' AND editlog.dateline >= ' . (TIMENOW - ($postedit['originaldaysnewer'] * 86400));
+	}
+
+	// last post
+	if (intval($thread['lastdaysolder']))
+	{
+		$query .= ' AND thread.lastpost <= ' . (TIMENOW - ($thread['lastdaysolder'] * 86400));
+	}
+	if (intval($thread['lastdaysnewer']))
+	{
+		$query .= ' AND thread.lastpost >= ' . (TIMENOW - ($thread['lastdaysnewer'] * 86400));
+	}
+
+	// title contains
+	if ($thread['titlecontains'])
+	{
+		$query .= " AND thread.title LIKE '%" . $db->escape_string_like(htmlspecialchars_uni($thread['titlecontains'])) . "%'";
+	}
+
+	// forum
+	$thread['forumid'] = intval($thread['forumid']);
+
+	if ($thread['forumid'] != -1)
+	{
+		if ($thread['subforums'])
+		{
+			$query .= " AND (thread.forumid = $thread[forumid] OR forum.parentlist LIKE '%,$thread[forumid],%')";
+		}
+		else
+		{
+			$query .= " AND thread.forumid = $thread[forumid]";
+		}
+	}
+
+	return $query;
 }
 
 // ###################### Start genmoveprunequery #######################
@@ -934,6 +1293,48 @@ function fetch_thread_move_prune_sql($thread)
 	return $query;
 }
 
+// ###################### Start post edit history prune by options #######################
+if ($_POST['do'] == 'doposthistories')
+{
+	// While we are only having one type right now -- prune -- the type parameter is passed and kept for future purposes
+	$vbulletin->input->clean_array_gpc('p', array(
+		'type'		=> TYPE_NOHTML,
+		'thread'	=> TYPE_ARRAY,
+		'postedit'	=> TYPE_ARRAY,
+	));
+
+	$whereclause = fetch_post_history_prune_sql($vbulletin->GPC['thread'], $vbulletin->GPC['postedit']);
+
+	if ($vbulletin->GPC['thread']['forumid'] == 0)
+	{
+		print_stop_message('please_complete_required_fields');
+	}
+
+	$fullquery = "
+		SELECT COUNT(*) AS count
+		FROM " . TABLE_PREFIX . "editlog AS editlog
+		LEFT JOIN " . TABLE_PREFIX . "post AS post ON (post.postid = editlog.postid)
+		LEFT JOIN " . TABLE_PREFIX . "thread AS thread ON (thread.threadid = post.threadid)
+		LEFT JOIN " . TABLE_PREFIX . "forum AS forum ON (forum.forumid = thread.forumid)
+		WHERE $whereclause
+		AND editlog.hashistory = 1
+	";
+	$count = $db->query_first($fullquery);
+
+	if (!$count['count'])
+	{
+		print_stop_message('no_post_edit_histories_matched_your_query');
+	}
+
+	print_form_header('thread', 'dopostedithistoriesall');
+	construct_hidden_code('type', $vbulletin->GPC['type']);
+	construct_hidden_code('thread', sign_client_string(serialize($vbulletin->GPC['thread'])));
+	construct_hidden_code('postedit', sign_client_string(serialize($vbulletin->GPC['postedit'])));
+
+	print_table_header(construct_phrase($vbphrase['x_post_with_edit_history_matches_found'], $count['count']));
+	print_submit_row($vbphrase['prune_all_post_edit_histories'], '');
+}
+
 // ###################### Start thread move/prune by options #######################
 if ($_POST['do'] == 'dothreads')
 {
@@ -1003,6 +1404,41 @@ if ($_POST['do'] == 'dothreads')
 	{
 		construct_hidden_code('destforumid', $vbulletin->GPC['destforumid']);
 		print_submit_row($vbphrase['move_threads_selectively'], '');
+	}
+}
+
+// ###################### Start move/prune all matching post edit histories #######################
+if ($_POST['do'] == 'dopostedithistoriesall')
+{
+	require_once(DIR . '/includes/functions_log_error.php');
+	$vbulletin->input->clean_array_gpc('p', array(
+		'type'		=> TYPE_NOHTML,
+		'thread'	=> TYPE_STR,
+		'postedit'	=> TYPE_STR,
+	));
+
+	$thread = @unserialize(verify_client_string($vbulletin->GPC['thread']));
+	$postedit = @unserialize(verify_client_string($vbulletin->GPC['postedit']));
+
+	$whereclause = fetch_post_history_prune_sql($thread, $postedit);
+
+	$fullquery = "
+		SELECT editlog.postid AS postid
+		FROM " . TABLE_PREFIX . "editlog AS editlog
+		LEFT JOIN " . TABLE_PREFIX . "post AS post ON (post.postid = editlog.postid)
+		LEFT JOIN " . TABLE_PREFIX . "thread AS thread ON (thread.threadid = post.threadid)
+		LEFT JOIN " . TABLE_PREFIX . "forum AS forum ON (forum.forumid = thread.forumid)
+		WHERE $whereclause
+	";
+
+	$histories = $db->query_read($fullquery);
+
+	if ($vbulletin->GPC['type'] == 'prune')
+	{
+		do_prune_post_edit_histories($histories);
+
+		define('CP_BACKURL', '');
+		print_stop_message('pruned_post_edit_history_successfully');
 	}
 }
 
@@ -1162,7 +1598,7 @@ if ($_POST['do'] == 'dothreadsselfinish')
 				$threadinfo = fetch_threadinfo($threadid);
 
 				// 3.5.1 Bug 1803: Make sure we have smth. to delete
-				if ($threadinfo === false)
+				if (!is_array($threadinfo))
 				{
 					continue;
 				}
@@ -1468,8 +1904,8 @@ print_cp_footer();
 
 /*======================================================================*\
 || ####################################################################
-|| # Downloaded: 16:21, Sat Apr 6th 2013
-|| # CVS: $RCSfile$ - $Revision: 26900 $
+|| # Downloaded: 20:50, Sun Aug 11th 2013
+|| # CVS: $RCSfile$ - $Revision: 39862 $
 || ####################################################################
 \*======================================================================*/
 ?>

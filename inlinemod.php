@@ -1,9 +1,9 @@
 <?php
 /*======================================================================*\
 || #################################################################### ||
-|| # vBulletin 3.7.2 Patch Level 2 - Licence Number VBF2470E4F
+|| # vBulletin 3.8.7 Patch Level 3 - Licence Number VBC2DDE4FB
 || # ---------------------------------------------------------------- # ||
-|| # Copyright ©2000-2013 Jelsoft Enterprises Ltd. All Rights Reserved. ||
+|| # Copyright ©2000-2013 vBulletin Solutions, Inc. All Rights Reserved. ||
 || # This file may not be redistributed in whole or significant part. # ||
 || # ---------------- VBULLETIN IS NOT FREE SOFTWARE ---------------- # ||
 || # http://www.vbulletin.com | http://www.vbulletin.com/license.html # ||
@@ -11,7 +11,7 @@
 \*======================================================================*/
 
 // ####################### SET PHP ENVIRONMENT ###########################
-error_reporting(E_ALL & ~E_NOTICE);
+error_reporting(E_ALL & ~E_NOTICE & ~8192);
 
 // #################### DEFINE IMPORTANT CONSTANTS #######################
 if ($_REQUEST['do'] == 'mergeposts' OR $_POST['do'] == 'domergeposts')
@@ -71,6 +71,7 @@ if (($current_memory_limit = ini_size_to_bytes(@ini_get('memory_limit'))) < 128 
 {
 	@ini_set('memory_limit', 128 * 1024 * 1024);
 }
+@set_time_limit(0);
 
 // Wouldn't be fun if someone tried to manipulate every post in the database ;)
 // Should be made into options I suppose - too many and you exceed what a cookie can hold anyway
@@ -774,6 +775,7 @@ if ($_POST['do'] == 'deletethread' OR $_POST['do'] == 'spamthread')
 
 			$show['punitive_action'] = ($havebangroup AND (($vbulletin->userinfo['permissions']['adminpermissions'] & $vbulletin->bf_ugp_adminpermissions['cancontrolpanel']) OR can_moderate(0, 'canbanusers'))) ? true : false;
 			$show['akismet_option'] = !empty($vbulletin->options['vb_antispam_key']);
+			$show['delete_others_option'] = can_moderate(-1, 'canmassprune');
 
 			$show['deleteitems'] = $show['deletethreads'];
 			$show['removeitems'] = $show['removethreads'];
@@ -967,6 +969,7 @@ if ($_POST['do'] == 'spamconfirm' OR $_POST['do'] == 'dodeletespam')
 
 	if ($vbulletin->GPC['useraction'] == 'ban')
 	{
+		require_once(DIR . '/includes/adminfunctions.php');
 		require_once(DIR . '/includes/functions_banning.php');
 		if (!($vbulletin->userinfo['permissions']['adminpermissions'] & $vbulletin->bf_ugp_adminpermissions['cancontrolpanel'] OR can_moderate(0, 'canbanusers')))
 		{
@@ -978,7 +981,10 @@ if ($_POST['do'] == 'spamconfirm' OR $_POST['do'] == 'dodeletespam')
 		{
 			foreach ($user_cache AS $userid => $userinfo)
 			{
-				if (can_moderate(0, '', $userinfo['userid'], $userinfo['usergroupid'] . (trim($userinfo['membergroupids']) ? ",$userinfo[membergroupids]" : '')) OR $userinfo['permissions']['adminpermissions'] & $vbulletin->bf_ugp_adminpermissions['cancontrolpanel'] OR $userinfo['permissions']['adminpermissions'] & $vbulletin->bf_ugp_adminpermissions['ismoderator'])
+				if (can_moderate(0, '', $userinfo['userid'], $userinfo['usergroupid'] . (trim($userinfo['membergroupids']) ? ",$userinfo[membergroupids]" : ''))
+					OR $userinfo['permissions']['adminpermissions'] & $vbulletin->bf_ugp_adminpermissions['cancontrolpanel']
+					OR $userinfo['permissions']['adminpermissions'] & $vbulletin->bf_ugp_adminpermissions['ismoderator']
+					OR is_unalterable_user($userinfo['userid']))
 				{
 					eval(standard_error(fetch_error('no_permission_ban_non_registered_users')));
 				}
@@ -988,7 +994,8 @@ if ($_POST['do'] == 'spamconfirm' OR $_POST['do'] == 'dodeletespam')
 		{
 			foreach ($user_cache AS $userid => $userinfo)
 			{
-				if ($userinfo['permissions']['adminpermissions'] & $vbulletin->bf_ugp_adminpermissions['cancontrolpanel'])
+				if ($userinfo['permissions']['adminpermissions'] & $vbulletin->bf_ugp_adminpermissions['cancontrolpanel']
+					OR is_unalterable_user($userinfo['userid']))
 				{
 					eval(standard_error(fetch_error('no_permission_ban_non_registered_users')));
 				}
@@ -2259,7 +2266,6 @@ if ($_POST['do'] == 'domovethreads')
 				{
 					$thread['open'] = 10;
 					$thread['pollid'] = $threadid;
-					$thread['dateline'] = TIMENOW;
 					unset($thread['threadid']);
 					$redir =& datamanager_init('Thread', $vbulletin, ERRTYPE_SILENT, 'threadpost');
 					foreach (array_keys($thread) AS $field)
@@ -2406,9 +2412,12 @@ if ($_POST['do'] == 'mergethread' OR $_POST['do'] == 'mergethreadcompat')
 {
 	$pollarray = array();
 
+	$longest = -1;
+	$curfourmid = 0;
+	$curthreadid = 0;
 	// Validate threads
 	$threads = $db->query_read_slave("
-		SELECT thread.threadid, thread.prefixid, thread.visible, thread.open, thread.pollid, thread.title, thread.postuserid, thread.forumid,
+		SELECT thread.threadid, thread.prefixid, thread.visible, thread.open, thread.pollid, thread.title, thread.postuserid, thread.forumid, thread.replycount,
 			poll.question
 		FROM " . TABLE_PREFIX . "thread AS thread
 		LEFT JOIN " . TABLE_PREFIX . "poll AS poll ON (thread.pollid = poll.pollid)
@@ -2445,6 +2454,13 @@ if ($_POST['do'] == 'mergethread' OR $_POST['do'] == 'mergethreadcompat')
 			eval(standard_error(fetch_error('you_do_not_have_permission_to_manage_deleted_threads_and_posts', $vbphrase['n_a'], $thread['prefix_plain_html'] . $thread['title'], $vbulletin->forumcache["$thread[forumid]"]['title'])));
 		}
 
+		if ($thread['replycount'] > $longest)
+		{
+			$curthreadid = $thread['threadid'];
+			$curforumid = $thread['forumid'];
+			$longest = $thread['replycount'];
+		}
+
 		if ($thread['pollid'] AND $thread['question'])
 		{
 			$pollarray["$thread[pollid]"] = $thread['question'];
@@ -2461,7 +2477,7 @@ if ($_POST['do'] == 'mergethread' OR $_POST['do'] == 'mergethreadcompat')
 
 	if (empty($threadarray))
 	{
-			eval(standard_error(fetch_error('you_did_not_select_any_valid_threads')));
+		eval(standard_error(fetch_error('you_did_not_select_any_valid_threads')));
 	}
 
 	$threadcount = count($threadarray);
@@ -2470,15 +2486,6 @@ if ($_POST['do'] == 'mergethread' OR $_POST['do'] == 'mergethreadcompat')
 	if ($threadcount == 1)
 	{
 		eval(standard_error(fetch_error('not_much_would_be_accomplished_by_merging')));
-	}
-
-	$max = 0;
-	foreach ($forumlist AS $forumid => $count)
-	{
-		if ($count > $max)
-		{
-			$curforumid = $forumid;
-		}
 	}
 
 	if (count($pollarray) > 1)
@@ -2492,6 +2499,7 @@ if ($_POST['do'] == 'mergethread' OR $_POST['do'] == 'mergethreadcompat')
 
 	foreach ($threadarray AS $thread)
 	{
+		$optionselected = ($thread['threadid'] == $curthreadid) ? ' selected="selected"' : '';
 		$optiontitle = "[{$thread['threadid']}] " . ($thread['prefixid'] ? $vbphrase["prefix_$thread[prefixid]_title_plain"] . ' ' : '') . $thread['title'];
 		$optionvalue = $thread['threadid'];
 		$optionclass = '';
@@ -3223,6 +3231,7 @@ if ($_REQUEST['do'] == 'deleteposts' OR $_REQUEST['do'] == 'spampost')
 		$show['users'] = ($usercount !== 0);
 		$show['punitive_action'] = ($havebangroup AND (($vbulletin->userinfo['permissions']['adminpermissions'] & $vbulletin->bf_ugp_adminpermissions['cancontrolpanel']) OR can_moderate(0, 'canbanusers'))) ? true : false;
 		$show['akismet_option'] = !empty($vbulletin->options['vb_antispam_key']);
+		$show['delete_others_option'] = can_moderate(-1, 'canmassprune');
 		$show['removeitems'] = $show['removeposts'];
 		$show['deleteitems'] = $show['deleteposts'];
 
@@ -4693,12 +4702,6 @@ if ($_POST['do'] == 'domoveposts')
 		if (!$destthreadinfo['visible'])
 		{	// Moderated thread so overwrite moderation record
 			$db->query_write("
-				DELETE FROM " . TABLE_PREFIX . "moderation
-				WHERE primaryid = $destthreadinfo[threadid]
-					AND type = 'thread'
-			");
-
-			$db->query_write("
 				REPLACE INTO " . TABLE_PREFIX . "moderation
 				(primaryid, type, dateline)
 				VALUES
@@ -4818,8 +4821,17 @@ if ($_POST['do'] == 'domoveposts')
 			}
 			else	// we moved all of the thread :eek: delete the empty thread!
 			{
+				$threadinfo = fetch_threadinfo($post['threadid']);
 				$threadman =& datamanager_init('Thread', $vbulletin, ERRTYPE_SILENT, 'threadpost');
-				$threadman->set_existing($post);
+				if ($threadinfo)
+				{
+					$threadman->set_existing($threadinfo);
+				}
+				else
+				{
+					// for legacy support, if some how we get a post that is no longer in a thread (IE: deleted twice?)
+					$threadman->set_existing($post);
+				}
 				$threadman->delete(false, true, NULL, false);
 				unset($threadman);
 			}
@@ -5347,7 +5359,7 @@ if ($_POST['do'] == 'docopyposts')
 	if (!empty($dupeposts) AND $vbulletin->options['copypostindex'] AND !$vbulletin->options['fulltextsearch'])
 	{
 		$hash = $destthreadinfo['threadid'] . '_' . $vbulletin->userinfo['userid'];
-		$db->query_write("CREATE TABLE " . TABLE_PREFIX . "postindex_temp$hash (
+		$db->query_write("CREATE TABLE IF NOT EXISTS " . TABLE_PREFIX . "postindex_temp$hash (
 			wordid INT UNSIGNED NOT NULL DEFAULT '0',
 			postid INT UNSIGNED NOT NULL DEFAULT '0',
 			intitle SMALLINT UNSIGNED NOT NULL DEFAULT '0',
@@ -5489,8 +5501,8 @@ eval('print_output("' . fetch_template('THREADADMIN') . '");');
 
 /*======================================================================*\
 || ####################################################################
-|| # Downloaded: 16:21, Sat Apr 6th 2013
-|| # CVS: $RCSfile$ - $Revision: 26735 $
+|| # Downloaded: 20:50, Sun Aug 11th 2013
+|| # CVS: $RCSfile$ - $Revision: 39862 $
 || ####################################################################
 \*======================================================================*/
 ?>

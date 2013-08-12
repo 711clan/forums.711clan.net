@@ -1,9 +1,9 @@
 <?php
 /*======================================================================*\
 || #################################################################### ||
-|| # vBulletin 3.7.2 Patch Level 2 - Licence Number VBF2470E4F
+|| # vBulletin 3.8.7 Patch Level 3 - Licence Number VBC2DDE4FB
 || # ---------------------------------------------------------------- # ||
-|| # Copyright ©2000-2013 Jelsoft Enterprises Ltd. All Rights Reserved. ||
+|| # Copyright ©2000-2013 vBulletin Solutions, Inc. All Rights Reserved. ||
 || # This file may not be redistributed in whole or significant part. # ||
 || # ---------------- VBULLETIN IS NOT FREE SOFTWARE ---------------- # ||
 || # http://www.vbulletin.com | http://www.vbulletin.com/license.html # ||
@@ -11,7 +11,7 @@
 \*======================================================================*/
 
 // ####################### SET PHP ENVIRONMENT ###########################
-error_reporting(E_ALL & ~E_NOTICE);
+error_reporting(E_ALL & ~E_NOTICE & ~8192);
 @set_time_limit(0);
 
 // #################### DEFINE IMPORTANT CONSTANTS #######################
@@ -54,7 +54,7 @@ if (!$vbulletin->userinfo['userid']) // Guests can not post attachments
 
 // Variables that are reused in templates
 $editpost      =& $vbulletin->input->clean_gpc('r', 'editpost',      TYPE_BOOL);
-$poststarttime =& $vbulletin->input->clean_gpc('r', 'poststarttime', TYPE_NOHTML);
+$poststarttime =& $vbulletin->input->clean_gpc('r', 'poststarttime', TYPE_UINT);
 $posthash      =& $vbulletin->input->clean_gpc('r', 'posthash',      TYPE_NOHTML);
 
 if ($postid AND $vbulletin->GPC['editpost'])
@@ -281,7 +281,7 @@ if ($_POST['do'] == 'manageattach')
 		{
 			// These are created each go around to insure memory has been freed
 			$attachdata =& datamanager_init('Attachment', $vbulletin, ERRTYPE_ARRAY);
-			$upload =& new vB_Upload_Attachment($vbulletin);
+			$upload = new vB_Upload_Attachment($vbulletin);
 			$image =& vB_Image::fetch_library($vbulletin);
 
 			$upload->data =& $attachdata;
@@ -468,6 +468,9 @@ if ($attachlimit)
 				OR attachment.postid = 0)
 	");
 	$attachsum = intval($attachdata['sum']);
+
+	($hook = vBulletinHook::fetch_hook('newattachment_attachsum')) ? eval($hook) : false;
+
 	if ($attachsum >= $attachlimit)
 	{
 		$totalsize = 0;
@@ -567,8 +570,8 @@ eval('print_output("' . fetch_template('newattachment') . '");');
 
 /*======================================================================*\
 || ####################################################################
-|| # Downloaded: 16:21, Sat Apr 6th 2013
-|| # CVS: $RCSfile$ - $Revision: 26399 $
+|| # Downloaded: 20:50, Sun Aug 11th 2013
+|| # CVS: $RCSfile$ - $Revision: 39862 $
 || ####################################################################
 \*======================================================================*/
 ?>

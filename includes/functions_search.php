@@ -1,9 +1,9 @@
 <?php
 /*======================================================================*\
 || #################################################################### ||
-|| # vBulletin 3.7.2 Patch Level 2 - Licence Number VBF2470E4F
+|| # vBulletin 3.8.7 Patch Level 3 - Licence Number VBC2DDE4FB
 || # ---------------------------------------------------------------- # ||
-|| # Copyright ©2000-2013 Jelsoft Enterprises Ltd. All Rights Reserved. ||
+|| # Copyright ©2000-2013 vBulletin Solutions, Inc. All Rights Reserved. ||
 || # This file may not be redistributed in whole or significant part. # ||
 || # ---------------- VBULLETIN IS NOT FREE SOFTWARE ---------------- # ||
 || # http://www.vbulletin.com | http://www.vbulletin.com/license.html # ||
@@ -346,7 +346,16 @@ function fetch_similar_threads($threadtitle, $threadid = 0)
 	if ($vbulletin->options['fulltextsearch'])
 	{
 		$hook_query_joins = $hook_query_where = '';
+		$similarthreads = null;
+
 		($hook = vBulletinHook::fetch_hook('search_similarthreads_fulltext')) ? eval($hook) : false;
+
+		if ($similarthreads !== null)
+		{
+			return $similarthreads;
+		}
+
+		$similarthreads = '';
 
 		$safetitle = $vbulletin->db->escape_string($threadtitle);
 		$threads = $vbulletin->db->query_read_slave("
@@ -938,6 +947,8 @@ function fetch_tagcloud($type = 'usage')
 {
 	global $vbulletin, $stylevar, $vbphrase, $show, $template_hook;
 
+	$tags = array();
+
 	if ($vbulletin->options['tagcloud_usergroup'] > 0 AND !isset($vbulletin->usergroupcache[$vbulletin->options['tagcloud_usergroup']]))
 	{
 		// handle a usergroup being deleted: default to live permission checking
@@ -1031,90 +1042,28 @@ function fetch_tagcloud($type = 'usage')
 			}
 		}
 
-		$total = 0;
-		$count = 0;
-
-		if (!empty($tags_result))
+		while ($currenttag = $vbulletin->db->fetch_array($tags_result))
 		{
-			$count = $vbulletin->db->num_rows($tags_result);
-
-			while ($currenttag = $vbulletin->db->fetch_array($tags_result))
-			{
-				$tags["$currenttag[tagtext]"] = $currenttag;
-				$total += $currenttag['searchcount'];
-			}
-			$vbulletin->db->free_result($tags_result);
+			$tags["$currenttag[tagtext]"] = $currenttag;
+			$totals[$currenttag['tagid']] = $currenttag['searchcount'];
 		}
 
-		$final_tags = array();
+		// fetch the stddev levels
+		$levels = fetch_standard_deviated_levels($totals, $vbulletin->options['tagcloud_levels']);
 
-		if ($count > 0)
+		// assign the levels back to the tags
+		foreach ($tags AS $tagtext => $tag)
 		{
-			// calculate the standard deviation
-			$mean = $total / $count;
-
-			$summation = 0;
-			foreach ($tags AS $tagtext => $tagvalue)
-			{
-				$summation += pow(($tagvalue['searchcount'] - $mean), 2);
-			}
-
-			$sd = sqrt($summation / $count);
-
-			uksort($tags, 'strnatcasecmp');
-
-			if ($sd)
-			{
-				$sdtags = array();
-				$lowestsds = 0;
-				$highestsds = 0;
-
-				// find the max and min standard deviations
-				foreach ($tags AS $tagtext => $currenttag)
-				{
-					$tags["$tagtext"]['deviation'] = $currenttag['searchcount'] - $mean;
-					$tags["$tagtext"]['sds'] = $tags["$tagtext"]['deviation'] / $sd;
-					$sdtags[] = $tags["$tagtext"];
-
-					if ($tags["$tagtext"]['sds'] < $lowestsds)
-					{
-						$lowestsds = $tags["$tagtext"]['sds'];
-					}
-
-					if ($tags["$tagtext"]['sds'] > $highestsds)
-					{
-						$highestsds = $tags["$tagtext"]['sds'];
-					}
-				}
-
-				$levels = $vbulletin->options['tagcloud_levels'];
-
-				foreach ($sdtags AS $thistag)
-				{
-					// normalize the std devs to 0 - 1, then map back to 1 - #levls
-					$thistag['level'] = round((($thistag['sds'] - $lowestsds) / ($highestsds - $lowestsds)) * ($levels - 1)) + 1;
-					$thistag['tagtext_url'] = urlencode(unhtmlspecialchars($thistag['tagtext']));
-
-					$final_tags[] = $thistag;
-				}
-			}
-			else
-			{
-				foreach ($tags AS $tagtext => $tagarr)
-				{
-					$final_tags[] = array(
-						'tagid' => $tagarr['tagid'],
-						'tagtext' => $tagtext,
-						'tagtext_url' => urlencode(unhtmlspecialchars($tagtext)),
-						'level' => round($vbulletin->options['tagcloud_levels'] / 2)
-					);
-				}
-			}
+			$tags[$tagtext]['level'] = $levels[$tag['tagid']];
+			$tags[$tagtext]['tagtext_url'] = urlencode(unhtmlspecialchars($tag['tagtext']));
 		}
+
+		// sort the categories by title
+		uksort($tags, 'strnatcasecmp');
 
 		$cloud = array(
-			'tags' => $final_tags,
-			'count' => sizeof($final_tags),
+			'tags' => $tags,
+			'count' => sizeof($tags),
 			'dateline' => TIMENOW
 		);
 
@@ -1163,8 +1112,8 @@ function fetch_tagcloud($type = 'usage')
 
 /*======================================================================*\
 || ####################################################################
-|| # Downloaded: 16:21, Sat Apr 6th 2013
-|| # CVS: $RCSfile$ - $Revision: 26539 $
+|| # Downloaded: 20:50, Sun Aug 11th 2013
+|| # CVS: $RCSfile$ - $Revision: 39862 $
 || ####################################################################
 \*======================================================================*/
 ?>

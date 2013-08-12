@@ -1,9 +1,9 @@
 <?php
 /*======================================================================*\
 || #################################################################### ||
-|| # vBulletin 3.7.2 Patch Level 2 - Licence Number VBF2470E4F
+|| # vBulletin 3.8.7 Patch Level 3 - Licence Number VBC2DDE4FB
 || # ---------------------------------------------------------------- # ||
-|| # Copyright ©2000-2013 Jelsoft Enterprises Ltd. All Rights Reserved. ||
+|| # Copyright ©2000-2013 vBulletin Solutions, Inc. All Rights Reserved. ||
 || # This file may not be redistributed in whole or significant part. # ||
 || # ---------------- VBULLETIN IS NOT FREE SOFTWARE ---------------- # ||
 || # http://www.vbulletin.com | http://www.vbulletin.com/license.html # ||
@@ -11,10 +11,10 @@
 \*======================================================================*/
 
 // ######################## SET PHP ENVIRONMENT ###########################
-error_reporting(E_ALL & ~E_NOTICE);
+error_reporting(E_ALL & ~E_NOTICE & ~8192);
 
 // ##################### DEFINE IMPORTANT CONSTANTS #######################
-define('CVS_REVISION', '$RCSfile$ - $Revision: 26706 $');
+define('CVS_REVISION', '$RCSfile$ - $Revision: 39862 $');
 
 // #################### PRE-CACHE TEMPLATES AND DATA ######################
 $phrasegroups = array('cppermission', 'cpuser', 'promotion', 'pm', 'cpusergroup');
@@ -178,7 +178,7 @@ if ($_REQUEST['do'] == 'add' OR $_REQUEST['do'] == 'edit')
 
 	print_input_row($vbphrase['title'], 'usergroup[title]', $usergroup['title']);
 	print_input_row($vbphrase['description'], 'usergroup[description]', $usergroup['description']);
-	print_input_row($vbphrase['usergroup_user_title'], 'usergroup[usertitle]', $usergroup['usertitle']);
+	print_input_row($vbphrase['usergroup_user_title'], 'usergroup[usertitle]', $usergroup['usertitle'], true, 35, 100);
 	print_label_row($vbphrase['username_markup'],
 		'<span style="white-space:nowrap">
 		<input size="15" type="text" class="bginput" name="usergroup[opentag]" value="' . htmlspecialchars_uni($usergroup['opentag']) . '" tabindex="1" />
@@ -488,6 +488,12 @@ if ($_POST['do'] == 'update')
 				$db->query_write(fetch_query_sql($cperm, 'calendarpermission'));
 			}
 		}
+
+		$vbulletin->db->query_write("
+			REPLACE INTO " . TABLE_PREFIX . "prefixpermission (usergroupid, prefixid)
+			SELECT " . $newugid . ", prefixid FROM " . TABLE_PREFIX . "prefix
+			WHERE options & " . $vbulletin->bf_misc_prefixoptions['deny_by_default']
+		);
 	}
 
 	$markups = $db->query_read("
@@ -558,6 +564,7 @@ if ($_POST['do'] == 'kill')
 	$db->query_write("DELETE FROM " . TABLE_PREFIX . "userpromotion WHERE usergroupid = " . $vbulletin->GPC['usergroupid'] . " OR joinusergroupid = " . $vbulletin->GPC['usergroupid']);
 	$db->query_write("DELETE FROM " . TABLE_PREFIX . "imagecategorypermission WHERE usergroupid = " . $vbulletin->GPC['usergroupid']);
 	$db->query_write("DELETE FROM " . TABLE_PREFIX . "attachmentpermission WHERE usergroupid = " . $vbulletin->GPC['usergroupid']);
+	$db->query_write("DELETE FROM " . TABLE_PREFIX . "prefixpermission WHERE usergroupid = " . $vbulletin->GPC['usergroupid']);
 
 	build_ranks();
 	build_forum_permissions();
@@ -928,6 +935,7 @@ if ($_REQUEST['do'] == 'modify')
 		{
 			print_usergroup_row($usergroup, $options_custom);
 		}
+		print_description_row('<span class="smallfont">' . $vbphrase['note_groups_marked_with_a_asterisk'] . '</span>', 0, 6);
 	}
 	if (is_array($usergroups['public']))
 	{
@@ -1230,7 +1238,7 @@ if ($_POST['do'] == 'processjoinrequests')
 				break;
 
 			case  1:	// this request will be authorized
-				$auth[] = $requestid;
+				$auth[] = intval($requestid);
 				break;
 
 			case  0:	// this request will be denied
@@ -1280,7 +1288,8 @@ if ($_POST['do'] == 'processjoinrequests')
 	// delete processed join requests
 	if (!empty($vbulletin->GPC['request']))
 	{
-		$deleteQuery = "DELETE FROM " . TABLE_PREFIX . "usergrouprequest WHERE usergrouprequestid IN (" . implode(', ', array_keys($vbulletin->GPC['request'])) . ")";
+		$request = array_map('intval', array_keys($vbulletin->GPC['request']));
+		$deleteQuery = "DELETE FROM " . TABLE_PREFIX . "usergrouprequest WHERE usergrouprequestid IN (" . implode(', ', $request) . ")";
 		$db->query_write($deleteQuery);
 	}
 
@@ -1452,8 +1461,8 @@ print_cp_footer();
 
 /*======================================================================*\
 || ####################################################################
-|| # Downloaded: 16:21, Sat Apr 6th 2013
-|| # CVS: $RCSfile$ - $Revision: 26706 $
+|| # Downloaded: 20:50, Sun Aug 11th 2013
+|| # CVS: $RCSfile$ - $Revision: 39862 $
 || ####################################################################
 \*======================================================================*/
 ?>

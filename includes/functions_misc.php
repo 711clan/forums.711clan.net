@@ -1,9 +1,9 @@
 <?php
 /*======================================================================*\
 || #################################################################### ||
-|| # vBulletin 3.7.2 Patch Level 2 - Licence Number VBF2470E4F
+|| # vBulletin 3.8.7 Patch Level 3 - Licence Number VBC2DDE4FB
 || # ---------------------------------------------------------------- # ||
-|| # Copyright ©2000-2013 Jelsoft Enterprises Ltd. All Rights Reserved. ||
+|| # Copyright ©2000-2013 vBulletin Solutions, Inc. All Rights Reserved. ||
 || # This file may not be redistributed in whole or significant part. # ||
 || # ---------------- VBULLETIN IS NOT FREE SOFTWARE ---------------- # ||
 || # http://www.vbulletin.com | http://www.vbulletin.com/license.html # ||
@@ -233,6 +233,85 @@ function fetch_period_group($itemtime)
 	return 'older';
 }
 
+/**
+ * Fetches a character group id for a string
+ *
+ * @param string $str
+ * @return string
+ */
+function fetch_char_group($str)
+{
+	$str = trim($str);
+	$chr = strtolower(fetch_try_to_ascii($str[0]));
+
+	if (is_numeric($chr))
+	{
+		return '0_to_9';
+	}
+	else if($chr >= 'a' AND $chr <= 'h')
+	{
+		return 'a_to_h';
+	}
+	else if($chr >= 'i' AND $chr <= 'p')
+	{
+		return 'i_to_p';
+	}
+	else if($chr >= 'q' AND $chr <= 'z')
+	{
+		return 'q_to_z';
+	}
+	else
+	{
+		return 'other';
+	}
+}
+
+
+/**
+ * Tries to convert a character to it's closest non extended ascii equivelant
+ *
+ * @param string $chr							- The character to convert
+ * @returns string								- The result
+ */
+function fetch_try_to_ascii($chr)
+{
+	$conv = array(
+		'À' => 'a', 'Á' => 'a', 'Â' => 'a', 'Ã' => 'a', 'Ä' => 'a', 'Å' => 'a', 'Æ' => 'e', 'Ç' => 'c',
+		'È' => 'e', 'É' => 'e', 'Ê' => 'e', 'Ë' => 'e', 'Ì' => 'i', 'Í' => 'i', 'Î' => 'i', 'Ï' => 'i',
+		'Ð' => 'd', 'Ñ' => 'n', 'Ò' => 'o', 'Ó' => 'o', 'Ô' => 'o', 'Õ' => 'o', 'Ö' => 'o', 'Ø' => 'o',
+		'Ù' => 'u', 'Ú' => 'u', 'Û' => 'u', 'Ü' => 'u', 'Ý' => 'y', 'à' => 'a', 'á' => 'a', 'â' => 'a',
+		'ã' => 'a', 'ä' => 'a', 'å' => 'a', 'ç' => 'c', 'è' => 'e', 'é' => 'e', 'ê' => 'e', 'ë' => 'e',
+		'ì' => 'i', 'í' => 'i', 'î' => 'i', 'ï' => 'i', 'ñ' => 'n', 'ò' => 'o', 'ó' => 'o', 'ô' => 'o',
+		'õ' => 'o', 'ö' => 'o', 'ù' => 'u', 'ú' => 'u', 'û' => 'u', 'ü' => 'u', 'ý' => 'y', 'ÿ' => 'y'
+	);
+
+	return (isset($conv[$chr]) ? $conv[$chr] : $chr);
+}
+
+/**
+ * Converts a timestamp into an array of dmY
+ *
+ * @param integer $timestamp
+ * @returns array | boolean false
+ */
+function fetch_datearray_from_timestamp($timestamp = TIMENOW)
+{
+	global $vbulletin;
+
+	if ($timestamp = $vbulletin->input->clean($timestamp, TYPE_UNIXTIME))
+	{
+		$datearray = array(
+			'day' => date('d', $timestamp),
+			'month' => date('n', $timestamp),
+			'year' => date('Y', $timestamp)
+		);
+
+		return $datearray;
+	}
+
+	return false;
+}
+
 // ###################### Start array2bits #######################
 // takes an array and returns the bitwise value
 function convert_array_to_bits(&$arry, $_FIELDNAMES, $unset = 0)
@@ -395,7 +474,8 @@ function mark_forums_read($forumid = false)
 	{
 		// temp work around code, I need to find another way to mass set some values to the cookie
 		$vbulletin->input->clean_gpc('c', COOKIE_PREFIX . 'forum_view', TYPE_STR);
-		$bb_cache_forum_view = unserialize(convert_bbarray_cookie($vbulletin->GPC[COOKIE_PREFIX . 'forum_view']));
+		global $bb_cache_forum_view;
+		$bb_cache_forum_view = @unserialize(convert_bbarray_cookie($vbulletin->GPC[COOKIE_PREFIX . 'forum_view']));
 
 		require_once(DIR . '/includes/functions_misc.php');
 		$childforums = fetch_child_forums($forumid, 'ARRAY');
@@ -832,10 +912,91 @@ function fetch_timezone($offset = 'all')
 	}
 }
 
+/**
+ * Implodes an array using both values and keys
+ *
+ * @param string $glue1							- Glue between key and value
+ * @param string $glue2							- Glue between value and key
+ * @param mixed $array							- Arr to implode
+ * @param boolean $skip_empty					- Whether to skip empty elements
+ * @return string								- The imploded result
+ */
+function implode_both($glue1 = '', $glue2 = '', $array, $skip_empty = false)
+{
+	if (!is_array($array))
+	{
+		return '';
+	}
+
+	foreach ($array as $key => $val)
+	{
+		if (!$skip_empty OR !empty($val))
+		{
+			$array[$key] = $key . $glue1 . $val;
+		}
+		else
+		{
+			unset($array[$key]);
+		}
+	}
+
+	return implode($glue2, $array);
+}
+
+/**
+ * Implodes an assoc array into a partial url query string
+ *
+ * @param mixed $array							- Array to parse
+ * @param boolean $skip_empty					- Whether to skip empty elements
+ * @return string								- The parsed result
+ */
+function urlimplode($array, $skip_empty = true, $skip_urlencode = false)
+{
+	if (!$skip_urlencode)
+	{
+		foreach ($array AS $key => $value)
+		{
+			$array[$key] = urlencode($value);
+		}
+	}
+
+	return implode_both('=', '&amp;', $array, $skip_empty);
+}
+
+/**
+ * Checks if a user has currently exceeded their private message quota
+ *
+ * @param integer $userid						Id of the user to check
+ * @return boolean								Whether they have exceeded their quota
+ */
+function fetch_privatemessage_throttle_reached($userid)
+{
+	global $vbulletin;
+
+	if (!$vbulletin->options['pmthrottleperiod'])
+	{
+		return false;
+	}
+
+	if (!$vbulletin->userinfo['permissions']['pmthrottlequantity'])
+	{
+		return false;
+	}
+
+	$count = $vbulletin->db->query_first("
+		SELECT COUNT(userid) AS total
+		FROM " . TABLE_PREFIX . "pmthrottle
+		WHERE userid = " . intval($vbulletin->userinfo['userid']) . "
+		AND dateline > " . (TIMENOW - ($vbulletin->options['pmthrottleperiod'] * 60))
+	);
+
+	return ($count['total'] >= $vbulletin->userinfo['permissions']['pmthrottlequantity']);
+}
+
 /*======================================================================*\
 || ####################################################################
-|| # Downloaded: 16:21, Sat Apr 6th 2013
-|| # CVS: $RCSfile$ - $Revision: 26021 $
+|| # Downloaded: 20:50, Sun Aug 11th 2013
+|| # CVS: $RCSfile$ - $Revision: 39862 $
 || ####################################################################
 \*======================================================================*/
 ?>

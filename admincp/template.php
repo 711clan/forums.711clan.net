@@ -1,9 +1,9 @@
 <?php
 /*======================================================================*\
 || #################################################################### ||
-|| # vBulletin 3.7.2 Patch Level 2 - Licence Number VBF2470E4F
+|| # vBulletin 3.8.7 Patch Level 3 - Licence Number VBC2DDE4FB
 || # ---------------------------------------------------------------- # ||
-|| # Copyright ©2000-2013 Jelsoft Enterprises Ltd. All Rights Reserved. ||
+|| # Copyright ©2000-2013 vBulletin Solutions, Inc. All Rights Reserved. ||
 || # This file may not be redistributed in whole or significant part. # ||
 || # ---------------- VBULLETIN IS NOT FREE SOFTWARE ---------------- # ||
 || # http://www.vbulletin.com | http://www.vbulletin.com/license.html # ||
@@ -11,12 +11,12 @@
 \*======================================================================*/
 
 // ######################## SET PHP ENVIRONMENT ###########################
-error_reporting(E_ALL & ~E_NOTICE);
+error_reporting(E_ALL & ~E_NOTICE & ~8192);
 @set_time_limit(0);
 ignore_user_abort(true);
 
 // ##################### DEFINE IMPORTANT CONSTANTS #######################
-define('CVS_REVISION', '$RCSfile$ - $Revision: 26617 $');
+define('CVS_REVISION', '$RCSfile$ - $Revision: 39862 $');
 if ($_POST['do'] == 'updatetemplate' OR $_POST['do'] == 'inserttemplate' OR $_REQUEST['do'] == 'createfiles')
 {
 	// double output buffering does some weird things, so turn it off in these three cases
@@ -955,13 +955,18 @@ if ($_POST['do'] == 'dorevertall')
 
 	if ($vbulletin->GPC['dostyleid'] != -1 AND $style = $db->query_first("SELECT styleid, parentid, parentlist, title FROM " . TABLE_PREFIX . "style WHERE styleid = " . $vbulletin->GPC['dostyleid']))
 	{
-		// select any templates in this style that are customized from the master style
+		if (!$style['parentlist'])
+		{
+			$style['parentlist'] = '-1';
+		}
+
 		$templates = $db->query_read("
-			SELECT t1.templateid, t1.title
+			SELECT DISTINCT t1.templateid, t1.title
 			FROM " . TABLE_PREFIX . "template AS t1
-			INNER JOIN " . TABLE_PREFIX . "template AS t2 ON(t2.styleid = -1 AND t2.title = t1.title)
+			INNER JOIN " . TABLE_PREFIX . "template AS t2 ON
+				(t2.styleid IN ($style[parentlist]) AND t2.styleid <> $style[styleid] AND t2.title = t1.title)
 			WHERE t1.templatetype = 'template'
-			AND t1.styleid = $style[styleid]
+				AND t1.styleid = $style[styleid]
 		");
 		if ($db->num_rows($templates) == 0)
 		{
@@ -1001,15 +1006,20 @@ if ($_REQUEST['do'] == 'revertall')
 		'group' => TYPE_STR,
 	));
 
-	if ($vbulletin->GPC['dostyleid'] != -1 AND $style = $db->query_first("SELECT styleid, title FROM " . TABLE_PREFIX . "style WHERE styleid = " . $vbulletin->GPC['dostyleid']))
+	if ($vbulletin->GPC['dostyleid'] != -1 AND $style = $db->query_first("SELECT styleid, title, parentlist FROM " . TABLE_PREFIX . "style WHERE styleid = " . $vbulletin->GPC['dostyleid']))
 	{
-		// select any templates in this style that are customized from the master style
+		if (!$style['parentlist'])
+		{
+			$style['parentlist'] = '-1';
+		}
+
 		$templates = $db->query_read("
-			SELECT t1.title
+			SELECT DISTINCT t1.title
 			FROM " . TABLE_PREFIX . "template AS t1
-			INNER JOIN " . TABLE_PREFIX . "template AS t2 ON(t2.styleid = -1 AND t2.title = t1.title)
+			INNER JOIN " . TABLE_PREFIX . "template AS t2 ON
+				(t2.styleid IN ($style[parentlist]) AND t2.styleid <> $style[styleid] AND t2.title = t1.title)
 			WHERE t1.templatetype = 'template'
-			AND t1.styleid = $style[styleid]
+				AND t1.styleid = $style[styleid]
 		");
 		if ($db->num_rows($templates) == 0)
 		{
@@ -1097,15 +1107,15 @@ if ($_REQUEST['do'] == 'history')
 	}
 
 	// I used a/b above, so current versions sort above historical versions
-	krsort($revisions);
+	usort($revisions, "history_compare");
 
 	print_form_header('template', 'historysubmit');
 	print_table_header(construct_phrase($vbphrase['history_of_template_x'], htmlspecialchars_uni($vbulletin->GPC['title'])), 7);
 	print_cells_row(array(
 		($history_count ? $vbphrase['delete'] : ''),
 		$vbphrase['type'],
-		$vbphrase['last_modified'],
 		$vbphrase['version'],
+		$vbphrase['last_modified'],
 		$vbphrase['view'],
 		$vbphrase['old'],
 		$vbphrase['new']
@@ -1121,24 +1131,25 @@ if ($_REQUEST['do'] == 'history')
 
 		if ($revision['type'] == 'current')
 		{
+			// we are marking this entry (ignore all other entries)
 			if ($revision['styleid'] == -1)
 			{
 				$type = $vbphrase['current_default'];
-				$left_sel = ' checked="checked"';
-				$have_left_sel = true;
-
-				if (sizeof($revisions) == 1)
-				{
-					$right_sel = ' checked="checked"';
-					$have_right_sel = true;
-				}
 			}
 			else
 			{
 				$type = $vbphrase['current_version'];
+			}
+
+			if ($have_right_sel)
+			{
+				$left_sel = ' checked="checked"';
+				$have_left_sel = true;
+			}
+			else
+			{
 				$right_sel = ' checked="checked"';
 				$have_right_sel = true;
-
 				if (sizeof($revisions) == 1)
 				{
 					$left_sel = ' checked="checked"';
@@ -1158,13 +1169,6 @@ if ($_REQUEST['do'] == 'history')
 			else
 			{
 				$type = $vbphrase['historical'];
-				if (!$have_cur_def AND !$have_left_sel AND ($cur_temp_time != $revision['dateline'] OR $history_count == 1))
-				{
-					// select if: no master template, no left selection, AND
-					// (this isn't the same as the current template OR we're the only history point)
-					$left_sel = ' checked="checked"';
-					$have_left_sel = true;
-				}
 			}
 
 			$id = $revision['templatehistoryid'];
@@ -1198,8 +1202,8 @@ if ($_REQUEST['do'] == 'history')
 		print_cells_row(array(
 			$deletebox,
 			$type,
-			$last_modified,
 			$revision['version'],
+			$last_modified,
 			$view_link,
 			$left,
 			$right
@@ -1207,6 +1211,7 @@ if ($_REQUEST['do'] == 'history')
 	}
 
 	construct_hidden_code('wrap', 1);
+	construct_hidden_code('inline', 1);
 	construct_hidden_code('dostyleid', $vbulletin->GPC['dostyleid']);
 	construct_hidden_code('title', $vbulletin->GPC['title']);
 
@@ -1303,8 +1308,16 @@ if ($_POST['do'] == 'docompare')
 	$vbulletin->input->clean_array_gpc('p', array(
 		'left_template' => TYPE_STR,
 		'right_template' => TYPE_STR,
-		'wrap' => TYPE_BOOL
+		'switch_wrapping' => TYPE_NOHTML,
+		'switch_inline' => TYPE_NOHTML,
+		'wrap' => TYPE_BOOL,
+		'inline' => TYPE_BOOL,
+		'context_lines' => TYPE_UINT
 	));
+
+	$wrap = ($vbulletin->GPC_exists['switch_wrapping'] ? !$vbulletin->GPC['wrap'] : $vbulletin->GPC['wrap']);
+	$inline = ($vbulletin->GPC_exists['switch_inline'] ? !$vbulletin->GPC['inline'] : $vbulletin->GPC['inline']);
+	$context_lines = ($vbulletin->GPC_exists['context_lines'] ? $vbulletin->GPC['context_lines'] : 3);
 
 	list($left_id, $left_type) = explode('|', $vbulletin->GPC['left_template']);
 	list($right_id, $right_type) = explode('|', $vbulletin->GPC['right_template']);
@@ -1319,37 +1332,258 @@ if ($_POST['do'] == 'docompare')
 
 	require_once(DIR . '/includes/class_diff.php');
 
-	$diff =& new vB_Text_Diff($left_template['templatetext'], $right_template['templatetext']);
+	$diff = new vB_Text_Diff($left_template['templatetext'], $right_template['templatetext']);
 	$entries =& $diff->fetch_diff();
 
-	print_form_header('template', 'docompare');
-	print_table_header(construct_phrase($vbphrase['comparing_versions_of_x'], htmlspecialchars_uni($left_template['title'])));
-	print_cells_row(array(
-		$vbphrase['old_version'],
-		$vbphrase['new_version']
-	), true, false, 1);
-
-	foreach ($entries AS $diff_entry)
+	print_form_header('template', 'docompare', false, true, 'cpform', '90%', '', false, 'post', 0, true);
+	print_table_header($vbphrase['display_options'], 1);
+	?>
+	<tr>
+		<td colspan="4" class="tfoot" align="center">
+			<input type="image" name="submit" src="<?php echo ('../' . $vbulletin->options['cleargifurl']); ?>" style="height:10px;width:10px" alt="<?php echo $vbphrase['update']; ?>" />
+			<input type="submit" name="switch_inline" class="submit" value="<?php echo ($inline ? $vbphrase['view_side_by_side'] : $vbphrase['view_inline']); ?>" accesskey="r" />
+			<input type="submit" name="switch_wrapping" class="submit" value="<?php echo ($wrap ? $vbphrase['disable_wrapping'] : $vbphrase['enable_wrapping']); ?>" accesskey="s" />
+	<?php
+	if ($inline)
 	{
-		// possible classes: unchanged, notext, deleted, added, changed
-		echo "<tr>\n\t";
-		echo '<td width="50%" valign="top" class="diff-' . $diff_entry->fetch_data_old_class() . '" dir="ltr">' .
-			$diff_entry->prep_diff_text($diff_entry->fetch_data_old(), $vbulletin->GPC['wrap']) . "</td>\n\t";
-		echo '<td width="50%" valign="top" class="diff-' . $diff_entry->fetch_data_new_class() . '" dir="ltr">' .
-			$diff_entry->prep_diff_text($diff_entry->fetch_data_new(), $vbulletin->GPC['wrap']) . "</td>\n";
-		echo "</tr>\n\n";
+	?>
+			&nbsp;&nbsp;&nbsp;&nbsp;
+			<input type="text" name="context_lines" value="<?php echo $context_lines; ?>" size="2" class="ctrl_context_lines" dir="<?php echo $stylevar['textdirection'] ?>" accesskey="t" />
+			<strong><?php echo $vbphrase['lines_around_each_diff']; ?></strong>
+			&nbsp;&nbsp;&nbsp;&nbsp;
+			<input type="submit" name="submit_diff" class="submit" value="<?php echo $vbphrase['update'] ?>" accesskey="u" />
+	<?php
 	}
+	?>
+		</td>
+	</tr>
+	<?php
 
 	construct_hidden_code('left_template', $vbulletin->GPC['left_template']);
 	construct_hidden_code('right_template', $vbulletin->GPC['right_template']);
-	construct_hidden_code('wrap', ($vbulletin->GPC['wrap'] ? 0 : 1));
-	print_submit_row(($vbulletin->GPC['wrap'] ? $vbphrase['disable_wrapping'] : $vbphrase['enable_wrapping']), '');
+	construct_hidden_code('wrap', $wrap);
+	construct_hidden_code('inline', $inline);
+	print_table_footer(1);
+
+	print_table_start(true, '90%', '', '', true);
+	print_table_header(construct_phrase($vbphrase['comparing_versions_of_x'], htmlspecialchars_uni($left_template['title'])), 4);
+
+	if (!$inline)
+	{
+		// side by side
+		print_cells_row(array(
+			$vbphrase['old_version'],
+			$vbphrase['new_version']
+		), true, false, 1);
+
+		foreach ($entries AS $diff_entry)
+		{
+			// possible classes: unchanged, notext, deleted, added, changed
+			echo "<tr>\n\t";
+			echo '<td width="50%" valign="top" class="diff-' . $diff_entry->fetch_data_old_class() . '" dir="ltr">';
+
+			foreach ($diff_entry->fetch_data_old() AS $content)
+			{
+				echo $diff_entry->prep_diff_text($content, $wrap) . "<br />\n";
+			}
+
+			echo '</td><td width="50%" valign="top" class="diff-' . $diff_entry->fetch_data_new_class() . '" dir="ltr">';
+
+			foreach ($diff_entry->fetch_data_new() AS $content)
+			{
+				echo $diff_entry->prep_diff_text($content, $wrap) . "<br />\n";
+			}
+
+			echo "</td></tr>\n\n";
+		}
+	}
+	else
+	{
+		// inline
+		echo "	<tr valign=\"top\" align=\"center\">
+					<td class=\"thead\">$vbphrase[old]</td>
+					<td class=\"thead\">$vbphrase[new]</td>
+					<td class=\"thead\" width=\"100%\">$vbphrase[content]</td>
+				</tr>";
+
+		$wrap_buffer = array();
+		$first_diff = true;
+
+		foreach ($entries AS $diff_entry)
+		{
+			if ('unchanged' == $diff_entry->old_class)
+			{
+				$old_data = $diff_entry->fetch_data_old();
+				$new_data_keys = array_keys($diff_entry->fetch_data_new());
+
+				if (sizeof($entries) <= 1)
+				{
+					$context_lines = sizeof($old_data);
+				}
+
+				if (!$context_lines)
+				{
+					continue;
+				}
+
+				// add unchanged lines to wrap buffer
+				foreach ($diff_entry->fetch_data_old() AS $lineno => $content)
+				{
+					$wrap_buffer[] = array('oldline' => $lineno, 'newline' => array_shift($new_data_keys), 'content' => $content);
+				}
+
+				continue;
+			}
+			else if(sizeof($wrap_buffer))
+			{
+				if (sizeof($wrap_buffer) > $context_lines)
+				{
+					if (!$first_diff)
+					{
+						$buffer = array_slice($wrap_buffer, 0, $context_lines);
+						$buffer[] = array('oldline' => '', 'newline' => '', 'content' => '<hr />');
+						$wrap_buffer = array_merge($buffer, array_slice($wrap_buffer, -$context_lines));
+					}
+					else
+					{
+						$wrap_buffer = array_slice($wrap_buffer, -$context_lines);
+						$first_diff = false;
+					}
+				}
+
+				foreach ($wrap_buffer AS $wrap_line)
+				{
+					if (!$wrap_line['oldline'] AND !$wrap_line['newline'])
+					{
+						echo '<tr><td class="diff-linenumber">...</td><td class="diff-linenumber">...</td>';
+						echo '<td colspan="2" class="diff-unchanged diff-inline-break"></td></tr>';
+					}
+					else
+					{
+						echo "<tr>\n\t<td class=\"diff-linenumber\">$wrap_line[oldline]</td><td class=\"diff-linenumber\">$wrap_line[newline]</td>";
+						echo '<td colspan="2" valign="top" class="diff-unchanged" dir="ltr">';
+						echo $diff_entry->prep_diff_text($wrap_line['content'], $wrap);
+						echo "</td></tr>\n\n";
+					}
+				}
+
+				$wrap_buffer = array();
+			}
+
+			$data_old = $diff_entry->fetch_data_old();
+			$data_new = $diff_entry->fetch_data_new();
+			$data_old_len = sizeof($data_old);
+			$data_new_len = sizeof($data_new);
+
+			$first = true;
+			$current = 1;
+
+			foreach ($data_old AS $lineno => $content)
+			{
+				$class = 'diff-deleted';
+
+				// only top border the first line
+				$class .= ($first ? ' diff-inline-deleted-start' : '');
+
+				// only bottom border the last line if it is not followed by a new diff
+				$class .= ($current >= $data_old_len ? ($data_new_len ? '' : ' diff-inline-deleted-end') : '');
+
+				echo "<tr>\n\t<td class=\"diff-linenumber\">$lineno</td><td class=\"diff-linenumber\">&nbsp;</td>";
+				echo '<td colspan="" valign="top" class="' . $class . '" dir="ltr">';
+				echo $diff_entry->prep_diff_text($content, $wrap);
+				echo "</td></tr>\n\n";
+
+				$first = false;
+				$current++;
+			}
+
+			$first = true;
+			$current = 1;
+
+			foreach ($data_new AS $lineno => $content)
+			{
+				$class = 'diff-inline-added';
+
+				// only top border the first line if it doesn't consecutively follow an old diff comparison
+				$class .= ($first ? ($data_old_len ? '' : ' diff-inline-added-start') : '');
+
+				// only bottom border the last line
+				$class .= ($current >= $data_new_len ? ' diff-inline-added-end' : '');
+
+				echo "<tr>\n\t<td class=\"diff-linenumber\">&nbsp;</td><td class=\"diff-linenumber\">$lineno</td>";
+				echo '<td colspan="" valign="top" class="' . $class . '" dir="ltr">';
+				echo $diff_entry->prep_diff_text($content, $wrap);
+				echo "</td></tr>\n\n";
+
+				$first = false;
+				$current++;
+			}
+		}
+
+		// If any buffer remains display the first two lines
+		if (sizeof($wrap_buffer))
+		{
+			$i = 0;
+			while ($i < $context_lines AND ($wrap_line = array_shift($wrap_buffer)))
+			{
+				echo "<tr>\n\t<td class=\"diff-linenumber\">$wrap_line[oldline]</td><td class=\"diff-linenumber\">$wrap_line[newline]</td>";
+				echo '<td colspan="2" valign="top" class="diff-unchanged" dir="ltr">';
+				echo $diff_entry->prep_diff_text($wrap_line['content'], $wrap);
+				echo "</td></tr>\n\n";
+
+				$i++;
+			}
+		}
+		unset($wrap_buffer);
+	}
+
+	print_table_footer();
+
+	print_form_header('template', 'docompare', false, true, 'cpform2', '90%', '', true, 'post', 0, true);
+	print_table_header($vbphrase['display_options'], 1);
+	?>
+	<tr>
+		<td colspan="4" class="tfoot" align="center">
+			<input type="submit" name="switch_inline" class="submit" value="<?php echo ($inline ? $vbphrase['view_side_by_side'] : $vbphrase['view_inline']); ?>" accesskey="r" />
+			<input type="submit" name="switch_wrapping" class="submit" value="<?php echo ($wrap ? $vbphrase['disable_wrapping'] : $vbphrase['enable_wrapping']); ?>" accesskey="s" />
+	<?php
+	if ($inline)
+	{
+	?>
+			&nbsp;&nbsp;&nbsp;&nbsp;
+			<input type="text" name="context_lines" value="<?php echo $context_lines; ?>" size="2" class="ctrl_context_lines" dir="<?php echo $stylevar['textdirection'] ?>" accesskey="t" />
+			<strong><?php echo $vbphrase['lines_around_each_diff']; ?></strong>
+			&nbsp;&nbsp;&nbsp;&nbsp;
+			<input type="submit" name="submit_diff" class="submit" value="<?php echo $vbphrase['update'] ?>" accesskey="u" />
+	<?php
+	}
+	?>
+		</td>
+	</tr>
+	<?php
+
+	construct_hidden_code('left_template', $vbulletin->GPC['left_template']);
+	construct_hidden_code('right_template', $vbulletin->GPC['right_template']);
+	construct_hidden_code('wrap', $wrap);
+	construct_hidden_code('inline', $inline);
+	print_table_footer(1);
 
 	print_form_header('', '');
 	print_table_header($vbphrase['comparison_key']);
+
+	if ($inline)
+	{
+		echo "<tr><td class=\"diff-deleted diff-inline-deleted-end\" align=\"center\">$vbphrase[text_in_old_version]</td></tr>\n";
+		echo "<tr><td class=\"diff-added diff-inline-added-end\" align=\"center\">$vbphrase[text_in_new_version]</td></tr>\n";
+		echo "<tr><td class=\"diff-unchanged\" align=\"center\">$vbphrase[text_surrounding_changes]</td></tr>\n";
+	}
+	else
+	{
 		echo "<tr><td class=\"diff-deleted\" align=\"center\" width=\"50%\">$vbphrase[text_removed_from_old_version]</td><td class=\"diff-notext\">&nbsp;</td></tr>\n";
 		echo "<tr><td class=\"diff-changed\" colspan=\"2\" align=\"center\">$vbphrase[text_changed_between_versions]</td></tr>\n";
 		echo "<tr><td class=\"diff-notext\" width=\"50%\">&nbsp;</td><td class=\"diff-added\" align=\"center\">$vbphrase[text_added_in_new_version]</td></tr>\n";
+	}
+
 	print_table_footer();
 }
 
@@ -1419,7 +1653,7 @@ if ($_POST['do'] == 'inserttemplate')
 	$vbulletin->GPC['template'] = compile_template($vbulletin->GPC['template']);
 
 	// work out what we should be doing with the product field
-	if ($exists['-1'])
+	if ($exists['-1'] AND $vbulletin->GPC['dostyleid'] != -1)
 	{
 		// there is already a template with this name in the master set - don't allow a different product id
 		$vbulletin->GPC['product'] = $exists['-1']['product'];
@@ -1631,7 +1865,20 @@ if ($_REQUEST['do'] == 'add')
 	print_template_javascript();
 	print_label_row($vbphrase['save_in_template_history'], '<label for="savehistory"><input type="checkbox" name="savehistory" id="savehistory" value="1" tabindex="1" />' . $vbphrase['yes'] . '</label><br /><span class="smallfont">' . $vbphrase['comment'] . '</span> <input type="text" name="histcomment" value="" tabindex="1" class="bginput" size="50" />');
 	print_submit_row($vbphrase['save'], '_default_', 2, '', "<input type=\"submit\" class=\"button\" tabindex=\"1\" name=\"return\" value=\"$vbphrase[save_and_reload]\" accesskey=\"e\" />");
-
+	?>
+	<script type="text/javascript">
+	<!--
+	var initial_crc32 = crc32(YAHOO.util.Dom.get(textarea_id).value);
+	var confirmUnload = true;
+	YAHOO.util.Event.addListener('cpform', 'submit', function(e) { confirmUnload = false; });
+	YAHOO.util.Event.addListener(window, 'beforeunload', function(e) {
+		if (initial_crc32 != crc32(YAHOO.util.Dom.get(textarea_id).value) && confirmUnload) {
+			e.returnValue = '<?php echo addslashes_js($vbphrase[unsaved_data_may_be_lost]); ?>';
+		}
+	});
+	//-->
+	</script>
+	<?php
 }
 
 // #############################################################################
@@ -1863,7 +2110,20 @@ if ($_REQUEST['do'] == 'edit')
 	print_template_javascript();
 	print_label_row($vbphrase['save_in_template_history'], '<label for="savehistory"><input type="checkbox" name="savehistory" id="savehistory" value="1" tabindex="1" />' . $vbphrase['yes'] . '</label><br /><span class="smallfont">' . $vbphrase['comment'] . '</span> <input type="text" name="histcomment" value="" tabindex="1" class="bginput" size="50" />');
 	print_submit_row($vbphrase['save'], '_default_', 2, '', "<input type=\"submit\" class=\"button\" tabindex=\"1\" name=\"return\" value=\"$vbphrase[save_and_reload]\" accesskey=\"e\" />");
-
+	?>
+	<script type="text/javascript">
+	<!--
+	var initial_crc32 = crc32(YAHOO.util.Dom.get(textarea_id).value);
+	var confirmUnload = true;
+	YAHOO.util.Event.addListener('cpform', 'submit', function(e) { confirmUnload = false; });
+	YAHOO.util.Event.addListener(window, 'beforeunload', function(e) {
+		if (initial_crc32 != crc32(YAHOO.util.Dom.get(textarea_id).value) && confirmUnload) {
+			e.returnValue = '<?php echo addslashes_js($vbphrase[unsaved_data_may_be_lost]); ?>';
+		}
+	});
+	//-->
+	</script>
+	<?php
 }
 
 // #############################################################################
@@ -2302,8 +2562,8 @@ print_cp_footer();
 
 /*======================================================================*\
 || ####################################################################
-|| # Downloaded: 16:21, Sat Apr 6th 2013
-|| # CVS: $RCSfile$ - $Revision: 26617 $
+|| # Downloaded: 20:50, Sun Aug 11th 2013
+|| # CVS: $RCSfile$ - $Revision: 39862 $
 || ####################################################################
 \*======================================================================*/
 ?>

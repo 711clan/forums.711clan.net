@@ -1,9 +1,9 @@
 <?php
 /*======================================================================*\
 || #################################################################### ||
-|| # vBulletin 3.7.2 Patch Level 2 - Licence Number VBF2470E4F
+|| # vBulletin 3.8.7 Patch Level 3 - Licence Number VBC2DDE4FB
 || # ---------------------------------------------------------------- # ||
-|| # Copyright ©2000-2013 Jelsoft Enterprises Ltd. All Rights Reserved. ||
+|| # Copyright ©2000-2013 vBulletin Solutions, Inc. All Rights Reserved. ||
 || # This file may not be redistributed in whole or significant part. # ||
 || # ---------------- VBULLETIN IS NOT FREE SOFTWARE ---------------- # ||
 || # http://www.vbulletin.com | http://www.vbulletin.com/license.html # ||
@@ -11,12 +11,12 @@
 \*======================================================================*/
 
 // ######################## SET PHP ENVIRONMENT ###########################
-error_reporting(E_ALL & ~E_NOTICE);
+error_reporting(E_ALL & ~E_NOTICE & ~8192);
 @set_time_limit(0);
 ignore_user_abort(1);
 
 // ##################### DEFINE IMPORTANT CONSTANTS #######################
-define('CVS_REVISION', '$RCSfile$ - $Revision: 26665 $');
+define('CVS_REVISION', '$RCSfile$ - $Revision: 39862 $');
 define('NOZIP', 1);
 
 // #################### PRE-CACHE TEMPLATES AND DATA ######################
@@ -625,14 +625,16 @@ if ($_REQUEST['do'] == 'rebuildthumbs')
 	//$validtypes = array('gif', 'jpg', 'jpe', 'jpeg', 'png', 'tif', 'tiff', 'psd', 'bmp');
 	$validtypes =& $image->thumb_extensions;
 
+	$extensions = array();
 	foreach ($vbulletin->attachmentcache AS $key => $value)
 	{
 		$key = strtolower($key);
 		if ($key != 'extensions' AND !empty($validtypes["$key"]) AND $vbulletin->attachmentcache["$key"]['thumbnail'])
 		{
-			$extensions .= iif($extensions, ', ') . "'$key'";
+			$extensions[] = "'$key'";
 		}
 	}
+	$extensions = implode(',', $extensions);
 
 	if (!$extensions)
 	{
@@ -655,7 +657,6 @@ if ($_REQUEST['do'] == 'rebuildthumbs')
 		$firstattach = $db->query_first("SELECT MIN(attachmentid) AS min FROM " . TABLE_PREFIX . "attachment");
 		$vbulletin->GPC['startat'] = intval($firstattach['min']);
 	}
-
 
 	echo '<p>' . construct_phrase($vbphrase['building_attachment_thumbnails'], "misc.php?" . $vbulletin->session->vars['sessionurl'] . "do=rebuildthumbs&startat=" . $vbulletin->GPC['startat'] . "&pp=" . $vbulletin->GPC['perpage'] . "&autoredirect=" . $vbulletin->GPC['autoredirect'] . "&quality=" . $vbulletin->GPC['quality']) . '</p>';
 
@@ -749,7 +750,7 @@ if ($_REQUEST['do'] == 'rebuildthumbs')
 
 	$finishat++;
 
-	if ($checkmore = $db->query_first("SELECT attachmentid FROM " . TABLE_PREFIX . "attachment WHERE attachmentid >= $finishat AND SUBSTRING_INDEX(filename, '.', -1) IN ('gif', 'jpg', 'jpeg', 'jpe', 'png') LIMIT 1"))
+	if ($checkmore = $db->query_first("SELECT attachmentid FROM " . TABLE_PREFIX . "attachment WHERE attachmentid >= $finishat AND SUBSTRING_INDEX(filename, '.', -1) IN ($extensions) LIMIT 1"))
 	{
 		if ($vbulletin->GPC['autoredirect'] == 1)
 		{
@@ -990,6 +991,131 @@ if ($_REQUEST['do'] == 'rebuildadminavatars')
 	}
 
 }
+
+
+// ################## Start rebuilding sgicon thumbnails ################
+if ($_REQUEST['do'] == 'rebuildsgicons')
+{
+	$vbulletin->input->clean_array_gpc('r', array(
+		'quality'      => TYPE_UINT,
+		'autoredirect' => TYPE_BOOL,
+		'perpage'      => TYPE_UINT,
+		'startat'      => TYPE_UINT
+	));
+
+	// Increase memlimit
+	if (($memory_limit = ini_size_to_bytes(@ini_get('memory_limit'))) < 128 * 1024 * 1024 AND $memory_limit > 0)
+	{
+		@ini_set('memory_limit', 128 * 1024 * 1024);
+	}
+
+	// Get dimension constants
+	require_once(DIR . '/includes/functions_socialgroup.php');
+
+	// Get image handler
+	require_once(DIR . '/includes/class_image.php');
+	$image = vB_Image::fetch_library($vbulletin);
+
+	// Check if image manip is supported
+	if ($vbulletin->options['imagetype'] != 'Magick' AND !function_exists('imagetypes'))
+	{
+		print_stop_message('your_version_no_image_support');
+	}
+
+	$vbulletin->GPC['perpage'] = max($vbulletin->GPC['perpage'], 20);
+
+	echo '<p>' . construct_phrase($vbphrase['building_sgicon_thumbnails'], "misc.php?" . $vbulletin->session->vars['sessionurl'] . "do=rebuildsgicons&startat=" . $vbulletin->GPC['startat'] . "&pp=" . $vbulletin->GPC['perpage'] . "&autoredirect=" . $vbulletin->GPC['autoredirect'] . "&quality=" . $vbulletin->GPC['quality']) . '</p>';
+
+	// Get group info
+	$result = $vbulletin->db->query_read("
+		SELECT socialgroupicon.dateline, socialgroupicon.userid, socialgroupicon.filedata, socialgroupicon.extension,
+				socialgroupicon.width, socialgroupicon.height, socialgroupicon.groupid
+		FROM " . TABLE_PREFIX . "socialgroupicon AS socialgroupicon
+		LIMIT " . intval($vbulletin->GPC['startat']) . ', ' . intval($vbulletin->GPC['perpage'])
+	);
+
+	$checkmore = ($vbulletin->db->num_rows($result) >= $vbulletin->GPC['perpage']);
+
+	// Create dm for icon and ensure icon filedata is set but thumbdata is empty, so that thumbs are rebuilt by the dm
+	while ($icon = $vbulletin->db->fetch_array($result))
+	{
+		// some transaltion for group info
+		$icon['icondateline'] = $icon['dateline'];
+
+		echo construct_phrase($vbphrase['processing_x'], "$vbphrase[socialgroup_icon] $icon[groupid]<br />\n");
+		vbflush();
+
+		$filedata = false;
+
+		if ($vbulletin->options['usefilegroupicon'])
+		{
+			$iconpath = fetch_socialgroupicon_url($icon, false, true, true);
+			$thumbpath = fetch_socialgroupicon_url($group, true, true, true);
+			$filedata = @file_get_contents($iconpath);
+		}
+		else
+		{
+			$filedata = $icon['filedata'];
+		}
+
+		if ($filedata)
+		{
+			$icondm = datamanager_init('SocialGroupIcon', $vbulletin, ERRTYPE_CP);
+			$icondm->set_existing($icon);
+			$icondm->set('thumbnail_filedata', false);
+			$icondm->set('filedata', $filedata);
+			$icondm->set_info('thumbnail_quality', $vbulletin->GPC['quality']);
+
+			if (!$icondm->save())
+			{
+				echo ('<b>' . (!empty($icondm->errors[0]) ? $icondm->errors[0] : $vbphrase['error']) . '</b>');
+			}
+		}
+	}
+	$vbulletin->db->free_result($result);
+
+	echo '<br />';
+	vbflush();
+
+	$startat = $vbulletin->GPC['startat'] + $vbulletin->GPC['perpage'];
+
+	if ($checkmore)
+	{
+		if ($vbulletin->GPC['autoredirect'] == 1)
+		{
+			print_cp_redirect("misc.php?" . $vbulletin->session->vars['sessionurl'] . "do=rebuildsgicons&amp;startat=$startat&amp;pp=" . $vbulletin->GPC['perpage'] . "&amp;quality=" . $vbulletin->GPC['quality'] . "&amp;autoredirect=1");
+		}
+		echo "<p><a href=\"misc.php?" . $vbulletin->session->vars['sessionurl'] . "do=rebuildsgicons&amp;startat=$startat&amp;pp=" . $vbulletin->GPC['perpage'] . '&amp;quality=' . $vbulletin->GPC['quality'] . '>' . $vbphrase['click_here_to_continue_processing'] . '</a></p>';
+	}
+	else
+	{
+		// rebuild newest groups cache
+		fetch_socialgroup_newest_groups(true, false, !$vbulletin->options['sg_enablesocialgroupicons']);
+
+		define('CP_REDIRECT', 'misc.php');
+		print_stop_message('rebuilt_sgicon_thumbnails_successfully');
+	}
+}
+
+
+// ###################### Start rebuilding post cache #######################
+if ($_POST['do'] == 'rebuildalbumupdates')
+{
+	if (!$vbulletin->options['album_recentalbumdays'])
+	{
+		define('CP_REDIRECT', 'misc.php');
+		print_stop_message('recent_album_updates_disabled');
+	}
+
+	require_once(DIR . '/includes/functions_album.php');
+
+	exec_rebuild_album_updates();
+
+	define('CP_REDIRECT', 'misc.php');
+	print_stop_message('recent_album_updates_rebuilt');
+}
+
+
 // ###################### Start rebuilding post cache #######################
 if ($_REQUEST['do'] == 'buildpostcache')
 {
@@ -1040,7 +1166,7 @@ if ($_REQUEST['do'] == 'buildpostcache')
 	$stylelist["0"] =& $stylelist["{$vbulletin->options['styleid']}"];
 
 	require_once(DIR . '/includes/class_bbcode.php');
-	$bbcode_parser =& new vB_BbCodeParser($vbulletin, fetch_tag_list());
+	$bbcode_parser = new vB_BbCodeParser($vbulletin, fetch_tag_list());
 
 	if (empty($vbulletin->GPC['perpage']))
 	{
@@ -1512,7 +1638,7 @@ if ($_REQUEST['do'] == 'survey')
 	// Various configuration options regarding PHP
 	$php_safe_mode = SAFEMODE ? $vbphrase['on'] : $vbphrase['off'];
 	$php_open_basedir = ((($bd = @ini_get('open_basedir')) AND $bd != '/') ? $vbphrase['on'] : $vbphrase['off']);
-	$php_memory_limit = ((function_exists('memory_get_usage') AND ($limit = @get_cfg_var('memory_limit'))) ? htmlspecialchars($limit) : $vbphrase['off']);
+	$php_memory_limit = ((function_exists('memory_get_usage') AND ($limit = @ini_get('memory_limit'))) ? htmlspecialchars($limit) : $vbphrase['off']);
 
 	// what version of MySQL
 	$mysql = $db->query_first("SELECT VERSION() AS version");
@@ -1749,6 +1875,23 @@ if ($_REQUEST['do'] == 'chooser')
 	print_yes_no_row($vbphrase['include_automatic_javascript_redirect'], 'autoredirect', 1);
 	print_submit_row($vbphrase['rebuild_avatar_thumbnails']);
 
+	print_form_header('misc', 'rebuildsgicons');
+	print_table_header($vbphrase['rebuild_sgicon_thumbnails'], 2, 0);
+	print_input_row($vbphrase['number_of_icons_to_process_per_cycle'], 'perpage', 25);
+	$quality = intval($vbulletin->options['thumbquality']);
+	if ($quality <= 0 OR $quality > 100)
+	{
+		$quality = 75;
+	}
+	print_input_row($vbphrase['thumbnail_quality'], 'quality', $quality);
+	print_yes_no_row($vbphrase['include_automatic_javascript_redirect'], 'autoredirect', 1);
+	print_submit_row($vbphrase['rebuild_sgicon_thumbnails']);
+
+	print_form_header('misc', 'rebuildalbumupdates');
+	print_table_header($vbphrase['rebuild_recently_updated_albums_list'], 1, 0);
+	print_description_row($vbphrase['rebuild_recently_updated_albums_description']);
+	print_submit_row($vbphrase['rebuild_album_updates']);
+
 	print_form_header('misc', 'rebuildreputation');
 	print_table_header($vbphrase['rebuild_user_reputation'], 2, 0);
 	print_description_row($vbphrase['function_rebuilds_reputation']);
@@ -1793,8 +1936,8 @@ print_cp_footer();
 
 /*======================================================================*\
 || ####################################################################
-|| # Downloaded: 16:21, Sat Apr 6th 2013
-|| # CVS: $RCSfile$ - $Revision: 26665 $
+|| # Downloaded: 20:50, Sun Aug 11th 2013
+|| # CVS: $RCSfile$ - $Revision: 39862 $
 || ####################################################################
 \*======================================================================*/
 ?>

@@ -1,9 +1,9 @@
 <?php
 /*======================================================================*\
 || #################################################################### ||
-|| # vBulletin 3.7.2 Patch Level 2 - Licence Number VBF2470E4F
+|| # vBulletin 3.8.7 Patch Level 3 - Licence Number VBC2DDE4FB
 || # ---------------------------------------------------------------- # ||
-|| # Copyright ©2000-2013 Jelsoft Enterprises Ltd. All Rights Reserved. ||
+|| # Copyright ©2000-2013 vBulletin Solutions, Inc. All Rights Reserved. ||
 || # This file may not be redistributed in whole or significant part. # ||
 || # ---------------- VBULLETIN IS NOT FREE SOFTWARE ---------------- # ||
 || # http://www.vbulletin.com | http://www.vbulletin.com/license.html # ||
@@ -11,7 +11,7 @@
 \*======================================================================*/
 
 // ####################### SET PHP ENVIRONMENT ###########################
-error_reporting(E_ALL & ~E_NOTICE);
+error_reporting(E_ALL & ~E_NOTICE & ~8192);
 
 // #################### DEFINE IMPORTANT CONSTANTS #######################
 define('GET_EDIT_TEMPLATES', true);
@@ -144,7 +144,7 @@ verify_forum_password($foruminfo['forumid'], $foruminfo['password']);
 
 // *********************************************************************************
 // Tachy goes to coventry
-if (in_coventry($thread['postuserid']) AND !can_moderate($thread['forumid']))
+if (in_coventry($threadinfo['postuserid']) AND !can_moderate($threadinfo['forumid']))
 {
 	eval(standard_error(fetch_error('invalidid', $vbphrase['thread'], $vbulletin->options['contactuslink'])));
 }
@@ -259,6 +259,7 @@ if ($_POST['do'] == 'postreply')
 		'message'        => TYPE_STR,
 		'quickreply'     => TYPE_BOOL,
 		'fromquickreply' => TYPE_BOOL,
+		'ajaxqrfailed'   => TYPE_BOOL,
 		'folderid'       => TYPE_UINT,
 		'emailupdate'    => TYPE_UINT,
 		'title'          => TYPE_STR,
@@ -341,7 +342,7 @@ if ($_POST['do'] == 'postreply')
 
 	$newpost['title']          =& $vbulletin->GPC['title'];
 	$newpost['iconid']         =& $vbulletin->GPC['iconid'];
-	$newpost['parseurl']       = ($foruminfo['allowbbcode'] AND $vbulletin->GPC['parseurl']);
+	$newpost['parseurl']       = (($vbulletin->options['allowedbbcodes'] & ALLOW_BBCODE_URL) AND $foruminfo['allowbbcode'] AND $vbulletin->GPC['parseurl']);
 	$newpost['signature']      =& $vbulletin->GPC['signature'];
 	$newpost['preview']        =& $vbulletin->GPC['preview'];
 	$newpost['disablesmilies'] =& $vbulletin->GPC['disablesmilies'];
@@ -355,6 +356,8 @@ if ($_POST['do'] == 'postreply')
 	// moderation options
 	$newpost['stickunstick']   =& $vbulletin->GPC['stickunstick'];
 	$newpost['openclose']      =& $vbulletin->GPC['openclose'];
+
+	$newpost['ajaxqrfailed']   = $vbulletin->GPC['ajaxqrfailed'];
 
 	if ($vbulletin->GPC_exists['emailupdate'])
 	{
@@ -530,7 +533,7 @@ if ($_POST['do'] == 'postreply')
 				postparsed.pagetext_html, postparsed.hasimages,
 				sigparsed.signatureparsed, sigparsed.hasimages AS sighasimages,
 				sigpic.userid AS sigpic, sigpic.dateline AS sigpicdateline, sigpic.width AS sigpicwidth, sigpic.height AS sigpicheight,
-				IF(displaygroupid=0, user.usergroupid, displaygroupid) AS displaygroupid, infractiongroupid
+				IF(user.displaygroupid=0, user.usergroupid, user.displaygroupid) AS displaygroupid, infractiongroupid
 				" . iif(!($permissions['genericpermissions'] & $vbulletin->bf_ugp_genericpermissions['canseehiddencustomfields']), $vbulletin->profilefiled['hidden']) . "
 				$hook_query_fields
 			FROM " . TABLE_PREFIX . "post AS post
@@ -577,12 +580,12 @@ if ($_POST['do'] == 'postreply')
 
 		$see_deleted = ($forumperms & $vbulletin->bf_ugp_forumpermissions['canseedelnotice'] OR can_moderate($threadinfo['forumid']));
 
-		$postbit_factory =& new vB_Postbit_Factory();
+		$postbit_factory = new vB_Postbit_Factory();
 		$postbit_factory->registry =& $vbulletin;
 		$postbit_factory->forum =& $foruminfo;
 		$postbit_factory->thread =& $thread;
 		$postbit_factory->cache = array();
-		$postbit_factory->bbcode_parser =& new vB_BbCodeParser($vbulletin, fetch_tag_list());
+		$postbit_factory->bbcode_parser = new vB_BbCodeParser($vbulletin, fetch_tag_list());
 
 		$xml = new vB_AJAX_XML_Builder($vbulletin, 'text/xml');
 		$xml->add_group('postbits');
@@ -797,7 +800,7 @@ if ($_REQUEST['do'] == 'newreply')
 		eval('$attachmentoption = "' . fetch_template('newpost_attachment') . '";');
 
 		$attach_editor['hash'] = $postid;
-		$attach_editor['url'] = "newattachment.php?$session[sessionurl]t=$threadinfo[threadid]&amp;poststarttime=$poststarttime&amp;posthash=$posthash";
+		$attach_editor['url'] = "newattachment.php?" . $vbulletin->session->vars['sessionurl'] . "t=$threadinfo[threadid]&amp;poststarttime=$poststarttime&amp;posthash=$posthash";
 	}
 	else
 	{
@@ -965,13 +968,25 @@ if ($_REQUEST['do'] == 'newreply')
 	}
 
 	require_once(DIR . '/includes/class_bbcode.php');
-	$bbcode_parser =& new vB_BbCodeParser($vbulletin, fetch_tag_list());
+	$bbcode_parser = new vB_BbCodeParser($vbulletin, fetch_tag_list());
 
-
+	// post is cachable if option is enabled, last post is newer than max age, and this user
+	// isn't showing a sessionhash
+	$post_cachable = (
+		$vbulletin->options['cachemaxage'] > 0
+			AND
+		(TIMENOW - ($vbulletin->options['cachemaxage'] * 60 * 60 * 24)) <= $threadinfo['lastpost']
+			AND
+		$vbulletin->session->vars['sessionurl'] == ''
+	);
+	$saveparsed = array();
 	$posts = $db->query_read_slave("
-		SELECT post.*, IF(post.userid = 0, post.username, user.username) AS username
+		SELECT
+			post.*, IF(post.userid = 0, post.username, user.username) AS username,
+			postparsed.pagetext_html, postparsed.hasimages
 		FROM " . TABLE_PREFIX . "post AS post
 		LEFT JOIN " . TABLE_PREFIX . "user AS user ON (user.userid = post.userid)
+		LEFT JOIN " . TABLE_PREFIX . "postparsed AS postparsed ON(postparsed.postid = post.postid AND postparsed.styleid = " . intval(STYLEID) . " AND postparsed.languageid = " . intval(LANGUAGEID) . ")
 		WHERE post.visible = 1
 			$globalignore
 			AND post.threadid = $threadinfo[threadid]
@@ -993,7 +1008,11 @@ if ($_REQUEST['do'] == 'newreply')
 			}
 			else
 			{
-				$reviewmessage = $bbcode_parser->parse($post['pagetext'], $foruminfo['forumid'], $post['allowsmilie']);
+				$reviewmessage = $bbcode_parser->parse($post['pagetext'], $foruminfo['forumid'], $post['allowsmilie'], false, $post['pagetext_html'], $post['hasimages'], $post_cachable);
+				if ($post_cachable AND $post['pagetext_html'] == '')
+				{
+					$saveparsed[] = "($post[postid], " . intval($threadinfo['lastpost']) . ', ' . intval($bbcode_parser->cached['has_images']) . ", '" . $db->escape_string($bbcode_parser->cached['text']) . "', " . intval(STYLEID) . ", " . intval(LANGUAGEID) . ")";
+				}
 			}
 
 			// do word wrap
@@ -1008,6 +1027,17 @@ if ($_REQUEST['do'] == 'newreply')
 			break;
 		}
 	}
+
+	// save parsed post HTML
+	if (!empty($saveparsed))
+	{
+		$db->shutdown_query("
+			REPLACE INTO " . TABLE_PREFIX . "postparsed (postid, dateline, hasimages, pagetext_html, styleid, languageid)
+			VALUES " . implode(',', $saveparsed) . "
+		");
+		unset($saveparsed);
+	}
+
 	if ($db->num_rows($posts) > $vbulletin->options['maxposts'])
 	{
 		$show['reviewmore'] = true;
@@ -1019,7 +1049,7 @@ if ($_REQUEST['do'] == 'newreply')
 
 	eval('$usernamecode = "' . fetch_template('newpost_usernamecode') . '";');
 
-	if ($vbulletin->options['hvcheck_post'] AND !$vbulletin->userinfo['userid'])
+	if (fetch_require_hvcheck('post'))
 	{
 		require_once(DIR . '/includes/class_humanverify.php');
 		$verification =& vB_HumanVerify::fetch_library($vbulletin);
@@ -1056,7 +1086,7 @@ if ($_REQUEST['do'] == 'newreply')
 	$navbits = construct_navbits($navbits);
 	eval('$navbar = "' . fetch_template('navbar') . '";');
 
-	$show['parseurl'] =& $foruminfo['allowbbcode'];
+	$show['parseurl'] = (($vbulletin->options['allowedbbcodes'] & ALLOW_BBCODE_URL) AND $foruminfo['allowbbcode']);
 	$show['misc_options'] = ($vbulletin->userinfo['signature'] != '' OR $show['parseurl'] OR !empty($disablesmiliesoption));
 	$show['additional_options'] = ($show['misc_options'] OR !empty($attachmentoption) OR $show['member'] OR $show['threadrating'] OR !empty($threadmanagement));
 
@@ -1069,8 +1099,8 @@ if ($_REQUEST['do'] == 'newreply')
 
 /*======================================================================*\
 || ####################################################################
-|| # Downloaded: 16:21, Sat Apr 6th 2013
-|| # CVS: $RCSfile$ - $Revision: 26581 $
+|| # Downloaded: 20:50, Sun Aug 11th 2013
+|| # CVS: $RCSfile$ - $Revision: 39862 $
 || ####################################################################
 \*======================================================================*/
 ?>

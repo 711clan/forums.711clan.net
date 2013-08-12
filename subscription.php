@@ -1,9 +1,9 @@
 <?php
 /*======================================================================*\
 || #################################################################### ||
-|| # vBulletin 3.7.2 Patch Level 2 - Licence Number VBF2470E4F
+|| # vBulletin 3.8.7 Patch Level 3 - Licence Number VBC2DDE4FB
 || # ---------------------------------------------------------------- # ||
-|| # Copyright ©2000-2013 Jelsoft Enterprises Ltd. All Rights Reserved. ||
+|| # Copyright ©2000-2013 vBulletin Solutions, Inc. All Rights Reserved. ||
 || # This file may not be redistributed in whole or significant part. # ||
 || # ---------------- VBULLETIN IS NOT FREE SOFTWARE ---------------- # ||
 || # http://www.vbulletin.com | http://www.vbulletin.com/license.html # ||
@@ -11,7 +11,7 @@
 \*======================================================================*/
 
 // ####################### SET PHP ENVIRONMENT ###########################
-error_reporting(E_ALL & ~E_NOTICE);
+error_reporting(E_ALL & ~E_NOTICE & ~8192);
 
 // #################### DEFINE IMPORTANT CONSTANTS #######################
 define('THIS_SCRIPT', 'subscription');
@@ -19,7 +19,7 @@ define('CSRF_PROTECTION', true);
 
 // ################### PRE-CACHE TEMPLATES AND DATA ######################
 // get special phrase groups
-$phrasegroups = array('user', 'forumdisplay');
+$phrasegroups = array('user', 'forumdisplay','thread');
 
 // get special data templates from the datastore
 $specialtemplates = array(
@@ -67,7 +67,10 @@ if (empty($_REQUEST['do']))
 	$_REQUEST['do'] = 'viewsubscription';
 }
 
-if ((!$vbulletin->userinfo['userid'] AND $_REQUEST['do'] != 'removesubscription') OR ($vbulletin->userinfo['userid'] AND !($permissions['forumpermissions'] & $vbulletin->bf_ugp_forumpermissions['canview'])) OR $userinfo['usergroupid'] == 3 OR $vbulletin->userinfo['usergroupid'] == 4 OR !($permissions['genericoptions'] & $vbulletin->bf_ugp_genericoptions['isnotbannedgroup']))
+if ((!$vbulletin->userinfo['userid'] AND $_REQUEST['do'] != 'removesubscription')
+	OR ($vbulletin->userinfo['userid'] AND !($permissions['forumpermissions'] & $vbulletin->bf_ugp_forumpermissions['canview']))
+	OR $vbulletin->userinfo['usergroupid'] == 4
+	OR !($permissions['genericoptions'] & $vbulletin->bf_ugp_genericoptions['isnotbannedgroup']))
 {
 	print_no_permission();
 }
@@ -340,6 +343,59 @@ if ($_REQUEST['do'] == 'removesubscription' OR $_REQUEST['do'] == 'usub')
 	}
 }
 
+// ############################### start empty folder ###############################
+if ($_REQUEST['do'] == 'emptyfolder')
+{
+	$vbulletin->input->clean_array_gpc('r', array(
+		'folderid'   => TYPE_NOHTML,
+	));
+
+	$folderid = $vbulletin->GPC['folderid'];
+
+	$navbits[''] = $vbphrase['subscriptions'];
+	$navbits = construct_navbits($navbits);
+
+	// build the cp nav
+	construct_usercp_nav('substhreads_editfolders');
+
+	eval('$navbar = "' . fetch_template('navbar') . '";');
+	eval('$HTML = "' . fetch_template('subscribe_confirm_delete') . '";');
+	eval('print_output("' . fetch_template('USERCP_SHELL') . '");');
+}
+
+// ############################### start do empty folder ###############################
+if ($_POST['do'] == 'doemptyfolder')
+{
+	$vbulletin->input->clean_array_gpc('p', array(
+		'folderid'   => TYPE_NOHTML,
+		'deny'       => TYPE_NOHTML,
+	));
+
+	if ($vbulletin->GPC['deny'])
+	{
+		eval(print_standard_redirect('action_cancelled'));
+	}
+
+	if ($vbulletin->GPC['folderid'] == '' OR $vbulletin->GPC['folderid'] == 'all')
+	{
+		eval(standard_error(fetch_error('invalidid', $vbphrase['folder'], $vbulletin->options['contactuslink'])));
+	}
+
+	$db->query_write("
+		DELETE FROM " . TABLE_PREFIX . "subscribethread
+		WHERE userid = " . $vbulletin->userinfo['userid'] . "
+			AND folderid = " . intval($vbulletin->GPC['folderid'])
+	);
+
+	if ($vbulletin->url == $vbulletin->options['forumhome'] . '.php')
+	{
+		// No referring url (was set to home page in init) so redirect to usercp
+		$vbulletin->url = 'usercp.php' . $vbulletin->session->vars['sessionurl_q'];
+	}
+
+	eval(print_standard_redirect('redirect_subsremove_forum', true, true));
+}
+
 // ############################### start view threads ###############################
 if ($_REQUEST['do'] == 'viewsubscription')
 {
@@ -554,12 +610,13 @@ if ($_REQUEST['do'] == 'viewsubscription')
 
 		$threads = $db->query_read_slave("
 			SELECT
-				IF(votenum >= " . $vbulletin->options['showvotes'] . ", votenum, 0) AS votenum,
-				IF(votenum >= " . $vbulletin->options['showvotes'] . " AND votenum > 0, votetotal / votenum, 0) AS voteavg,
-				votetotal,
-				$previewfield thread.threadid, thread.title AS threadtitle, forumid, pollid, open, replycount, postusername, thread.prefixid,
-				$lastpost_info, postuserid, thread.dateline, views, thread.iconid AS threadiconid, notes, thread.visible, thread.attach,
-				thread.taglist
+				IF(thread.votenum >= " . $vbulletin->options['showvotes'] . ", thread.votenum, 0) AS votenum,
+				IF(thread.votenum >= " . $vbulletin->options['showvotes'] . " AND thread.votenum > 0, thread.votetotal / thread.votenum, 0) AS voteavg,
+				thread.votetotal,
+				$previewfield thread.threadid, thread.title AS threadtitle, thread.forumid, thread.pollid,
+				thread.open, thread.replycount, thread.postusername, thread.prefixid,
+				$lastpost_info, thread.postuserid, thread.dateline, thread.views, thread.iconid AS threadiconid,
+				thread.notes, thread.visible, thread.attach, thread.taglist
 				" . ($vbulletin->options['threadmarking'] ? ", threadread.readtime AS threadread" : '') . "
 				$hook_query_fields
 			FROM " . TABLE_PREFIX . "thread AS thread
@@ -693,7 +750,10 @@ if ($_POST['do'] == 'movethread')
 		'folderid' => TYPE_UINT
 	));
 
-	$ids = @unserialize(verify_client_string($vbulletin->GPC['ids']));
+	if ($ids = verify_client_string($vbulletin->GPC['ids']))
+	{
+		$ids = explode(',', $ids);
+	}
 
 	if (!is_array($ids) OR empty($ids))
 	{
@@ -787,7 +847,7 @@ if ($_POST['do'] == 'dostuff')
 
 			$numthreads = sizeof($ids);
 
-			$ids = sign_client_string(serialize($ids));
+			$ids = sign_client_string(implode(',', $ids));
 			unset($id, $deletebox);
 
 			require_once(DIR . '/includes/functions_misc.php');
@@ -830,7 +890,7 @@ if ($_POST['do'] == 'dostuff')
 			}
 			else
 			{
-				eval(standard_error(fetch_error('pm_nofolders', $vbulletin->options['bburl'], $vbulletin->session->vars['sessionurl'])));
+				eval(standard_error(fetch_error('subscription_nofolders', 'subscription.php?' . $vbulletin->session->vars['sessionurl'] . 'do=editfolders')));
 			}
 
 			$vbulletin->url = 'subscription.php?' . $vbulletin->session->vars['sessionurl'] . "do=viewsubscription&amp;folderid=" . $vbulletin->GPC['folderid'];
@@ -989,8 +1049,8 @@ if ($_POST['do'] == 'doeditfolders')
 
 /*======================================================================*\
 || ####################################################################
-|| # Downloaded: 16:21, Sat Apr 6th 2013
-|| # CVS: $RCSfile$ - $Revision: 26962 $
+|| # Downloaded: 20:50, Sun Aug 11th 2013
+|| # CVS: $RCSfile$ - $Revision: 39862 $
 || ####################################################################
 \*======================================================================*/
 ?>

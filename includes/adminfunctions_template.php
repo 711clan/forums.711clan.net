@@ -1,16 +1,16 @@
 <?php
 /*======================================================================*\
 || #################################################################### ||
-|| # vBulletin 3.7.2 Patch Level 2 - Licence Number VBF2470E4F
+|| # vBulletin 3.8.7 Patch Level 3 - Licence Number VBC2DDE4FB
 || # ---------------------------------------------------------------- # ||
-|| # Copyright ©2000-2013 Jelsoft Enterprises Ltd. All Rights Reserved. ||
+|| # Copyright ©2000-2013 vBulletin Solutions, Inc. All Rights Reserved. ||
 || # This file may not be redistributed in whole or significant part. # ||
 || # ---------------- VBULLETIN IS NOT FREE SOFTWARE ---------------- # ||
 || # http://www.vbulletin.com | http://www.vbulletin.com/license.html # ||
 || #################################################################### ||
 \*======================================================================*/
 
-error_reporting(E_ALL & ~E_NOTICE);
+error_reporting(E_ALL & ~E_NOTICE & ~8192);
 
 // note #1: arrays used by functions in this code are declared at the bottom of the page
 // note #2: REMEMBER to update the $template_table_query if the table changes!!!
@@ -795,9 +795,14 @@ function build_style($styleid, $title = '', $actions, $parentlist = '', $indent 
 			$cssfilename = 'clientscript/vbulletin_css/style-' . $adblock_is_evil . '-' . str_pad($styleid, 5, '0', STR_PAD_LEFT) . '.css';
 
 			// if we are going to store CSS as files, run replacement variable substitution on the file to be saved
-			if ($vbulletin->options['storecssasfile'] AND write_css_file($cssfilename, process_replacement_vars($css, array('styleid' => $styleid, 'replacements' => serialize($replacements)))))
+			if ($vbulletin->options['storecssasfile'])
 			{
-				$css = "@import url(\"$cssfilename\");";
+				$css = process_replacement_vars($css, array('styleid' => $styleid, 'replacements' => serialize($replacements)));
+				$css = preg_replace('#(?<=[^a-z0-9-]|^)url\((\'|"|)(.*)\\1\)#iUe', "rewrite_css_file_url('\\2', '\\1')", $css);
+				if (write_css_file($cssfilename, $css))
+				{
+					$css = "@import url(\"$cssfilename\");";
+				}
 			}
 
 			$fullcsstext = "<style type=\"text/css\" id=\"vbulletin_css\">\r\n" .
@@ -855,7 +860,6 @@ function build_style($styleid, $title = '', $actions, $parentlist = '', $indent 
 		}
 		echo "$indent</ul>\n";
 	}
-
 }
 
 // #############################################################################
@@ -868,7 +872,7 @@ function build_style($styleid, $title = '', $actions, $parentlist = '', $indent 
 */
 function fetch_color_value($csscolor)
 {
-	if (preg_match('/^(rgb\([0-9,\s]+\)|(#?\w+))(\s|$)/siU', $csscolor, $match))
+	if (preg_match('/^(rgb\s*\([0-9,\s]+\)|(#?\w+))(\s|$)/siU', $csscolor, $match))
 	{
 		return $match[1];
 	}
@@ -876,6 +880,75 @@ function fetch_color_value($csscolor)
 	{
 		return $csscolor;
 	}
+}
+
+/**
+ * Attempts to return a six-character hex value for a given color value (hex, rgb or named)
+ *
+ * @param	string	CSS color value
+ * @return	string
+ */
+function fetch_color_hex_value($csscolor)
+{
+	static $html_color_names = null,
+	       $html_color_names_regex = null,
+	       $system_color_names = null,
+	       $system_color_names_regex = null;
+
+	if (!is_array($html_color_names))
+	{
+		require_once(DIR . '/includes/html_color_names.php');
+
+		$html_color_names_regex = implode('|', array_keys($html_color_names));
+
+		$system_color_names = (
+			strpos(strtolower(USER_AGENT), 'macintosh') !== false
+			? $system_color_names_mac
+			: $system_color_names_win
+		);
+
+		$system_color_names_regex = implode('|', array_keys($system_color_names));
+	}
+
+	$hexcolor = '';
+
+	// match a hex color
+	if (preg_match('/\#([0-9a-f]{6}|#[0-9a-f]{3})($|[^0-9a-f])/siU', $csscolor, $match))
+	{
+		if (strlen($match[1]) == 3)
+		{
+			$hexcolor .= $match[1]{0} . $match[1]{0} . $match[1]{1} . $match[1]{1} . $match[1]{2} . $match[1]{2};
+		}
+		else
+		{
+			$hexcolor .= $match[1];
+		}
+	}
+	// match an RGB color
+	else if (preg_match('/rgb\s*\(\s*(\d+)\s*,\s*(\d+)\s*,\s*(\d+)\s*\)/siU', $csscolor, $match))
+	{
+		for ($i = 1; $i <= 3; $i++)
+		{
+			$hexcolor .= str_pad(dechex($match["$i"]), 2, 0, STR_PAD_LEFT);
+		}
+	}
+	// match a named color
+	else if (preg_match("/(^|[^\w])($html_color_names_regex)($|[^\w])/siU", $csscolor, $match))
+	{
+		$hexcolor = $html_color_names[strtolower($match[2])];
+	}
+	// match a named system color (CSS2, deprecated)
+	else if (preg_match("/(^|[^\w])($system_color_names_regex)($|[^\w])/siU", $csscolor, $match))
+	{
+		$hexcolor = $system_color_names[strtolower($match[2])];
+	}
+	else
+	{
+		// failed to match a color
+		return false;
+	}
+
+	return strtoupper($hexcolor);
 }
 
 // #############################################################################
@@ -896,11 +969,6 @@ function construct_css($css, $styleid, $styletitle, &$csscolors)
 	// remove the 'EXTRA' definition and stuff it in at the end :)
 	$extra = trim($css['EXTRA']['all']);
 	$extra2 = trim($css['EXTRA2']['all']);
-	if ($vbulletin->options['storecssasfile'])
-	{
-		$extra = preg_replace('#(?<=[^a-z0-9-]|^)url\((\'|"|)(.*)\\1\)#iUe', "rewrite_css_file_url('\\2', '\\1')", $extra);
-		$extra2 = preg_replace('#(?<=[^a-z0-9-]|^)url\((\'|"|)(.*)\\1\)#iUe', "rewrite_css_file_url('\\2', '\\1')", $extra2);
-	}
 	unset($css['EXTRA'], $css['EXTRA2']);
 
 	// initialise the stylearray
@@ -963,10 +1031,7 @@ function construct_css($css, $styleid, $styletitle, &$csscolors)
 				{
 					$itemshortname = $itemname;
 				}
-				if ($vbulletin->options['storecssasfile'])
-				{
-					$value = preg_replace('#(?<=[^a-z0-9-]|^)url\((\'|"|)(.*)\\1\)#iUe', "rewrite_css_file_url('\\2', '\\1')", $value);
-				}
+
 				switch ($cssidentifier)
 				{
 					// do normal links
@@ -1031,10 +1096,6 @@ function construct_css($css, $styleid, $styletitle, &$csscolors)
 							{
 								case 'background':
 								{
-									#if (stristr($value, 'url(') === false)
-									#{
-									#	$cssidentifier = 'background-color';
-									#}
 									$csscolors["{$itemshortname}_bgcolor"] = fetch_color_value($value);
 								}
 								break;
@@ -1085,6 +1146,62 @@ function construct_css($css, $styleid, $styletitle, &$csscolors)
 			}
 		}
 	}
+
+	// generate hex colors
+	foreach ($css_write_order AS $itemname)
+	{
+		if (is_array($css["$itemname"]))
+		{
+			$itemshortname = (strpos($itemname, '.') === 0 ? substr($itemname, 1) : $itemname);
+
+			foreach($css["$itemname"] AS $cssidentifier => $value)
+			{
+				switch ($cssidentifier)
+				{
+					case 'LINK_N':
+					case 'LINK_V':
+					case 'LINK_M':
+					{
+						if ($value['color'] != '')
+						{
+							$csscolors[$itemshortname . '_' . strtolower($cssidentifier) . '_fgcolor'] = fetch_color_value($value['color']);
+						}
+
+						if ($value['background'] != '')
+						{
+							$csscolors[$itemshortname . '_' . strtolower($cssidentifier) . '_bgcolor'] = fetch_color_value($value['background']);
+						}
+					}
+					break;
+
+					// do extra attributes
+					case 'EXTRA':
+					case 'EXTRA2':
+					{
+						if (preg_match('#border(-color)?\s*\:\s*([^;]+);#siU', $value, $match))
+						{
+							$csscolors[$itemshortname . '_border_color'] = fetch_color_value($match[2]);
+						}
+					}
+					break;
+				}
+			}
+		}
+	}
+
+	$csscolors_hex = array();
+
+	foreach ($csscolors AS $colorname => $colorvalue)
+	{
+		$hexcolor = fetch_color_hex_value($colorvalue);
+
+		if ($hexcolor !== false)
+		{
+			$csscolors_hex[$colorname . '_hex'] = $hexcolor;
+		}
+	}
+
+	$csscolors = array_merge($csscolors, $csscolors_hex);
 
 	($hook = vBulletinHook::fetch_hook('css_output_build_end')) ? eval($hook) : false;
 
@@ -1396,7 +1513,7 @@ function print_style($styleid, $style = '')
 			echo "onchange=\"Tprep(this.options[this.selectedIndex], $THISstyleid, 1);";
 			echo "\"\n\t";
 			echo "ondblclick=\"Tdo(Tprep(this.options[this.selectedIndex], $THISstyleid, 0), '');\">\n";
-			echo "\t<option class=\"templategroup\" value=\"\" selected=\"selected\">- - " . construct_phrase($vbphrase['x_templates'], $style['title']) . " - -</option>\n";
+			echo "\t<option class=\"templategroup\" value=\"\">- - " . construct_phrase($vbphrase['x_templates'], $style['title']) . " - -</option>\n";
 		}
 		else
 		{
@@ -1584,9 +1701,7 @@ function print_style($styleid, $style = '')
 				</td>
 			</tr>
 			</table>
-			<script type=\"text/javascript\">
-				Tprep(document.forms.tform.tl$THISstyleid.options[document.forms.tform.tl$THISstyleid.selectedIndex], $THISstyleid, 1);
-			</script>";
+			";
 
 			/*
 			// might come back to this at some point...
@@ -1603,7 +1718,15 @@ function print_style($styleid, $style = '')
 			}
 			*/
 
-			echo "\n</td>\n</tr>\n</table>\n";
+			echo "\n</td>\n</tr>\n</table>\n
+			<script type=\"text/javascript\">
+			<!--
+			if (document.forms.tform.tl$THISstyleid.selectedIndex > 0)
+			{
+				Tprep(document.forms.tform.tl$THISstyleid.options[document.forms.tform.tl$THISstyleid.selectedIndex], $THISstyleid, 1);
+			}
+			//-->
+			</script>";
 
 		}
 		else
@@ -1665,13 +1788,13 @@ function construct_template_option($template, $styleid, $doindent = false, $html
 			// template is customized for this specific style
 			case $styleid:
 			{
-				return "\t<option class=\"col-c\" value=\"$template[templateid]\" i=\"$template[username];$template[dateline]\"$template[templateid]\"$selected>$indent$template[title]</option>\n";
+				return "\t<option class=\"col-c\" value=\"$template[templateid]\" i=\"$template[username];$template[dateline]\"$selected>$indent$template[title]</option>\n";
 			}
 
 			// template is customized in a parent style - (inherited)
 			default:
 			{
-				return "\t<option class=\"col-i\" value=\"[$template[templateid]]\" tsid=\"$template[styleid]\" i=\"$template[username];$template[dateline]\"[$template[templateid]]\" tsid=\"$template[styleid]\"$selected>$indent$template[title]</option>\n";
+				return "\t<option class=\"col-i\" value=\"[$template[templateid]]\" tsid=\"$template[styleid]\" i=\"$template[username];$template[dateline]\" tsid=\"$template[styleid]\"$selected>$indent$template[title]</option>\n";
 			}
 		}
 	}
@@ -1843,7 +1966,7 @@ function process_template_conditionals($template, $haltonerror = true)
 		}
 		else
 		{
-			if (preg_match_all('#([a-z0-9_{}$>-]+)(\s|/\*.*\*/|(\#|//)[^\r\n]*(\r|\n))*\(#si', $condition_value, $matches))
+			if (preg_match_all('#([a-z0-9_\x7f-\xff\\\\{}$>-\\]]+)(\s|/\*.*\*/|(\#|//)[^\r\n]*(\r|\n))*\(#si', $condition_value, $matches))
 			{
 				$functions = array();
 				foreach($matches[1] AS $key => $match)
@@ -2219,6 +2342,8 @@ function parse_tag_attribute($option, $text)
 function compile_template($template)
 {
 	$orig_template = $template;
+
+	$template = preg_replace('#[\\x00-\\x08\\x0B\\x0C\\x0E-\\x1F]#', '', $template);
 	$template = addslashes($template);
 	$template = process_template_conditionals($template);
 
@@ -3175,6 +3300,11 @@ function build_special_templates($newtemplates, $templatetype, $vartype)
 					styleid = " . $vbulletin->GPC['dostyleid'] . "
 				");
 				DEVDEBUG("$vartype $title (reverted)");
+
+				if ($templatetype == 'stylevar' AND $title == 'codeblockwidth')
+				{
+					$vbulletin->db->query_write("TRUNCATE TABLE " . TABLE_PREFIX . "postparsed");
+				}
 			}
 			continue;
 		}
@@ -3231,6 +3361,11 @@ function build_special_templates($newtemplates, $templatetype, $vartype)
 				");
 				DEVDEBUG("$vartype $title (inserted)");
 			}
+
+			if ($templatetype == 'stylevar' AND $title == 'codeblockwidth')
+			{
+				$vbulletin->db->query_write("TRUNCATE TABLE " . TABLE_PREFIX . "postparsed");
+			}
 		}
 		else
 		{
@@ -3267,6 +3402,7 @@ function print_template_javascript()
 	'<input type="button" class="button" style="font-weight:normal" value=" ' . $vbphrase['copy'] . ' " accesskey="c" onclick="HighlightAll();" tabindex="1" />
 	&nbsp;
 	<input type="button" class="button" style="font-weight:normal" value="' . $vbphrase['view_quickref'] . '" accesskey="v" onclick="js_open_phrase_ref(0, 0);" tabindex="1" />
+	<script type="text/javascript">document.cpform.string.onkeypress = findInPageKeyPress;</script>
 	');
 }
 
@@ -3396,6 +3532,7 @@ function xml_import_style($xml = false, $styleid = -1, $parentid = -1, $title = 
 	$querybits = array();
 	$querytemplates = 0;
 
+
 	foreach ($arr AS $templategroup)
 	{
 		if (empty($templategroup['template'][0]))
@@ -3423,6 +3560,8 @@ function xml_import_style($xml = false, $styleid = -1, $parentid = -1, $title = 
 				// template is a standard template
 				$querybits[] = "($styleid, '$template[templatetype]', '$title', '" . $vbulletin->db->escape_string(compile_template($template['value'])) . "', '$template[template]', $template[date], '$template[username]', '" . $vbulletin->db->escape_string($template['version']) . "', '" . $vbulletin->db->escape_string($product) . "')";
 			}
+
+
 			if (++$querytemplates % 20 == 0)
 			{
 				/*insert query*/
@@ -3449,6 +3588,52 @@ function xml_import_style($xml = false, $styleid = -1, $parentid = -1, $title = 
 		");
 	}
 	unset($querybits);
+
+	// Get AdSense flag
+	$adsensedeployed = $vbulletin->db->query_first("SELECT data FROM " . TABLE_PREFIX . "datastore WHERE title = 'adsensedeployed'");
+
+	// Restore any adsense templates before delete
+	if ($master AND !empty($adsensedeployed['data']))
+	{
+		// Get the template titles
+		$save = array();
+		$save_tables = $vbulletin->db->query_read("
+			SELECT title
+			FROM " . TABLE_PREFIX . "template
+			WHERE templatetype = 'template'
+				AND styleid = -10
+				AND product IN('vbulletin', '')
+				AND title LIKE 'ad\_%'
+		");
+
+		while ($table = $vbulletin->db->fetch_array($save_tables))
+		{
+			$save[] =  "'" . $vbulletin->db->escape_string($table['title']) . "'";
+		}
+
+		// Are there any
+		if (count($save))
+		{
+			// Delete any style id -1 ad templates that may of just been imported.
+			$vbulletin->db->query_write("
+				DELETE FROM " . TABLE_PREFIX . "template
+				WHERE templatetype = 'template'
+					AND styleid = -1
+					AND product IN('vbulletin', '')
+					AND title IN (" . implode(',', $save) . ")
+			");
+
+			// Replace the -1 templates with the -10 before they are deleted
+			$vbulletin->db->query_write("
+				UPDATE " . TABLE_PREFIX . "template
+				SET styleid = -1
+				WHERE templatetype = 'template'
+					AND styleid = -10
+					AND product IN('vbulletin', '')
+					AND title IN (" . implode(',', $save) . ")
+			");
+		}
+	}
 
 	// now delete any templates that were moved into the temporary styleset for safe-keeping
 	$vbulletin->db->query_write("DELETE FROM " . TABLE_PREFIX . "template WHERE styleid = -10 AND (product = '" . $vbulletin->db->escape_string($product) . "'" . iif($product == 'vbulletin', " OR product = ''") . ")");
@@ -3661,6 +3846,55 @@ function convert_version_to_int($version)
 	return $outputversion;
 }
 
+/**
+* Function used for usort'ing a collection of templates.
+* This function will return newer versions first.
+*
+* @param	array	First version
+* @param	array	Second version
+*
+* @return	integer	-1, 0, 1
+*/
+function history_compare($a, $b)
+{
+	// if either of them does not have a version, make it look really old to the
+	// comparison tool so it doesn't get bumped all the way up when its not supposed to
+	if (!$a['version'])
+	{
+		$a['version'] = "0.0.0";
+	}
+
+	if (!$b['version'])
+	{
+		$b['version'] = "0.0.0";
+	}
+
+	// these return values are backwards to sort in descending order
+	if (is_newer_version($a['version'], $b['version']))
+	{
+		return -1;
+	}
+	else if (is_newer_version($b['version'], $a['version']))
+	{
+		return 1;
+	}
+	else
+	{
+		if($a['type'] == $b['type'])
+		{
+			return ($a['dateline'] > $b['dateline']) ? -1 : 1;
+		}
+		else if($a['type'] == "historical")
+		{
+			return 1;
+		}
+		else
+		{
+			return -1;
+		}
+	}
+}
+
 // #############################################################################
 /**
 * Collects errors encountered while parsing a template and returns them
@@ -3827,8 +4061,8 @@ if (class_exists('vBulletinHook'))
 
 /*======================================================================*\
 || ####################################################################
-|| # Downloaded: 16:21, Sat Apr 6th 2013
-|| # CVS: $RCSfile$ - $Revision: 26527 $
+|| # Downloaded: 20:50, Sun Aug 11th 2013
+|| # CVS: $RCSfile$ - $Revision: 39862 $
 || ####################################################################
 \*======================================================================*/
 ?>

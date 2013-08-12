@@ -1,9 +1,9 @@
 <?php
 /*======================================================================*\
 || #################################################################### ||
-|| # vBulletin 3.7.2 Patch Level 2 - Licence Number VBF2470E4F
+|| # vBulletin 3.8.7 Patch Level 3 - Licence Number VBC2DDE4FB
 || # ---------------------------------------------------------------- # ||
-|| # Copyright ©2000-2013 Jelsoft Enterprises Ltd. All Rights Reserved. ||
+|| # Copyright ©2000-2013 vBulletin Solutions, Inc. All Rights Reserved. ||
 || # This file may not be redistributed in whole or significant part. # ||
 || # ---------------- VBULLETIN IS NOT FREE SOFTWARE ---------------- # ||
 || # http://www.vbulletin.com | http://www.vbulletin.com/license.html # ||
@@ -11,7 +11,7 @@
 \*======================================================================*/
 
 // ######################## SET PHP ENVIRONMENT ###########################
-error_reporting(E_ALL & ~E_NOTICE);
+error_reporting(E_ALL & ~E_NOTICE & ~8192);
 
 if (VB_AREA !== 'Upgrade' AND VB_AREA !== 'Install')
 {
@@ -25,19 +25,19 @@ if (!defined('THIS_SCRIPT'))
 }
 
 // ##################### DEFINE IMPORTANT CONSTANTS #######################
-if (strlen('4f63a14c9e2e3f1a6d721dedb92e51d7') == 32)
+if (strlen('3b2bcb0a897caa964b55bb1961ea0a87') == 32)
 {
 	/**
 	* @ignore
 	*/
-	define('CUSTOMER_NUMBER', '4f63a14c9e2e3f1a6d721dedb92e51d7');
+	define('CUSTOMER_NUMBER', '3b2bcb0a897caa964b55bb1961ea0a87');
 }
 else
 {
 	/**
 	* @ignore
 	*/
-	define('CUSTOMER_NUMBER', md5(strtoupper('4f63a14c9e2e3f1a6d721dedb92e51d7')));
+	define('CUSTOMER_NUMBER', md5(strtoupper('3b2bcb0a897caa964b55bb1961ea0a87')));
 }
 
 // ########################################################################
@@ -60,7 +60,7 @@ if ($_POST['do'] == 'login')
 			$vbulletin->options['cpstylefolder'] = 'vBulletin_3_Silver';
 		}
 
-		$redirect = '?rand=' . rand(0, 1000);
+		$redirect = '?rand=' . time();
 
 		print_cp_header('', '', "<meta http-equiv=\"Refresh\" content=\"1; URL=$redirect\">");
 		?>
@@ -173,8 +173,8 @@ if ($vbulletin->GPC['bbcustomerid'] !== CUSTOMER_NUMBER)
 
 /*======================================================================*\
 || ####################################################################
-|| # Downloaded: 16:21, Sat Apr 6th 2013
-|| # CVS: $RCSfile$ - $Revision: 26969 $
+|| # Downloaded: 20:50, Sun Aug 11th 2013
+|| # CVS: $RCSfile$ - $Revision: 39862 $
 || ####################################################################
 \*======================================================================*/
 ?>

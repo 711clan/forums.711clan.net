@@ -1,9 +1,9 @@
 <?php
 /*======================================================================*\
 || #################################################################### ||
-|| # vBulletin 3.7.2 Patch Level 2 - Licence Number VBF2470E4F
+|| # vBulletin 3.8.7 Patch Level 3 - Licence Number VBC2DDE4FB
 || # ---------------------------------------------------------------- # ||
-|| # Copyright ©2000-2013 Jelsoft Enterprises Ltd. All Rights Reserved. ||
+|| # Copyright ©2000-2013 vBulletin Solutions, Inc. All Rights Reserved. ||
 || # This file may not be redistributed in whole or significant part. # ||
 || # ---------------- VBULLETIN IS NOT FREE SOFTWARE ---------------- # ||
 || # http://www.vbulletin.com | http://www.vbulletin.com/license.html # ||
@@ -11,7 +11,7 @@
 \*======================================================================*/
 
 // ####################### SET PHP ENVIRONMENT ###########################
-error_reporting(E_ALL & ~E_NOTICE);
+error_reporting(E_ALL & ~E_NOTICE & ~8192);
 
 // #################### DEFINE IMPORTANT CONSTANTS #######################
 define('THIS_SCRIPT', 'album');
@@ -82,6 +82,15 @@ $actiontemplates = array(
 	'unread' => array(
 		'album_picturebit_unread',
 		'album_unreadcomments'
+	),
+	'latest' => array(
+		'album_latestbit',
+		'album_list'
+	),
+	'overview' => array(
+		'album_latestbit',
+		'album_list',
+		'albumbit'
 	)
 );
 $actiontemplates['updatealbum'] = $actiontemplates['editalbum'] = $actiontemplates['addalbum'];
@@ -99,9 +108,13 @@ if (empty($_REQUEST['do']))
 			$_REQUEST['do'] = 'album';
 		}
 	}
-	else
+	else if ($_REQUEST['u'] OR $_REQUEST['userid'])
 	{
 		$_REQUEST['do'] = 'user';
+	}
+	else if($_REQUEST['do'] != 'latest')
+	{
+		$_REQUEST['do'] = 'overview';
 	}
 }
 
@@ -141,11 +154,6 @@ $moderatedpictures = (
 
 ($hook = vBulletinHook::fetch_hook('album_start_precheck')) ? eval($hook) : false;
 
-if (!$vbulletin->GPC['userid'])
-{
-	$vbulletin->GPC['userid'] = $vbulletin->userinfo['userid'];
-}
-
 // if we specify an album, make sure our user context is sane
 if ($vbulletin->GPC['albumid'])
 {
@@ -167,43 +175,64 @@ if ($vbulletin->GPC['pictureid'])
 	}
 }
 
-if (!$vbulletin->GPC['userid'])
+if ($_REQUEST['do'] == 'overview')
 {
-	print_no_permission();
+	if ((!$vbulletin->GPC['userid'] AND !$vbulletin->userinfo['userid']) OR !($vbulletin->userinfo['permissions']['albumpermissions'] & $vbulletin->bf_ugp_albumpermissions['canalbum']))
+	{
+		$_REQUEST['do'] = 'latest';
+	}
 }
 
-$userinfo = verify_id('user', $vbulletin->GPC['userid'], 1, 1, FETCH_USERINFO_USERCSS);
-
-// don't show stuff for users awaiting moderation
-if ($userinfo['usergroupid'] == 4 AND !($permissions['adminpermissions'] & $vbulletin->bf_ugp_adminpermissions['cancontrolpanel']))
+// don't need userinfo if we're only viewing latest
+if ($_REQUEST['do'] != 'latest')
 {
-	print_no_permission();
-}
+	if (!$vbulletin->GPC['userid'])
+	{
+		if (!($vbulletin->GPC['userid'] = $vbulletin->userinfo['userid']))
+		{
+			print_no_permission();
+		}
+	}
 
-cache_permissions($userinfo, false);
-if (!can_moderate() AND !($userinfo['permissions']['albumpermissions'] & $vbulletin->bf_ugp_albumpermissions['canalbum']))
-{
-	print_no_permission();
-}
+	$userinfo = verify_id('user', $vbulletin->GPC['userid'], 1, 1, FETCH_USERINFO_USERCSS);
 
-// determine if we can see this user's private albums and run the correct permission checks
-if (!empty($albuminfo))
-{
-	if ($albuminfo['state'] == 'private' AND !can_view_private_albums($userinfo['userid']))
+	// don't show stuff for users awaiting moderation
+	if ($userinfo['usergroupid'] == 4 AND !($permissions['adminpermissions'] & $vbulletin->bf_ugp_adminpermissions['cancontrolpanel']))
+	{
+		print_no_permission();
+	}
+
+	cache_permissions($userinfo, false);
+	if (!can_moderate(0, 'caneditalbumpicture') AND !($userinfo['permissions']['albumpermissions'] & $vbulletin->bf_ugp_albumpermissions['canalbum']))
+	{
+		print_no_permission();
+	}
+
+	if (!can_view_profile_section($userinfo['userid'], 'albums'))
 	{
 		// private album that we can not see
 		standard_error(fetch_error('invalidid', $vbphrase['album'], $vbulletin->options['contactuslink']));
 	}
-	else if ($albuminfo['state'] == 'profile' AND !can_view_profile_albums($userinfo['userid']))
-	{
-		// profile album that we can not see
-		standard_error(fetch_error('invalidid', $vbphrase['album'], $vbulletin->options['contactuslink']));
-	}
-}
 
-$usercss = construct_usercss($userinfo, $show['usercss_switch']);
-$show['usercss_switch'] = ($show['usercss_switch'] AND $vbulletin->userinfo['userid'] != $userinfo['userid']);
-construct_usercss_switch($show['usercss_switch'], $usercss_switch_phrase);
+	// determine if we can see this user's private albums and run the correct permission checks
+	if (!empty($albuminfo))
+	{
+		if ($albuminfo['state'] == 'private' AND !can_view_private_albums($userinfo['userid']))
+		{
+			// private album that we can not see
+			standard_error(fetch_error('invalidid', $vbphrase['album'], $vbulletin->options['contactuslink']));
+		}
+		else if ($albuminfo['state'] == 'profile' AND !can_view_profile_albums($userinfo['userid']))
+		{
+			// profile album that we can not see
+			standard_error(fetch_error('invalidid', $vbphrase['album'], $vbulletin->options['contactuslink']));
+		}
+	}
+
+	$usercss = construct_usercss($userinfo, $show['usercss_switch']);
+	$show['usercss_switch'] = ($show['usercss_switch'] AND $vbulletin->userinfo['userid'] != $userinfo['userid']);
+	construct_usercss_switch($show['usercss_switch'], $usercss_switch_phrase);
+}
 
 ($hook = vBulletinHook::fetch_hook('album_start_postcheck')) ? eval($hook) : false;
 
@@ -238,6 +267,7 @@ if ($_POST['do'] == 'killalbum')
 			array($albuminfo['title'], $userinfo['username'])
 		);
 	}
+	unset($albumdata);
 
 	$vbulletin->url = 'album.php?' . $vbulletin->session->vars['sessionurl'] . "u=$albuminfo[userid]";
 	eval(print_standard_redirect('album_deleted'));
@@ -335,6 +365,8 @@ if ($_POST['do'] == 'updatealbum')
 		$vbulletin->url = 'album.php?' . $vbulletin->session->vars['sessionurl'] . 'albumid=' . $albumdata->fetch_field('albumid');
 		eval(print_standard_redirect('album_added_edited'));
 	}
+
+	unset($albumdata);
 }
 
 // #######################################################################
@@ -411,7 +443,7 @@ if ($_REQUEST['do'] == 'addalbum' OR $_REQUEST['do'] == 'editalbum')
 if ($_POST['do'] == 'updatepictures')
 {
 	$vbulletin->input->clean_array_gpc('p', array(
-		'pictures'       => TYPE_ARRAY,
+		'pictures'       => TYPE_ARRAY_ARRAY,
 		'coverpictureid' => TYPE_UINT,
 		'frompicture'    => TYPE_BOOL
 	));
@@ -436,8 +468,31 @@ if ($_POST['do'] == 'updatepictures')
 	}
 
 	$new_coverid = 0;
+	$cover_moved = false;
+	$destinations = array();
 	$need_css_rebuild = false;
 	$updatecounter = 0;
+	$deleted_picture = false;
+	$delete_usercss = array();
+	$update_usercss = array();
+
+	// Fetch possible destination albums
+	$destination_result = $db->query_read("
+		SELECT albumid, userid, title, coverpictureid, state
+		FROM " . TABLE_PREFIX . "album
+		WHERE userid = $userinfo[userid]
+	");
+
+	$destinations = array();
+
+	if ($db->num_rows($destination_result))
+	{
+		while ($album = $db->fetch_array($destination_result))
+		{
+			$destinations[$album['albumid']] = $album;
+		}
+	}
+	$db->free_result($destination_result);
 
 	$picture_sql = $db->query_read("
 		SELECT picture.pictureid, picture.userid, picture.caption, picture.extension, picture.filesize, picture.state,
@@ -465,6 +520,8 @@ if ($_POST['do'] == 'updatepictures')
 					$need_css_rebuild = true;
 				}
 
+				$deleted_picture = true;
+
 				if ($albuminfo['userid'] != $vbulletin->userinfo['userid']
 					AND can_moderate(0, 'caneditalbumpicture'))
 				{
@@ -482,6 +539,48 @@ if ($_POST['do'] == 'updatepictures')
 				// need to increase picture counter
 				$picturedata->set('state', 'visible');
 				$updatecounter++;
+
+				// album has been recently updated
+				exec_album_updated($vbulletin->userinfo, $albuminfo);
+			}
+
+			// only album owner can move pictures
+			if ($vbulletin->userinfo['userid'] == $albuminfo['userid'])
+			{
+				$picture_moved = false;
+
+				$album = $vbulletin->GPC['pictures']["$picture[pictureid]"]['album'];
+				if (isset($destinations[$album]) AND ($album != $albuminfo['albumid']))
+				{
+					$vbulletin->db->query_write("
+						UPDATE " . TABLE_PREFIX . "albumpicture
+						SET albumid = $album
+						WHERE pictureid = $picture[pictureid]
+						AND albumid = $albuminfo[albumid]
+					");
+
+					if ($db->affected_rows())
+					{
+						$updatecounter = true;
+
+						if (('private' == $destinations[$album]['state']) AND ('private' != $albuminfo['state']))
+						{
+							$delete_usercss[] = "'$albuminfo[albumid],$picture[pictureid]'";
+						}
+						else
+						{
+							$update_usercss["'$albuminfo[albumid],$picture[pictureid]'"] = "'$album,$picture[pictureid]'";
+						}
+
+						$picture_moved = $album;
+						$destinations[$album]['moved_pictures'][] = $picture[pictureid];
+					}
+
+					if ($picture['pictureid'] == $albuminfo['coverpictureid'] AND (!$new_coverid))
+					{
+						$cover_moved = true;
+					}
+				}
 			}
 
 			$picturedata->set('caption', $vbulletin->GPC['pictures']["$picture[pictureid]"]['caption']);
@@ -497,27 +596,95 @@ if ($_POST['do'] == 'updatepictures')
 				);
 			}
 
-			if ($picture['pictureid'] == $vbulletin->GPC['coverpictureid'] AND $picturedata->fetch_field('state') == 'visible')
+			if (!$picture_moved)
 			{
-				$new_coverid = $picture['pictureid'];
-			}
-			else if (!$vbulletin->GPC['coverpictureid'] AND !$new_coverid AND !$albuminfo['coverpictureid']
-				AND $picturedata->fetch_field('state') == 'visible'
-			)
-			{
-				// not setting a cover and there's no existing cover -> set to this pic
-				$new_coverid = $picture['pictureid'];
+				if ($picture['pictureid'] == $vbulletin->GPC['coverpictureid'] AND $picturedata->fetch_field('state') == 'visible')
+				{
+					$new_coverid = $picture['pictureid'];
+					$cover_moved = false;
+				}
+				else if (!$vbulletin->GPC['coverpictureid'] AND !$new_coverid AND (!$albuminfo['coverpictureid'] OR $cover_moved)
+					AND $picturedata->fetch_field('state') == 'visible'
+				)
+				{
+					// not setting a cover and there's no existing cover -> set to this pic
+					$new_coverid = $picture['pictureid'];
+					$cover_moved = false;
+				}
 			}
 		}
 	}
 
 	($hook = vBulletinHook::fetch_hook('album_picture_update_complete')) ? eval($hook) : false;
 
+	if (sizeof($delete_usercss))
+	{
+		$db->query_write("
+			DELETE FROM " . TABLE_PREFIX . "usercss
+			WHERE property = 'background_image'
+				AND value IN (" . implode(',', $delete_usercss) . ")
+				AND userid = $userinfo[userid]
+		");
+
+		$need_css_rebuild = ($need_css_rebuild OR $db->affected_rows());
+	}
+
+	if (sizeof($update_usercss))
+	{
+		foreach ($update_usercss AS $oldvalue => $newvalue)
+		{
+			$db->query_write("
+				UPDATE " . TABLE_PREFIX . "usercss
+				SET value = $newvalue
+				WHERE property = 'background_image'
+				AND value = $oldvalue
+				AND userid = $userinfo[userid]
+			");
+
+			$need_css_rebuild = ($need_css_rebuild OR $db->affected_rows());
+		}
+	}
+
+	if ($cover_moved)
+	{
+		// try and find a new cover
+		$new_coverid = $db->query_first("
+			SELECT albumpicture.pictureid
+			FROM " . TABLE_PREFIX . "albumpicture AS albumpicture
+			INNER JOIN " . TABLE_PREFIX . "picture AS picture ON (albumpicture.pictureid = picture.pictureid)
+			WHERE albumpicture.albumid = $albuminfo[albumid] AND picture.state = 'visible'
+			ORDER BY albumpicture.dateline ASC
+			LIMIT 1
+		");
+
+		$new_coverid = $new_coverid['pictureid'] ? $new_coverid['pictureid'] : 0;
+	}
+
+	// update all albums that pictures were moved to
+	foreach ($destinations as $albumid => $album)
+	{
+		if (sizeof($album['moved_pictures']))
+		{
+			$albumdata =& datamanager_init('Album', $vbulletin, ERRTYPE_SILENT);
+			$albumdata->set_existing($album);
+
+			if (!$album['coverpictureid'])
+			{
+				$albumdata->set('coverpictureid', array_shift($album['moved_pictures']));
+			}
+
+			$albumdata->rebuild_counts();
+			$albumdata->save();
+			unset($albumdata);
+		}
+	}
+
 	if ($new_coverid OR $updatecounter)
 	{
 		$albumdata =& datamanager_init('Album', $vbulletin, ERRTYPE_SILENT);
 		$albumdata->set_existing($albuminfo);
-		if ($new_coverid)
+
+		if ($new_coverid OR $cover_moved)
 		{
 			$albumdata->set('coverpictureid', $new_coverid);
 		}
@@ -526,6 +693,7 @@ if ($_POST['do'] == 'updatepictures')
 			$albumdata->rebuild_counts();
 		}
 		$albumdata->save();
+		unset($albumdata);
 	}
 
 	if ($need_css_rebuild)
@@ -535,10 +703,10 @@ if ($_POST['do'] == 'updatepictures')
 		$usercss->update_css_cache();
 	}
 
-	if ($vbulletin->GPC['frompicture'] AND sizeof($pictureids) == 1)
+	if ($vbulletin->GPC['frompicture'] AND sizeof($pictureids) == 1 AND !$deleted_picture)
 	{
 		$pictureid = reset($pictureids);
-		$vbulletin->url = 'album.php?' . $vbulletin->session->vars['sessionurl'] . "albumid=$albuminfo[albumid]&amp;pictureid=$pictureid";
+		$vbulletin->url = 'album.php?' . $vbulletin->session->vars['sessionurl'] . "albumid=" . ($picture_moved ? $picture_moved : $albuminfo[albumid]) . "&amp;pictureid=$pictureid";
 	}
 	else
 	{
@@ -614,6 +782,31 @@ if ($_REQUEST['do'] == 'editpictures')
 		preg_match('#^(\d+),(\d+)$#', $background_picture['value'], $match);
 		$match[2] = intval($match[2]);
 		$background_pictures["$match[2]"] = $match[2];
+	}
+
+	if ($vbulletin->userinfo['userid'] == $albuminfo['userid'])
+	{
+		$album_options = '';
+		$album_result = $db->query_read("
+			SELECT albumid, title
+			FROM " . TABLE_PREFIX . "album
+			WHERE userid = $userinfo[userid]
+		");
+
+		if ($db->num_rows($album_result) > 1)
+		{
+			while ($album = $db->fetch_array($album_result))
+			{
+				$optiontitle = $album['title'];
+				$optionvalue = $album['albumid'];
+				$optionselected = ($album['albumid'] == $albuminfo['albumid']) ? 'selected="selected"' : '';
+
+				eval('$album_options .= "' . fetch_template('option') . '";');
+			}
+
+			$show['move_to_album'] = true;
+		}
+		$db->free_result($album_result);
 	}
 
 	$picture_sql = $db->query_read("
@@ -827,7 +1020,6 @@ if ($_POST['do'] == 'uploadpictures')
 		$upload->data =& datamanager_init(fetch_picture_dm_name(), $vbulletin, ERRTYPE_STANDARD, 'picture');
 		$upload->image =& vB_Image::fetch_library($vbulletin);
 		$upload->albums = array($albuminfo);
-		$upload->userinfo = $userinfo;
 
 		$upload->maxwidth = $userinfo['permissions']['albumpicmaxwidth'];
 		$upload->maxheight = $userinfo['permissions']['albumpicmaxheight'];
@@ -894,10 +1086,22 @@ if ($_POST['do'] == 'uploadpictures')
 		");
 	}
 
+	// add to updated list
+	if (can_moderate(0, 'canmoderatepictures')
+		OR
+		(!$vbulletin->options['albums_pictures_moderation']
+		 AND
+		 ($vbulletin->userinfo['permissions']['albumpermissions'] & $vbulletin->bf_ugp_albumpermissions['picturefollowforummoderation']))
+		)
+	{
+		exec_album_updated($vbulletin->userinfo, $albuminfo);
+	}
+
 	$vbulletin->url = 'album.php?' . $vbulletin->session->vars['sessionurl'] .
 		"do=editpictures&amp;albumid=$albuminfo[albumid]" .
 		"&amp;pictureids[]=" . implode('&amp;pictureids[]=', $pictureids) .
 		($error_names ? "&amp;errors[]=" . implode('&amp;errors[]=', $error_names) : '');
+
 	eval(print_standard_redirect('pictures_uploaded'));
 }
 
@@ -1201,7 +1405,7 @@ if ($_REQUEST['do'] == 'report' OR $_POST['do'] == 'sendemail')
 		eval(standard_error(fetch_error('emaildisabled')));
 	}
 
-	$reportobj =& new vB_ReportItem_AlbumPicture($vbulletin);
+	$reportobj = new vB_ReportItem_AlbumPicture($vbulletin);
 	$reportobj->set_extrainfo('album', $albuminfo);
 	$reportobj->set_extrainfo('user', $userinfo);
 	$reportobj->set_extrainfo('picture', $pictureinfo);
@@ -1275,7 +1479,7 @@ if ($_REQUEST['do'] == 'picture')
 		'showignored' => TYPE_BOOL,
 	));
 
-	if (empty($pictureinfo) OR ($pictureinfo['state'] == 'moderation' AND !can_moderate(0, 'canmoderatepictures') AND $pictureinfo['userid'] != $vbulletin->userinfo['userid']))
+	if (empty($pictureinfo) OR ($pictureinfo['state'] == 'moderation' AND !can_moderate(0, 'canmoderatepictures') AND $pictureinfo['userid'] != $vbulletin->userinfo['userid']) AND !can_moderate(0, 'caneditalbumpicture'))
 	{
 		standard_error(fetch_error('invalidid', $vbphrase['picture'], $vbulletin->options['contactuslink']));
 	}
@@ -1380,6 +1584,7 @@ if ($_REQUEST['do'] == 'picture')
 		'album.php?' . $vbulletin->session->vars['sessionurl'] . "albumid=$albuminfo[albumid]" => $albuminfo['title_html'],
 		'' => $vbphrase['view_picture']
 	));
+
 	eval('$navbar = "' . fetch_template('navbar') . '";');
 
 	eval('print_output("' . fetch_template('album_pictureview') . '");');
@@ -1489,8 +1694,8 @@ if ($_REQUEST['do'] == 'album')
 	");
 
 	// work out the effective picturebit height/width including any borders and paddings; the +4 works around an IE float issue
-	$picturebit_height = $vbulletin->options['album_thumbsize'] + (($usercss ? $stylevar['cellspacing'] : 0) + $stylevar['cellpadding']) * 2 + 4;
-	$picturebit_width = $vbulletin->options['album_thumbsize'] + (($usercss ? $stylevar['cellspacing'] : 0) + $stylevar['cellpadding']) * 2;
+	$picturebit_height = $vbulletin->options['album_thumbsize'] + (($usercss ? 0 : $stylevar['cellspacing']) + $stylevar['cellpadding']) * 2 + 4;
+	$picturebit_width = $vbulletin->options['album_thumbsize'] + (($usercss ? 0 : $stylevar['cellspacing']) + $stylevar['cellpadding']) * 2;
 
 	$picturebits = '';
 	$picnum = 0;
@@ -1573,114 +1778,221 @@ if ($_REQUEST['do'] == 'album')
 }
 
 // #######################################################################
-if ($_REQUEST['do'] == 'user')
+if ($_REQUEST['do'] == 'latest' OR $_REQUEST['do'] == 'overview')
 {
 	$vbulletin->input->clean_array_gpc('r', array(
 		'pagenumber' => TYPE_UINT
 	));
 
-	$state = array('public');
-	if (can_view_private_albums($userinfo['userid']))
-	{
-		$state[] = 'private';
-	}
-	if (can_view_profile_albums($userinfo['userid']))
-	{
-		$state[] = 'profile';
-	}
-
-	$albumcount = $db->query_first("
-		SELECT COUNT(*) AS total
-		FROM " . TABLE_PREFIX . "album
-		WHERE userid = $userinfo[userid]
-			AND state IN ('" . implode("', '", $state) . "')
-	");
-
-	if ($vbulletin->GPC['pagenumber'] < 1)
-	{
-		$vbulletin->GPC['pagenumber'] = 1;
-	}
-
 	$perpage = $vbulletin->options['albums_perpage'];
-	$total_pages = max(ceil($albumcount['total'] / $perpage), 1); // handle the case of 0 albums
-	$pagenumber = ($vbulletin->GPC['pagenumber'] > $total_pages ? $total_pages : $vbulletin->GPC['pagenumber']);
-	$start = ($pagenumber - 1) * $perpage;
 
-	$hook_query_fields = $hook_query_joins = $hook_query_where = '';
-	($hook = vBulletinHook::fetch_hook('album_user_query')) ? eval($hook) : false;
-
-	// fetch data and prepare data
-	$albums = $db->query_read("
-		SELECT album.*,
-			picture.pictureid, picture.extension, picture.idhash,
-			picture.thumbnail_dateline, picture.thumbnail_width, picture.thumbnail_height
-			$hook_query_fields
-		FROM " . TABLE_PREFIX . "album AS album
-		LEFT JOIN " . TABLE_PREFIX . "picture AS picture ON (album.coverpictureid = picture.pictureid AND picture.thumbnail_filesize > 0)
-		$hook_query_joins
-		WHERE album.userid = $userinfo[userid]
-			AND album.state IN ('" . implode("', '", $state) . "')
-			$hook_query_where
-		ORDER BY album.lastpicturedate DESC
-		LIMIT $start, $perpage
-	");
-
-	$albumbits = '';
-	while ($album = $db->fetch_array($albums))
+	// only show latest if we're not showing more specific user albums
+	if ((!$userinfo OR !$vbulletin->GPC['pagenumber']) AND $vbulletin->options['album_recentalbumdays'])
 	{
-		$album['picturecount'] = vb_number_format($album['visible']);
-		$album['picturedate'] = vbdate($vbulletin->options['dateformat'], $album['lastpicturedate'], true);
-		$album['picturetime'] = vbdate($vbulletin->options['timeformat'], $album['lastpicturedate']);
+		// Create collection
+		require_once(DIR . '/includes/class_groupmessage.php');
+		$collection_factory = new vB_Collection_Factory($vbulletin);
+		$collection = $collection_factory->create('album', false, $vbulletin->GPC['pagenumber'], $perpage);
 
-		$album['description_html'] = nl2br(fetch_word_wrapped_string(fetch_censored_text($album['description'])));
-		$album['title_html'] = fetch_word_wrapped_string(fetch_censored_text($album['title']));
+		// Set counts for view
+		list($pagestart, $pageend, $pageshown, $pagetotal) = array_values($collection->fetch_counts());
 
-		$album['coverthumburl'] = ($album['pictureid'] ? fetch_picture_url($album, $album, true) : '');
-		$album['coverdimensions'] = ($album['thumbnail_width'] ? "width=\"$album[thumbnail_width]\" height=\"$album[thumbnail_height]\"" : '');
+		// Nasty kludge
+		$album_width = $album_height = $vbulletin->options['album_thumbsize'];
+		$album_height += (($stylevar['cellpadding'] * 2) + 52);
+		$album_width += ($stylevar['cellpadding'] * 2) + 16;
 
-		if ($album['state'] == 'private')
+		// Get actual resolved page number in case input was normalised
+		if ($collection->fetch_count())
 		{
-			$show['personalalbum'] = true;
-			$albumtype = $vbphrase['private_album_paren'];
+			$pagenumber = $collection->fetch_pagenumber();
+
+			// Create bit factory
+			$bitfactory = new vB_Bit_Factory($vbulletin, 'album');
+
+			// Build message bits for all items
+			$latestbits = '';
+			while ($item = $collection->fetch_item())
+			{
+				$bit =& $bitfactory->create($item);
+				$bit->set_template('album_latestbit');
+				$latestbits .= $bit->construct();
+			}
+
+			// Construct page navigation
+			$latest_pagenav = construct_page_nav($pagenumber, $perpage, $pagetotal, 'album.php?' . $vbulletin->session->vars['sessionurl'] . "do=latest");
+
+			$show['latestalbums'] = true;
 		}
-		else if ($album['state'] == 'profile')
+		unset($collection_factory, $collection);
+
+		if (!$userinfo)
 		{
-			$show['personalalbum'] = true;
-			$albumtype = $vbphrase['profile_album_paren'];
+			// navbar and final output
+			$navbits = construct_navbits(array(
+				'album.php' . $vbulletin->session->vars['sessionurl_q'] => $vbphrase['albums'],
+				'' => $vbphrase['recently_updated_albums']
+			));
+			eval('$navbar = "' . fetch_template('navbar') . '";');
+
+			$custompagetitle = $vbphrase['recently_updated_albums'];
 		}
 		else
 		{
-			$show['personalalbum'] = false;
+			// navbar and final output
+			$navbits = construct_navbits(array(
+				'album.php' . $vbulletin->session->vars['sessionurl_q'] => $vbphrase['albums'],
+				'' => $vbphrase['overview']
+			));
+			eval('$navbar = "' . fetch_template('navbar') . '";');
+
+			$custompagetitle = $vbphrase['albums'];
 		}
 
-		if ($album['moderation'] AND (can_moderate(0, 'canmoderatepictures') OR $vbulletin->userinfo['userid'] == $album['userid']))
-		{
-			$show['moderated'] = true;
-			$album['moderatedcount'] = vb_number_format($album['moderation']);
-		}
-
-		($hook = vBulletinHook::fetch_hook('album_user_albumbit')) ? eval($hook) : false;
-
-		eval('$albumbits .= "' . fetch_template('albumbit') . '";');
+		($hook = vBulletinHook::fetch_hook('album_latest_complete')) ? eval($hook) : false;
 	}
 
-	$pagenav = construct_page_nav($pagenumber, $perpage, $albumcount['total'],
-		'album.php?' . $vbulletin->session->vars['sessionurl'] . "u=$userinfo[userid]", ''
-	);
+	$templatename = 'album_list';
 
-	$show['add_album_option'] = ($userinfo['userid'] == $vbulletin->userinfo['userid']);
+	// also show user albums
+	if ($userinfo)
+	{
+		$_REQUEST['do'] = 'user';
+	}
+	else
+	{
+		if (!$latestbits)
+		{
+			standard_error(fetch_error('no_recently_updated_albums'));
+		}
+	}
+}
 
-	($hook = vBulletinHook::fetch_hook('album_user_complete')) ? eval($hook) : false;
+// #######################################################################
+if ($_REQUEST['do'] == 'user')
+{
+	// was profile privacy condition - moved up to top of file
+	if (true)
+	{
+		$show['user_albums'] = true;
+		$vbulletin->input->clean_array_gpc('r', array(
+			'pagenumber' => TYPE_UINT
+		));
 
+		$state = array('public');
+		if (can_view_private_albums($userinfo['userid']))
+		{
+			$state[] = 'private';
+		}
+		if (can_view_profile_albums($userinfo['userid']))
+		{
+			$state[] = 'profile';
+		}
+
+		$albumcount = $db->query_first("
+			SELECT COUNT(*) AS total
+			FROM " . TABLE_PREFIX . "album
+			WHERE userid = $userinfo[userid]
+				AND state IN ('" . implode("', '", $state) . "')
+		");
+
+		if ($vbulletin->GPC['pagenumber'] < 1)
+		{
+			$vbulletin->GPC['pagenumber'] = 1;
+		}
+
+		$perpage = $vbulletin->options['albums_perpage'];
+		$total_pages = max(ceil($albumcount['total'] / $perpage), 1); // handle the case of 0 albums
+		$pagenumber = ($vbulletin->GPC['pagenumber'] > $total_pages ? $total_pages : $vbulletin->GPC['pagenumber']);
+		$start = ($pagenumber - 1) * $perpage;
+
+		$hook_query_fields = $hook_query_joins = $hook_query_where = '';
+		($hook = vBulletinHook::fetch_hook('album_user_query')) ? eval($hook) : false;
+
+		// fetch data and prepare data
+		$albums = $db->query_read("
+			SELECT album.*,
+				picture.pictureid, picture.extension, picture.idhash,
+				picture.thumbnail_dateline, picture.thumbnail_width, picture.thumbnail_height
+				$hook_query_fields
+			FROM " . TABLE_PREFIX . "album AS album
+			LEFT JOIN " . TABLE_PREFIX . "picture AS picture ON (album.coverpictureid = picture.pictureid AND picture.thumbnail_filesize > 0)
+			$hook_query_joins
+			WHERE album.userid = $userinfo[userid]
+				AND album.state IN ('" . implode("', '", $state) . "')
+				$hook_query_where
+			ORDER BY album.lastpicturedate DESC
+			LIMIT $start, $perpage
+		");
+
+		$albumbits = '';
+		while ($album = $db->fetch_array($albums))
+		{
+			$album['picturecount'] = vb_number_format($album['visible']);
+			$album['picturedate'] = vbdate($vbulletin->options['dateformat'], $album['lastpicturedate'], true);
+			$album['picturetime'] = vbdate($vbulletin->options['timeformat'], $album['lastpicturedate']);
+
+			$album['description_html'] = nl2br(fetch_word_wrapped_string(fetch_censored_text($album['description'])));
+			$album['title_html'] = fetch_word_wrapped_string(fetch_censored_text($album['title']));
+
+			$album['coverthumburl'] = ($album['pictureid'] ? fetch_picture_url($album, $album, true) : '');
+			$album['coverdimensions'] = ($album['thumbnail_width'] ? "width=\"$album[thumbnail_width]\" height=\"$album[thumbnail_height]\"" : '');
+
+			if ($album['state'] == 'private')
+			{
+				$show['personalalbum'] = true;
+				$albumtype = $vbphrase['private_album_paren'];
+			}
+			else if ($album['state'] == 'profile')
+			{
+				$show['personalalbum'] = true;
+				$albumtype = $vbphrase['profile_album_paren'];
+			}
+			else
+			{
+				$show['personalalbum'] = false;
+			}
+
+			if ($album['moderation'] AND (can_moderate(0, 'canmoderatepictures') OR $vbulletin->userinfo['userid'] == $album['userid']))
+			{
+				$show['moderated'] = true;
+				$album['moderatedcount'] = vb_number_format($album['moderation']);
+			}
+			else
+			{
+				$show['moderated'] = false;
+			}
+
+			($hook = vBulletinHook::fetch_hook('album_user_albumbit')) ? eval($hook) : false;
+
+			eval('$albumbits .= "' . fetch_template('albumbit') . '";');
+		}
+
+		$pagenav = construct_page_nav($pagenumber, $perpage, $albumcount['total'],
+			'album.php?' . $vbulletin->session->vars['sessionurl'] . "u=$userinfo[userid]", ''
+		);
+
+		$show['add_album_option'] = ($userinfo['userid'] == $vbulletin->userinfo['userid']);
+
+		($hook = vBulletinHook::fetch_hook('album_user_complete')) ? eval($hook) : false;
+	}
+
+	if (!$navbits)
+	{
 	// navbar and final output
 	$navbits = construct_navbits(array(
 		'member.php?' . $vbulletin->session->vars['sessionurl'] . "u=$userinfo[userid]" => construct_phrase($vbphrase['xs_profile'], $userinfo['username']),
 		'' => $vbphrase['albums']
 	));
+
 	eval('$navbar = "' . fetch_template('navbar') . '";');
 
-	eval('print_output("' . fetch_template('album_list') . '");');
+		$custompagetitle = ($custompagetitle ? $custompagetitle : construct_phrase($vbphrase['xs_albums'], $userinfo['username']));
 }
+
+	$templatename = 'album_list';
+}
+
 
 // #######################################################################
 if ($_REQUEST['do'] == 'moderated')
@@ -1707,7 +2019,7 @@ if ($_REQUEST['do'] == 'moderated')
 
 	$coventry = fetch_coventry('string');
 
-	$bbcode =& new vB_BbCodeParser($vbulletin, fetch_tag_list());
+	$bbcode = new vB_BbCodeParser($vbulletin, fetch_tag_list());
 
 	// note: this code assumes that albumpicture and picture are 1:1 because they are in 3.7
 	$comments = $db->query_read_slave("
@@ -1752,9 +2064,9 @@ if ($_REQUEST['do'] == 'moderated')
 
 		$pictureinfo = prepare_pictureinfo_thumb($pictureinfo, $albuminfo);
 
-		$factory =& new vB_Picture_CommentFactory($vbulletin, $bbcode, $pictureinfo);
+		$factory = new vB_Picture_CommentFactory($vbulletin, $bbcode, $pictureinfo);
 
-		$response_handler =& new vB_Picture_Comment_ModeratedView($vbulletin, $factory, $bbcode, $pictureinfo, $comment);
+		$response_handler = new vB_Picture_Comment_ModeratedView($vbulletin, $factory, $bbcode, $pictureinfo, $comment);
 		$response_handler->cachable = false;
 
 		$picturecommentbits .= $response_handler->construct();
@@ -1832,8 +2144,8 @@ if ($_REQUEST['do'] == 'unread')
 	");
 
 	// work out the effective picturebit height/width including any borders and paddings; the +4 works around an IE float issue
-	$picturebit_height = $vbulletin->options['album_thumbsize'] + (($usercss ? $stylevar['cellspacing'] : 0) + $stylevar['cellpadding']) * 2 + 4;
-	$picturebit_width = $vbulletin->options['album_thumbsize'] + (($usercss ? $stylevar['cellspacing'] : 0) + $stylevar['cellpadding']) * 2;
+	$picturebit_height = $vbulletin->options['album_thumbsize'] + (($usercss ? 0 : $stylevar['cellspacing']) + $stylevar['cellpadding']) * 2 + 4;
+	$picturebit_width = $vbulletin->options['album_thumbsize'] + (($usercss ? 0 : $stylevar['cellspacing']) + $stylevar['cellpadding']) * 2;
 
 	$picturebits = '';
 	$unread_count = 0;
@@ -1879,10 +2191,19 @@ if ($_REQUEST['do'] == 'unread')
 	eval('print_output("' . fetch_template('album_unreadcomments') . '");');
 }
 
+
+
+// #######################################################################
+if ($templatename != '')
+{
+	$custompagetitle = empty($custompagetitle) ? $pagetitle : $custompagetitle;
+	eval('print_output("' . fetch_template($templatename) . '");');
+}
+
 /*======================================================================*\
 || ####################################################################
-|| # Downloaded: 16:21, Sat Apr 6th 2013
-|| # CVS: $RCSfile$ - $Revision: 26998 $
+|| # Downloaded: 20:50, Sun Aug 11th 2013
+|| # CVS: $RCSfile$ - $Revision: 39862 $
 || ####################################################################
 \*======================================================================*/
 ?>

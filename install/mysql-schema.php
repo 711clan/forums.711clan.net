@@ -1,16 +1,16 @@
 <?php
 /*======================================================================*\
 || #################################################################### ||
-|| # vBulletin 3.7.2 Patch Level 2 - Licence Number VBF2470E4F
+|| # vBulletin 3.8.7 Patch Level 3 - Licence Number VBC2DDE4FB
 || # ---------------------------------------------------------------- # ||
-|| # Copyright ©2000-2013 Jelsoft Enterprises Ltd. All Rights Reserved. ||
+|| # Copyright ©2000-2013 vBulletin Solutions, Inc. All Rights Reserved. ||
 || # This file may not be redistributed in whole or significant part. # ||
 || # ---------------- VBULLETIN IS NOT FREE SOFTWARE ---------------- # ||
 || # http://www.vbulletin.com | http://www.vbulletin.com/license.html # ||
 || #################################################################### ||
 \*======================================================================*/
 
-error_reporting(E_ALL & ~E_NOTICE);
+error_reporting(E_ALL & ~E_NOTICE & ~8192);
 
 define('SCHEMA', 'mysql');
 
@@ -150,6 +150,17 @@ CREATE TABLE " . TABLE_PREFIX . "albumpicture (
 )
 ";
 $schema['CREATE']['explain']['albumpicture'] = sprintf($vbphrase['create_table'], TABLE_PREFIX . "albumpicture");
+
+
+
+$schema['CREATE']['query']['albumupdate'] = "
+CREATE TABLE " . TABLE_PREFIX . "albumupdate (
+	albumid INT UNSIGNED NOT NULL DEFAULT '0',
+	dateline INT UNSIGNED NOT NULL DEFAULT '0',
+	PRIMARY KEY (albumid)
+)
+";
+$schema['CREATE']['explain']['albumupdate'] = sprintf($vbphrase['create_table'], TABLE_PREFIX . "albumupdate");
 
 
 
@@ -300,6 +311,7 @@ CREATE TABLE " . TABLE_PREFIX . "bookmarksite (
 	active  SMALLINT UNSIGNED NOT NULL DEFAULT '0',
 	displayorder INT UNSIGNED NOT NULL DEFAULT '0',
 	url VARCHAR(250) NOT NULL DEFAULT '',
+	utf8encode SMALLINT UNSIGNED NOT NULL DEFAULT '0',
 	PRIMARY KEY (bookmarksiteid)
 )
 ";
@@ -492,6 +504,40 @@ $schema['CREATE']['explain']['deletionlog'] = sprintf($vbphrase['create_table'],
 
 
 
+$schema['CREATE']['query']['discussion'] = "
+CREATE TABLE " . TABLE_PREFIX . "discussion (
+	discussionid INT unsigned NOT NULL auto_increment,
+	groupid INT unsigned NOT NULL,
+	firstpostid INT unsigned NOT NULL,
+	lastpostid INT unsigned NOT NULL,
+	lastpost INT unsigned NOT NULL,
+	lastposter VARCHAR(255) NOT NULL,
+	lastposterid INT unsigned NOT NULL,
+	visible INT unsigned NOT NULL default '0',
+	deleted INT unsigned NOT NULL default '0',
+	moderation INT unsigned NOT NULL default '0',
+	subscribers ENUM('0', '1') default '0',
+	PRIMARY KEY  (discussionid),
+	KEY groupid (groupid, lastpost)
+)
+";
+$schema['CREATE']['explain']['discussion'] = sprintf($vbphrase['create_table'], TABLE_PREFIX . "discussion");
+
+
+
+$schema['CREATE']['query']['discussionread'] = "
+CREATE TABLE " . TABLE_PREFIX . "discussionread (
+	userid INT unsigned NOT NULL,
+	discussionid INT unsigned NOT NULL,
+	readtime INT unsigned NOT NULL,
+	PRIMARY KEY (userid, discussionid),
+	KEY readtime (readtime)
+)
+";
+$schema['CREATE']['explain']['discussionread'] = sprintf($vbphrase['create_table'], TABLE_PREFIX . "discussionread");
+
+
+
 $schema['CREATE']['query']['editlog'] = "
 CREATE TABLE " . TABLE_PREFIX . "editlog (
 	postid INT UNSIGNED NOT NULL DEFAULT '0',
@@ -520,7 +566,7 @@ CREATE TABLE " . TABLE_PREFIX . "event (
 	customfields MEDIUMTEXT,
 	visible SMALLINT NOT NULL DEFAULT '0',
 	dateline INT UNSIGNED NOT NULL DEFAULT '0',
-	utc SMALLINT NOT NULL DEFAULT '0',
+	utc DECIMAL(4,2) NOT NULL DEFAULT '0.0',
 	dst SMALLINT NOT NULL DEFAULT '1',
 	dateline_from INT UNSIGNED NOT NULL DEFAULT '0',
 	dateline_to INT UNSIGNED NOT NULL DEFAULT '0',
@@ -613,7 +659,7 @@ $schema['CREATE']['explain']['forumread'] = sprintf($vbphrase['create_table'], T
 
 $schema['CREATE']['query']['forumpermission'] = "
 CREATE TABLE " . TABLE_PREFIX . "forumpermission (
-	forumpermissionid SMALLINT UNSIGNED NOT NULL AUTO_INCREMENT,
+	forumpermissionid INT UNSIGNED NOT NULL AUTO_INCREMENT,
 	forumid SMALLINT UNSIGNED NOT NULL DEFAULT '0',
 	usergroupid SMALLINT UNSIGNED NOT NULL DEFAULT '0',
 	forumpermissions INT UNSIGNED NOT NULL DEFAULT '0',
@@ -639,7 +685,7 @@ $schema['CREATE']['explain']['forumprefixset'] = sprintf($vbphrase['create_table
 $schema['CREATE']['query']['groupmessage'] = "
 CREATE TABLE " . TABLE_PREFIX . "groupmessage (
   gmid INT UNSIGNED NOT NULL auto_increment,
-  groupid INT UNSIGNED NOT NULL DEFAULT '0',
+  discussionid INT UNSIGNED NOT NULL DEFAULT '0',
   postuserid INT UNSIGNED NOT NULL DEFAULT '0',
   postusername VARCHAR(100) NOT NULL DEFAULT '',
   dateline INT UNSIGNED NOT NULL DEFAULT '0',
@@ -650,9 +696,10 @@ CREATE TABLE " . TABLE_PREFIX . "groupmessage (
   allowsmilie SMALLINT UNSIGNED NOT NULL DEFAULT '0',
   reportthreadid INT UNSIGNED NOT NULL DEFAULT '0',
   PRIMARY KEY  (gmid),
-  KEY postuserid (postuserid, groupid, state),
-  KEY groupid (groupid, dateline, state)
-)
+  KEY postuserid (postuserid, discussionid, state),
+  KEY discussionid (discussionid, dateline, state),
+  FULLTEXT KEY gm_ft (title, pagetext)
+) $enginetype=MyISAM
 ";
 $schema['CREATE']['explain']['groupmessage'] = sprintf($vbphrase['create_table'], TABLE_PREFIX . "groupmessage");
 
@@ -670,6 +717,19 @@ CREATE TABLE " . TABLE_PREFIX . "groupmessage_hash
 )
 ";
 $schema['CREATE']['explain']['groupmessage_hash'] = sprintf($vbphrase['create_table'], TABLE_PREFIX . "groupmessage_hash");
+
+
+
+$schema['CREATE']['query']['groupread'] = "
+CREATE TABLE " . TABLE_PREFIX . "groupread (
+	userid INT unsigned NOT NULL,
+	groupid INT unsigned NOT NULL,
+	readtime INT unsigned NOT NULL,
+	PRIMARY KEY  (userid, groupid),
+	KEY readtime (readtime)
+)
+";
+$schema['CREATE']['explain']['groupread'] = sprintf($vbphrase['create_table'], TABLE_PREFIX . "groupread");
 
 
 
@@ -951,7 +1011,7 @@ CREATE TABLE " . TABLE_PREFIX . "moderator (
 	permissions INT UNSIGNED NOT NULL DEFAULT '0',
 	permissions2 INT UNSIGNED NOT NULl DEFAULT '0',
 	PRIMARY KEY (moderatorid),
-	KEY userid (userid, forumid)
+	UNIQUE KEY userid_forumid (userid, forumid)
 )
 ";
 $schema['CREATE']['explain']['moderator'] = sprintf($vbphrase['create_table'], TABLE_PREFIX . "moderator");
@@ -996,6 +1056,7 @@ CREATE TABLE " . TABLE_PREFIX . "notice (
 	displayorder INT UNSIGNED NOT NULL DEFAULT '0',
 	persistent SMALLINT UNSIGNED NOT NULL default '0',
 	active SMALLINT UNSIGNED NOT NULL DEFAULT '0',
+	dismissible SMALLINT UNSIGNED NOT NULL DEFAULT '0',
 	PRIMARY KEY (noticeid),
 	KEY active (active)
 )
@@ -1015,6 +1076,18 @@ CREATE TABLE " . TABLE_PREFIX . "noticecriteria (
 	)
 ";
 $schema['CREATE']['explain']['noticecriteria'] = sprintf($vbphrase['create_table'], TABLE_PREFIX . "noticecriteria");
+
+
+
+$schema['CREATE']['query']['noticedismissed'] = "
+CREATE TABLE " . TABLE_PREFIX . "noticedismissed (
+		noticeid INT UNSIGNED NOT NULL DEFAULT '0',
+		userid INT UNSIGNED NOT NULL DEFAULT '0',
+		PRIMARY KEY (noticeid,userid),
+		KEY userid (userid)
+	)
+";
+$schema['CREATE']['explain']['noticedismissed'] = sprintf($vbphrase['create_table'], TABLE_PREFIX . "noticedismissed");
 
 
 
@@ -1206,12 +1279,24 @@ CREATE TABLE " . TABLE_PREFIX . "pm (
 	userid INT UNSIGNED NOT NULL DEFAULT '0',
 	folderid SMALLINT NOT NULL DEFAULT '0',
 	messageread SMALLINT UNSIGNED NOT NULL DEFAULT '0',
+	parentpmid INT UNSIGNED NOT NULL DEFAULT '0',
 	PRIMARY KEY (pmid),
 	KEY pmtextid (pmtextid),
 	KEY userid (userid, folderid)
 )
 ";
 $schema['CREATE']['explain']['pm'] = sprintf($vbphrase['create_table'], TABLE_PREFIX . "pm");
+
+
+
+$schema['CREATE']['query']['pmthrottle'] = "
+CREATE TABLE " . TABLE_PREFIX . "pmthrottle (
+	userid INT unsigned NOT NULL,
+	dateline INT unsigned NOT NULL,
+	KEY userid (userid)
+)
+";
+$schema['CREATE']['explain']['pmthrottle'] = sprintf($vbphrase['create_table'], TABLE_PREFIX . "pmthrottle");
 
 
 
@@ -1246,6 +1331,7 @@ CREATE TABLE " . TABLE_PREFIX . "pmtext (
 	dateline INT UNSIGNED NOT NULL DEFAULT '0',
 	showsignature SMALLINT UNSIGNED NOT NULL DEFAULT '0',
 	allowsmilie SMALLINT UNSIGNED NOT NULL DEFAULT '1',
+	reportthreadid INT UNSIGNED NOT NULL DEFAULT '0',
 	PRIMARY KEY (pmtextid),
 	KEY fromuserid (fromuserid, dateline)
 )
@@ -1423,11 +1509,24 @@ CREATE TABLE " . TABLE_PREFIX . "prefix (
 	prefixid VARCHAR(25) NOT NULL DEFAULT '',
 	prefixsetid VARCHAR(25) NOT NULL DEFAULT '',
 	displayorder INT UNSIGNED NOT NULL DEFAULT '0',
+	options INT UNSIGNED NOT NULL DEFAULT '0',
 	PRIMARY KEY (prefixid),
 	KEY prefixsetid (prefixsetid, displayorder)
 )
 ";
 $schema['CREATE']['explain']['prefix'] = sprintf($vbphrase['create_table'], TABLE_PREFIX . "prefix");
+
+
+
+
+$schema['CREATE']['query']['prefixpermission'] = "
+CREATE TABLE " . TABLE_PREFIX . "prefixpermission (
+	prefixid VARCHAR(25) NOT NULL DEFAULT '',
+	usergroupid SMALLINT UNSIGNED NOT NULL DEFAULT '0',
+KEY prefixsetid (prefixid, usergroupid)
+)
+";
+$schema['CREATE']['explain']['prefixpermission'] = sprintf($vbphrase['create_table'], TABLE_PREFIX . "prefixpermission");
 
 
 
@@ -1502,6 +1601,16 @@ CREATE TABLE " . TABLE_PREFIX . "productdependency (
 $schema['CREATE']['explain']['productdependency'] = sprintf($vbphrase['create_table'], TABLE_PREFIX . "productdependency");
 
 
+$schema['CREATE']['query']['profileblockprivacy'] = "
+CREATE TABLE " . TABLE_PREFIX . "profileblockprivacy (
+	userid INT UNSIGNED NOT NULL,
+	blockid varchar(255) NOT NULL,
+	requirement SMALLINT UNSIGNED NOT NULL DEFAULT '0',
+	PRIMARY KEY (userid, blockid)
+)
+";
+$schema['CREATE']['explain']['profileblockprivacy'] = sprintf($vbphrase['create_table'], TABLE_PREFIX . "profileblockprivacy");
+
 
 $schema['CREATE']['query']['profilefield'] = "
 CREATE TABLE " . TABLE_PREFIX . "profilefield (
@@ -1538,6 +1647,7 @@ CREATE TABLE " . TABLE_PREFIX . "profilefieldcategory (
 	profilefieldcategoryid SMALLINT UNSIGNED NOT NULL AUTO_INCREMENT,
 	displayorder SMALLINT NOT NULL DEFAULT '0',
 	location VARCHAR(25) NOT NULL DEFAULT '',
+	allowprivacy SMALLINT UNSIGNED NOT NULL DEFAULT '0',
 	PRIMARY KEY (profilefieldcategoryid)
 )
 ";
@@ -1621,12 +1731,12 @@ $schema['CREATE']['explain']['reminder'] = sprintf($vbphrase['create_table'], TA
 $schema['CREATE']['query']['reputation'] = "
 CREATE TABLE " . TABLE_PREFIX . "reputation (
 	reputationid INT UNSIGNED NOT NULL AUTO_INCREMENT,
-	postid INT NOT NULL DEFAULT '1',
-	userid INT NOT NULL DEFAULT '1',
+	postid INT UNSIGNED NOT NULL DEFAULT '1',
+	userid INT UNSIGNED NOT NULL DEFAULT '1',
 	reputation INT NOT NULL DEFAULT '0',
-	whoadded INT NOT NULL DEFAULT '0',
+	whoadded INT UNSIGNED NOT NULL DEFAULT '0',
 	reason VARCHAR(250) DEFAULT NULL DEFAULT '',
-	dateline INT NOT NULL DEFAULT '0',
+	dateline INT UNSIGNED NOT NULL DEFAULT '0',
 	PRIMARY KEY (reputationid),
 	KEY userid (userid),
 	KEY whoadded_postid (whoadded, postid),
@@ -1826,6 +1936,7 @@ $schema['CREATE']['explain']['spamlog'] = sprintf($vbphrase['create_table'], TAB
 $schema['CREATE']['query']['socialgroup'] = "
 CREATE TABLE " . TABLE_PREFIX . "socialgroup (
 	groupid INT unsigned NOT NULL auto_increment,
+	socialgroupcategoryid INT unsigned NOT NULL,
 	name VARCHAR(255) NOT NULL DEFAULT '',
 	description TEXT,
 	creatoruserid INT unsigned NOT NULL DEFAULT '0',
@@ -1842,6 +1953,11 @@ CREATE TABLE " . TABLE_PREFIX . "socialgroup (
 	type ENUM('public', 'moderated', 'inviteonly') NOT NULL default 'public',
 	moderatedmembers INT UNSIGNED NOT NULL DEFAULT '0',
 	options INT UNSIGNED NOT NULL DEFAULT '0',
+	lastdiscussionid INT UNSIGNED NOT NULL DEFAULT '0',
+	discussions INT UNSIGNED DEFAULT NULL DEFAULT '0',
+	lastdiscussion VARCHAR(255) NOT NULL DEFAULT '',
+	lastupdate INT UNSIGNED NOT NULL DEFAULT '0',
+	transferowner INT UNSIGNED NOT NULL DEFAULT '0',
 	PRIMARY KEY (groupid),
 	KEY creatoruserid (creatoruserid),
 	KEY dateline (dateline),
@@ -1849,10 +1965,45 @@ CREATE TABLE " . TABLE_PREFIX . "socialgroup (
 	KEY picturecount (picturecount),
 	KEY visible (visible),
 	KEY lastpost (lastpost),
+	KEY socialgroupcategoryid (socialgroupcategoryid),
 	FULLTEXT KEY name (name, description)
 ) $enginetype=MyISAM
 ";
 $schema['CREATE']['explain']['socialgroup'] = sprintf($vbphrase['create_table'], TABLE_PREFIX . "socialgroup");
+
+$schema['CREATE']['query']['socialgroupcategory'] = "
+CREATE TABLE " . TABLE_PREFIX . "socialgroupcategory (
+ socialgroupcategoryid INT unsigned NOT NULL auto_increment,
+ creatoruserid INT unsigned NOT NULL,
+ title VARCHAR(250) NOT NULL,
+ description TEXT NOT NULL,
+ displayorder INT unsigned NOT NULL,
+ lastupdate INT unsigned NOT NULL,
+ groups INT unsigned DEFAULT '0',
+ PRIMARY KEY  (socialgroupcategoryid),
+ KEY displayorder (displayorder)
+)
+";
+$schema['CREATE']['explain']['socialgroupcategory'] = sprintf($vbphrase['create_table'], TABLE_PREFIX . "socialgroupcategory");
+
+
+
+$schema['CREATE']['query']['socialgroupicon'] = "
+CREATE TABLE " . TABLE_PREFIX . "socialgroupicon (
+	groupid INT unsigned NOT NULL default '0',
+	userid INT unsigned default '0',
+	filedata mediumblob,
+	extension VARCHAR(20) NOT NULL default '',
+	dateline INT unsigned NOT NULL default '0',
+	width INT unsigned NOT NULL default '0',
+	height INT unsigned NOT NULL default '0',
+	thumbnail_filedata mediumblob,
+	thumbnail_width INT unsigned NOT NULL default '0',
+	thumbnail_height INT unsigned NOT NULL default '0',
+	PRIMARY KEY  (groupid))
+";
+$schema['CREATE']['explain']['socialgroupicon'] = sprintf($vbphrase['create_table'], TABLE_PREFIX . "socialgroupicon");
+
 
 
 $schema['CREATE']['query']['socialgroupmember'] = "
@@ -1932,6 +2083,21 @@ $schema['CREATE']['explain']['style'] = sprintf($vbphrase['create_table'], TABLE
 
 
 
+$schema['CREATE']['query']['subscribediscussion'] = "
+CREATE TABLE " . TABLE_PREFIX . "subscribediscussion (
+	subscribediscussionid INT unsigned NOT NULL auto_increment,
+	userid INT unsigned NOT NULL,
+	discussionid INT unsigned NOT NULL,
+	emailupdate SMALLINT unsigned NOT NULL default '0',
+	PRIMARY KEY (subscribediscussionid),
+	UNIQUE KEY userdiscussion (userid, discussionid),
+KEY discussionid (discussionid)
+)
+";
+$schema['CREATE']['explain']['subscribediscussion'] = sprintf($vbphrase['create_table'], TABLE_PREFIX . "subscribediscussion");
+
+
+
 $schema['CREATE']['query']['subscribeevent'] = "
 CREATE TABLE " . TABLE_PREFIX . "subscribeevent (
 	subscribeeventid INT UNSIGNED NOT NULL AUTO_INCREMENT,
@@ -1945,6 +2111,21 @@ CREATE TABLE " . TABLE_PREFIX . "subscribeevent (
 )
 ";
 $schema['CREATE']['explain']['subscribeevent'] = sprintf($vbphrase['create_table'], TABLE_PREFIX . "subscribeevent");
+
+
+
+$schema['CREATE']['query']['subscribegroup'] = "
+CREATE TABLE " . TABLE_PREFIX . "subscribegroup (
+	subscribegroupid INT unsigned NOT NULL auto_increment,
+	userid INT unsigned NOT NULL,
+	groupid INT unsigned NOT NULL,
+	emailupdate ENUM('daily', 'weekly', 'none') NOT NULL DEFAULT 'none',
+	PRIMARY KEY  (subscribegroupid),
+	UNIQUE KEY usergroup (userid, groupid),
+	KEY groupid (groupid)
+)
+";
+$schema['CREATE']['explain']['subscribegroup'] = sprintf($vbphrase['create_table'], TABLE_PREFIX . "subscribegroup");
 
 
 
@@ -2174,7 +2355,7 @@ CREATE TABLE " . TABLE_PREFIX . "thread (
 	deletedcount INT UNSIGNED NOT NULL DEFAULT '0',
 	postusername VARCHAR(100) NOT NULL DEFAULT '',
 	postuserid INT UNSIGNED NOT NULL DEFAULT '0',
-	lastposter CHAR(50) NOT NULL DEFAULT '',
+	lastposter VARCHAR(100) NOT NULL DEFAULT '',
 	dateline INT UNSIGNED NOT NULL DEFAULT '0',
 	views INT UNSIGNED NOT NULL DEFAULT '0',
 	iconid SMALLINT UNSIGNED NOT NULL DEFAULT '0',
@@ -2301,7 +2482,7 @@ CREATE TABLE " . TABLE_PREFIX . "user (
 	avatarrevision INT UNSIGNED NOT NULL DEFAULT '0',
 	profilepicrevision INT UNSIGNED NOT NULL DEFAULT '0',
 	sigpicrevision INT UNSIGNED NOT NULL DEFAULT '0',
-	options INT UNSIGNED NOT NULL DEFAULT '15',
+	options INT UNSIGNED NOT NULL DEFAULT '33554447',
 	birthday CHAR(10) NOT NULL DEFAULT '',
 	birthday_search DATE NOT NULL DEFAULT '0000-00-00',
 	maxposts SMALLINT NOT NULL DEFAULT '-1',
@@ -2314,7 +2495,7 @@ CREATE TABLE " . TABLE_PREFIX . "user (
 	autosubscribe SMALLINT NOT NULL DEFAULT '-1',
 	pmtotal SMALLINT UNSIGNED NOT NULL DEFAULT '0',
 	pmunread SMALLINT UNSIGNED NOT NULL DEFAULT '0',
-	salt CHAR(3) NOT NULL DEFAULT '',
+	salt CHAR(30) NOT NULL DEFAULT '',
 	ipoints INT UNSIGNED NOT NULL DEFAULT '0',
 	infractions INT UNSIGNED NOT NULL DEFAULT '0',
 	warnings INT UNSIGNED NOT NULL DEFAULT '0',
@@ -2348,7 +2529,7 @@ CREATE TABLE " . TABLE_PREFIX . "useractivation (
 	useractivationid INT UNSIGNED NOT NULL AUTO_INCREMENT,
 	userid INT UNSIGNED NOT NULL DEFAULT '0',
 	dateline INT UNSIGNED NOT NULL DEFAULT '0',
-	activationid bigint UNSIGNED NOT NULL DEFAULT '0',
+	activationid VARCHAR(40) NOT NULL DEFAULT '',
 	type SMALLINT UNSIGNED NOT NULL DEFAULT '0',
 	usergroupid SMALLINT UNSIGNED NOT NULL DEFAULT '0',
 	emailchange SMALLINT UNSIGNED NOT NULL DEFAULT '0',
@@ -2486,6 +2667,9 @@ CREATE TABLE " . TABLE_PREFIX . "usergroup (
 	albummaxpics INT UNSIGNED NOT NULL DEFAULT '0',
 	albummaxsize INT UNSIGNED NOT NULL DEFAULT '0',
 	socialgrouppermissions INT UNSIGNED NOT NULL DEFAULT '0',
+	pmthrottlequantity INT UNSIGNED NOT NULL DEFAULT '0',
+	groupiconmaxsize INT UNSIGNED NOT NULL DEFAULT '0',
+	maximumsocialgroups INT UNSIGNED NOT NULL DEFAULT '0',
 	PRIMARY KEY (usergroupid)
 )
 ";
@@ -2548,7 +2732,8 @@ CREATE TABLE " . TABLE_PREFIX . "usernote (
 	title VARCHAR(255) NOT NULL DEFAULT '',
 	allowsmilies SMALLINT NOT NULL DEFAULT '0',
 	PRIMARY KEY (usernoteid),
-	KEY userid (userid)
+	KEY userid (userid),
+	KEY posterid (posterid)
 )
 ";
 $schema['CREATE']['explain']['usernote'] = sprintf($vbphrase['create_table'], TABLE_PREFIX . "usernote");
@@ -2874,7 +3059,7 @@ INSERT INTO " . TABLE_PREFIX . "paymentapi (title, currency, recurring, classnam
 		'validate' => 'string'
 	)
 ))) . "'),
-('Worldpay', 'usd,gbp,eur', 1, 'worldpay', 0, '" . $db->escape_string(serialize(array(
+('Worldpay', 'usd,gbp,eur', 0, 'worldpay', 0, '" . $db->escape_string(serialize(array(
 	'worldpay_instid' => array(
 		'type' => 'text',
 		'value' => '',
@@ -3064,7 +3249,6 @@ $schema['INSERT']['query']['phrasetype'] = "
 $schema['INSERT']['explain']['phrasetype'] = sprintf($vbphrase['default_data_type'], TABLE_PREFIX . "phrasetype");
 
 
-
 $schema['INSERT']['query']['style'] = "INSERT INTO " . TABLE_PREFIX . "style (styleid, title, parentid, templatelist, css, replacements, userselect, displayorder) VALUES
 (1, '{$install_phrases['default_style']}', -1, '1, -1', '', '', 1, 1)
 ";
@@ -3156,6 +3340,15 @@ foreach ($myobj->data['ugp'] AS $grouptitle => $perms)
 	}
 }
 
+$schema['INSERT']['query']['socialgroupcategory'] = "
+REPLACE INTO " . TABLE_PREFIX . "socialgroupcategory (socialgroupcategoryid, creatoruserid, title, description, displayorder, lastupdate) VALUES
+	(1, 1, '$install_phrases[socialgroups_uncategorized]', '$install_phrases[socialgroups_uncategorized_description]', 1, " . TIMENOW . ")
+";
+
+$schema['INSERT']['explain']['socialgroupcategory'] = sprintf($vbphrase['default_data_type'], TABLE_PREFIX . "socialgroupcategory");
+
+
+
 $schema['INSERT']['query']['usergroup'] = "
 INSERT INTO " . TABLE_PREFIX . "usergroup
 	(	usergroupid, title, description, usertitle,
@@ -3169,7 +3362,8 @@ INSERT INTO " . TABLE_PREFIX . "usergroup
 		profilepicmaxwidth, profilepicmaxheight, profilepicmaxsize,
 		sigmaxrawchars, sigmaxchars, sigmaxlines, sigmaxsizebbcode, sigmaximages,
 		sigpicmaxwidth, sigpicmaxheight, sigpicmaxsize,
-		albumpicmaxwidth, albumpicmaxheight, albumpicmaxsize, albummaxpics, albummaxsize
+		albumpicmaxwidth, albumpicmaxheight, albumpicmaxsize, albummaxpics, albummaxsize,
+		pmthrottlequantity, groupiconmaxsize, maximumsocialgroups
 	)
 VALUES
 	(	1, '{$install_phrases['usergroup_guest_title']}', '', '{$install_phrases['usergroup_guest_usertitle']}',
@@ -3183,7 +3377,8 @@ VALUES
 		100, 100, 65535,
 		1000, 500, 0, 7, 4,
 		500, 100, 10000,
-		600, 600, 100000, 100, 0
+		600, 600, 100000, 100, 0,
+		0, 65535, 0
 	),
 	(	2, '{$install_phrases['usergroup_registered_title']}', '', '',
 		0, 0, 50, 5, '', '', 0, 0,
@@ -3196,7 +3391,8 @@ VALUES
 		100, 100, 65535,
 		1000, 500, 0, 7, 4,
 		500, 100, 10000,
-		600, 600, 100000, 100, 0
+		600, 600, 100000, 100, 0,
+		0, 65535, 5
 	),
 	(	3, '{$install_phrases['usergroup_activation_title']}', '', '',
 		0, 0, 50, 1, '', '', 0, 0,
@@ -3209,7 +3405,8 @@ VALUES
 		100, 100, 65535,
 		1000, 500, 0, 7, 4,
 		500, 100, 10000,
-		600, 600, 100000, 100, 0
+		600, 600, 100000, 100, 0,
+		0, 65535, 5
 	),
 	(	4, '{$install_phrases['usergroup_coppa_title']}', '', '',
 		0, 0, 50, 1, '', '', 0, 0,
@@ -3222,7 +3419,8 @@ VALUES
 		100, 100, 65535,
 		1000, 500, 0, 7, 4,
 		500, 100, 10000,
-		600, 600, 100000, 100, 0
+		600, 600, 100000, 100, 0,
+		0, 65535, 5
 	),
 	(	5, '{$install_phrases['usergroup_super_title']}', '', '{$install_phrases['usergroup_super_usertitle']}',
 		0, 0, 50, 0, '', '', 0, 0,
@@ -3235,7 +3433,8 @@ VALUES
 		100, 100, 65535,
 		1000, 500, 0, 7, 4,
 		500, 100, 10000,
-		600, 600, 100000, 100, 0
+		600, 600, 100000, 100, 0,
+		0, 65535, 5
 	),
 	(	6, '{$install_phrases['usergroup_admin_title']}', '', '{$install_phrases['usergroup_admin_usertitle']}',
 		180, 360, 50, 5, '', '', 0, 0,
@@ -3248,7 +3447,8 @@ VALUES
 		100, 100, 65535,
 		0, 0, 0, 7, 0,
 		500, 100, 10000,
-		600, 600, 100000, 100, 0
+		600, 600, 100000, 100, 0,
+		0, 65535, 5
 	),
 	(	7, '{$install_phrases['usergroup_mod_title']}', '', '{$install_phrases['usergroup_mod_usertitle']}',
 		0, 0, 50, 5, '', '', 0, 0,
@@ -3261,7 +3461,8 @@ VALUES
 		100, 100, 65535,
 		1000, 500, 0, 7, 4,
 		500, 100, 10000,
-		600, 600, 100000, 100, 0
+		600, 600, 100000, 100, 0,
+		0, 65535, 5
 	),
 	(	8, '{$install_phrases['usergroup_banned_title']}', '', '{$install_phrases['usergroup_banned_usertitle']}',
 		0, 0, 0, 0, '', '', 0, 0,
@@ -3274,7 +3475,8 @@ VALUES
 		100, 100, 65535,
 		1000, 500, 0, 7, 4,
 		500, 100, 10000,
-		600, 600, 100000, 100, 0
+		600, 600, 100000, 100, 0,
+		0, 65535, 5
 	)
 ";
 
@@ -3295,8 +3497,8 @@ $schema['INSERT']['explain']['usertitle'] = sprintf($vbphrase['default_data_type
 
 /*======================================================================*\
 || ####################################################################
-|| # Downloaded: 16:21, Sat Apr 6th 2013
-|| # CVS: $RCSfile$ - $Revision: 26425 $
+|| # Downloaded: 20:50, Sun Aug 11th 2013
+|| # CVS: $RCSfile$ - $Revision: 39862 $
 || ####################################################################
 \*======================================================================*/
 ?>

@@ -1,9 +1,9 @@
 <?php
 /*======================================================================*\
 || #################################################################### ||
-|| # vBulletin 3.7.2 Patch Level 2 - Licence Number VBF2470E4F
+|| # vBulletin 3.8.7 Patch Level 3 - Licence Number VBC2DDE4FB
 || # ---------------------------------------------------------------- # ||
-|| # Copyright ©2000-2013 Jelsoft Enterprises Ltd. All Rights Reserved. ||
+|| # Copyright ©2000-2013 vBulletin Solutions, Inc. All Rights Reserved. ||
 || # This file may not be redistributed in whole or significant part. # ||
 || # ---------------- VBULLETIN IS NOT FREE SOFTWARE ---------------- # ||
 || # http://www.vbulletin.com | http://www.vbulletin.com/license.html # ||
@@ -19,20 +19,21 @@ if (!class_exists('vB_DataManager'))
 * Class to do data save/delete operations for Social Groups
 *
 * @package	vBulletin
-* @version	$Revision: 26097 $
-* @date		$Date: 2008-03-14 06:35:29 -0500 (Fri, 14 Mar 2008) $
+* @version	$Revision: 39862 $
+* @date		$Date: 2010-10-18 18:16:44 -0700 (Mon, 18 Oct 2010) $
 */
 class vB_DataManager_SocialGroup extends vB_DataManager
 {
 	/**
-	* Array of recognised and required fields for users, and their types
+	* Array of recognised and required fields for social groups, and their types
 	*
 	* @var	array
 	*/
 	var $validfields = array(
 		'groupid'          => array(TYPE_UINT,       REQ_INCR, VF_METHOD, 'verify_nonzero'),
+		'socialgroupcategoryid' => array(TYPE_UINT,  REQ_YES,  VF_METHOD, 'verify_nonzero'),
 		'name'             => array(TYPE_NOHTMLCOND, REQ_YES,  VF_METHOD),
-		'description'      => array(TYPE_NOHTMLCOND, REQ_NO),
+		'description'      => array(TYPE_NOHTMLCOND, REQ_NO,   VF_METHOD),
 		'creatoruserid'    => array(TYPE_UINT,       REQ_NO,   VF_METHOD, 'verify_nonzero'),
 		'dateline'         => array(TYPE_UNIXTIME,   REQ_AUTO),
 		'members'          => array(TYPE_UINT,       REQ_NO),
@@ -41,12 +42,16 @@ class vB_DataManager_SocialGroup extends vB_DataManager
 		'lastposterid'     => array(TYPE_UINT,       REQ_NO),
 		'lastpost'         => array(TYPE_UINT,       REQ_NO),
 		'lastgmid'         => array(TYPE_UINT,       REQ_NO),
+		'lastdiscussion'   => array(TYPE_NOHTMLCOND, REQ_NO),
+		'lastdiscussionid' => array(TYPE_UINT,		 REQ_NO),
 		'visible'          => array(TYPE_UINT,       REQ_NO),
 		'deleted'          => array(TYPE_UINT,       REQ_NO),
 		'moderation'       => array(TYPE_UINT,       REQ_NO),
+		'discussions'      => array(TYPE_UINT,       REQ_NO),
 		'type'             => array(TYPE_STR,        REQ_NO, VF_METHOD),
 		'moderatedmembers' => array(TYPE_UINT,       REQ_NO),
 		'options'          => array(TYPE_UINT,       REQ_NO),
+		'lastupdate'       => array(TYPE_UINT,       REQ_NO)
 	);
 
 	/**
@@ -121,7 +126,24 @@ class vB_DataManager_SocialGroup extends vB_DataManager
 
 		if (vbstrlen($name, true) > $this->registry->options['sg_name_maxchars'])
 		{
-			$this->error('name_too_long_max_x', vb_number_format($this->registry->options['sg_name_maxchars']));
+			$this->error('name_too_long_max_x', $this->registry->options['sg_name_maxchars']);
+			return false;
+		}
+
+		return true;
+	}
+
+	/**
+	 * Verifies that the description is not too long
+	 *
+	 * @param string $description
+	 * @return boolean
+	 */
+	function verify_description(&$description)
+	{
+		if (($currentlength = vbstrlen($description, true)) > $this->registry->options['sg_maxdescriptionchars'])
+		{
+			$this->error('description_toolong_max_x', $currentlength, $this->registry->options['sg_maxdescriptionchars']);
 			return false;
 		}
 
@@ -163,6 +185,16 @@ class vB_DataManager_SocialGroup extends vB_DataManager
 			$this->set('dateline', TIMENOW);
 		}
 
+		if (!$this->fetch_field('lastpost') AND !$this->condition)
+		{
+			$this->set('lastpost', TIMENOW);
+		}
+
+		if (!$this->fetch_field('lastupdate'))
+		{
+			$this->set('lastupdate', TIMENOW);
+		}
+
 		$return_value = true;
 		($hook = vBulletinHook::fetch_hook('socgroupdata_presave')) ? eval($hook) : false;
 
@@ -181,7 +213,7 @@ class vB_DataManager_SocialGroup extends vB_DataManager
 		// When creating a group, the creator needs to be come a user automatically
 		if (empty($this->condition))
 		{
-			$socialgroupmemberdm = datamanager_init('SocialGroupMember', $this->registry, ERRTYPE_STANDARD);
+			$socialgroupmemberdm =& datamanager_init('SocialGroupMember', $this->registry, ERRTYPE_STANDARD);
 
 			$socialgroupmemberdm->set('userid', $this->fetch_field('creatoruserid'));
 			$socialgroupmemberdm->set('groupid', $this->fetch_field('groupid'));
@@ -189,8 +221,21 @@ class vB_DataManager_SocialGroup extends vB_DataManager
 			$socialgroupmemberdm->set('type', 'member');
 
 			$socialgroupmemberdm->save();
+			unset($socialgroupmemberdm);
+
+			exec_sg_mark_as_read('group', $this->fetch_field('groupid'));
 		}
 		($hook = vBulletinHook::fetch_hook('socgroupdata_postsave')) ? eval($hook) : false;
+
+		if ($this->fetch_field('socialgroupcategoryid') != $this->existing['socialgroupcategoryid'])
+		{
+			fetch_socialgroup_category_cloud(true);
+		}
+
+		if (($this->fetch_field('name') != $this->existing['name']) OR ($this->fetch_field('description') != $this->existing['description']))
+		{
+			fetch_socialgroup_newest_groups(true, false, !$this->registry->options['sg_enablesocialgroupicons']);
+		}
 	}
 
 	/**
@@ -268,15 +313,26 @@ class vB_DataManager_SocialGroup extends vB_DataManager
 
 		$this->registry->db->query_write("DROP TABLE IF EXISTS " . TABLE_PREFIX . $aggtable);
 
-		$this->registry->db->query_write("DELETE FROM " . TABLE_PREFIX . "socialgrouppicture WHERE groupid = " . $this->fetch_field('groupid'));
+		// delete picture references
+		$this->registry->db->query_write("
+			DELETE FROM " . TABLE_PREFIX . "socialgrouppicture
+			WHERE groupid = " . intval($this->fetch_field('groupid')) . "
+		");
 
 		$gms_to_delete = array();
 
-		$gmids = $this->registry->db->query_read("SELECT gmid FROM " . TABLE_PREFIX . "groupmessage WHERE groupid = " . $this->fetch_field('groupid'));
+		$gmids = $this->registry->db->query_read(
+			"SELECT gmid FROM " . TABLE_PREFIX . "discussion AS discussion
+			 INNER JOIN " . TABLE_PREFIX . "groupmessage AS gm
+			  ON (gm.discussionid = discussion.discussionid)
+			 WHERE discussion.groupid = " . intval($this->fetch_field('groupid'))
+		);
+
 		while ($gmid = $this->registry->db->fetch_array($gmids))
 		{
 			$gms_to_delete[] = $gmid['gmid'];
 		}
+		$this->registry->db->free_result($gmids);
 
 		if (!empty($gms_to_delete))
 		{
@@ -292,8 +348,62 @@ class vB_DataManager_SocialGroup extends vB_DataManager
 					AND primaryid IN (" . implode(', ', $gms_to_delete) . ")
 			");
 
-			$this->registry->db->query_write("DELETE FROM " . TABLE_PREFIX . "groupmessage WHERE groupid = " . $this->fetch_field('groupid'));
+			$this->registry->db->query_write("DELETE " . TABLE_PREFIX . "groupmessage
+											FROM " . TABLE_PREFIX . "groupmessage
+											LEFT JOIN " . TABLE_PREFIX . "discussion
+											 ON (" . TABLE_PREFIX . "discussion.discussionid = " . TABLE_PREFIX . "groupmessage.discussionid)
+											WHERE " . TABLE_PREFIX . "discussion.groupid = " . $this->fetch_field('groupid'));
 		}
+
+		// delete subscribed discussions
+		$this->registry->db->query_write("
+			DELETE " . TABLE_PREFIX. "subscribediscussion
+			FROM " . TABLE_PREFIX . "subscribediscussion
+			INNER JOIN " . TABLE_PREFIX . "discussion
+			 ON (" . TABLE_PREFIX . "discussion.discussionid = " . TABLE_PREFIX . "subscribediscussion.discussionid)
+			 AND " . TABLE_PREFIX . "discussion.groupid = " . intval($this->fetch_field('groupid')) . "
+		");
+
+		// delete discussion readmarking
+		$this->registry->db->query_write("
+			DELETE " . TABLE_PREFIX. "discussionread
+			FROM " . TABLE_PREFIX . "discussionread
+			INNER JOIN " . TABLE_PREFIX . "discussion
+			 ON (" . TABLE_PREFIX . "discussion.discussionid = " . TABLE_PREFIX . "discussionread.discussionid)
+			 AND " . TABLE_PREFIX . "discussion.groupid = " . intval($this->fetch_field('groupid')) . "
+		");
+
+		// delete discussions
+		$this->registry->db->query_write("
+			DELETE FROM " . TABLE_PREFIX . "discussion
+			WHERE groupid = " . intval($this->fetch_field('groupid')));
+
+		// delete group subscriptions
+		$this->registry->db->query_write("
+			DELETE FROM " . TABLE_PREFIX . "subscribegroup
+			WHERE " . TABLE_PREFIX . "subscribegroup.groupid = " . intval($this->fetch_field('groupid')) . "
+		");
+
+		// delete readmarking
+		$this->registry->db->query_write("
+			DELETE FROM " . TABLE_PREFIX . "groupread
+			WHERE " . TABLE_PREFIX . "groupread.groupid = " . intval($this->fetch_field('groupid')) . "
+		");
+
+		// delete group icon
+		$groupicon =& datamanager_init('SocialGroupIcon', $this->registry, ERRTYPE_STANDARD);
+		$groupicon->condition = "groupid = " . intval($this->fetch_field('groupid'));
+		$groupicon->delete();
+		unset($groupicon);
+
+		// update moderation count for owner
+		update_owner_pending_gm_count($this->fetch_field('creatoruserid'));
+
+		// update category cloud
+		fetch_socialgroup_category_cloud(true);
+
+		// update newest groups
+		fetch_socialgroup_newest_groups(true, false, !$this->registry->options['sg_enablesocialgroupicons']);
 
  		($hook = vBulletinHook::fetch_hook('socgroupdata_delete')) ? eval($hook) : false;
 	}
@@ -315,6 +425,7 @@ class vB_DataManager_SocialGroup extends vB_DataManager
 				WHERE socialgrouppicture.groupid = " . $this->fetch_field('groupid')
 			);
 			$this->set('picturecount', $picturecount['count']);
+			$this->set('lastupdate', TIMENOW);
 		}
 	}
 
@@ -353,19 +464,22 @@ class vB_DataManager_SocialGroup extends vB_DataManager
 					break;
 				}
 			}
+			$this->registry->db->free_result($memberstats);
 
 			if (!$hasmoderatedmembers)
 			{
 				$this->set('moderatedmembers', 0);
 			}
+
+			$this->set('lastupdate', TIMENOW);
 		}
 	}
 }
 
 /*======================================================================*\
 || ####################################################################
-|| # Downloaded: 16:21, Sat Apr 6th 2013
-|| # CVS: $RCSfile$ - $Revision: 26097 $
+|| # Downloaded: 20:50, Sun Aug 11th 2013
+|| # CVS: $RCSfile$ - $Revision: 39862 $
 || ####################################################################
 \*======================================================================*/
 ?>

@@ -1,9 +1,9 @@
 <?php
 /*======================================================================*\
 || #################################################################### ||
-|| # vBulletin 3.7.2 Patch Level 2 - Licence Number VBF2470E4F
+|| # vBulletin 3.8.7 Patch Level 3 - Licence Number VBC2DDE4FB
 || # ---------------------------------------------------------------- # ||
-|| # Copyright ©2000-2013 Jelsoft Enterprises Ltd. All Rights Reserved. ||
+|| # Copyright ©2000-2013 vBulletin Solutions, Inc. All Rights Reserved. ||
 || # This file may not be redistributed in whole or significant part. # ||
 || # ---------------- VBULLETIN IS NOT FREE SOFTWARE ---------------- # ||
 || # http://www.vbulletin.com | http://www.vbulletin.com/license.html # ||
@@ -11,7 +11,7 @@
 \*======================================================================*/
 
 // ####################### SET PHP ENVIRONMENT ###########################
-error_reporting(E_ALL & ~E_NOTICE);
+error_reporting(E_ALL & ~E_NOTICE & ~8192);
 
 // #################### DEFINE IMPORTANT CONSTANTS #######################
 define('THIS_SCRIPT', 'reputation');
@@ -202,10 +202,19 @@ if ($_POST['do'] == 'addreputation')
 
 	($hook = vBulletinHook::fetch_hook('reputation_add_complete')) ? eval($hook) : false;
 
+	if ($score < 0)
+	{
+		$redirect_phrase = 'redirect_reputationminus';
+	}
+	else
+	{
+		$redirect_phrase = 'redirect_reputationadd';
+	}
+
 	if (!$vbulletin->GPC['ajax'])
 	{
 		$vbulletin->url = 'showthread.php?' . $vbulletin->session->vars['sessionurl'] . "&amp;p=$postid#post$postid";
-		eval(print_standard_redirect('redirect_reputationadd'));
+		eval(print_standard_redirect($redirect_phrase));
 		// redirect or close window here
 	}
 	else
@@ -217,7 +226,7 @@ if ($_POST['do'] == 'addreputation')
 		require_once(DIR . '/includes/class_xml.php');
 		require_once(DIR . '/includes/functions_misc.php');
 		$xml = new vB_AJAX_XML_Builder($vbulletin, 'text/xml');
-		$xml->add_tag('reputation', process_replacement_vars(fetch_phrase('redirect_reputationadd', 'frontredirect', 'redirect_')), array(
+		$xml->add_tag('reputation', process_replacement_vars(fetch_phrase($redirect_phrase, 'frontredirect', 'redirect_')), array(
 			'reppower'   => fetch_reppower($userinfo, $userinfo['permissions']),
 			'repdisplay' => process_replacement_vars($post['reputationdisplay']),
 			'userid'     => $userinfo['userid'],
@@ -247,7 +256,7 @@ else
 		{
 
 			require_once(DIR . '/includes/class_bbcode.php');
-			$bbcode_parser =& new vB_BbCodeParser($vbulletin, fetch_tag_list());
+			$bbcode_parser = new vB_BbCodeParser($vbulletin, fetch_tag_list());
 
 			while ($postreputation = $db->fetch_array($postreputations))
 			{
@@ -412,8 +421,8 @@ else
 
 /*======================================================================*\
 || ####################################################################
-|| # Downloaded: 16:21, Sat Apr 6th 2013
-|| # CVS: $RCSfile$ - $Revision: 26399 $
+|| # Downloaded: 20:50, Sun Aug 11th 2013
+|| # CVS: $RCSfile$ - $Revision: 39862 $
 || ####################################################################
 \*======================================================================*/
 ?>

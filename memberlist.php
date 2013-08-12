@@ -1,9 +1,9 @@
 <?php
 /*======================================================================*\
 || #################################################################### ||
-|| # vBulletin 3.7.2 Patch Level 2 - Licence Number VBF2470E4F
+|| # vBulletin 3.8.7 Patch Level 3 - Licence Number VBC2DDE4FB
 || # ---------------------------------------------------------------- # ||
-|| # Copyright ©2000-2013 Jelsoft Enterprises Ltd. All Rights Reserved. ||
+|| # Copyright ©2000-2013 vBulletin Solutions, Inc. All Rights Reserved. ||
 || # This file may not be redistributed in whole or significant part. # ||
 || # ---------------- VBULLETIN IS NOT FREE SOFTWARE ---------------- # ||
 || # http://www.vbulletin.com | http://www.vbulletin.com/license.html # ||
@@ -11,7 +11,7 @@
 \*======================================================================*/
 
 // ####################### SET PHP ENVIRONMENT ###########################
-error_reporting(E_ALL & ~E_NOTICE);
+error_reporting(E_ALL & ~E_NOTICE & ~8192);
 
 // #################### DEFINE IMPORTANT CONSTANTS #######################
 define('THIS_SCRIPT', 'memberlist');
@@ -71,6 +71,7 @@ $actiontemplates['getall'] =& $actiontemplates['none'];
 // ######################### REQUIRE BACK-END ############################
 require_once('./global.php');
 require_once(DIR . '/includes/functions_misc.php');
+require_once(DIR . '/includes/functions_user.php');
 require_once(DIR . '/includes/class_postbit.php');
 
 // #######################################################################
@@ -177,7 +178,14 @@ if ($_REQUEST['do'] == 'getall')
 	{
 		if ($vbulletin->GPC['email'])
 		{
-			$condition .= " AND email LIKE '%" . $db->escape_string_like(htmlspecialchars_uni($vbulletin->GPC['email'])) . "%' ";
+			if (can_moderate())
+			{
+				$condition .= " AND email LIKE '%" . $db->escape_string_like(htmlspecialchars_uni($vbulletin->GPC['email'])) . "%' ";
+			}
+			else
+			{
+				print_no_permission();
+			}
 		}
 		if ($vbulletin->GPC['homepage'])
 		{
@@ -531,7 +539,7 @@ if ($_REQUEST['do'] == 'getall')
 	}
 	else
 	{
-		$lastvisitcond = " , IF((options & " . $vbulletin->bf_misc_useroptions['invisible'] . " AND user.userid <> " . $vbulletin->userinfo['userid'] . "), 1, lastactivity) AS lastvisittime ";
+		$lastvisitcond = " , IF((options & " . $vbulletin->bf_misc_useroptions['invisible'] . " AND user.userid <> " . $vbulletin->userinfo['userid'] . "), 0, lastactivity) AS lastvisittime ";
 	}
 
 	if ($show['reputationcol'])
@@ -569,10 +577,10 @@ if ($_REQUEST['do'] == 'getall')
 
 	$users = $db->query_read_slave("
 		SELECT user.*,usertextfield.*,userfield.*, user.userid, options,
-			IF(displaygroupid=0, user.usergroupid, displaygroupid) AS displaygroupid, infractiongroupid
+			IF(user.displaygroupid=0, user.usergroupid, user.displaygroupid) AS displaygroupid, infractiongroupid
 		$repcondition
 		" . iif($show['avatarcol'], ',avatar.avatarpath,NOT ISNULL(customavatar.userid) AS hascustomavatar,customavatar.dateline AS avatardateline, customavatar.width AS avwidth, customavatar.height AS avheight') ."
-		" . iif($show['profilepiccol'], ',customprofilepic.userid AS profilepic, customprofilepic.dateline AS profilepicdateline, customprofilepic.width AS ppwidth, customprofilepic.height AS ppheight') . "
+		" . iif($show['profilepiccol'], ', pp_profilepic.requirement AS profilepicrequirement, customprofilepic.userid AS profilepic, customprofilepic.dateline AS profilepicdateline, customprofilepic.width AS ppwidth, customprofilepic.height AS ppheight') . "
 		$lastvisitcond
 		$agecondition
 		" . iif($usergroupid, ", NOT ISNULL(usergroupleader.usergroupid) AS isleader") . "
@@ -582,7 +590,10 @@ if ($_REQUEST['do'] == 'getall')
 		LEFT JOIN " . TABLE_PREFIX . "userfield AS userfield ON(userfield.userid=user.userid)
 		" . iif($show['reputationcol'], "LEFT JOIN " . TABLE_PREFIX . "reputationlevel AS reputationlevel ON(user.reputationlevelid=reputationlevel.reputationlevelid) ") . "
 		" . iif($show['avatarcol'], "LEFT JOIN " . TABLE_PREFIX . "avatar AS avatar ON(avatar.avatarid = user.avatarid) LEFT JOIN " . TABLE_PREFIX . "customavatar AS customavatar ON(customavatar.userid = user.userid)") . "
-		" . iif($show['profilepiccol'], "LEFT JOIN " . TABLE_PREFIX . "customprofilepic AS customprofilepic ON (user.userid = customprofilepic.userid) ") . "
+		" . iif($show['profilepiccol'], "
+			LEFT JOIN " . TABLE_PREFIX . "customprofilepic AS customprofilepic ON (user.userid = customprofilepic.userid)
+			LEFT JOIN " . TABLE_PREFIX . "profileblockprivacy AS pp_profilepic ON
+				(pp_profilepic.userid = user.userid AND pp_profilepic.blockid = 'profile_picture')") . "
 		" . iif($usergroupid, "LEFT JOIN " . TABLE_PREFIX . "usergroupleader AS usergroupleader ON (user.userid = usergroupleader.userid AND usergroupleader.usergroupid=$usergroupid) ") . "
 		$hook_query_joins
 		WHERE $condition
@@ -618,7 +629,7 @@ if ($_REQUEST['do'] == 'getall')
 		fetch_musername($userinfo);
 		$userinfo['datejoined'] = vbdate($vbulletin->options['dateformat'], $userinfo['joindate'], true);
 
-		if ($userinfo['lastvisittime'] == 1)
+		if (!$userinfo['lastvisittime'])
 		{
 			$userinfo['lastvisit'] = $vbphrase['n_a'];
 		}
@@ -635,7 +646,7 @@ if ($_REQUEST['do'] == 'getall')
 		{
 			$show['searchlink'] = false;
 		}
-		if ($userinfo['showemail'] AND $vbulletin->options['displayemails'] AND (!$vbulletin->options['secureemail'] OR ($vbulletin->options['secureemail'] AND $vbulletin->options['enableemail'])) AND $vbulletin->userinfo['permissions']['genericpermissions'] & $vbulletin->bf_ugp_genericpermissions['canemailmember'])
+		if ($userinfo['showemail'] AND $vbulletin->options['displayemails'] AND (!$vbulletin->options['secureemail'] OR ($vbulletin->options['secureemail'] AND $vbulletin->options['enableemail'])) AND $vbulletin->userinfo['permissions']['genericpermissions'] & $vbulletin->bf_ugp_genericpermissions['canemailmember'] AND $vbulletin->userinfo['userid'])
 		{
 			$show['emaillink'] = true;
 		}
@@ -654,10 +665,21 @@ if ($_REQUEST['do'] == 'getall')
 		{
 			$show['homepagelink'] = false;
 		}
-		if ($vbulletin->options['enablepms'] AND $vbulletin->userinfo['permissions']['pmquota'] AND ($vbulletin->userinfo['permissions']['adminpermissions'] & $vbulletin->bf_ugp_adminpermissions['cancontrolpanel']
-	 					OR ($userinfo['receivepm'] AND $userinfo['permissions']['pmquota']
-	 						AND (!$userinfo['receivepmbuddies'] OR can_moderate() OR strpos(" $userinfo[buddylist] ", ' ' . $vbulletin->userinfo['userid'] . ' ') !== false))
-	 				))
+		if (
+			$vbulletin->options['enablepms']
+				AND
+			$vbulletin->userinfo['permissions']['pmquota']
+				AND
+			(
+				$vbulletin->userinfo['permissions']['pmpermissions'] & $vbulletin->bf_ugp_pmpermissions['canignorequota']
+					OR
+				(
+					$userinfo['receivepm']
+						AND
+					$userinfo['permissions']['pmquota']
+						AND
+					(!$userinfo['receivepmbuddies'] OR can_moderate() OR strpos(" $userinfo[buddylist] ", ' ' . $vbulletin->userinfo['userid'] . ' ') !== false))
+	 		))
 	 	{
 			$show['pmlink'] = true;
 		}
@@ -739,7 +761,18 @@ if ($_REQUEST['do'] == 'getall')
 			$checkperms = cache_permissions($userinfo, false);
 			fetch_reputation_image($userinfo, $checkperms);
 		}
-		if ($show['profilepiccol'] AND $userinfo['profilepic'] AND ($userinfo['permissions']['genericpermissions'] & $vbulletin->bf_ugp_genericpermissions['canprofilepic'] OR $userinfo['adminprofilepic']))
+
+		$can_view_profile_pic = (
+			$show['profilepiccol']
+			AND $userinfo['profilepic']
+			AND ($userinfo['permissions']['genericpermissions'] & $vbulletin->bf_ugp_genericpermissions['canprofilepic'] OR $userinfo['adminprofilepic'])
+		);
+		if ($userinfo['profilepicrequirement'] AND !can_view_profile_section($userinfo['userid'], 'profile_picture', $userinfo['profilepicrequirement'], $userinfo))
+		{
+			$can_view_profile_pic = false;
+		}
+
+		if ($can_view_profile_pic)
 		{
 			if ($vbulletin->options['usefileavatar'])
 			{
@@ -1029,8 +1062,8 @@ if ($templatename != '')
 
 /*======================================================================*\
 || ####################################################################
-|| # Downloaded: 16:21, Sat Apr 6th 2013
-|| # CVS: $RCSfile$ - $Revision: 26833 $
+|| # Downloaded: 20:50, Sun Aug 11th 2013
+|| # CVS: $RCSfile$ - $Revision: 39862 $
 || ####################################################################
 \*======================================================================*/
 ?>

@@ -1,9 +1,9 @@
 <?php
 /*======================================================================*\
 || #################################################################### ||
-|| # vBulletin 3.7.2 Patch Level 2 - Licence Number VBF2470E4F
+|| # vBulletin 3.8.7 Patch Level 3 - Licence Number VBC2DDE4FB
 || # ---------------------------------------------------------------- # ||
-|| # Copyright ©2000-2013 Jelsoft Enterprises Ltd. All Rights Reserved. ||
+|| # Copyright ©2000-2013 vBulletin Solutions, Inc. All Rights Reserved. ||
 || # This file may not be redistributed in whole or significant part. # ||
 || # ---------------- VBULLETIN IS NOT FREE SOFTWARE ---------------- # ||
 || # http://www.vbulletin.com | http://www.vbulletin.com/license.html # ||
@@ -245,43 +245,49 @@ class vB_ReportItem
 					// not posting as the current user, IP won't make sense
 					$threadman->set('ipaddress', '');
 				}
-				$rpthreadid = $threadman->save();
 
-				if ($this->update_item_reportid($rpthreadid))
+				if ($rpthreadid = $threadman->save())
 				{
-					$threadman->set_info('skip_moderator_email', false);
-					$threadman->email_moderators(array('newthreademail', 'newpostemail'));
-					$this->iteminfo['reportthreadid'] = 0;
-					$rpthreadinfo = array(
-						'threadid'   => $rpthreadid,
-						'forumid'    => $rpforuminfo['forumid'],
-						'postuserid' => $userinfo['userid'],
-					);
-
-					// check the permission of the other user
-					$userperms = fetch_permissions($rpthreadinfo['forumid'], $userinfo['userid'], $userinfo);
-					if (($userperms & $this->registry->bf_ugp_forumpermissions['canview']) AND ($userperms & $this->registry->bf_ugp_forumpermissions['canviewthreads']) AND $userinfo['autosubscribe'] != -1)
+					if ($this->update_item_reportid($rpthreadid))
 					{
-						$this->registry->db->query_write("
-							INSERT IGNORE INTO " . TABLE_PREFIX . "subscribethread
-								(userid, threadid, emailupdate, folderid, canview)
-							VALUES
-								(" . $userinfo['userid'] . ", $rpthreadinfo[threadid], $userinfo[autosubscribe], 0, 1)
-						");
+						$threadman->set_info('skip_moderator_email', false);
+						$threadman->email_moderators(array('newthreademail', 'newpostemail'));
+						$this->iteminfo['reportthreadid'] = 0;
+						$rpthreadinfo = array(
+							'threadid'   => $rpthreadid,
+							'forumid'    => $rpforuminfo['forumid'],
+							'postuserid' => $userinfo['userid'],
+						);
+
+						// check the permission of the other user
+						$userperms = fetch_permissions($rpthreadinfo['forumid'], $userinfo['userid'], $userinfo);
+						if (($userperms & $this->registry->bf_ugp_forumpermissions['canview']) AND ($userperms & $this->registry->bf_ugp_forumpermissions['canviewthreads']) AND $userinfo['autosubscribe'] != -1)
+						{
+							$this->registry->db->query_write("
+								INSERT IGNORE INTO " . TABLE_PREFIX . "subscribethread
+									(userid, threadid, emailupdate, folderid, canview)
+								VALUES
+									(" . $userinfo['userid'] . ", $rpthreadinfo[threadid], $userinfo[autosubscribe], 0, 1)
+							");
+						}
+					}
+					else
+					{
+						// Delete the thread we just created
+						if ($delthread = fetch_threadinfo($rpthreadid))
+						{
+							$threadman =& datamanager_init('Thread', $this->registry, ERRTYPE_SILENT, 'threadpost');
+							$threadman->set_existing($delthread);
+							$threadman->delete($rpforuminfo['countposts'], true, NULL, false);
+							unset($threadman);
+						}
+
+						$this->refetch_iteminfo();
 					}
 				}
 				else
 				{
-					// Delete the thread we just created
-					if ($delthread = fetch_threadinfo($rpthreadid))
-					{
-						$threadman =& datamanager_init('Thread', $this->registry, ERRTYPE_SILENT, 'threadpost');
-						$threadman->set_existing($delthread);
-						$threadman->delete($rpforuminfo['countposts'], true, NULL, false);
-						unset($threadman);
-					}
-
-					$this->refetch_iteminfo();
+					$reportemail = true;
 				}
 			}
 
@@ -393,14 +399,15 @@ class vB_ReportItem
 	 */
 	function fetch_affected_super_moderators($mods)
 	{
-			return $this->registry->db->query_read_slave("
-				SELECT DISTINCT user.email, user.languageid, user.username, user.userid
-				FROM " . TABLE_PREFIX . "usergroup AS usergroup
-				INNER JOIN " . TABLE_PREFIX . "user AS user ON
-					(user.usergroupid = usergroup.usergroupid OR FIND_IN_SET(usergroup.usergroupid, user.membergroupids))
-				WHERE usergroup.adminpermissions <> 0
-					" . (!empty($mods) ? "AND userid NOT IN (" . implode(',', array_keys($mods)) . ")" : "") . "
-			");
+		return $this->registry->db->query_read_slave("
+			SELECT DISTINCT user.email, user.languageid, user.username, user.userid
+			FROM " . TABLE_PREFIX . "usergroup AS usergroup
+			INNER JOIN " . TABLE_PREFIX . "user AS user ON
+				(user.usergroupid = usergroup.usergroupid OR FIND_IN_SET(usergroup.usergroupid, user.membergroupids))
+			WHERE usergroup.adminpermissions > 0
+				AND (usergroup.adminpermissions & " . $this->registry->bf_ugp_adminpermissions['ismoderator'] . ")
+				" . (!empty($mods) ? "AND userid NOT IN (" . implode(',', array_keys($mods)) . ")" : "") . "
+		");
 	}
 
 	/**
@@ -756,13 +763,15 @@ class vB_ReportItem_GroupMessage extends vB_ReportItem
 	function set_reportinfo(&$reportinfo)
 	{
 		$reportinfo = array_merge($reportinfo, array(
-			'messagetitle' => unhtmlspecialchars($this->iteminfo['title']),
-			'pusername'    => unhtmlspecialchars($this->iteminfo['postusername']),
-			'gmid'         => $this->iteminfo['gmid'],
-			'groupname'    => $this->extrainfo['group']['name'],
-			'groupid'      => $this->extrainfo['group']['groupid'],
-			'puserid'      => $this->iteminfo['postuserid'],
-			'pagetext'     => $this->iteminfo['pagetext'],
+			'messagetitle'    => unhtmlspecialchars($this->iteminfo['title']),
+			'pusername'       => unhtmlspecialchars($this->iteminfo['postusername']),
+			'gmid'            => $this->iteminfo['gmid'],
+			'groupname'       => unhtmlspecialchars($this->extrainfo['group']['name']),
+			'groupid'         => $this->extrainfo['group']['groupid'],
+			'discussiontitle' => unhtmlspecialchars($this->extrainfo['discussion']['title']),
+			'discussionid'    => $this->extrainfo['discussion']['discussionid'],
+			'puserid'         => $this->iteminfo['postuserid'],
+			'pagetext'        => $this->iteminfo['pagetext']
 		));
 	}
 
@@ -1181,10 +1190,123 @@ class vB_ReportItem_PictureComment extends vB_ReportItem
 	}
 }
 
+/**
+ * Report Private Message Class
+ *
+ * @package 	vBulletin
+ * @copyright 	http://www.vbulletin.com/license.html
+ *
+ * @final
+ *
+ */
+class vB_ReportItem_PrivateMessage extends vB_ReportItem
+{
+	/**
+	 * @var string	"Key" for the phrase(s) used when reporting this item
+	 */
+	var $phrasekey = 'privatemessage';
+
+	/**
+	 * Fetches the moderators affected by this report
+	 *
+	 * @return null|array	The moderators affected.
+	 *
+	 */
+	function fetch_affected_moderators()
+	{
+		return $this->registry->db->query_read_slave("
+			SELECT DISTINCT user.email, user.languageid, user.userid, user.username
+			FROM " . TABLE_PREFIX . "moderator AS moderator
+			INNER JOIN " . TABLE_PREFIX . "user AS user ON (user.userid = moderator.userid)
+			WHERE moderator.permissions & " . ($this->registry->bf_misc_moderatorpermissions['canbanusers']) . "
+				AND moderator.forumid <> -1
+		");
+	}
+
+	/**
+	 * Sets information to be used in the form for the report
+	 *
+	 * @param	array	Information to be used.
+	 *
+	 */
+	function set_forminfo(&$iteminfo)
+	{
+		global $vbphrase;
+
+		$this->forminfo = array(
+			'file'         => 'private',
+			'action'       => 'sendemail',
+			'reportphrase' => $vbphrase['report_bad_private_message'],
+			'reporttype'   => $vbphrase['private_message'],
+			'description'  => $vbphrase['only_used_to_report'],
+			'itemname'     => $iteminfo['title'],
+			'itemlink'     => "",
+		);
+
+		$this->set_reporting_hidden_value('pmid', $iteminfo['pmid']);
+
+		return $this->forminfo;
+	}
+
+	/**
+	 * Sets information regarding the report
+	 *
+	 * @param	array	Information regarding the report
+	 *
+	 */
+	function set_reportinfo(&$reportinfo)
+	{
+		$reportinfo = array_merge($reportinfo, array(
+			'pmtitle'     => unhtmlspecialchars($this->iteminfo['title']),
+			'pusername'   => unhtmlspecialchars($this->iteminfo['fromusername']),
+			'puserid'     => $this->iteminfo['fromuserid'],
+			'pmid'        => $this->iteminfo['pmid'],
+			'message'    => $this->iteminfo['message'],
+		));
+	}
+
+	/**
+	 * Updates the Item being reported with the item report info.
+	 *
+	 * @param	integer	ID of the item being reported
+	 *
+	 */
+	function update_item_reportid($newthreadid)
+	{
+
+		$checkrpid = ($this->iteminfo['reportthreadid'] ? $this->iteminfo['reportthreadid'] : 0);
+
+		$this->registry->db->query_write("
+			UPDATE " . TABLE_PREFIX . "pmtext SET
+				reportthreadid = $newthreadid
+			WHERE pmtextid = " . $this->iteminfo['pmtextid'] . " AND reportthreadid = $checkrpid
+		");
+
+		return ($this->registry->db->affected_rows() ? true : false);
+	}
+
+	/**
+	 * Re-fetches information regarding the reported item from the database
+	 *
+	 */
+	function refetch_iteminfo()
+	{
+		$rpinfo = $this->registry->db->query_first("
+			SELECT reportthreadid
+			FROM " . TABLE_PREFIX . "pmtext
+			WHERE pmtextid = " . $this->iteminfo['pmtextid']
+		);
+		if ($rpinfo['reportthreadid'])
+		{
+			$this->iteminfo['reportthreadid'] = $rpinfo['reportthreadid'];
+		}
+	}
+}
+
 /*======================================================================*\
 || ####################################################################
-|| # Downloaded: 16:21, Sat Apr 6th 2013
-|| # CVS: $RCSfile$ - $Revision: 26307 $
+|| # Downloaded: 20:50, Sun Aug 11th 2013
+|| # CVS: $RCSfile$ - $Revision: 39862 $
 || ####################################################################
 \*======================================================================*/
 

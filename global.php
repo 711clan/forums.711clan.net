@@ -1,9 +1,9 @@
 <?php
 /*======================================================================*\
 || #################################################################### ||
-|| # vBulletin 3.7.2 Patch Level 2 - Licence Number VBF2470E4F
+|| # vBulletin 3.8.7 Patch Level 3 - Licence Number VBC2DDE4FB
 || # ---------------------------------------------------------------- # ||
-|| # Copyright ©2000-2013 Jelsoft Enterprises Ltd. All Rights Reserved. ||
+|| # Copyright ©2000-2013 vBulletin Solutions, Inc. All Rights Reserved. ||
 || # This file may not be redistributed in whole or significant part. # ||
 || # ---------------- VBULLETIN IS NOT FREE SOFTWARE ---------------- # ||
 || # http://www.vbulletin.com | http://www.vbulletin.com/license.html # ||
@@ -72,9 +72,9 @@ if (!empty($vbulletin->GPC['vbulletin_collapse']))
 // start server too busy
 $servertoobusy = false;
 
-if (PHP_OS == 'Linux' AND $vbulletin->options['loadlimit'] > 0)
+if (strtoupper(substr(PHP_OS, 0, 3)) != 'WIN' AND $vbulletin->options['loadlimit'] > 0)
 {
-	if(!is_array($vbulletin->loadcache) OR $vbulletin->loadcache['lastcheck'] < (TIMENOW - 300))
+	if(!is_array($vbulletin->loadcache) OR $vbulletin->loadcache['lastcheck'] < (TIMENOW - 60))
 	{
 		update_loadavg();
 	}
@@ -190,12 +190,7 @@ else if ($vbulletin->GPC['pollid'] AND THIS_SCRIPT == 'poll')
 	$pollinfo = verify_id('poll', $vbulletin->GPC['pollid'], 0, 1);
 	$pollid =& $pollinfo['pollid'];
 
-	$threadinfo = $db->query_first("
-		SELECT thread.*
-		FROM " . TABLE_PREFIX . "thread AS thread
-		WHERE thread.pollid = " . $vbulletin->GPC['pollid'] . "
-			AND open <> 10
-	");
+	$threadinfo = fetch_threadinfo($pollinfo['threadid']);
 
 	$threadid =& $threadinfo['threadid'];
 
@@ -256,14 +251,9 @@ if (!is_array($style))
 define('STYLEID', $style['styleid']);
 
 // #############################################################################
-//prepare default templates/phrases
+//prepare default templates
 
 $_templatedo = iif(empty($_REQUEST['do']), 'none', $_REQUEST['do']);
-
-if (isset($actionphrases) AND is_array($actionphrases["$_templatedo"]))
-{
-	$phrasegroups = array_merge($phrasegroups, $actionphrases["$_templatedo"]);
-}
 
 if (!is_array($globaltemplates))
 {
@@ -380,6 +370,9 @@ if (defined('CSRF_ERROR'))
 {
 	define('VB_ERROR_LITE', true);
 	eval('$headinclude = "' . fetch_template('headinclude') . '";');
+
+	$ajaxerror = $vbulletin->GPC['ajax'] ? '_ajax' : '';
+
 	switch (CSRF_ERROR)
 	{
 		case 'missing':
@@ -387,7 +380,11 @@ if (defined('CSRF_ERROR'))
 			break;
 
 		case 'guest':
-			eval(standard_error(fetch_error('security_token_guest')));
+			eval(standard_error(fetch_error('security_token_guest' . $ajaxerror)));
+			break;
+
+		case 'timeout':
+			eval(standard_error(fetch_error('security_token_timeout' . $ajaxerror, $vbulletin->options['contactuslink'])));
 			break;
 
 		case 'invalid':
@@ -399,13 +396,10 @@ if (defined('CSRF_ERROR'))
 
 // #############################################################################
 // parse PHP include
-if (!is_demo_mode())
-{
-	@ob_start();
-	($hook = vBulletinHook::fetch_hook('global_start')) ? eval($hook) : false;
-	$phpinclude_output = @ob_get_contents();
-	@ob_end_clean();
-}
+@ob_start();
+($hook = vBulletinHook::fetch_hook('global_start')) ? eval($hook) : false;
+$phpinclude_output = @ob_get_contents();
+@ob_end_clean();
 
 // #############################################################################
 // get new private message popup
@@ -470,7 +464,7 @@ else
 // do cron stuff - goes into footer
 if ($vbulletin->cron <= TIMENOW)
 {
-	$cronimage = '<img src="' . create_full_url('cron.php?' . $vbulletin->session->vars['sessionurl'] . 'rand=' .  vbrand(1, 1000000)) . '" alt="" width="1" height="1" border="0" />';
+	$cronimage = '<img src="' . create_full_url('cron.php?' . $vbulletin->session->vars['sessionurl'] . 'rand=' .  TIMENOW) . '" alt="" width="1" height="1" border="0" />';
 }
 else
 {
@@ -486,7 +480,8 @@ $show['modcplink'] = ($vbulletin->userinfo['permissions']['adminpermissions'] & 
 
 $show['registerbutton'] = (!$show['search_engine'] AND $vbulletin->options['allowregistration'] AND (!$vbulletin->userinfo['userid'] OR $vbulletin->options['allowmultiregs']));
 $show['searchbuttons'] = (!$show['search_engine'] AND $vbulletin->userinfo['permissions']['forumpermissions'] & $vbulletin->bf_ugp_forumpermissions['cansearch'] AND $vbulletin->options['enablesearches']);
-$show['quicksearch'] = ($vbulletin->userinfo['userid'] OR !$vbulletin->options['hvcheck_search']);
+$show['quicksearch'] = (!fetch_require_hvcheck('search'));
+$show['memberslist'] = ($vbulletin->options['enablememberlist'] AND $permissions['genericpermissions'] & $vbulletin->bf_ugp_genericpermissions['canviewmembers']);
 
 $loggedout = false;
 if (THIS_SCRIPT == 'login' AND $_REQUEST['do'] == 'logout' AND $vbulletin->userinfo['userid'] != 0)
@@ -525,7 +520,7 @@ if ($vbulletin->options['enablepms'] AND ($vbulletin->userinfo['pmunread'] OR ($
 {
 	if ($vbulletin->userinfo['pmtotal'] < $vbulletin->userinfo['permissions']['pmquota'])
 	{
-		if (($vbphrase['pmpercent_nav_compiled'] = number_format($vbulletin->userinfo['pmtotal'] / $vbulletin->userinfo['permissions']['pmquota'] * 100, 0)) >= 90)
+		if (($vbphrase['pmpercent_nav_compiled'] = number_format(floor($vbulletin->userinfo['pmtotal'] / $vbulletin->userinfo['permissions']['pmquota'] * 100), 0)) >= 90)
 		{
 			$show['pmwarning'] = true;
 		}
@@ -635,11 +630,25 @@ if ($show['editor_css'])
 if (!empty($vbulletin->noticecache) AND is_array($vbulletin->noticecache))
 {
 	$notices = '';
+	$return_link = $vbulletin->scriptpath;
 
 	require_once(DIR . '/includes/functions_notice.php');
+	if ($vbulletin->userinfo['userid'] == 0)
+	{
+		$vbulletin->userinfo['musername'] = fetch_musername($vbulletin->userinfo);
+	}
 	foreach (fetch_relevant_notice_ids() AS $_noticeid)
 	{
 		$show['notices'] = true;
+		if (($vbulletin->noticecache["$_noticeid"]["dismissible"] == 1) AND $vbulletin->userinfo['userid'])
+		{
+			// only show the dismiss link for registered users; guest who wants to dismiss?  Register please.
+			$show['dismiss_link'] = true;
+		}
+		else
+		{
+			$show['dismiss_link'] = false;
+		}
 		$notice_html = str_replace(array('{musername}', '{username}', '{userid}', '{sessionurl}'), array($vbulletin->userinfo['musername'], $vbulletin->userinfo['username'], $vbulletin->userinfo['userid'], $vbulletin->session->vars['sessionurl']), $vbphrase["notice_{$_noticeid}_html"]);
 
 		($hook = vBulletinHook::fetch_hook('notices_noticebit')) ? eval($hook) : false;
@@ -804,18 +813,18 @@ if ($vbulletin->userinfo['userid'])
 // Determine display of certain navbar Quick Links
 $show['quick_links_groups'] = (
 	$vbulletin->options['socnet'] & $vbulletin->bf_misc_socnet['enable_groups']
-	AND $vbulletin->userinfo['permissions']['socialgrouppermissions'] & $vbulletin->bf_ugp_socialgrouppermissions['canjoingroups']
+	AND $vbulletin->userinfo['permissions']['socialgrouppermissions'] & $vbulletin->bf_ugp_socialgrouppermissions['canviewgroups']
 );
 $show['quick_links_albums'] = (
 	$vbulletin->options['socnet'] & $vbulletin->bf_misc_socnet['enable_albums']
 	AND $permissions['genericpermissions'] & $vbulletin->bf_ugp_genericpermissions['canviewmembers']
 	AND $permissions['albumpermissions'] & $vbulletin->bf_ugp_albumpermissions['canviewalbum']
-	AND $permissions['albumpermissions'] & $vbulletin->bf_ugp_albumpermissions['canalbum']
 );
 $show['friends_and_contacts'] = (
 	$vbulletin->options['socnet'] & $vbulletin->bf_misc_socnet['enable_friends']
 	AND $vbulletin->userinfo['permissions']['genericpermissions2'] & $vbulletin->bf_ugp_genericpermissions2['canusefriends']
 );
+$show['communitylink'] = ($show['quick_links_groups'] OR $show['quick_links_albums'] OR $vbulletin->userinfo['userid'] OR $show['memberslist']);
 
 // #############################################################################
 // page number is used in meta tags (sometimes)
@@ -936,7 +945,10 @@ if ($vbulletin->userinfo['userid'] AND $vbulletin->userinfo['permissions']['pass
 
 	if ($passworddaysold >= $vbulletin->userinfo['permissions']['passwordexpires'])
 	{
-		if ((THIS_SCRIPT != 'login' AND THIS_SCRIPT != 'profile') OR (THIS_SCRIPT == 'profile' AND $_REQUEST['do'] != 'editpassword' AND $_POST['do'] != 'updatepassword'))
+		if ((THIS_SCRIPT != 'login' AND THIS_SCRIPT != 'profile' AND THIS_SCRIPT != 'ajax')
+			OR (THIS_SCRIPT == 'profile' AND $_REQUEST['do'] != 'editpassword' AND $_POST['do'] != 'updatepassword')
+			OR (THIS_SCRIPT == 'ajax' AND $_REQUEST['do'] != 'imagereg' AND $_REQUEST['do'] != 'securitytoken' AND $_REQUEST['do'] != 'dismissnotice')
+		)
 		{
 			eval(standard_error(fetch_error('passwordexpired',
 				$passworddaysold,
@@ -953,6 +965,22 @@ else
 {
 	$passworddaysold = 0;
 	$show['passwordexpired'] = false;
+}
+
+// #############################################################################
+// password same as username?
+if (!defined('ALLOW_SAME_USERNAME_PASSWORD') AND $vbulletin->userinfo['userid'])
+{
+	// save the resource on md5'ing if the option is not enabled or guest
+	if ($vbulletin->userinfo['password'] == md5(md5($vbulletin->userinfo['username']) . $vbulletin->userinfo['salt']))
+	{
+		if ((THIS_SCRIPT != 'login' AND THIS_SCRIPT != 'profile') OR (THIS_SCRIPT == 'profile' AND $_REQUEST['do'] != 'editpassword' AND $_POST['do'] != 'updatepassword'))
+		{
+			eval(standard_error(fetch_error('username_same_as_password',
+				$vbulletin->session->vars['sessionurl']
+			)));
+		}
+	}
 }
 
 // #############################################################################
@@ -988,7 +1016,7 @@ if (!($vbulletin->userinfo['permissions']['forumpermissions'] & $vbulletin->bf_u
 	}
 	else
 	{
-		$_doArray = array('contactus', 'docontactus', 'register', 'signup', 'requestemail', 'emailcode', 'activate', 'login', 'logout', 'lostpw', 'emailpassword', 'addmember', 'coppaform', 'resetpassword', 'regcheck', 'checkdate', 'removesubscription', 'imagereg');
+		$_doArray = array('contactus', 'docontactus', 'register', 'signup', 'requestemail', 'emailcode', 'activate', 'login', 'logout', 'lostpw', 'emailpassword', 'addmember', 'coppaform', 'resetpassword', 'regcheck', 'checkdate', 'removesubscription', 'imagereg', 'verifyusername');
 		if (THIS_SCRIPT == 'sendmessage' AND $_REQUEST['do'] == '')
 		{
 			$_REQUEST['do'] = 'contactus';
@@ -1074,8 +1102,8 @@ if (!empty($db->explain))
 
 /*======================================================================*\
 || ####################################################################
-|| # Downloaded: 16:21, Sat Apr 6th 2013
-|| # CVS: $RCSfile$ - $Revision: 26891 $
+|| # Downloaded: 20:50, Sun Aug 11th 2013
+|| # CVS: $RCSfile$ - $Revision: 39862 $
 || ####################################################################
 \*======================================================================*/
 ?>

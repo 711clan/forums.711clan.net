@@ -1,16 +1,16 @@
 <?php
 /*======================================================================*\
 || #################################################################### ||
-|| # vBulletin 3.7.2 Patch Level 2 - Licence Number VBF2470E4F
+|| # vBulletin 3.8.7 Patch Level 3 - Licence Number VBC2DDE4FB
 || # ---------------------------------------------------------------- # ||
-|| # Copyright ©2000-2013 Jelsoft Enterprises Ltd. All Rights Reserved. ||
+|| # Copyright ©2000-2013 vBulletin Solutions, Inc. All Rights Reserved. ||
 || # This file may not be redistributed in whole or significant part. # ||
 || # ---------------- VBULLETIN IS NOT FREE SOFTWARE ---------------- # ||
 || # http://www.vbulletin.com | http://www.vbulletin.com/license.html # ||
 || #################################################################### ||
 \*======================================================================*/
 
-error_reporting(E_ALL & ~E_NOTICE);
+error_reporting(E_ALL & ~E_NOTICE & ~8192);
 
 // moved from installcore to here
 $stylevar = array(
@@ -176,7 +176,7 @@ $vbphrase['query_took'] = 'Query took %1$s seconds to execute.';
 $vbphrase['done'] = 'Done';
 $vbphrase['proceed'] = 'Proceed';
 $vbphrase['reset'] = 'Reset';
-$vbphrase['vbulletin_copyright'] = 'vBulletin v' . VERSION . ', Copyright &copy;2000 - 2013, Jelsoft Enterprises Ltd.';
+$vbphrase['vbulletin_copyright'] = 'vBulletin v' . VERSION . ', Copyright &copy;2000 - 2013, vBulletin Solutions, Inc.';
 $vbphrase['vbulletin_copyright_orig'] = $vbphrase['vbulletin_copyright'];
 $vbphrase['xml_error_x_at_line_y'] = 'XML Error: %1$s at Line %2$s';
 $vbphrase['default_data_type'] = 'Inserting default data into %1$s';
@@ -222,7 +222,7 @@ $install_phrases['steps'] = array(
 	12 => 'Setup Default Data',
 	13 => 'Install Complete'
 );
-$install_phrases['welcome'] = '<p style="font-size:10pt"><b>Welcome to vBulletin version 3.7</b></p>
+$install_phrases['welcome'] = '<p style="font-size:10pt"><b>Welcome to vBulletin version 3.8</b></p>
 	<p>You are about to perform an install.</p>
 	<p>Clicking the <b>[Next Step]</b> button will begin the installation process on your database.</p>
 	<p>In order to prevent possible browser crashes during this script, we strongly recommend that you disable any additional toolbars you may be using on your browser, such as the <b>Google</b> toolbar etc.</p>';
@@ -248,7 +248,7 @@ $install_phrases['reset_database'] = 'Reset Database';
 $install_phrases['delete_tables_instructions'] = '<p>The following is a list of all tables found in your database. Tables that are recognized as part of vBulletin have been selected for you. There may be other tables listed that were not recognized - these will be highlighted in the list.</p>
 <p style="font-size:12pt">All selected tables and their contents will be <strong>permanently and irreversibly deleted</strong> from the database when the <em>Delete Selected Tables</em> button is clicked.</p>
 <p><a href="install.php?step=2">Click here if you would like to return to the install process without deleting any tables.</a></p>
-<p>vBulletin and Jelsoft Enterprises Ltd. can accept no responsibility for any loss of data incurred as a result of deleting database tables.</p>';
+<p>vBulletin and vBulletin Solutions, Inc. can accept no responsibility for any loss of data incurred as a result of deleting database tables.</p>';
 $install_phrases['select_deselect_all_tables'] = 'Select / Deselect All Tables';
 $install_phrases['delete_selected_tables'] = 'Delete Selected Tables';
 $install_phrases['mysql_strict_mode'] = 'MySQL is running in strict mode. While you may proceed, some areas of vBulletin may not function properly. It is <em>strongly recommended</em> that you set <code>$config[\'Database\'][\'force_sql_mode\']</code> to <code>true</code> in your includes/config.php file!';
@@ -264,7 +264,7 @@ $install_phrases['bburl'] = '<b>BB URL</b> <dfn>URL (with no final "/") of the B
 $install_phrases['homeurl'] = '<b>Home URL</b> <dfn>URL of your home page. Appears at the bottom of every page.</dfn>';
 $install_phrases['webmasteremail'] = '<b>Webmaster email address</b> <dfn>Email address of the webmaster.</dfn>';
 $install_phrases['cookiepath'] = '<b>Cookie Path</b> <dfn>The path to which the cookie is saved. If you run more than one forum on the same domain, it will be necessary to set this to the individual directories of the forums. Otherwise, just leave it as / .<br /><br />Suggested valid values for Cookie Path are available in the drop-down menu opposite. If you have a good reason to want a different setting, tick the checkbox and enter the desired value in the box provided.<br /><br />Please note that your path should <b>always</b> end in a forward-slash; for example \'/forums/\', \'/vbulletin/\' etc.<br /><br /><span class="modlasttendays">Entering an invalid setting can leave you unable to login to your forum.</span></dfn>';
-$install_phrases['cookiedomain'] = '<b>Cookie Domain</b> <dfn>This option sets the domain on which the cookie is active. The most common reason to change this setting is that you have two different urls to your forum, i.e. example.com and forums.example.com.  To allow users to stay logged into the forum if they visit via either url, you would set this to <b>.example.com</b> (note the domain begins with a <b>dot</b>.<br /><br />Suggested valid values for Cookie Path are available in the drop-down menu opposite. If you have a good reason to want a different setting, tick the checkbox and enter the desired value in the box provided.<br /><br /><span class="modlasttendays">You most likely want to leave this setting blank as entering an invalid setting can leave you unable to login to your forum.</span></dfn>';
+$install_phrases['cookiedomain'] = '<b>Cookie Domain</b> <dfn>This option sets the domain on which the cookie is active. The most common reason to change this setting is that you have two different urls to your forum, i.e. example.com and forums.example.com.  To allow users to stay logged into the forum if they visit via either url, you would set this to <b>.example.com</b> (note the domain begins with a <b>dot</b>.<br /><br />Suggested valid values for Cookie Domain are available in the drop-down menu opposite. If you have a good reason to want a different setting, tick the checkbox and enter the desired value in the box provided.<br /><br /><span class="modlasttendays">You most likely want to leave this setting blank as entering an invalid setting can leave you unable to login to your forum.</span></dfn>';
 $install_phrases['suggested_settings'] = 'Suggested Settings';
 $install_phrases['custom_setting'] = 'Custom Setting';
 $install_phrases['use_custom_setting'] = 'Use Custom Setting (Specify Below)';
@@ -327,6 +327,8 @@ $install_phrases['smilie_mad'] = 'Mad';
 $install_phrases['smilie_eek'] = 'EEK!';
 $install_phrases['smilie_confused'] = 'Confused';
 $install_phrases['smilie_frown'] = 'Frown';
+$install_phrases['socialgroups_uncategorized'] = 'Uncategorized';
+$install_phrases['socialgroups_uncategorized_description'] = 'Uncategorized Social Groups';
 $install_phrases['usergroup_guest_title'] = 'Unregistered / Not Logged In';
 $install_phrases['usergroup_guest_usertitle'] = 'Guest';
 $install_phrases['usergroup_registered_title'] = 'Registered Users';
@@ -346,8 +348,8 @@ $install_phrases['usertitle_snr'] = 'Senior Member';
 
 /*======================================================================*\
 || ####################################################################
-|| # Downloaded: 16:21, Sat Apr 6th 2013
-|| # CVS: $RCSfile$ - $Revision: 24780 $
+|| # Downloaded: 20:50, Sun Aug 11th 2013
+|| # CVS: $RCSfile$ - $Revision: 39862 $
 || ####################################################################
 \*======================================================================*/
 ?>

@@ -1,9 +1,9 @@
 <?php
 /*======================================================================*\
 || #################################################################### ||
-|| # vBulletin 3.7.2 Patch Level 2 - Licence Number VBF2470E4F
+|| # vBulletin 3.8.7 Patch Level 3 - Licence Number VBC2DDE4FB
 || # ---------------------------------------------------------------- # ||
-|| # Copyright ©2000-2013 Jelsoft Enterprises Ltd. All Rights Reserved. ||
+|| # Copyright ©2000-2013 vBulletin Solutions, Inc. All Rights Reserved. ||
 || # This file may not be redistributed in whole or significant part. # ||
 || # ---------------- VBULLETIN IS NOT FREE SOFTWARE ---------------- # ||
 || # http://www.vbulletin.com | http://www.vbulletin.com/license.html # ||
@@ -127,7 +127,7 @@ function construct_nav_group($title, $nav_file = 'vbulletin')
 				<a href=\"index.php?" . $vbulletin->session->vars['sessionurl'] . "do=buildnavprefs&amp;nojs=" . $vbulletin->GPC['nojs'] . "&amp;prefs=$navlinks&amp;dowhat=$dowhat&amp;id={$nav_file}_$groupid[$nav_file]#grp{$nav_file}_$groupid[$nav_file]\" target=\"_self\"
 					onclick=\"toggle_group('{$nav_file}_$groupid[$nav_file]'); return false;\"
 					oncontextmenu=\"toggle_group('{$nav_file}_$groupid[$nav_file]'); save_group_prefs('{$nav_file}_$groupid[$nav_file]'); return false\"
-				><img src=\"../cpstyles/" . $vbulletin->options['cpstylefolder'] . "/cp_$dowhat.gif\" title=\"$tooltip\" id=\"button_{$nav_file}_$groupid[$nav_file]\" alt=\"\" border=\"0\" /></a>
+				><img src=\"../cpstyles/" . $vbulletin->options['cpstylefolder'] . "/cp_$dowhat.gif\" title=\"$tooltip\" id=\"button_{$nav_file}_$groupid[$nav_file]\" alt=\"+\" border=\"0\" /></a>
 			</td>
 		</tr>
 		</table>";
@@ -331,8 +331,8 @@ function print_nav_panel()
 
 /*======================================================================*\
 || ####################################################################
-|| # Downloaded: 16:21, Sat Apr 6th 2013
-|| # CVS: $RCSfile$ - $Revision: 14805 $
+|| # Downloaded: 20:50, Sun Aug 11th 2013
+|| # CVS: $RCSfile$ - $Revision: 39862 $
 || ####################################################################
 \*======================================================================*/
 ?>

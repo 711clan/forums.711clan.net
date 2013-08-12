@@ -1,9 +1,9 @@
 <?php
 /*======================================================================*\
 || #################################################################### ||
-|| # vBulletin 3.7.2 Patch Level 2 - Licence Number VBF2470E4F
+|| # vBulletin 3.8.7 Patch Level 3 - Licence Number VBC2DDE4FB
 || # ---------------------------------------------------------------- # ||
-|| # Copyright ©2000-2013 Jelsoft Enterprises Ltd. All Rights Reserved. ||
+|| # Copyright ©2000-2013 vBulletin Solutions, Inc. All Rights Reserved. ||
 || # This file may not be redistributed in whole or significant part. # ||
 || # ---------------- VBULLETIN IS NOT FREE SOFTWARE ---------------- # ||
 || # http://www.vbulletin.com | http://www.vbulletin.com/license.html # ||
@@ -11,10 +11,10 @@
 \*======================================================================*/
 
 // ######################## SET PHP ENVIRONMENT ###########################
-error_reporting(E_ALL & ~E_NOTICE);
+error_reporting(E_ALL & ~E_NOTICE & ~8192);
 
 // ##################### DEFINE IMPORTANT CONSTANTS #######################
-define('CVS_REVISION', '$RCSfile$ - $Revision: 26379 $');
+define('CVS_REVISION', '$RCSfile$ - $Revision: 39862 $');
 
 // #################### PRE-CACHE TEMPLATES AND DATA ######################
 $phrasegroups = array('profilefield', 'cprofilefield');
@@ -152,7 +152,8 @@ if ($_POST['do'] == 'updatecat')
 		'displayorder' => TYPE_UINT,
 		'title' => TYPE_NOHTML,
 		'location' => TYPE_STR,
-		'desc' => TYPE_STR
+		'desc' => TYPE_STR,
+		'allowprivacy' => TYPE_BOOL
 	));
 
 	if (empty($vbulletin->GPC['title']))
@@ -165,9 +166,9 @@ if ($_POST['do'] == 'updatecat')
 		// we are adding a new item
 		$db->query_write("
 			INSERT INTO " .TABLE_PREFIX . "profilefieldcategory
-				(profilefieldcategoryid, displayorder, location)
+				(profilefieldcategoryid, displayorder, location, allowprivacy)
 			VALUES
-				(NULL, " . $vbulletin->GPC['displayorder'] . ", '" . $db->escape_string($vbulletin->GPC['location']) . "')
+				(NULL, " . $vbulletin->GPC['displayorder'] . ", '" . $db->escape_string($vbulletin->GPC['location']) . "', " . intval($vbulletin->GPC['allowprivacy']) . ")
 		");
 
 		$vbulletin->GPC['profilefieldcategoryid'] = intval($db->insert_id());
@@ -178,7 +179,8 @@ if ($_POST['do'] == 'updatecat')
 		$db->query_write("
 			UPDATE " . TABLE_PREFIX . "profilefieldcategory SET
 				displayorder = " . $vbulletin->GPC['displayorder'] . ",
-				location = '" . $db->escape_string($vbulletin->GPC['location']) . "'
+				location = '" . $db->escape_string($vbulletin->GPC['location']) . "',
+				allowprivacy = " . intval($vbulletin->GPC['allowprivacy']) . "
 			WHERE profilefieldcategoryid = " . $vbulletin->GPC['profilefieldcategoryid'] . "
 		");
 	}
@@ -285,6 +287,7 @@ if ($_REQUEST['do'] == 'addcat' OR $_REQUEST['do'] == 'editcat')
 	);
 	print_select_row($vbphrase['location_on_profile_page_dfn'], 'location', $category_locations, $pfc['location']);
 	print_input_row($vbphrase['display_order'], 'displayorder', $pfc['displayorder']);
+	print_checkbox_row($vbphrase['allow_privacy_options'], 'allowprivacy', $pfc['allowprivacy']);
 	print_submit_row();
 }
 
@@ -1198,7 +1201,7 @@ if ($_POST['do'] == 'kill')
 	build_language();
 
 	require_once(DIR . '/includes/class_dbalter.php');
-	$db_alter =& new vB_Database_Alter_MySQL($db);
+	$db_alter = new vB_Database_Alter_MySQL($db);
 
 	$db->query_write("DELETE FROM " . TABLE_PREFIX . "profilefield WHERE profilefieldid = " . $vbulletin->GPC['profilefieldid']);
 	if ($db_alter->fetch_table_info('userfield'))
@@ -1370,8 +1373,8 @@ print_cp_footer();
 
 /*======================================================================*\
 || ####################################################################
-|| # Downloaded: 16:21, Sat Apr 6th 2013
-|| # CVS: $RCSfile$ - $Revision: 26379 $
+|| # Downloaded: 20:50, Sun Aug 11th 2013
+|| # CVS: $RCSfile$ - $Revision: 39862 $
 || ####################################################################
 \*======================================================================*/
 ?>

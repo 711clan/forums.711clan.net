@@ -1,9 +1,9 @@
 <?php
 /*======================================================================*\
 || #################################################################### ||
-|| # vBulletin 3.7.2 Patch Level 2 - Licence Number VBF2470E4F
+|| # vBulletin 3.8.7 Patch Level 3 - Licence Number VBC2DDE4FB
 || # ---------------------------------------------------------------- # ||
-|| # Copyright ©2000-2013 Jelsoft Enterprises Ltd. All Rights Reserved. ||
+|| # Copyright ©2000-2013 vBulletin Solutions, Inc. All Rights Reserved. ||
 || # This file may not be redistributed in whole or significant part. # ||
 || # ---------------- VBULLETIN IS NOT FREE SOFTWARE ---------------- # ||
 || # http://www.vbulletin.com | http://www.vbulletin.com/license.html # ||
@@ -11,7 +11,7 @@
 \*======================================================================*/
 
 // ######################## SET PHP ENVIRONMENT ###########################
-error_reporting(E_ALL & ~E_NOTICE);
+error_reporting(E_ALL & ~E_NOTICE & ~8192);
 @ini_set('zlib.output_compression', 'Off');
 @set_time_limit(0);
 if (@ini_get('output_handler') == 'ob_gzhandler' AND @ob_get_length() !== false)
@@ -40,7 +40,7 @@ if (!$_REQUEST['attachmentid'])
 	}
 }
 
-if (empty($_REQUEST['attachmentid']))
+if (empty($_REQUEST['attachmentid']) AND empty($_REQUEST['postid']))
 {
 	// return not found header
 	$sapi_name = php_sapi_name();
@@ -182,7 +182,14 @@ else
 		eval(standard_error(fetch_error('invalidid', $idname, $vbulletin->options['contactuslink'])));
 	}
 
-	if (!($forumperms & $vbulletin->bf_ugp_forumpermissions['canview']) OR !($forumperms & $vbulletin->bf_ugp_forumpermissions['canviewthreads']) OR !($forumperms & $vbulletin->bf_ugp_forumpermissions['cangetattachment'])  OR (!($forumperms & $vbulletin->bf_ugp_forumpermissions['canviewothers']) AND ($attachmentinfo['postuserid'] != $vbulletin->userinfo['userid'] OR $vbulletin->userinfo['userid'] == 0)))
+	$viewpermission = (($forumperms & $vbulletin->bf_ugp_forumpermissions['cangetattachment']));
+	$viewthumbpermission = (($forumperms & $vbulletin->bf_ugp_forumpermissions['cangetattachment']) OR ($forumperms & $vbulletin->bf_ugp_forumpermissions['canseethumbnails']));
+
+	if (!($forumperms & $vbulletin->bf_ugp_forumpermissions['canview']) OR !($forumperms & $vbulletin->bf_ugp_forumpermissions['canviewthreads']) OR (!($forumperms & $vbulletin->bf_ugp_forumpermissions['canviewothers']) AND ($attachmentinfo['postuserid'] != $vbulletin->userinfo['userid'] OR $vbulletin->userinfo['userid'] == 0)))
+	{
+		print_no_permission();
+	}
+	else if (($vbulletin->GPC['thumb'] AND !$viewthumbpermission) OR (!$vbulletin->GPC['thumb'] AND !$viewpermission))
 	{
 		print_no_permission();
 	}
@@ -199,10 +206,25 @@ else
 // handle lightbox requests
 if ($_REQUEST['do'] == 'lightbox')
 {
+	$vbulletin->input->clean_array_gpc('r', array(
+		'width'      => TYPE_UINT,
+		'height'     => TYPE_UINT,
+		'first'      => TYPE_BOOL,
+	    'last'       => TYPE_BOOL,
+		'current'    => TYPE_UINT,
+	    'total'      => TYPE_UINT
+	));
+	$width = $vbulletin->GPC['width'];
+	$height = $vbulletin->GPC['height'];
+	$first = $vbulletin->GPC['first'];
+	$last = $vbulletin->GPC['last'];
+	$current = $vbulletin->GPC['current'];
+	$total = $vbulletin->GPC['total'];
+
 	require_once(DIR . '/includes/class_xml.php');
 	$xml = new vB_AJAX_XML_Builder($vbulletin, 'text/xml');
 
-	if (in_array(strtolower($attachmentinfo['extension']), array('jpg', 'jpeg', 'jpe', 'gif', 'png')))
+	if (in_array(strtolower($attachmentinfo['extension']), array('jpg', 'jpeg', 'jpe', 'gif', 'png', 'bmp')))
 	{
 		$uniqueid = $vbulletin->GPC['uniqueid'];
 		$imagelink = 'attachment.php?' . $vbulletin->session->vars['sessionurl'] . 'attachmentid=' . $attachmentinfo['attachmentid'] . '&d=' . $attachmentinfo['dateline'];
@@ -432,6 +454,12 @@ else
 	header('Content-type: unknown/unknown');
 }
 
+// This is new in IE8 and tells the browser not to try and guess
+header('X-Content-Type-Options: nosniff');
+
+// prevent flash from ever considering this to be a cross domain file
+header('X-Permitted-Cross-Domain-Policies: none');
+
 ($hook = vBulletinHook::fetch_hook('attachment_display')) ? eval($hook) : false;
 
 // update views counter
@@ -520,8 +548,8 @@ else
 
 /*======================================================================*\
 || ####################################################################
-|| # Downloaded: 16:21, Sat Apr 6th 2013
-|| # CVS: $RCSfile$ - $Revision: 26399 $
+|| # Downloaded: 20:50, Sun Aug 11th 2013
+|| # CVS: $RCSfile$ - $Revision: 39862 $
 || ####################################################################
 \*======================================================================*/
 ?>

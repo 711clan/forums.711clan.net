@@ -1,9 +1,9 @@
 <?php
 /*======================================================================*\
 || #################################################################### ||
-|| # vBulletin 3.7.2 Patch Level 2 - Licence Number VBF2470E4F
+|| # vBulletin 3.8.7 Patch Level 3 - Licence Number VBC2DDE4FB
 || # ---------------------------------------------------------------- # ||
-|| # Copyright ©2000-2013 Jelsoft Enterprises Ltd. All Rights Reserved. ||
+|| # Copyright ©2000-2013 vBulletin Solutions, Inc. All Rights Reserved. ||
 || # This file may not be redistributed in whole or significant part. # ||
 || # ---------------- VBULLETIN IS NOT FREE SOFTWARE ---------------- # ||
 || # http://www.vbulletin.com | http://www.vbulletin.com/license.html # ||
@@ -170,7 +170,7 @@ function convert_wysiwyg_html_to_bbcode($text, $allowhtml = false, $p_two_linebr
 	(
 		#'<DIV>',                                             // multiple <DIV>s at string start
 		#'</DIV>',                                            // multiple </DIV>s at string end
-		"[B]\\2[/B]\n\n",                                     // headings
+		is_bbcode_tag_allowed('b') ? "[B]\\2[/B]\n\n" : "\\2\n\n", // headings
 		"fetch_smilie_text(\\1)",                             // smilies
 		"handle_wysiwyg_img('\\2')",                          // img tag
 		//'[EMAIL="\2"]\4[/EMAIL]',                             // email tag
@@ -288,6 +288,80 @@ function convert_wysiwyg_html_to_bbcode($text, $allowhtml = false, $p_two_linebr
 	return trim($text);
 }
 
+/**
+* Determines if the specified BB code tag is globally enabled.
+*
+* @param	string	Tag name
+*
+* @return	bool
+*/
+function is_bbcode_tag_allowed($tag)
+{
+	global $vbulletin;
+
+	$flag_value = 0;
+
+	switch (strtolower($tag))
+	{
+		case 'b':
+		case 'i':
+		case 'u':
+			$flag_value = ALLOW_BBCODE_BASIC;
+			break;
+
+		case 'color':
+			$flag_value = ALLOW_BBCODE_COLOR;
+			break;
+
+		case 'size':
+			$flag_value = ALLOW_BBCODE_SIZE;
+			break;
+
+		case 'font':
+			$flag_value = ALLOW_BBCODE_FONT;
+			break;
+
+		case 'left':
+		case 'right':
+		case 'center':
+			$flag_value = ALLOW_BBCODE_ALIGN;
+			break;
+
+		case 'list':
+			$flag_value = ALLOW_BBCODE_LIST;
+			break;
+
+		case 'indent':
+			// allowed if either is enabled
+			$flag_value = ALLOW_BBCODE_ALIGN | ALLOW_BBCODE_LIST;
+			break;
+
+		case 'email':
+		case 'url':
+		case 'thread':
+		case 'post':
+			$flag_value = ALLOW_BBCODE_URL;
+			break;
+
+		case 'php':
+			$flag_value = ALLOW_BBCODE_PHP;
+			break;
+
+		case 'code':
+			$flag_value = ALLOW_BBCODE_CODE;
+			break;
+
+		case 'html':
+			$flag_value = ALLOW_BBCODE_HTML;
+			break;
+
+		default:
+			return true;
+	}
+
+	return ($vbulletin->options['allowedbbcodes'] & $flag_value ? true : false);
+}
+
 // ###################### Start handle_wysiwyg_img #######################
 // named differently since it's not parsed via parse_wysiwyg_recurse
 function handle_wysiwyg_img($img_url)
@@ -325,6 +399,11 @@ function parse_style_attribute($tagoptions, &$prependtags, &$appendtags)
 	);
 	foreach ($searchlist AS $searchtag)
 	{
+		if (!is_bbcode_tag_allowed($searchtag['tag']))
+		{
+			continue;
+		}
+
 		if (preg_match($searchtag['regex'], $style, $matches))
 		{
 			$prependtags .= '[' . strtoupper($searchtag['tag']) . iif($searchtag['option'] == true, '=' . $matches["$searchtag[match]"]) . ']';
@@ -336,6 +415,8 @@ function parse_style_attribute($tagoptions, &$prependtags, &$appendtags)
 // ###################### Start parse_wysiwyg_anchor #######################
 function parse_wysiwyg_anchor($aoptions, $text)
 {
+	global $vbulletin;
+
 	$href = parse_wysiwyg_tag_attribute('href=', $aoptions);
 
 	if (!trim($href))
@@ -359,7 +440,23 @@ function parse_wysiwyg_anchor($aoptions, $text)
 	}
 	$tag = strtoupper($tag);
 
-	return "[$tag=\"$href\"]" . parse_wysiwyg_recurse('a', $text, 'parse_wysiwyg_anchor') . "[/$tag]";
+	if ($vbulletin->options['allowedbbcodes'] & ALLOW_BBCODE_URL)
+	{
+		return "[$tag=\"$href\"]" . parse_wysiwyg_recurse('a', $text, 'parse_wysiwyg_anchor') . "[/$tag]";
+	}
+	else
+	{
+		// can't auto link, return a plaintext version
+		$inner_text = parse_wysiwyg_recurse('a', $text, 'parse_wysiwyg_anchor');
+		if ($inner_text != $href)
+		{
+			return "$inner_text ($href)";
+		}
+		else
+		{
+			return $href;
+		}
+	}
 }
 
 // ###################### Start WYSIWYG_paraparser #######################
@@ -385,7 +482,7 @@ function parse_wysiwyg_paragraph($poptions, $text)
 	$append = '';
 
 	parse_style_attribute($poptions, $prepend, $append);
-	if ($align)
+	if ($align AND is_bbcode_tag_allowed($align))
 	{
 		$prepend .= "[$align]";
 		$append .= "[/$align]";
@@ -438,7 +535,7 @@ function parse_wysiwyg_div($divoptions, $text)
 
 	$align = strtoupper($align);
 
-	if ($align)
+	if ($align AND is_bbcode_tag_allowed($align))
 	{
 		$prepend .= "[$align]";
 		$append .= "[/$align]";
@@ -451,6 +548,11 @@ function parse_wysiwyg_div($divoptions, $text)
 // ###################### Start WYSIWYG_listelementparser #######################
 function parse_wysiwyg_list_element($listoptions, $text)
 {
+	if (!is_bbcode_tag_allowed('list'))
+	{
+		return "$text\n";
+	}
+
 	return '[*]' . rtrim($text);
 }
 
@@ -466,6 +568,11 @@ function parse_wysiwyg_list($listoptions, $text, $tagname)
 
 	$text = preg_replace('#<li>((?'.'>[^[<]+?|(?!</li).)*)(?=</?ol|</?ul|<li|\[list|\[/list)#siU', '<li>\\1</li>', $text);
 	$text = parse_wysiwyg_recurse('li', $text, 'parse_wysiwyg_list_element');
+
+	if (!is_bbcode_tag_allowed('list'))
+	{
+		return $text;
+	}
 
 	$validtypes = array(
 		'upper-alpha' => 'A',
@@ -522,6 +629,11 @@ function parse_wysiwyg_code_replacement($options, $text, $tagname, $parseto)
 	if (trim($text) == '')
 	{
 		return '';
+	}
+
+	if (!is_bbcode_tag_allowed($parseto))
+	{
+		return $text;
 	}
 
 	$parseto = strtoupper($parseto);
@@ -688,8 +800,8 @@ function strip_tags_callback($text)
 
 /*======================================================================*\
 || ####################################################################
-|| # Downloaded: 16:21, Sat Apr 6th 2013
-|| # CVS: $RCSfile$ - $Revision: 26613 $
+|| # Downloaded: 20:50, Sun Aug 11th 2013
+|| # CVS: $RCSfile$ - $Revision: 39862 $
 || ####################################################################
 \*======================================================================*/
 ?>

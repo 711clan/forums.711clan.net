@@ -1,9 +1,9 @@
 <?php
 /*======================================================================*\
 || #################################################################### ||
-|| # vBulletin 3.7.2 Patch Level 2 - Licence Number VBF2470E4F
+|| # vBulletin 3.8.7 Patch Level 3 - Licence Number VBC2DDE4FB
 || # ---------------------------------------------------------------- # ||
-|| # Copyright ©2000-2013 Jelsoft Enterprises Ltd. All Rights Reserved. ||
+|| # Copyright ©2000-2013 vBulletin Solutions, Inc. All Rights Reserved. ||
 || # This file may not be redistributed in whole or significant part. # ||
 || # ---------------- VBULLETIN IS NOT FREE SOFTWARE ---------------- # ||
 || # http://www.vbulletin.com | http://www.vbulletin.com/license.html # ||
@@ -354,9 +354,10 @@ class vB_Visitor_Message
 					$this->registry->options['secureemail'] AND $this->registry->options['enableemail']
 				)
 			) AND $this->registry->userinfo['permissions']['genericpermissions'] & $this->registry->bf_ugp_genericpermissions['canemailmember']
+			AND $this->registry->userinfo['userid']
 		);
 		$show['homepage'] = ($this->message['homepage'] != '' AND $this->message['homepage'] != 'http://');
-		$show['pmlink'] = ($this->registry->options['enablepms'] AND $this->registry->userinfo['permissions']['pmquota'] AND ($this->registry->userinfo['permissions']['adminpermissions'] & $this->registry->bf_ugp_adminpermissions['cancontrolpanel']
+		$show['pmlink'] = ($this->registry->options['enablepms'] AND $this->registry->userinfo['permissions']['pmquota'] AND ($this->registry->userinfo['permissions']['pmpermissions'] & $this->registry->bf_ugp_pmpermissions['canignorequota']
 	 					OR ($this->message['receivepm'] AND $this->factory->perm_cache["{$this->userinfo['userid']}"]['pmquota'])
 	 				)) ? true : false;
 	}
@@ -397,7 +398,7 @@ class vB_Visitor_Message
 	{
 		$this->message['message'] = $this->bbcode->parse(
 			$this->message['pagetext'],
-			'socialmessage',
+			'visitormessage',
 			$this->message['allowsmilie']
 		);
 		$this->parsed_cache =& $this->bbcode->cached;
@@ -502,6 +503,11 @@ class vB_Visitor_Message
 		}
 
 		$show['edit'] = fetch_visitor_message_perm('caneditvisitormessages', $this->userinfo, $this->message);
+		if ($show['edit'])
+		{
+			$show['hasedit'] = true;
+		}
+
 		$show['moderation'] = ($this->message['state'] == 'moderation');
 
 		// Set up special situation where we show the inline mod box for posts on our profile when those posts are combined with our posts on another user's profile.
@@ -713,8 +719,8 @@ class vB_Visitor_Message_Simple_Ignored extends vB_Visitor_Message
 
 /*======================================================================*\
 || ####################################################################
-|| # Downloaded: 16:21, Sat Apr 6th 2013
-|| # SVN: $Revision: 26601 $
+|| # Downloaded: 20:50, Sun Aug 11th 2013
+|| # SVN: $Revision: 39862 $
 || ####################################################################
 \*======================================================================*/
 ?>

@@ -1,9 +1,9 @@
 <?php
 /*======================================================================*\
 || #################################################################### ||
-|| # vBulletin 3.7.2 Patch Level 2 - Licence Number VBF2470E4F
+|| # vBulletin 3.8.7 Patch Level 3 - Licence Number VBC2DDE4FB
 || # ---------------------------------------------------------------- # ||
-|| # Copyright ©2000-2013 Jelsoft Enterprises Ltd. All Rights Reserved. ||
+|| # Copyright ©2000-2013 vBulletin Solutions, Inc. All Rights Reserved. ||
 || # This file may not be redistributed in whole or significant part. # ||
 || # ---------------- VBULLETIN IS NOT FREE SOFTWARE ---------------- # ||
 || # http://www.vbulletin.com | http://www.vbulletin.com/license.html # ||
@@ -11,7 +11,7 @@
 \*======================================================================*/
 
 // ####################### SET PHP ENVIRONMENT ###########################
-error_reporting(E_ALL & ~E_NOTICE);
+error_reporting(E_ALL & ~E_NOTICE & ~8192);
 
 // #################### DEFINE IMPORTANT CONSTANTS #######################
 define('THIS_SCRIPT', 'register');
@@ -304,8 +304,6 @@ if ($_POST['do'] == 'addmember')
 	{
 		$userdata->error('passwordmismatch');
 	}
-	// set password
-	$userdata->set('password', ($vbulletin->GPC['password_md5'] ? $vbulletin->GPC['password_md5'] : $vbulletin->GPC['password']));
 
 	// check for matching email addresses
 	if ($vbulletin->GPC['email'] != $vbulletin->GPC['emailconfirm'])
@@ -316,6 +314,9 @@ if ($_POST['do'] == 'addmember')
 
 	$userdata->set('username', $vbulletin->GPC['username']);
 
+	// set password
+	$userdata->set('password', ($vbulletin->GPC['password_md5'] ? $vbulletin->GPC['password_md5'] : $vbulletin->GPC['password']));
+
 	// check referrer
 	if ($vbulletin->GPC['referrername'] AND !$vbulletin->userinfo['userid'])
 	{
@@ -323,7 +324,7 @@ if ($_POST['do'] == 'addmember')
 	}
 
 	// Human Verification
-	if (1==2&&$vbulletin->options['hvcheck_registration'])
+	if (fetch_require_hvcheck('register'))
 	{
 		require_once(DIR . '/includes/class_humanverify.php');
 		$verify =& vB_HumanVerify::fetch_library($vbulletin);
@@ -332,7 +333,6 @@ if ($_POST['do'] == 'addmember')
 			$userdata->error($verify->fetch_error());
 		}
 	}
-
 	// Set specified options
 	if (!empty($vbulletin->GPC['options']))
 	{
@@ -382,7 +382,7 @@ if ($_POST['do'] == 'addmember')
 	// register IP address
 	$userdata->set('ipaddress', IPADDRESS);
 
-	//($hook = vBulletinHook::fetch_hook('register_addmember_process')) ? eval($hook) : false;
+	($hook = vBulletinHook::fetch_hook('register_addmember_process')) ? eval($hook) : false;
 
 	$userdata->pre_save();
 
@@ -519,7 +519,7 @@ if ($_POST['do'] == 'addmember')
 				}
 			}
 
-			//($hook = vBulletinHook::fetch_hook('register_addmember_complete')) ? eval($hook) : false;
+			($hook = vBulletinHook::fetch_hook('register_addmember_complete')) ? eval($hook) : false;
 
 			if ($vbulletin->GPC['coppauser'])
 			{
@@ -640,7 +640,7 @@ if ($_REQUEST['do'] == 'register')
 	$smiliesonoff = ($vbulletin->options['allowsmilies'] ? $vbphrase['on'] : $vbphrase['off']);
 
 	// human verification
-	if ($vbulletin->options['hvcheck_registration'])
+	if (fetch_require_hvcheck('register'))
 	{
 		require_once(DIR . '/includes/class_humanverify.php');
 		$verify =& vB_HumanVerify::fetch_library($vbulletin);
@@ -972,13 +972,13 @@ if ($_REQUEST['do'] == 'activate')
 {
 	$vbulletin->input->clean_array_gpc('r', array(
 		'username'		=> TYPE_NOHTML,
-		'activateid'	=> TYPE_UINT,
+		'activateid'	=> TYPE_STR,
 
 		// These three are cleaned so that they will exist and not be overwritten in the next step
 
 		'u'				=> TYPE_UINT,
 		'a'				=> TYPE_NOHTML,
-		'i'				=> TYPE_UINT,
+		'i'				=> TYPE_STR,
 	));
 
 	if ($userinfo = $db->query_first("SELECT userid FROM " . TABLE_PREFIX . "user WHERE username='" . $db->escape_string($vbulletin->GPC['username']) . "'"))
@@ -997,7 +997,7 @@ if ($vbulletin->GPC['a'] == 'act')
 {
 	$vbulletin->input->clean_array_gpc('r', array(
 		'u'		=> TYPE_UINT,
-		'i'		=> TYPE_UINT,
+		'i'		=> TYPE_STR,
 	));
 
 	$userinfo = verify_id('user', $vbulletin->GPC['u'], 1, 1);
@@ -1010,7 +1010,7 @@ if ($vbulletin->GPC['a'] == 'act')
 		$user = $db->query_first("
 			SELECT activationid, usergroupid, emailchange
 			FROM " . TABLE_PREFIX . "useractivation
-			WHERE activationid = " . $vbulletin->GPC['i'] . "
+			WHERE activationid = '" . $db->escape_string($vbulletin->GPC['i']) . "'
 				AND userid = $userinfo[userid]
 				AND type = 0
 		");
@@ -1174,11 +1174,11 @@ if ($_POST['do'] == 'emailcode')
 				}
 				else
 				{
-					$user['activationid'] = vbrand(0, 100000000);
+					$user['activationid'] = fetch_random_string(40);
 					$db->query_write("
 						UPDATE " . TABLE_PREFIX . "useractivation SET
 							dateline = " . TIMENOW . ",
-							activationid = $user[activationid]
+							activationid = '$user[activationid]'
 						WHERE userid = $user[userid]
 							AND type = 0
 					");
@@ -1237,7 +1237,7 @@ if ($_REQUEST['do'] == 'deleteactivation')
 {
 	$vbulletin->input->clean_array_gpc('r', array(
 		'u'		=> TYPE_UINT,
-		'i'		=> TYPE_UINT,
+		'i'		=> TYPE_STR,
 	));
 
 	$userinfo = verify_id('user', $vbulletin->GPC['u'], 1, 1);
@@ -1248,7 +1248,7 @@ if ($_REQUEST['do'] == 'deleteactivation')
 		$user = $db->query_first("
 			SELECT userid, activationid, usergroupid
 			FROM " . TABLE_PREFIX . "useractivation
-			WHERE activationid = " . $vbulletin->GPC['i'] . "
+			WHERE activationid = '" . $db->escape_string($vbulletin->GPC['i']) . "'
 				AND userid = $userinfo[userid]
 				AND type = 0
 		");
@@ -1271,7 +1271,7 @@ if ($_REQUEST['do'] == 'killactivation')
 {
 	$vbulletin->input->clean_array_gpc('r', array(
 		'u'		=> TYPE_UINT,
-		'i'		=> TYPE_UINT,
+		'i'		=> TYPE_STR,
 	));
 
 	$userinfo = verify_id('user', $vbulletin->GPC['u'], 1, 1);
@@ -1282,7 +1282,7 @@ if ($_REQUEST['do'] == 'killactivation')
 		$user = $db->query_first("
 			SELECT activationid, usergroupid
 			FROM " . TABLE_PREFIX . "useractivation
-			WHERE activationid = " . $vbulletin->GPC['i'] . "
+			WHERE activationid = '" . $db->escape_string($vbulletin->GPC['i']) . "'
 				AND userid = $userinfo[userid]
 				AND type = 0
 		");
@@ -1308,8 +1308,8 @@ if ($_REQUEST['do'] == 'killactivation')
 
 /*======================================================================*\
 || ####################################################################
-|| # Downloaded: 16:21, Sat Apr 6th 2013
-|| # CVS: $RCSfile$ - $Revision: 26548 $
+|| # Downloaded: 20:50, Sun Aug 11th 2013
+|| # CVS: $RCSfile$ - $Revision: 39862 $
 || ####################################################################
 \*======================================================================*/
 ?>

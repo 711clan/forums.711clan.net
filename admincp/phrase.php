@@ -1,9 +1,9 @@
 <?php
 /*======================================================================*\
 || #################################################################### ||
-|| # vBulletin 3.7.2 Patch Level 2 - Licence Number VBF2470E4F
+|| # vBulletin 3.8.7 Patch Level 3 - Licence Number VBC2DDE4FB
 || # ---------------------------------------------------------------- # ||
-|| # Copyright ©2000-2013 Jelsoft Enterprises Ltd. All Rights Reserved. ||
+|| # Copyright ©2000-2013 vBulletin Solutions, Inc. All Rights Reserved. ||
 || # This file may not be redistributed in whole or significant part. # ||
 || # ---------------- VBULLETIN IS NOT FREE SOFTWARE ---------------- # ||
 || # http://www.vbulletin.com | http://www.vbulletin.com/license.html # ||
@@ -11,10 +11,10 @@
 \*======================================================================*/
 
 // ######################## SET PHP ENVIRONMENT ###########################
-error_reporting(E_ALL & ~E_NOTICE);
+error_reporting(E_ALL & ~E_NOTICE & ~8192);
 
 // ##################### DEFINE IMPORTANT CONSTANTS #######################
-define('CVS_REVISION', '$RCSfile$ - $Revision: 26617 $');
+define('CVS_REVISION', '$RCSfile$ - $Revision: 39862 $');
 
 // #################### PRE-CACHE TEMPLATES AND DATA ######################
 $phrasegroups = array('language');
@@ -317,7 +317,7 @@ if ($_POST['do'] == 'manageorphans')
 
 					echo "\t\t<tr class=\"$tr_bgclass\">\n";
 					echo "\t\t\t<td class=\"smallfont\"><label for=\"p$phrase[phraseid]\"><i>$phrase[text]</i></label></td>\n";
-					echo "\t\t\t<td class=\"smallfont\"><label for=\"p$phrase[phraseid]\"><b>$language[title]</b><input type=\"radio\" name=\"keep[$key]\" value=\"$phrase[phraseid]\" id=\"p$phrase[phraseid]\" tabindex=\"1\"$checkedhtml /></label></td>\n";
+					echo "\t\t\t<td class=\"smallfont\"><label for=\"p$phrase[phraseid]\"><b>$language[title]</b><input type=\"radio\" name=\"keep[" . urlencode($key) . "]\" value=\"$phrase[phraseid]\" id=\"p$phrase[phraseid]\" tabindex=\"1\"$checkedhtml /></label></td>\n";
 					echo "\t\t</tr>\n";
 				}
 			}
@@ -358,6 +358,7 @@ if ($_REQUEST['do'] == 'findorphans')
 	$orphans = array();
 	while ($phrase = $db->fetch_array($phrases))
 	{
+		$phrase['varname'] = urlencode($phrase['varname']);
 		$orphans["{$phrase['varname']}@{$phrase['fieldname']}"]["{$phrase['languageid']}"] = true;
 	}
 	$db->free_result($phrases);
@@ -404,6 +405,7 @@ if ($_REQUEST['do'] == 'findorphans')
 		}
 
 		$i++;
+		$varname = urlencode($varname);
 		$cell[] = "
 		<label for=\"k_$i\"><input type=\"radio\" id=\"k_$i\" name=\"phr[{$varname}@$fieldname]\" value=\"1\" tabindex=\"1\" />$vbphrase[keep]</label>
 		<label for=\"d_$i\"><input type=\"radio\" id=\"d_$i\" name=\"phr[{$varname}@$fieldname]\" value=\"0\" tabindex=\"1\" checked=\"checked\" />$vbphrase[delete]</label>
@@ -569,15 +571,41 @@ if ($_POST['do'] == 'dosearch')
 	if ($vbulletin->GPC['languageid'] == -10)
 	{
 		// query ALL languages
-		$phrases = $db->query_read("
-			SELECT phrase.*, language.title
-			FROM " . TABLE_PREFIX . "phrase AS phrase
-			LEFT JOIN " . TABLE_PREFIX . "language AS language USING(languageid)
-			WHERE $sql
-			" . ($phrasetype_sql ? "AND phrase.fieldname IN($phrasetype_sql)" : "") . "
-			" . ($vbulletin->GPC['product'] ? "AND phrase.product = '" . $db->escape_string($vbulletin->GPC['product']) . "'" : "") . "
-			ORDER BY languageid DESC, fieldname DESC
-		");
+		if ($vbulletin->debug)
+		{
+			// searches all phrases
+			$phrases = $db->query_read("
+				SELECT phrase.*, language.title
+				FROM " . TABLE_PREFIX . "phrase AS phrase
+				LEFT JOIN " . TABLE_PREFIX . "language AS language USING(languageid)
+				WHERE $sql
+				" . ($phrasetype_sql ? "AND phrase.fieldname IN($phrasetype_sql)" : "") . "
+				" . ($vbulletin->GPC['product'] ? "AND phrase.product = '" . $db->escape_string($vbulletin->GPC['product']) . "'" : "") . "
+				ORDER BY languageid DESC, fieldname DESC
+			");
+		}
+		else
+		{
+			// searches all phrases that are in use. Translated master phrases will not be searched
+			$phrases = $db->query_read("
+				SELECT IF (pcustom.fieldname IS NOT NULL, pcustom.fieldname, pmaster.fieldname) AS fieldname,
+					IF (pcustom.varname IS NOT NULL, pcustom.varname, pmaster.varname) AS varname,
+					IF (pcustom.languageid IS NOT NULL, pcustom.languageid, pmaster.languageid) AS languageid,
+					IF (pcustom.text IS NOT NULL, pcustom.text, pmaster.text) AS text,
+					language.title
+				FROM " . TABLE_PREFIX . "language AS language
+				INNER JOIN " . TABLE_PREFIX . "phrase AS pmaster ON
+					(pmaster.languageid IN (-1, 0))
+				LEFT JOIN " . TABLE_PREFIX . "phrase AS pcustom ON
+					(pcustom.languageid = language.languageid AND pcustom.varname = pmaster.varname AND pcustom.fieldname = pmaster.fieldname)
+				WHERE 1=1
+					" . ($phrasetype_sql ? "AND pmaster.fieldname IN($phrasetype_sql)" : '') . "
+					" . ($vbulletin->GPC['product'] ? "AND pmaster.product = '" . $db->escape_string($vbulletin->GPC['product']) . "'" : "") . "
+				" . ($sql ? "HAVING $sql" : '') . "
+				ORDER BY languageid DESC, fieldname DESC
+			");
+		}
+
 	}
 	else if ($vbulletin->GPC['languageid'] > 0 AND !$vbulletin->GPC['transonly'])
 	{
@@ -680,7 +708,7 @@ if ($_REQUEST['do'] == 'search')
 {
 	if (!isset($_REQUEST['languageid']))
 	{
-		$vbulletin->GPC['languageid'] = -10;
+		$_REQUEST['languageid'] = -10;
 	}
 
 	$vbulletin->input->clean_array_gpc('r', array(
@@ -958,9 +986,17 @@ if ($_POST['do'] == 'update')
 		print_stop_message('invalid_phrase_varname');
 	}
 
-	if ($vbulletin->GPC['varname'] != $vbulletin->GPC['oldvarname'] AND $test = $db->query_first("SELECT phraseid FROM " . TABLE_PREFIX . "phrase WHERE varname = '" . $db->escape_string($vbulletin->GPC['varname']) . "' AND languageid IN(0,-1) AND fieldname = '" . $db->escape_string($vbulletin->GPC['fieldname']) . "'"))
+	if ($db->query_first("SELECT phraseid FROM " . TABLE_PREFIX . "phrase WHERE varname = '" . $db->escape_string($vbulletin->GPC['varname']) . "' AND languageid IN(0,-1) AND fieldname = '" . $db->escape_string($vbulletin->GPC['fieldname']) . "'"))
 	{
-		print_stop_message('variable_name_exists', $vbulletin->GPC['oldvarname'], $vbulletin->GPC['varname']);
+		if ($vbulletin->GPC['varname'] != $vbulletin->GPC['oldvarname'])
+		{
+			print_stop_message('variable_name_exists', $vbulletin->GPC['oldvarname'], $vbulletin->GPC['varname']);
+		}
+		
+		if ($vbulletin->GPC['oldfieldname'] != $vbulletin->GPC['fieldname'])
+		{
+			print_stop_message('there_is_already_phrase_named_x', $vbulletin->GPC['varname']);
+		}
 	}
 
 	// delete old phrases
@@ -1014,7 +1050,7 @@ if ($_POST['do'] == 'insert')
 
 	if ($vbulletin->GPC['ismaster'])
 	{
-		if ($vbulletin->debug)
+		if ($vbulletin->debug AND !$vbulletin->GPC['t'])
 		{
 			/*insert query*/
 			$db->query_write("
@@ -1324,7 +1360,7 @@ if ($_REQUEST['do'] == 'edit')
 			$resizer = "<div class=\"smallfont\"><a href=\"#\" onclick=\"return resize_textarea(1, 'text_$_languageid')\">$vbphrase[increase_size]</a> <a href=\"#\" onclick=\"return resize_textarea(-1, 'text_$_languageid')\">$vbphrase[decrease_size]</a></div>";
 
 			print_label_row(
-				construct_phrase($vbphrase['x_translation'], "<b>$lang[title]</b>") . " <dfn>($vbphrase[optional])</dfn><br /><input type=\"button\" class=\"button\" class=\"smallfont\" value=\"$vbphrase[copy_default_text]\" tabindex=\"1\" onclick=\"copy_default_text($_languageid);\" />" . $resizer,
+				construct_phrase($vbphrase['x_translation'], "<b>$lang[title]</b>") . " <dfn>($vbphrase[optional])</dfn><br /><input type=\"button\" class=\"button\" value=\"$vbphrase[copy_default_text]\" tabindex=\"1\" onclick=\"copy_default_text($_languageid);\" />" . $resizer,
 				"<textarea name=\"text[$_languageid]\" id=\"text_$_languageid\" rows=\"5\" cols=\"60\" tabindex=\"1\" wrap=\"virtual\" dir=\"$lang[direction]\">" . htmlspecialchars_uni($text["$_languageid"]) . "</textarea>"
 			);
 			print_description_row('<img src="../' . $vbulletin->options['cleargifurl'] . '" width="1" height="1" alt="" />', 0, 2, 'thead');
@@ -1617,8 +1653,8 @@ print_cp_footer();
 
 /*======================================================================*\
 || ####################################################################
-|| # Downloaded: 16:21, Sat Apr 6th 2013
-|| # CVS: $RCSfile$ - $Revision: 26617 $
+|| # Downloaded: 20:50, Sun Aug 11th 2013
+|| # CVS: $RCSfile$ - $Revision: 39862 $
 || ####################################################################
 \*======================================================================*/
 ?>

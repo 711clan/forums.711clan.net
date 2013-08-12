@@ -1,9 +1,9 @@
 <?php
 /*======================================================================*\
 || #################################################################### ||
-|| # vBulletin 3.7.2 Patch Level 2 - Licence Number VBF2470E4F
+|| # vBulletin 3.8.7 Patch Level 3 - Licence Number VBC2DDE4FB
 || # ---------------------------------------------------------------- # ||
-|| # Copyright ©2000-2013 Jelsoft Enterprises Ltd. All Rights Reserved. ||
+|| # Copyright ©2000-2013 vBulletin Solutions, Inc. All Rights Reserved. ||
 || # This file may not be redistributed in whole or significant part. # ||
 || # ---------------- VBULLETIN IS NOT FREE SOFTWARE ---------------- # ||
 || # http://www.vbulletin.com | http://www.vbulletin.com/license.html # ||
@@ -11,10 +11,10 @@
 \*======================================================================*/
 
 // ######################## SET PHP ENVIRONMENT ###########################
-error_reporting(E_ALL & ~E_NOTICE);
+error_reporting(E_ALL & ~E_NOTICE & ~8192);
 
 // ##################### DEFINE IMPORTANT CONSTANTS #######################
-define('CVS_REVISION', '$RCSfile$ - $Revision: 26706 $');
+define('CVS_REVISION', '$RCSfile$ - $Revision: 39862 $');
 
 // #################### PRE-CACHE TEMPLATES AND DATA ######################
 $phrasegroups = array('cpuser', 'forum', 'timezone', 'user');
@@ -99,6 +99,11 @@ if ($_POST['do'] == 'killsentpms')
 
 	$user = $db->query_first("SELECT userid, username FROM " . TABLE_PREFIX . "user WHERE userid = " . $vbulletin->GPC['userid']);
 
+	if (!$user['userid'])
+	{
+		print_stop_message('invalid_user_specified');
+	}
+
 	$pmtextids = '0';
 	$pmtexts = $db->query_read("SELECT pmtextid FROM " . TABLE_PREFIX . "pmtext WHERE fromuserid = " . $vbulletin->GPC['userid']);
 	while ($pmtext = $db->fetch_array($pmtexts))
@@ -176,6 +181,83 @@ if ($_POST['do'] == 'killsentpms')
 		}
 
 		print_stop_message('deleted_private_messages_successfully');
+	}
+}
+
+// ###################### Start Remove VMs Sent by User #######################
+if ($_REQUEST['do'] == 'removesentvms')
+{
+	print_delete_confirmation('user', $vbulletin->GPC['userid'], 'usertools', 'killsentvms', 'visitor_messages_sent_by_the_user');
+}
+
+// ###################### Start Remove User's VMs #######################
+if ($_POST['do'] == 'killsentvms')
+{
+	$user = $db->query_first("SELECT userid, username FROM " . TABLE_PREFIX . "user WHERE userid = " . $vbulletin->GPC['userid']);
+
+	if (!$user['userid'])
+	{
+		print_stop_message('invalid_user_specified');
+	}
+
+	$prnvmids = array();
+	$userids = array();
+	$vms = $db->query_read("SELECT vmid, userid FROM " . TABLE_PREFIX . "visitormessage WHERE postuserid = " . $vbulletin->GPC['userid']);
+	while ($vm = $db->fetch_array($vms))
+	{
+		$prnvmids[] = $vm['vmid'];
+		$userids[] = $vm['userid'];
+	}
+	$db->free_result($vms);
+
+	define('CP_REDIRECT', "user.php?do=edit&amp;u=" . $vbulletin->GPC['userid']);
+
+	if (empty($prnvmids))
+	{
+		print_stop_message('no_visitor_messages_matched_your_query');
+	}
+	else
+	{
+		$userids = implode(',', array_unique($userids));
+		$prnvmids = implode(',', $prnvmids);
+
+		$usercountsarray = array();
+		$usercounts = $db->query_read("
+			SELECT user.userid, COUNT(*) AS total
+			FROM " . TABLE_PREFIX . "visitormessage AS vm
+			LEFT JOIN " . TABLE_PREFIX . "user AS user ON (user.userid = vm.userid)
+			WHERE user.userid IN ($userids)
+			AND vm.messageread = 0
+			AND vm.postuserid = " . $vbulletin->GPC['userid'] . "
+			GROUP BY user.userid
+		");
+		while ($usercount = $db->fetch_array($usercounts))
+		{
+			$usercountsarray["$usercount[userid]"] = $usercount['total'];
+		}
+		$db->free_result($usercount);
+
+		// actually remove the data
+		$db->query_write("DELETE FROM " . TABLE_PREFIX . "visitormessage WHERE vmid IN($prnvmids)");
+
+		// update counters for affected users
+		if (!empty($usercountsarray))
+		{
+			$vmunreadsql = 'CASE userid ';
+			foreach($usercountsarray AS $userid => $unreadcount)
+			{
+				$vmunreadsql .= "WHEN $userid THEN vmunreadcount - $unreadcount ";
+			}
+			$vmunreadsql .= 'ELSE vmunreadcount END';
+
+			$db->query_write("
+				UPDATE " . TABLE_PREFIX . "user
+				SET vmunreadcount = $vmunreadsql
+				WHERE userid IN($userids)
+			");
+		}
+
+		print_stop_message('deleted_visitor_messages_successfully');
 	}
 }
 
@@ -382,6 +464,27 @@ if ($_POST['do'] == 'reallydomerge')
 		");
 	}
 
+	// Update subscribed discussions
+	$discussions = $db->query_read("
+		INSERT IGNORE INTO " . TABLE_PREFIX . "subscribediscussion
+			(userid, discussionid, emailupdate)
+		SELECT $destinfo[userid], discussionid, emailupdate
+		FROM " . TABLE_PREFIX . "subscribediscussion AS src
+		WHERE src.userid = $sourceinfo[userid]
+	");
+
+	// Update subscribed groups
+	$discussions = $db->query_read("
+		INSERT IGNORE INTO " . TABLE_PREFIX . "subscribegroup
+			(userid, groupid)
+		SELECT $destinfo[userid], groupid
+		FROM " . TABLE_PREFIX . "subscribegroup AS src
+		WHERE src.userid = $sourceinfo[userid]
+	");
+
+	/*
+	REPLACE INTO
+	*/
 	// Merge relevant data in the user table
 	// It is ok to have duplicate ids in the buddy/ignore lists
 	$userdm =& datamanager_init('User', $vbulletin, ERRTYPE_SILENT);
@@ -395,6 +498,8 @@ if ($_POST['do'] == 'reallydomerge')
 	$userdm->set('lastpost', "IF(lastpost < $sourceinfo[lastpost], $sourceinfo[lastpost], lastpost)", false);
 	$userdm->set('pmtotal', "pmtotal + $sourceinfo[pmtotal]", false);
 	$userdm->set('pmunread', "pmunread + $sourceinfo[pmunread]", false);
+	$userdm->set('gmmoderatedcount', "gmmoderatedcount + $sourceinfo[gmmoderatedcount]", false);
+
 	if ($sourceinfo['joindate'] > 0)
 	{
 		// get the older join date, but only if we actually have a date
@@ -404,8 +509,28 @@ if ($_POST['do'] == 'reallydomerge')
 	$userdm->set('warnings', "warnings + " . intval($sourceinfo['warnings']), false);
 	$userdm->set('infractions', "infractions + " . intval($sourceinfo['infractions']), false);
 
-	$db->query_write("INSERT IGNORE INTO " . TABLE_PREFIX . "userlist (userid, relationid, type, friend) SELECT $destinfo[userid], relationid, type, friend FROM " . TABLE_PREFIX . "userlist WHERE userid = $sourceinfo[userid]");
-	$db->query_write("UPDATE IGNORE " . TABLE_PREFIX . "userlist SET relationid = $destinfo[userid] WHERE relationid = $sourceinfo[userid] AND relationid <> $destinfo[userid]");
+	$db->query_write("
+		INSERT IGNORE INTO " . TABLE_PREFIX . "userlist
+			(userid, relationid, type, friend)
+		SELECT $destinfo[userid], relationid, type, friend
+		FROM " . TABLE_PREFIX . "userlist
+		WHERE userid = $sourceinfo[userid]
+	");
+	$db->query_write("
+		UPDATE IGNORE " . TABLE_PREFIX . "userlist
+		SET relationid = $destinfo[userid]
+		WHERE relationid = $sourceinfo[userid]
+			AND relationid <> $destinfo[userid]
+	");
+
+	list($myfriendcount) = $db->query_first("
+		SELECT COUNT(*) FROM " . TABLE_PREFIX . "userlist
+		WHERE userid = $destinfo[userid]
+			AND type = 'buddy'
+			AND friend = 'yes'", DBARRAY_NUM
+	);
+
+	$userdm->set('friendcount', $myfriendcount);
 
 	$userdm->save();
 	unset($userdm);
@@ -712,6 +837,13 @@ if ($_POST['do'] == 'reallydomerge')
 		SET postuserid = $destinfo[userid],
 			postusername = '" . $db->escape_string($destinfo['username']) . "'
 		WHERE postuserid = $sourceinfo[userid]
+	");
+
+	// Clear Group Transfers
+	$db->query_write("
+		UPDATE " . TABLE_PREFIX . "socialgroup
+		SET transferowner = 0
+		WHERE transferowner = $sourceinfo[userid]
 	");
 
 	// Delete requests if the dest user already has them
@@ -1207,7 +1339,7 @@ if ($_REQUEST['do'] == 'avatar')
 	while ($avatar = $db->fetch_array($avatars))
 	{
 		$avatarid = $avatar['avatarid'];
-		$avatar['avatarpath'] = iif(substr($avatar['avatarpath'], 0, 7) != 'http://' AND $avatar['avatarpath']{0} != '/', '../', '') . $avatar['avatarpath'];
+		$avatar['avatarpath'] = resolve_cp_image_url($avatar['avatarpath']);
 		if ($avatarcount == 0)
 		{
 			$output .= '<tr class="' . fetch_row_bgclass() . '">';
@@ -1782,7 +1914,7 @@ if ($_POST['do'] == 'showreferrers')
 			AND users.usergroupid NOT IN (3,4)
 			$datequery
 		GROUP BY users.referrerid
-		ORDER BY count DESC
+		ORDER BY count DESC, username ASC
 	");
 	if (!$db->num_rows($users))
 	{
@@ -1836,6 +1968,7 @@ if ($_REQUEST['do'] == 'showreferrals')
 		SELECT username, posts, userid, joindate, lastvisit, email
 		FROM " . TABLE_PREFIX . "user
 		WHERE referrerid = " . $vbulletin->GPC['referrerid'] . "
+			AND usergroupid NOT IN (3,4)
 		$datequery
 		ORDER BY joindate DESC
 	");
@@ -1909,7 +2042,7 @@ if ($_POST['do'] == 'updateusercss')
 	{
 		if (!isset($usercss->cssedit["$selectorname"]) OR !empty($usercss->cssedit["$selectorname"]['noinputset']))
 		{
-			$usercss->error[] = fetch_error('invalid_selector_name_x', $selectorname);
+			$usercss->error[] = fetch_error('invalid_selector_name_x', htmlspecialchars_uni($selectorname));
 			continue;
 		}
 
@@ -1924,7 +2057,7 @@ if ($_POST['do'] == 'updateusercss')
 
 			if (empty($usercsspermissions["$prop_perms"]) OR !in_array($property, $usercss->cssedit["$selectorname"]['properties']))
 			{
-				$usercss->error[] = fetch_error('no_permission_edit_selector_x_property_y', $selectorname, $property);
+				$usercss->error[] = fetch_error('no_permission_edit_selector_x_property_y', htmlspecialchars_uni($selectorname), $property);
 				continue;
 			}
 
@@ -2161,8 +2294,8 @@ print_cp_footer();
 
 /*======================================================================*\
 || ####################################################################
-|| # Downloaded: 16:21, Sat Apr 6th 2013
-|| # CVS: $RCSfile$ - $Revision: 26706 $
+|| # Downloaded: 20:50, Sun Aug 11th 2013
+|| # CVS: $RCSfile$ - $Revision: 39862 $
 || ####################################################################
 \*======================================================================*/
 ?>

@@ -1,9 +1,9 @@
 <?php
 /*======================================================================*\
 || #################################################################### ||
-|| # vBulletin 3.7.2 Patch Level 2 - Licence Number VBF2470E4F
+|| # vBulletin 3.8.7 Patch Level 3 - Licence Number VBC2DDE4FB
 || # ---------------------------------------------------------------- # ||
-|| # Copyright ©2000-2013 Jelsoft Enterprises Ltd. All Rights Reserved. ||
+|| # Copyright ©2000-2013 vBulletin Solutions, Inc. All Rights Reserved. ||
 || # This file may not be redistributed in whole or significant part. # ||
 || # ---------------- VBULLETIN IS NOT FREE SOFTWARE ---------------- # ||
 || # http://www.vbulletin.com | http://www.vbulletin.com/license.html # ||
@@ -11,7 +11,7 @@
 \*======================================================================*/
 
 // ####################### SET PHP ENVIRONMENT ###########################
-error_reporting(E_ALL & ~E_NOTICE);
+error_reporting(E_ALL & ~E_NOTICE & ~8192);
 
 // #################### DEFINE IMPORTANT CONSTANTS #######################
 define('GET_EDIT_TEMPLATES', 'editsignature,updatesignature');
@@ -131,7 +131,16 @@ $actiontemplates = array(
 		'modifyusercss_error',
 		'modifyusercss_error_link',
 		'modifyusercss_headinclude',
+		'modifyprivacy_bit',
 	),
+	'privacy' => array(
+		'modifyprofileprivacy',
+		'modifyprivacy_bit'
+	),
+	'doprivacy' => array(
+		'modifyprofileprivacy',
+		'modifyprivacy_bit'
+	)
 );
 $actiontemplates['docustomize'] = $actiontemplates['customize'];
 
@@ -721,7 +730,7 @@ if ($_POST['do'] == 'doaddlist')
 
 				eval(fetch_email_phrases('friendship_request_email', $touserinfo['languageid']));
 				require_once(DIR . '/includes/class_bbcode_alt.php');
-				$plaintext_parser =& new vB_BbCodeParser_PlainText($vbulletin, fetch_tag_list());
+				$plaintext_parser = new vB_BbCodeParser_PlainText($vbulletin, fetch_tag_list());
 				$plaintext_parser->set_parsing_language($touserinfo['languageid']);
 				$message = $plaintext_parser->parse($message, 'privatemessage');
 				vbmail($touserinfo['email'], $subject, $message);
@@ -940,8 +949,6 @@ if ($_POST['do'] == 'updatelist')
 				WHERE username = '" . $db->escape_string(vbstrtolower($vbulletin->GPC['username'])) . "'
 			") AND (!$vbulletin->GPC_exists['makefriends'] OR $userinfo['userid'] != $vbulletin->userinfo['userid']))
 			{ // user exists and its either not making friends or the user id is different
-				$userinfo = array_merge($userinfo , convert_bits_to_array($userinfo['options'] , $vbulletin->bf_misc_useroptions));
-				$cansendemail = (($userinfo['adminemail'] OR $userinfo['showemail']) AND $vbulletin->options['enableemail'] AND $vbulletin->userinfo['permissions']['genericpermissions'] & $vbulletin->bf_ugp_genericpermissions['canemailmember']);
 
 				cache_permissions($userinfo);
 
@@ -1279,6 +1286,8 @@ if ($_POST['do'] == 'updatelist')
 					$pendingcache["$pending_check[type]"]["$pending_check[userid]"] = $pending_check;
 				}
 
+				$browsing_user_in_coventry = in_coventry($vbulletin->userinfo['userid'], true);
+
 				foreach ($add['friend'] AS $userid => $userinfo)
 				{
 					if (isset($usercache['buddy']["$userid"]) AND $usercache['buddy']["$userid"]['friend'] == 'yes')
@@ -1305,15 +1314,23 @@ if ($_POST['do'] == 'updatelist')
 					");
 
 					($hook = vBulletinHook::fetch_hook('profile_updatelist_addfriend')) ? eval($hook) : false;
+
 					// Send notification to user that a friend request has been made for them
-					if ($cansendemail AND $userinfo['options'] & $vbulletin->bf_misc_useroptions['receivefriendemailrequest'] AND !isset($usercache['ignore']["$userid"]))
+					$userinfo = array_merge($userinfo , convert_bits_to_array($userinfo['options'] , $vbulletin->bf_misc_useroptions));
+					$cansendemail = (($userinfo['adminemail'] OR $userinfo['showemail']) AND $vbulletin->options['enableemail'] AND $vbulletin->userinfo['permissions']['genericpermissions'] & $vbulletin->bf_ugp_genericpermissions['canemailmember']);
+
+					if ($cansendemail AND $userinfo['options'] & $vbulletin->bf_misc_useroptions['receivefriendemailrequest']
+						AND !isset($usercache['ignore']["$userid"]) // I'm not ignoring them
+						AND !isset($pendingcache['ignore']["$userid"]) // they're not ignoring me
+						AND !$browsing_user_in_coventry
+					)
 					{
 						$fromuserinfo =& $vbulletin->userinfo;
 						$touserinfo =& $userinfo;
 
 						eval(fetch_email_phrases('friendship_request_email', $touserinfo['languageid']));
 						require_once(DIR . '/includes/class_bbcode_alt.php');
-						$plaintext_parser =& new vB_BbCodeParser_PlainText($vbulletin, fetch_tag_list());
+						$plaintext_parser = new vB_BbCodeParser_PlainText($vbulletin, fetch_tag_list());
 						$plaintext_parser->set_parsing_language($touserinfo['languageid']);
 						$message = $plaintext_parser->parse($message, 'privatemessage');
 						vbmail($touserinfo['email'], $subject, $message);
@@ -1409,14 +1426,26 @@ if ($_POST['do'] == 'updatelist')
 
 	if (!empty($rebuild_friendreqcount))
 	{
+		if (trim($vbulletin->options['globalignore']) != '')
+		{
+			$coventry = preg_split('#\s+#s', $vbulletin->options['globalignore'], -1, PREG_SPLIT_NO_EMPTY);
+			$coventry_query = 'AND userlist.userid NOT IN (' . implode(',', $coventry) . ')';
+		}
+		else
+		{
+			$coventry_query = '';
+		}
+
 		foreach (array_keys($rebuild_friendreqcount) AS $userid)
 		{
 			// The user could have been a friend too
 			list($pendingcount) = $db->query_first("
 				SELECT COUNT(*)
 				FROM " . TABLE_PREFIX . "userlist AS userlist
-				LEFT JOIN " . TABLE_PREFIX . "userlist AS userlist_ignore ON(userlist_ignore.userid = " . $userid . " AND userlist_ignore.relationid = userlist.userid AND userlist_ignore.type = 'ignore')
+				LEFT JOIN " . TABLE_PREFIX . "userlist AS userlist_ignore ON
+					(userlist_ignore.userid = " . $userid . " AND userlist_ignore.relationid = userlist.userid AND userlist_ignore.type = 'ignore')
 				WHERE userlist.relationid = " . $userid . "
+					$coventry_query
 					AND userlist.type = 'buddy'
 					AND userlist.friend = 'pending'
 					AND userlist_ignore.type IS NULL", DBARRAY_NUM
@@ -1471,6 +1500,8 @@ if ($_REQUEST['do'] == 'buddylist')
 	$incominglist = '';
 	$friend_list = array();
 
+	$js_userlist = array();
+
 	$show['friend_controls'] = ($vbulletin->options['socnet'] & $vbulletin->bf_misc_socnet['enable_friends'] AND $vbulletin->userinfo['permissions']['genericpermissions2'] & $vbulletin->bf_ugp_genericpermissions2['canusefriends']);
 
 	$users_result = $db->query_read_slave("
@@ -1510,21 +1541,38 @@ if ($_REQUEST['do'] == 'buddylist')
 		$user['checked'] = ' checked="checked"';
 		$friend_list["$user[userid]"] = $user['friend'];
 
+		$js_userlist["$user[username]"] = $user['userid'];
+
 		$show['friend_checkbox'] = (($show['friend_controls'] AND ($user['permissions']['genericpermissions2'] & $vbulletin->bf_ugp_genericpermissions2['canusefriends']) AND $vbulletin->userinfo['userid'] != $user['userid']) OR (!empty($friendcheck_checked) AND $vbulletin->options['socnet'] & $vbulletin->bf_misc_socnet['enable_friends']));
 		eval('$buddylist .= "' . fetch_template('modifybuddylist_user') . '";');
 	}
 
 	$buddycount = $db->num_rows($users_result);
 
+	if (trim($vbulletin->options['globalignore']) != '')
+	{
+		$coventry = preg_split('#\s+#s', $vbulletin->options['globalignore'], -1, PREG_SPLIT_NO_EMPTY);
+		$coventry_query = 'AND userlist.userid NOT IN (' . implode(',', $coventry) . ')';
+	}
+	else
+	{
+		$coventry_query = '';
+	}
+
 	$incomingcount = 0;
 	$users_result = $db->query_read_slave("
 		SELECT user.*, userlist.type, userlist.friend
 		" . ($vbulletin->options['avatarenabled'] ? ', avatar.avatarpath, NOT ISNULL(customavatar.userid) AS hascustomavatar, customavatar.dateline AS avatardateline, customavatar.width_thumb AS avwidth_thumb, customavatar.height_thumb AS avheight_thumb, customavatar.width as avwidth, customavatar.height as avheight, customavatar.filedata_thumb' : '') . "
 		FROM " . TABLE_PREFIX . "userlist AS userlist
-		LEFT JOIN " . TABLE_PREFIX . "userlist AS userlist_ignore ON (userlist_ignore.userid = " . $vbulletin->userinfo['userid'] . " AND userlist_ignore.relationid = userlist.userid AND userlist_ignore.type = 'ignore')
+		LEFT JOIN " . TABLE_PREFIX . "userlist AS userlist_ignore ON
+			(userlist_ignore.userid = " . $vbulletin->userinfo['userid'] . " AND userlist_ignore.relationid = userlist.userid AND userlist_ignore.type = 'ignore')
 		INNER JOIN " . TABLE_PREFIX . "user AS user ON (user.userid = userlist.userid)
 		" . ($vbulletin->options['avatarenabled'] ? "LEFT JOIN " . TABLE_PREFIX . "avatar AS avatar ON (avatar.avatarid = user.avatarid) LEFT JOIN " . TABLE_PREFIX . "customavatar AS customavatar ON (customavatar.userid = user.userid) " : '') . "
-		WHERE userlist.relationid = " . $vbulletin->userinfo['userid'] . " AND userlist.type = 'buddy' AND userlist.friend = 'pending' AND userlist_ignore.type IS NULL
+		WHERE userlist.relationid = " . $vbulletin->userinfo['userid'] . "
+			$coventry_query
+			AND userlist.type = 'buddy'
+			AND userlist.friend = 'pending'
+			AND userlist_ignore.type IS NULL
 		ORDER BY user.username
 	");
 	while ($user = $db->fetch_array($users_result))
@@ -1552,6 +1600,8 @@ if ($_REQUEST['do'] == 'buddylist')
 		$show['friend_checkbox'] = false;
 		$incomingcount++;
 
+		$js_userlist["$user[username]"] = $user['userid'];
+
 		eval('$incominglist .= "' . fetch_template('modifybuddylist_user') . '";');
 	}
 
@@ -1571,18 +1621,39 @@ if ($_REQUEST['do'] == 'buddylist')
 	{
 		require_once(DIR . '/includes/class_xml.php');
 		$xml = new vB_AJAX_XML_Builder($vbulletin, 'text/xml');
+
 		$xml->add_group('userlists');
-		$xml->add_tag('userlist', process_replacement_vars($buddylist), array('type' => 'buddylist'));
-		$xml->add_tag('userlist', process_replacement_vars($incominglist), array('type' => 'incomingreqs'));
-		$xml->add_group('counts');
-		$xml->add_tag('buddycount', $buddycount);
+			$xml->add_tag('userlist', process_replacement_vars($buddylist), array('type' => 'buddylist'));
+			$xml->add_tag('userlist', process_replacement_vars($incominglist), array('type' => 'incomingreqs'));
+
+			$xml->add_group('counts');
+				$xml->add_tag('buddycount', $buddycount);
+			$xml->close_group();
+
+			$xml->add_group('rollcall');
+
+				foreach ($js_userlist AS $username => $id)
+				{
+					$xml->add_tag('user', false, array('username' => $username, 'userid' => $id));
+				}
+
+			$xml->close_group();
+
 		$xml->close_group();
-		$xml->close_group();
+
 		$xml->print_xml();
 		exit;
 	}
 	else
 	{
+		// build JS username array
+		$js_userlist_array = array();
+		foreach ($js_userlist AS $username => $userid)
+		{
+			$js_userlist_array[] = "\"$username\" : $userid";
+		}
+		$js_userlist_array = implode(",\n\t", $js_userlist_array);
+
 		// draw cp nav bar
 		construct_usercp_nav('buddylist');
 
@@ -1684,8 +1755,8 @@ if ($_REQUEST['do'] == 'editprofile')
 	// custom user title
 	if ($permissions['genericpermissions'] & $vbulletin->bf_ugp_genericpermissions['canusecustomtitle'])
 	{
-		exec_switch_bg();
-		if ($vbulletin->userinfo['customtitle'] == 2)
+		// fetch_musername modifies this value. How evil!
+		if ($vbulletin->userinfo['customtitle'] == 2 AND !isset($vbulletin->userinfo['musername']))
 		{
 			$vbulletin->userinfo['usertitle'] = htmlspecialchars_uni($vbulletin->userinfo['usertitle']);
 		}
@@ -1765,6 +1836,13 @@ if ($_POST['do'] == 'updateprofile')
 		'userfield'    => TYPE_ARRAY,
 	));
 
+	// don't make the password button submit all the details; this is confusing to users
+	if (!empty($vbulletin->GPC['gotopassword']))
+	{
+		exec_header_redirect('profile.php?' . $vbulletin->session->vars['sessionurl'] . 'do=editpassword');
+		exit;
+	}
+
 	// init user data manager
 	$userdata =& datamanager_init('User', $vbulletin, ERRTYPE_STANDARD);
 	$userdata->set_existing($vbulletin->userinfo);
@@ -1814,15 +1892,7 @@ if ($_POST['do'] == 'updateprofile')
 		$vbulletin->session->set('profileupdate', 0);
 	}
 
-	if (empty($vbulletin->GPC['gotopassword']))
-	{
-		$vbulletin->url = 'usercp.php' . $vbulletin->session->vars['sessionurl_q'];
-	}
-	else
-	{
-		$vbulletin->url = 'profile.php?' . $vbulletin->session->vars['sessionurl'] . 'do=editpassword';
-	}
-
+	$vbulletin->url = 'usercp.php' . $vbulletin->session->vars['sessionurl_q'];
 	eval(print_standard_redirect('redirect_updatethanks'));
 }
 
@@ -1872,7 +1942,8 @@ if ($_REQUEST['do'] == 'editoptions')
 
 	// PM options
 	$show['pmoptions'] = ($vbulletin->options['enablepms'] AND $permissions['pmquota'] > 0) ? true : false;
-	$show['friend_email_request'] = ($vbulletin->options['socnet'] & $vbulletin->bf_misc_socnet['enable_friends'] ? true : false);
+	$show['friend_email_request'] = (($vbulletin->options['socnet'] & $vbulletin->bf_misc_socnet['enable_friends']) AND
+								($vbulletin->userinfo['permissions']['genericpermissions2'] & $vbulletin->bf_ugp_genericpermissions2) ? true : false);
 
 	// VM Options
 	$show['vmoptions'] = (
@@ -1969,26 +2040,30 @@ if ($_REQUEST['do'] == 'editoptions')
 	$selectvbcode = array($vbulletin->userinfo['showvbcode'] => ' selected="selected"');
 
 	//MaxPosts by User
-	$optionArray = explode(',', $vbulletin->options['usermaxposts']);
 	$foundmatch = 0;
-	foreach ($optionArray AS $optionvalue)
+	if ($vbulletin->options['usermaxposts'])
 	{
-		if ($optionvalue == $vbulletin->userinfo['maxposts'])
+		$optionArray = explode(',', $vbulletin->options['usermaxposts']);
+		foreach ($optionArray AS $optionvalue)
 		{
-			$optionselected = 'selected="selected"';
-			$foundmatch = 1;
+			if ($optionvalue == $vbulletin->userinfo['maxposts'])
+			{
+				$optionselected = 'selected="selected"';
+				$foundmatch = 1;
+			}
+			else
+			{
+				$optionselected = '';
+			}
+			$optiontitle = construct_phrase($vbphrase['show_x_posts_per_page'], $optionvalue);
+			eval ('$maxpostsoptions .= "' . fetch_template('option') . '";');
 		}
-		else
-		{
-			$optionselected = '';
-		}
-		$optiontitle = construct_phrase($vbphrase['show_x_posts_per_page'], $optionvalue);
-		eval ('$maxpostsoptions .= "' . fetch_template('option') . '";');
 	}
 	if ($foundmatch == 0)
 	{
 		$postsdefaultselected = 'selected="selected"';
 	}
+	$show['maxpostsoptions'] = ($vbulletin->options['usermaxposts'] ? true : false);
 
 	if ($vbulletin->options['allowchangestyles'])
 	{
@@ -2011,7 +2086,7 @@ if ($_REQUEST['do'] == 'editoptions')
 	{
 		foreach ($languages AS $optionvalue => $optiontitle)
 		{
-			$optionselected = iif($vbulletin->userinfo['languageid'] == $optionvalue, 'selected="selected"', '');
+			$optionselected = iif($vbulletin->userinfo['saved_languageid'] == $optionvalue, 'selected="selected"', '');
 			eval('$languagelist .= "' . fetch_template('option') . '";');
 		}
 		$show['languageoption'] = true;
@@ -2027,9 +2102,8 @@ if ($_REQUEST['do'] == 'editoptions')
 	$bgclass4 = 'alt1'; // Date/Time Section
 	$bgclass5 = 'alt1'; // Other Section
 
-	// Social Networking Stuff
-	// TODO: needs to check option to see if its enabled
-	$show['usercssoption'] = false;
+	// View other users' profile styling
+	$show['usercssoption'] = $vbulletin->options['socnet'] & $vbulletin->bf_misc_socnet['enable_profile_styling'];
 
 	// Get custom otions
 	$customfields = array();
@@ -2262,7 +2336,7 @@ if ($_POST['do'] == 'updatesignature')
 	{
 		// Parsing the signature into BB code.
 		require_once(DIR . '/includes/class_bbcode_alt.php');
-		$bbcode_parser =& new vB_BbCodeParser_ImgCheck($vbulletin, fetch_tag_list());
+		$bbcode_parser = new vB_BbCodeParser_ImgCheck($vbulletin, fetch_tag_list());
 		$bbcode_parser->set_parse_userinfo($userinfo_sigpic, $vbulletin->userinfo['permissions']);
 		$parsedsig = $bbcode_parser->parse($signature, 'signature');
 
@@ -2292,7 +2366,7 @@ if ($_POST['do'] == 'updatesignature')
 	if ($vbulletin->userinfo['permissions']['sigmaxlines'] > 0)
 	{
 		require_once(DIR . '/includes/class_sigparser_char.php');
-		$char_counter =& new vB_SignatureParser_CharCount($vbulletin, fetch_tag_list(), $vbulletin->userinfo['permissions'], $vbulletin->userinfo['userid']);
+		$char_counter = new vB_SignatureParser_CharCount($vbulletin, fetch_tag_list(), $vbulletin->userinfo['permissions'], $vbulletin->userinfo['userid']);
 		$line_count_text = $char_counter->parse(trim($signature));
 
 		if ($vbulletin->options['softlinebreakchars'] > 0)
@@ -2320,10 +2394,13 @@ if ($_POST['do'] == 'updatesignature')
 		$signature = preg_replace('#\[color=(&quot;|"|\'|)([a-f0-9]{6})\\1]#i', '[color=\1#\2\1]', $signature);
 
 		// Turn the text into bb code.
-		$signature = convert_url_to_bbcode($signature);
+		if ($vbulletin->userinfo['permissions']['signaturepermissions'] & $vbulletin->bf_ugp_signaturepermissions['canbbcodelink'])
+		{
+			$signature = convert_url_to_bbcode($signature);
+		}
 
 		// Create the parser with the users sig permissions
-		$sig_parser =& new vB_SignatureParser($vbulletin, fetch_tag_list(), $vbulletin->userinfo['permissions'], $vbulletin->userinfo['userid']);
+		$sig_parser = new vB_SignatureParser($vbulletin, fetch_tag_list(), $vbulletin->userinfo['permissions'], $vbulletin->userinfo['userid']);
 
 		// Parse the signature
 		$previewmessage = $sig_parser->parse($signature);
@@ -2352,7 +2429,7 @@ if ($_POST['do'] == 'updatesignature')
 			$show['errors'] = true;
 		}
 
-		$bbcode_parser =& new vB_BbCodeParser($vbulletin, fetch_tag_list());
+		$bbcode_parser = new vB_BbCodeParser($vbulletin, fetch_tag_list());
 		$bbcode_parser->set_parse_userinfo($userinfo_sigpic, $vbulletin->userinfo['permissions']);
 		$previewmessage = $bbcode_parser->parse($signature, 'signature');
 
@@ -2378,6 +2455,10 @@ if ($_POST['do'] == 'updatesignature')
 		if ($redirectsig)
 		{
 			$vbulletin->url = 'profile.php?' . $vbulletin->session->vars['sessionurl'] . 'do=editsignature&amp;url=' . $vbulletin->url . '#sigpic';
+		}
+		else
+		{
+			$vbulletin->url = 'usercp.php' . $vbulletin->session->vars['sessionurl_q'];
 		}
 		eval(print_standard_redirect('redirect_updatethanks'));
 	}
@@ -2459,12 +2540,12 @@ if ($_REQUEST['do'] == 'editsignature')
 	require_once(DIR . '/includes/class_sigparser.php');
 
 	// Create the parser with the users sig permissions
-	$sig_parser =& new vB_SignatureParser($vbulletin, fetch_tag_list(), $vbulletin->userinfo['permissions'], $vbulletin->userinfo['userid']);
+	$sig_parser = new vB_SignatureParser($vbulletin, fetch_tag_list(), $vbulletin->userinfo['permissions'], $vbulletin->userinfo['userid']);
 
 	// Build $show variables for each signature bitfield permission
 	foreach ($vbulletin->bf_ugp_signaturepermissions AS $bit_name => $bit_value)
 	{
-		if ($bbcode = preg_match('#canbbcode(\w+)#i', $bit_name, $matches) AND $matches[1])
+		if ($bbcode = preg_match('#canbbcode(\w+)#i', $bit_name, $matches) AND $matches[1] AND $matches[1] != 'quote')
 		{
 			$term = $matches[1] == 'link' ? 'URL' : strtoupper($matches[1]);
 			$show["$bit_name"] = ($permissions['signaturepermissions'] & $bit_value AND $vbulletin->options['allowedbbcodes'] & @constant('ALLOW_BBCODE_' . $term))  ? true : false;
@@ -2504,7 +2585,7 @@ if ($_REQUEST['do'] == 'editsignature')
 		if (!$previewmessage)
 		{
 			require_once(DIR . '/includes/class_bbcode.php');
-			$bbcode_parser =& new vB_BbCodeParser($vbulletin, fetch_tag_list());
+			$bbcode_parser = new vB_BbCodeParser($vbulletin, fetch_tag_list());
 			$bbcode_parser->set_parse_userinfo(fetch_userinfo($vbulletin->userinfo['userid'], FETCH_USERINFO_SIGPIC), $vbulletin->userinfo['permissions']);
 			$previewmessage = $bbcode_parser->parse($signature, 'signature');
 		}
@@ -2562,7 +2643,7 @@ if ($_REQUEST['do'] == 'editsignature')
 			else
 			{
 				// sigpic stored in the FS
-				$sigpicurl = $vbulletin->options['sigpicpath'] . '/sigpic' . $vbulletin->userinfo['userid'] . '_' . $vbulletin->userinfo['sigpicrevision'] . '.gif';
+				$sigpicurl = $vbulletin->options['sigpicurl'] . '/sigpic' . $vbulletin->userinfo['userid'] . '_' . $vbulletin->userinfo['sigpicrevision'] . '.gif';
 			}
 		}
 		else // No sigpic yet
@@ -3712,7 +3793,7 @@ if ($_REQUEST['do'] == 'editattachments')
 	");
 
 	$totalattachments = intval($attachments['total']);
-	$attachsum = intval($attachments['sum']);
+	$attachsum = $attachments['sum'];
 
 	if (!$totalattachments AND $userid != $vbulletin->userinfo['userid'])
 	{
@@ -3943,7 +4024,7 @@ if ($_POST['do'] == 'docustomize')
 	{
 		if (!isset($usercss->cssedit["$selectorname"]) OR !empty($usercss->cssedit["$selectorname"]['noinputset']))
 		{
-			$usercss->error[] = fetch_error('invalid_selector_name_x', $selectorname);
+			$usercss->error[] = fetch_error('invalid_selector_name_x', htmlspecialchars_uni($selectorname));
 			continue;
 		}
 
@@ -3958,7 +4039,7 @@ if ($_POST['do'] == 'docustomize')
 
 			if (empty($usercsspermissions["$prop_perms"]) OR !in_array($property, $usercss->cssedit["$selectorname"]['properties']))
 			{
-				$usercss->error[] = fetch_error('no_permission_edit_selector_x_property_y', $selectorname, $property);
+				$usercss->error[] = fetch_error('no_permission_edit_selector_x_property_y', htmlspecialchars_uni($selectorname), htmlspecialchars_uni($property));
 				continue;
 			}
 
@@ -4200,72 +4281,76 @@ if ($_REQUEST['do'] == 'customize')
 		}
 	}
 
-	if (!$usercssbits)
+	if ($usercssbits)
 	{
-		print_no_permission();
-	}
-
-	$albumbits = '';
-	$picturerowbits = '';
-	$count = 0;
-	$albums = array();
-	$profilealbums = $db->query_read("
-		SELECT
-			album.title, album.albumid,
-			albumpicture.dateline, albumpicture.pictureid, picture.caption, picture.extension, picture.filesize, picture.idhash,
-			picture.thumbnail_filesize, picture.thumbnail_dateline, picture.thumbnail_width, picture.thumbnail_height
-		FROM " . TABLE_PREFIX . "album AS album
-		INNER JOIN " . TABLE_PREFIX . "albumpicture AS albumpicture ON (album.albumid = albumpicture.albumid)
-		INNER JOIN " . TABLE_PREFIX . "picture AS picture ON (albumpicture.pictureid = picture.pictureid)
-		WHERE album.state = 'profile'
-			AND album.userid = " . $vbulletin->userinfo['userid'] . "
-			AND picture.state = 'visible'
-		ORDER BY album.albumid, picture.pictureid
-	");
-	while ($album = $db->fetch_array($profilealbums))
-	{
-		$albums[$album['albumid']]['title'] = $album['title'];
-		$albums[$album['albumid']]['pictures'][] = $album;
-	}
-
-	require_once(DIR . '/includes/functions_album.php');
-	foreach ($albums AS $albumid => $info)
-	{
-		$picturebits = '';
-		$show['backgroundpicker'] = true;
-		$optionvalue = $albumid;
-
-		// Need to shorten album titles here
-		$optiontitle = "{$info['title']} (" . count($info['pictures']) . ")";
-		$optionselected = empty($albumbits) ? 'selected="selected"' : '';
-		eval('$albumbits .= "' . fetch_template('option') . '";');
-		$show['hidediv'] = empty($picturerowbits) ? false : true;
-		foreach($info['pictures'] AS $picture)
+		$albumbits = '';
+		$picturerowbits = '';
+		$count = 0;
+		$albums = array();
+		$profilealbums = $db->query_read("
+			SELECT
+				album.title, album.albumid,
+				albumpicture.dateline, albumpicture.pictureid, picture.caption, picture.extension, picture.filesize, picture.idhash,
+				picture.thumbnail_filesize, picture.thumbnail_dateline, picture.thumbnail_width, picture.thumbnail_height
+			FROM " . TABLE_PREFIX . "album AS album
+			INNER JOIN " . TABLE_PREFIX . "albumpicture AS albumpicture ON (album.albumid = albumpicture.albumid)
+			INNER JOIN " . TABLE_PREFIX . "picture AS picture ON (albumpicture.pictureid = picture.pictureid)
+			WHERE album.state = 'profile'
+				AND album.userid = " . $vbulletin->userinfo['userid'] . "
+				AND picture.state = 'visible'
+			ORDER BY album.albumid, picture.pictureid
+		");
+		while ($album = $db->fetch_array($profilealbums))
 		{
-			$picture['caption_preview'] = fetch_censored_text(fetch_trimmed_title(
-				$picture['caption'],
-				$vbulletin->options['album_captionpreviewlen']
-			));
-			$picture['thumburl'] = ($picture['thumbnail_filesize'] ? fetch_picture_url($picture, $picture, true) : '');
-			$picture['dimensions'] = ($picture['thumbnail_width'] ? "width=\"$picture[thumbnail_width]\" height=\"$picture[thumbnail_height]\"" : '');
-			eval('$picturebits .= "' . fetch_template('modifyusercss_backgroundbit') . '";');
+			$albums[$album['albumid']]['title'] = $album['title'];
+			$albums[$album['albumid']]['pictures'][] = $album;
 		}
 
-		eval('$picturerowbits .= "' . fetch_template('modifyusercss_backgroundrow') . '";');
-	}
+		require_once(DIR . '/includes/functions_album.php');
+		foreach ($albums AS $albumid => $info)
+		{
+			$picturebits = '';
+			$show['backgroundpicker'] = true;
+			$optionvalue = $albumid;
 
-	$show['albumselect'] = (count($albums) == 1) ? false : true;
+			// Need to shorten album titles here
+			$optiontitle = "{$info['title']} (" . count($info['pictures']) . ")";
+			$optionselected = empty($albumbits) ? 'selected="selected"' : '';
+			eval('$albumbits .= "' . fetch_template('option') . '";');
+			$show['hidediv'] = empty($picturerowbits) ? false : true;
+			foreach($info['pictures'] AS $picture)
+			{
+				$picture['caption_preview'] = fetch_censored_text(fetch_trimmed_title(
+					$picture['caption'],
+					$vbulletin->options['album_captionpreviewlen']
+				));
+				$picture['thumburl'] = ($picture['thumbnail_filesize'] ? fetch_picture_url($picture, $picture, true) : '');
+				$picture['dimensions'] = ($picture['thumbnail_width'] ? "width=\"$picture[thumbnail_width]\" height=\"$picture[thumbnail_height]\"" : '');
+				eval('$picturebits .= "' . fetch_template('modifyusercss_backgroundbit') . '";');
+			}
 
-	$vbulletin->userinfo['cachedcss'] = $usercss->build_css($usercss->fetch_effective());
-	$vbulletin->userinfo['cachedcss'] = str_replace('/*sessionurl*/', $vbulletin->session->vars['sessionurl_js'], $vbulletin->userinfo['cachedcss']);
-	if ($vbulletin->userinfo['cachedcss'])
-	{
-		$userinfo = $vbulletin->userinfo;
-		eval('$usercss_string = "' . fetch_template('memberinfo_usercss') . '";');
+			eval('$picturerowbits .= "' . fetch_template('modifyusercss_backgroundrow') . '";');
+		}
+
+		$show['albumselect'] = (count($albums) == 1) ? false : true;
+
+		$vbulletin->userinfo['cachedcss'] = $usercss->build_css($usercss->fetch_effective());
+		$vbulletin->userinfo['cachedcss'] = str_replace('/*sessionurl*/', $vbulletin->session->vars['sessionurl_js'], $vbulletin->userinfo['cachedcss']);
+		if ($vbulletin->userinfo['cachedcss'])
+		{
+			$userinfo = $vbulletin->userinfo;
+			eval('$usercss_string = "' . fetch_template('memberinfo_usercss') . '";');
+		}
+		else
+		{
+			$usercss_string = '';
+		}
+
+		$show['usercss'] = true;
 	}
 	else
 	{
-		$usercss_string = '';
+		$show['usercss'] = false;
 	}
 
 	eval('$headinclude .= "' . fetch_template('modifyusercss_headinclude') . '";');
@@ -4274,6 +4359,186 @@ if ($_REQUEST['do'] == 'customize')
 
 	construct_usercp_nav('customize');
 	$templatename = 'modifyusercss';
+}
+
+// #######################################################################
+if ($_REQUEST['do'] == 'privacy' OR $_POST['do'] == 'doprivacy')
+{
+	if (!$vbulletin->options['profileprivacy'])
+	{
+		print_no_permission();
+	}
+
+	if (!($permissions['usercsspermissions'] & $vbulletin->bf_ugp_usercsspermissions['caneditprivacy']))
+	{
+		print_no_permission();
+	}
+
+	// Create the configurable blocks
+	$blocks = array(
+		'contactinfo' => array(
+			'name' => $vbphrase['contact_info'],
+			'requirement' => 0,
+			'enabled' => true
+		),
+		'profile_picture' => array(
+			'name' => $vbphrase['profile_picture'],
+			'requirement' => 0,
+			'enabled' => $vbulletin->options['profilepicenabled']
+		),
+		'visitor_messaging' => array(
+			'name' => $vbphrase['visitor_messages'],
+			'requirement' => 0,
+			'enabled' => ($vbulletin->options['socnet'] & $vbulletin->bf_misc_socnet['enable_visitor_messaging'])
+		),
+		'albums' => array(
+			'name' => $vbphrase['albums'],
+			'requirement' => 0,
+			'enabled' => (($vbulletin->options['socnet'] & $vbulletin->bf_misc_socnet['enable_albums'])
+							AND (($vbulletin->userinfo['permissions']['albumpermissions'] & $vbulletin->bf_ugp_albumpermissions['canalbum'])
+								OR can_moderate(0, 'canmoderatepictures')))
+		),
+		'aboutme' => array(
+			'name' => $vbphrase['about_me'],
+			'requirement' => 0,
+			'enabled' => true
+		),
+		'friends' => array(
+			'name' => $vbphrase['friends'],
+			'requirement' => 0,
+			'enabled' => ($vbulletin->options['socnet'] & $vbulletin->bf_misc_socnet['enable_friends'])
+		),
+		'visitors' => array(
+			'name' => $vbphrase['recent_visitors'],
+			'requirement' => 0,
+			'enabled' => ($vbulletin->options['socnet'] & $vbulletin->bf_misc_socnet['enable_visitor_tracking'])
+		),
+		'groups' => array(
+			'name' => $vbphrase['group_memberships'],
+			'requirement' => 0,
+			'enabled' => ($vbulletin->options['socnet'] & $vbulletin->bf_misc_socnet['enable_groups'])
+		),
+	);
+
+	// Get custom fields
+	$custom_blocks = $vbulletin->db->query_read_slave("
+		SELECT pfc.profilefieldcategoryid AS id
+		FROM " . TABLE_PREFIX . "profilefieldcategory AS pfc
+		INNER JOIN " . TABLE_PREFIX . "profilefield pf
+		 ON pf.profilefieldcategoryid = pfc.profilefieldcategoryid
+		WHERE pfc.allowprivacy = 1
+		GROUP BY pfc.profilefieldcategoryid
+		ORDER BY pfc.location, pfc.displayorder
+	");
+
+	while($block = $vbulletin->db->fetch_array($custom_blocks))
+	{
+		$blocks["profile_cat$block[id]"] = array (
+			'name' => $vbphrase["category$block[id]_title"],
+			'requirement' => 0,
+			'enabled' => true
+		);
+	}
+	$vbulletin->db->free_result($custom_blocks);
+}
+
+// #######################################################################
+if ($_POST['do'] == 'doprivacy')
+{
+	$vbulletin->input->clean_gpc('r',
+		'blockprivacy',	TYPE_ARRAY_UINT
+	);
+
+	$values = array();
+	foreach($vbulletin->GPC['blockprivacy'] AS $blockid => $requirement)
+	{
+		if (isset($blocks[$blockid]))
+		{
+			$blocks[$blockid]['requirement'] = $requirement;
+			$values[] = "({$vbulletin->userinfo['userid']}, '$blockid', $requirement)";
+		}
+	}
+
+	if (sizeof($values))
+	{
+		$vbulletin->db->query_write($sql = "
+			REPLACE INTO " . TABLE_PREFIX . "profileblockprivacy
+				(userid, blockid, requirement)
+			VALUES " . implode(',', $values) . "
+		");
+	}
+
+	$_REQUEST['do'] = 'privacy';
+}
+
+// #######################################################################
+if ($_REQUEST['do'] == 'privacy')
+{
+	// Get current privacy settings
+	if (!isset($_POST['do']))
+	{
+		$results = $vbulletin->db->query_read_slave("
+			SELECT blockid, requirement
+			FROM " . TABLE_PREFIX . "profileblockprivacy
+			WHERE userid = " . intval($vbulletin->userinfo['userid']) . "
+		");
+
+		while ($result = $vbulletin->db->fetch_array($results))
+		{
+			if (isset($blocks[$result['blockid']]))
+			{
+				$blocks[$result['blockid']]['requirement'] = $result['requirement'];
+			}
+		}
+		$vbulletin->db->free_result($results);
+	}
+
+	foreach($blocks as $blockid => $block)
+	{
+		if ($block['enabled'])
+		{
+			$selected = array($block['requirement'] => 'selected="selected"');
+			eval('$profileprivacybits .= "' . fetch_template('modifyprivacy_bit') . '";');
+		}
+	}
+
+	$navbits[''] = $vbphrase['profile_privacy'];
+
+	construct_usercp_nav('privacy');
+	$templatename = 'modifyprofileprivacy';
+}
+
+// #############################################################################
+// dismiss notice (non-ajax / no js user)
+if ($_POST['do'] == 'dismissnotice')
+{
+	$vbulletin->input->clean_array_gpc('p', array(
+		'dismiss_noticeid' => TYPE_UINT
+	));
+
+	$dismiss_noticeid = $vbulletin->GPC['dismiss_noticeid'];
+
+	// in IE, clicking the image won't send a value, so pull it out of the element's name
+	foreach (array_keys($_POST) AS $input_name)
+	{
+		if (preg_match('#^dismiss_noticeid_(\d+)_x$#', $input_name, $match))
+		{
+			$dismiss_noticeid = intval($match[1]);
+			break;
+		}
+	}
+
+	if ($dismiss_noticeid)
+	{
+		$db->query_write("
+			REPLACE INTO " . TABLE_PREFIX . "noticedismissed
+				(noticeid, userid)
+			VALUES
+				(" . intval($dismiss_noticeid) . ", " . $vbulletin->userinfo['userid'] .")
+		");
+	}
+
+	eval(print_standard_redirect('redirect_notice_dismissed'));
 }
 
 // #############################################################################
@@ -4294,8 +4559,8 @@ if ($templatename != '')
 
 /*======================================================================*\
 || ####################################################################
-|| # Downloaded: 16:21, Sat Apr 6th 2013
-|| # CVS: $RCSfile$ - $Revision: 26937 $
+|| # Downloaded: 20:50, Sun Aug 11th 2013
+|| # CVS: $RCSfile$ - $Revision: 39862 $
 || ####################################################################
 \*======================================================================*/
 ?>

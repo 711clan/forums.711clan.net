@@ -1,16 +1,16 @@
 <?php
 /*======================================================================*\
 || #################################################################### ||
-|| # vBulletin 3.7.2 Patch Level 2 - Licence Number VBF2470E4F
+|| # vBulletin 3.8.7 Patch Level 3 - Licence Number VBC2DDE4FB
 || # ---------------------------------------------------------------- # ||
-|| # Copyright ©2000-2013 Jelsoft Enterprises Ltd. All Rights Reserved. ||
+|| # Copyright ©2000-2013 vBulletin Solutions, Inc. All Rights Reserved. ||
 || # This file may not be redistributed in whole or significant part. # ||
 || # ---------------- VBULLETIN IS NOT FREE SOFTWARE ---------------- # ||
 || # http://www.vbulletin.com | http://www.vbulletin.com/license.html # ||
 || #################################################################### ||
 \*======================================================================*/
 
-error_reporting(E_ALL & ~E_NOTICE);
+error_reporting(E_ALL & ~E_NOTICE & ~8192);
 
 // ###################### Start doipaddress #######################
 function construct_ip_usage_table($ipaddress, $prevuserid, $depth = 1)
@@ -341,7 +341,6 @@ function print_user_search_rows($email = false)
 			$currentform = $profilefield['form'];
 		}
 
-		$profilefield['def'] = 0;
 		print_profilefield_row('profile', $profilefield);
 	}
 	print_description_row('<div align="' . $stylevar['right'] .'"><input type="submit" class="button" value=" ' . iif($email, $vbphrase['submit'], $vbphrase['find']) . ' " tabindex="1" /></div>');
@@ -448,8 +447,8 @@ function fetch_user_search_sql(&$user, &$profile, $prefix = 'user')
 
 /*======================================================================*\
 || ####################################################################
-|| # Downloaded: 16:21, Sat Apr 6th 2013
-|| # CVS: $RCSfile$ - $Revision: 25833 $
+|| # Downloaded: 20:50, Sun Aug 11th 2013
+|| # CVS: $RCSfile$ - $Revision: 39862 $
 || ####################################################################
 \*======================================================================*/
 ?>

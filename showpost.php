@@ -1,9 +1,9 @@
 <?php
 /*======================================================================*\
 || #################################################################### ||
-|| # vBulletin 3.7.2 Patch Level 2 - Licence Number VBF2470E4F
+|| # vBulletin 3.8.7 Patch Level 3 - Licence Number VBC2DDE4FB
 || # ---------------------------------------------------------------- # ||
-|| # Copyright ©2000-2013 Jelsoft Enterprises Ltd. All Rights Reserved. ||
+|| # Copyright ©2000-2013 vBulletin Solutions, Inc. All Rights Reserved. ||
 || # This file may not be redistributed in whole or significant part. # ||
 || # ---------------- VBULLETIN IS NOT FREE SOFTWARE ---------------- # ||
 || # http://www.vbulletin.com | http://www.vbulletin.com/license.html # ||
@@ -11,7 +11,7 @@
 \*======================================================================*/
 
 // ####################### SET PHP ENVIRONMENT ###########################
-error_reporting(E_ALL & ~E_NOTICE);
+error_reporting(E_ALL & ~E_NOTICE & ~8192);
 
 // #################### DEFINE IMPORTANT CONSTANTS #######################
 define('THIS_SCRIPT', 'showpost');
@@ -126,7 +126,7 @@ $post = $db->query_first_slave("
 		post.*, post.username AS postusername, post.ipaddress AS ip, IF(post.visible = 2, 1, 0) AS isdeleted,
 		user.*, userfield.*, usertextfield.*,
 		" . iif($foruminfo['allowicons'], 'icon.title as icontitle, icon.iconpath,') . "
-		IF(displaygroupid=0, user.usergroupid, displaygroupid) AS displaygroupid, infractiongroupid,
+		IF(user.displaygroupid=0, user.usergroupid, user.displaygroupid) AS displaygroupid, infractiongroupid,
 		" . iif($vbulletin->options['avatarenabled'], 'avatar.avatarpath, NOT ISNULL(customavatar.userid) AS hascustomavatar, customavatar.dateline AS avatardateline,customavatar.width AS avwidth,customavatar.height AS avheight,') . "
 		" . ((can_moderate($threadinfo['forumid'], 'canmoderateposts') OR can_moderate($threadinfo['forumid'], 'candeleteposts')) ? 'spamlog.postid AS spamlog_postid,' : '') . "
 		editlog.userid AS edit_userid, editlog.username AS edit_username, editlog.dateline AS edit_dateline, editlog.reason AS edit_reason, editlog.hashistory,
@@ -184,10 +184,13 @@ if ($post['attach'])
 	}
 }
 
+if (!($forumperms & $vbulletin->bf_ugp_forumpermissions['canseethumbnails']))
+{
+	$vbulletin->options['attachthumbs'] = 0;
+}
 if (!($forumperms & $vbulletin->bf_ugp_forumpermissions['cangetattachment']))
 {
 	$vbulletin->options['viewattachedimages'] = 0;
-	$vbulletin->options['attachthumbs'] = 0;
 }
 
 // needed for deleted post management
@@ -198,6 +201,34 @@ if ($vbulletin->GPC['ajax'])
 	$show['approvepost'] = (can_moderate($threadinfo['forumid'], 'canmoderateposts')) ? true : false;
 	$show['managethread'] = (can_moderate($threadinfo['forumid'], 'canmanagethreads')) ? true : false;
 	$show['inlinemod'] = ($show['managethread'] OR $show['managepost'] OR $show['approvepost']) ? true : false;
+	$show['multiquote_global'] = ($vbulletin->options['multiquote'] AND $vbulletin->userinfo['userid']);
+	if ($show['multiquote_global'])
+	{
+		$vbulletin->input->clean_array_gpc('c', array(
+			'vbulletin_multiquote' => TYPE_STR
+		));
+		$vbulletin->GPC['vbulletin_multiquote'] = explode(',', $vbulletin->GPC['vbulletin_multiquote']);
+	}
+	// work out if quickreply should be shown or not
+	if (
+		$vbulletin->options['quickreply']
+		AND
+		!$threadinfo['isdeleted'] AND !is_browser('netscape') AND $vbulletin->userinfo['userid']
+		AND (
+			($vbulletin->userinfo['userid'] == $threadinfo['postuserid'] AND $forumperms & $vbulletin->bf_ugp_forumpermissions['canreplyown'])
+			OR
+			($vbulletin->userinfo['userid'] != $threadinfo['postuserid'] AND $forumperms & $vbulletin->bf_ugp_forumpermissions['canreplyothers'])
+		)
+		AND ($threadinfo['open'] OR can_moderate($threadinfo['forumid'], 'canopenclose'))
+		AND (!fetch_require_hvcheck('post'))
+	)
+	{
+		$show['quickreply'] = true;
+	}
+	else
+	{
+		$show['quickreply'] = false;
+	}
 }
 else
 {
@@ -212,12 +243,12 @@ $show['spacer'] = false;
 
 $post['postcount'] =& $vbulletin->GPC['postcount'];
 
-$postbit_factory =& new vB_Postbit_Factory();
+$postbit_factory = new vB_Postbit_Factory();
 $postbit_factory->registry =& $vbulletin;
 $postbit_factory->forum =& $foruminfo;
 $postbit_factory->thread =& $threadinfo;
 $postbit_factory->cache = array();
-$postbit_factory->bbcode_parser =& new vB_BbCodeParser($vbulletin, fetch_tag_list());
+$postbit_factory->bbcode_parser = new vB_BbCodeParser($vbulletin, fetch_tag_list());
 
 $postbit_obj =& $postbit_factory->fetch_postbit('post');
 $postbit_obj->highlight =& $replacewords;
@@ -261,8 +292,8 @@ else
 
 /*======================================================================*\
 || ####################################################################
-|| # Downloaded: 16:21, Sat Apr 6th 2013
-|| # CVS: $RCSfile$ - $Revision: 26399 $
+|| # Downloaded: 20:50, Sun Aug 11th 2013
+|| # CVS: $RCSfile$ - $Revision: 39862 $
 || ####################################################################
 \*======================================================================*/
 ?>

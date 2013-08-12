@@ -1,9 +1,9 @@
 <?php
 /*======================================================================*\
 || #################################################################### ||
-|| # vBulletin 3.7.2 Patch Level 2 - Licence Number VBF2470E4F
+|| # vBulletin 3.8.7 Patch Level 3 - Licence Number VBC2DDE4FB
 || # ---------------------------------------------------------------- # ||
-|| # Copyright ©2000-2013 Jelsoft Enterprises Ltd. All Rights Reserved. ||
+|| # Copyright ©2000-2013 vBulletin Solutions, Inc. All Rights Reserved. ||
 || # This file may not be redistributed in whole or significant part. # ||
 || # ---------------- VBULLETIN IS NOT FREE SOFTWARE ---------------- # ||
 || # http://www.vbulletin.com | http://www.vbulletin.com/license.html # ||
@@ -11,7 +11,7 @@
 \*======================================================================*/
 
 // ####################### SET PHP ENVIRONMENT ###########################
-error_reporting(E_ALL & ~E_NOTICE);
+error_reporting(E_ALL & ~E_NOTICE & ~8192);
 define('CSRF_PROTECTION', true);
 
 // #################### DEFINE IMPORTANT CONSTANTS #######################
@@ -105,7 +105,7 @@ $userinfo = verify_id('user', $vbulletin->GPC['userid'], true, true, FETCH_USERI
 
 if (!$userinfo['vm_enable'])
 {
-	if (!can_moderate() OR $userinfo['userid'] == $vbulletin->userinfo['userid'])
+	if (!can_moderate(0, 'canmoderatevisitormessages') OR $userinfo['userid'] == $vbulletin->userinfo['userid'])
 	{
 		print_no_permission();
 	}
@@ -113,7 +113,7 @@ if (!$userinfo['vm_enable'])
 else if (
 	$userinfo['vm_contactonly']
 		AND
-	!can_moderate()
+	!can_moderate(0, 'canmoderatevisitormessages')
 		AND
 	$userinfo['userid'] != $vbulletin->userinfo['userid']
 		AND
@@ -121,6 +121,12 @@ else if (
 )
 {
 	// are you a contact?
+	print_no_permission();
+}
+
+require_once(DIR . '/includes/functions_user.php');
+if (!can_view_profile_section($userinfo['userid'], 'visitor_messaging'))
+{
 	print_no_permission();
 }
 
@@ -171,6 +177,7 @@ if ($_REQUEST['do'] == 'message')
 			'loggedinuser'     => TYPE_UINT,
 			'fromquickcomment' => TYPE_BOOL,
 			'preview'          => TYPE_STR,
+			'advanced'         => TYPE_BOOL,
 			'fromconverse'     => TYPE_BOOL,
 			'u2'               => TYPE_UINT,
 		));
@@ -246,7 +253,7 @@ if ($_REQUEST['do'] == 'message')
 		}
 
 		require_once(DIR . '/includes/class_socialmessageparser.php');
-		$pmparser =& new vB_VisitorMessageParser($vbulletin, fetch_tag_list());
+		$pmparser = new vB_VisitorMessageParser($vbulletin, fetch_tag_list());
 		$pmparser->parse($message['message']);
 		if ($error_num = count($pmparser->errors))
 		{
@@ -278,10 +285,15 @@ if ($_REQUEST['do'] == 'message')
 				$_GET['do'] = 'message';
 			}
 		}
-		else if ($vbulletin->GPC['preview'])
+		else if ($vbulletin->GPC['preview'] OR $vbulletin->GPC['advanced'])
 		{
 			define('MESSAGEPREVIEW', true);
-			$preview = process_visitor_message_preview($message);
+
+			if ($vbulletin->GPC['preview'])
+			{
+				$preview = process_visitor_message_preview($message);
+			}
+
 			$_GET['do'] = 'message';
 		}
 		else
@@ -311,10 +323,14 @@ if ($_REQUEST['do'] == 'message')
 				require_once(DIR . '/includes/class_bbcode.php');
 				require_once(DIR . '/includes/class_visitormessage.php');
 
-				$bbcode =& new vB_BbCodeParser($vbulletin, fetch_tag_list());
-				$factory =& new vB_Visitor_MessageFactory($vbulletin, $bbcode, $userinfo);
+				$bbcode = new vB_BbCodeParser($vbulletin, fetch_tag_list());
+				$factory = new vB_Visitor_MessageFactory($vbulletin, $bbcode, $userinfo);
 
-				if ($vbulletin->GPC['fromconverse'])
+				if ($vbulletin->GPC['vmid'])
+				{
+					$sql = fetch_vm_ajax_query($userinfo, $vbulletin->GPC['vmid'], 'edit');
+				}
+				else if ($vbulletin->GPC['fromconverse'])
 				{
 					$sql = fetch_vm_ajax_query($userinfo, $vmid, 'wall', $userinfo2);
 				}
@@ -348,7 +364,7 @@ if ($_REQUEST['do'] == 'message')
 								!$message['vm_enable']
 									AND
 								(
-									!can_moderate()
+									!can_moderate(0, 'canmoderatevisitormessages')
 										OR
 									$vbulletin->userinfo['userid'] == $message['postuserid']
 								)
@@ -357,7 +373,7 @@ if ($_REQUEST['do'] == 'message')
 							(
 								$message['vm_contactonly']
 									AND
-								!can_moderate()
+								!can_moderate(0, 'canmoderatevisitormessages')
 									AND
 								$message['postuserid'] != $vbulletin->userinfo['userid']
 									AND
@@ -373,6 +389,7 @@ if ($_REQUEST['do'] == 'message')
 						'vmid'              => $message['vmid'],
 						'visible'           => ($message['state'] == 'visible') ? 1 : 0,
 						'bgclass'           => $bgclass,
+						'quickedit'			=> 1
 					));
 				}
 
@@ -395,7 +412,7 @@ if ($_REQUEST['do'] == 'message')
 				if ($messageinfo)
 				{
 					$vbulletin->url = 'member.php?' . $vbulletin->session->vars['sessionurl'] . "u=$userinfo[userid]&amp;vmid=$messageinfo[vmid]#vmessage$messageinfo[vmid]";
-					eval(print_standard_redirect('visitormessageeditthanks', true, true));
+					eval(print_standard_redirect('visitormessageeditthanks'));
 				}
 				else
 				{
@@ -407,7 +424,7 @@ if ($_REQUEST['do'] == 'message')
 					{
 						$vbulletin->url = 'member.php?' . $vbulletin->session->vars['sessionurl'] . "u=$userinfo[userid]&amp;vmid=$vmid#vmessage$vmid";
 					}
-					eval(print_standard_redirect('visitormessagethanks', true, true));
+					eval(print_standard_redirect('visitormessagethanks'));
 				}
 			}
 		}
@@ -478,7 +495,7 @@ if ($_REQUEST['do'] == 'message')
 				$state2[] = 'moderation';
 			}
 
-			if (can_moderate() OR $vbulletin->userinfo['permissions']['visitormessagepermissions'] & $vbulletin->bf_ugp_visitormessagepermissions['canmanageownprofile'])
+			if (can_moderate(0, 'canmoderatevisitormessages') OR $vbulletin->userinfo['permissions']['visitormessagepermissions'] & $vbulletin->bf_ugp_visitormessagepermissions['canmanageownprofile'])
 			{
 				$state2[] = 'deleted';
 				$deljoinsql2 = "LEFT JOIN " . TABLE_PREFIX . "deletionlog AS deletionlog ON (visitormessage.vmid = deletionlog.primaryid AND deletionlog.type = 'visitormessage')";
@@ -490,7 +507,7 @@ if ($_REQUEST['do'] == 'message')
 
 			$state1 = array('visible', 'moderation');
 
-			if (can_moderate())
+			if (can_moderate(0, 'canmoderatevisitormessages'))
 			{
 				$state1[] = 'deleted';
 				$delsql1 = ",deletionlog.userid AS del_userid, deletionlog.username AS del_username, deletionlog.reason AS del_reason";
@@ -514,8 +531,8 @@ if ($_REQUEST['do'] == 'message')
 			require_once(DIR . '/includes/class_bbcode.php');
 			require_once(DIR . '/includes/class_visitormessage.php');
 
-			$bbcode =& new vB_BbCodeParser($vbulletin, fetch_tag_list());
-			$factory =& new vB_Visitor_MessageFactory($vbulletin, $bbcode, $userinfo);
+			$bbcode = new vB_BbCodeParser($vbulletin, fetch_tag_list());
+			$factory = new vB_Visitor_MessageFactory($vbulletin, $bbcode, $userinfo);
 
 			$hook_query_fields1 = $hook_query_fields2 = $hook_query_joins1 = $hook_query_joins2 = $hook_query_where1 = $hook_query_where2 = '';
 			($hook = vBulletinHook::fetch_hook('visitor_message_form_query')) ? eval($hook) : false;
@@ -583,6 +600,7 @@ if ($_REQUEST['do'] == 'message')
 		}
 		else
 		{
+			$show['edit'] = false;
 			// Don't allow mods to create new messages
 			if (!$userinfo['vm_enable'])
 			{
@@ -594,7 +612,7 @@ if ($_REQUEST['do'] == 'message')
 
 		$navbits = construct_navbits(array(
 			'member.php?' . $vbulletin->session->vars['sessionurl'] . "u=$userinfo[userid]" => $userinfo['username'],
-			'' => $vbphrase['post_new_visitor_message']
+			'' => ($messageinfo ? $vbphrase['edit_visitor_message'] : $vbphrase['post_new_visitor_message'])
 		));
 		eval('$navbar = "' . fetch_template('navbar') . '";');
 
@@ -694,7 +712,7 @@ if ($_REQUEST['do'] == 'report' OR $_POST['do'] == 'sendemail')
 		eval(standard_error(fetch_error('emaildisabled')));
 	}
 
-	$reportobj =& new vB_ReportItem_VisitorMessage($vbulletin);
+	$reportobj = new vB_ReportItem_VisitorMessage($vbulletin);
 	$reportobj->set_extrainfo('user', $userinfo);
 	$perform_floodcheck = $reportobj->need_floodcheck();
 
@@ -762,14 +780,50 @@ if ($_REQUEST['do'] == 'report' OR $_POST['do'] == 'sendemail')
 
 }
 
+if ($_REQUEST['do'] == 'quickedit')
+{
+	$vbulletin->input->clean_array_gpc('p', array(
+		'editorid' => TYPE_NOHTML,
+	));
+
+	require_once(DIR . '/includes/class_xml.php');
+	require_once(DIR . '/includes/functions_editor.php');
+
+	$vminfo = verify_visitormessage($vbulletin->GPC['vmid']);
+
+	$editorid = construct_edit_toolbar(
+		htmlspecialchars_uni($vminfo['pagetext']),
+		false,
+		'visitormessage',
+		true,
+		true,
+		false,
+		'qenr',
+		$vbulletin->GPC['editorid']
+	);
+
+	$xml = new vB_AJAX_XML_Builder($vbulletin, 'text/xml');
+
+	$xml->add_group('quickedit');
+	$xml->add_tag('editor', process_replacement_vars($messagearea), array(
+		'reason'       => '',
+		'parsetype'    => 'visitormessage',
+		'parsesmilies' => true,
+		'mode'         => $show['is_wysiwyg_editor']
+	));
+	$xml->close_group();
+
+	$xml->print_xml();
+}
+
 ($hook = vBulletinHook::fetch_hook('visitor_message_complete')) ? eval($hook) : false;
 
 eval('print_output("' . fetch_template($templatename) . '");');
 
 /*======================================================================*\
 || ####################################################################
-|| # Downloaded: 16:21, Sat Apr 6th 2013
-|| # CVS: $RCSfile$ - $Revision: 26592 $
+|| # Downloaded: 20:50, Sun Aug 11th 2013
+|| # CVS: $RCSfile$ - $Revision: 39862 $
 || ####################################################################
 \*======================================================================*/
 ?>

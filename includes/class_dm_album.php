@@ -1,9 +1,9 @@
 <?php
 /*======================================================================*\
 || #################################################################### ||
-|| # vBulletin 3.7.2 Patch Level 2 - Licence Number VBF2470E4F
+|| # vBulletin 3.8.7 Patch Level 3 - Licence Number VBC2DDE4FB
 || # ---------------------------------------------------------------- # ||
-|| # Copyright ©2000-2013 Jelsoft Enterprises Ltd. All Rights Reserved. ||
+|| # Copyright ©2000-2013 vBulletin Solutions, Inc. All Rights Reserved. ||
 || # This file may not be redistributed in whole or significant part. # ||
 || # ---------------- VBULLETIN IS NOT FREE SOFTWARE ---------------- # ||
 || # http://www.vbulletin.com | http://www.vbulletin.com/license.html # ||
@@ -19,8 +19,8 @@ if (!class_exists('vB_DataManager'))
 * Class to do data save/delete operations for albums
 *
 * @package	vBulletin
-* @version	$Revision: 26098 $
-* @date		$Date: 2008-03-14 06:52:33 -0500 (Fri, 14 Mar 2008) $
+* @version	$Revision: 39862 $
+* @date		$Date: 2010-10-18 18:16:44 -0700 (Mon, 18 Oct 2010) $
 */
 class vB_DataManager_Album extends vB_DataManager
 {
@@ -164,6 +164,7 @@ class vB_DataManager_Album extends vB_DataManager
 		{
 			$pictures["$picture[pictureid]"] = $picture;
 		}
+		$this->registry->db->free_result($picture_sql);
 
 		if ($pictures)
 		{
@@ -210,6 +211,7 @@ class vB_DataManager_Album extends vB_DataManager
 			{
 				$groups[] = $group;
 			}
+			$this->registry->db->free_result($groups_sql);
 
 			$this->registry->db->query_write("
 				DELETE FROM " . TABLE_PREFIX . "socialgrouppicture
@@ -222,6 +224,7 @@ class vB_DataManager_Album extends vB_DataManager
 				$groupdata->set_existing($group);
 				$groupdata->rebuild_picturecount();
 				$groupdata->save();
+				unset($groupdata);
 			}
 		}
 
@@ -283,8 +286,8 @@ class vB_DataManager_Album extends vB_DataManager
 
 /*======================================================================*\
 || ####################################################################
-|| # Downloaded: 16:21, Sat Apr 6th 2013
-|| # CVS: $RCSfile$ - $Revision: 26098 $
+|| # Downloaded: 20:50, Sun Aug 11th 2013
+|| # CVS: $RCSfile$ - $Revision: 39862 $
 || ####################################################################
 \*======================================================================*/
 ?>

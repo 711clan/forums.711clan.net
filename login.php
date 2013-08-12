@@ -1,9 +1,9 @@
 <?php
 /*======================================================================*\
 || #################################################################### ||
-|| # vBulletin 3.7.2 Patch Level 2 - Licence Number VBF2470E4F
+|| # vBulletin 3.8.7 Patch Level 3 - Licence Number VBC2DDE4FB
 || # ---------------------------------------------------------------- # ||
-|| # Copyright ©2000-2013 Jelsoft Enterprises Ltd. All Rights Reserved. ||
+|| # Copyright ©2000-2013 vBulletin Solutions, Inc. All Rights Reserved. ||
 || # This file may not be redistributed in whole or significant part. # ||
 || # ---------------- VBULLETIN IS NOT FREE SOFTWARE ---------------- # ||
 || # http://www.vbulletin.com | http://www.vbulletin.com/license.html # ||
@@ -11,7 +11,7 @@
 \*======================================================================*/
 
 // ####################### SET PHP ENVIRONMENT ###########################
-error_reporting(E_ALL & ~E_NOTICE);
+error_reporting(E_ALL & ~E_NOTICE & ~8192);
 
 // #################### DEFINE IMPORTANT CONSTANTS #######################
 define('THIS_SCRIPT', 'login');
@@ -31,7 +31,8 @@ $globaltemplates = array();
 // pre-cache templates used by specific actions
 $actiontemplates = array(
 	'lostpw' => array(
-		'lostpw'
+		'lostpw',
+		'humanverify'
 	)
 );
 
@@ -156,6 +157,18 @@ if ($_REQUEST['do'] == 'lostpw')
 		$navbar = '';
 	}
 
+	// human verification
+	if (fetch_require_hvcheck('lostpw'))
+	{
+		require_once(DIR . '/includes/class_humanverify.php');
+		$verification =& vB_HumanVerify::fetch_library($vbulletin);
+		$human_verify = $verification->output_token();
+	}
+	else
+	{
+		$human_verify = '';
+	}
+
 	$url =& $vbulletin->url;
 	eval('print_output("' . fetch_template('lostpw') . '");');
 }
@@ -167,11 +180,22 @@ if ($_POST['do'] == 'emailpassword')
 	$vbulletin->input->clean_array_gpc('p', array(
 		'email' => TYPE_STR,
 		'userid' => TYPE_UINT,
+		'humanverify'  => TYPE_ARRAY,
 	));
 
 	if ($vbulletin->GPC['email'] == '')
 	{
 		eval(standard_error(fetch_error('invalidemail', $vbulletin->options['contactuslink'])));
+	}
+
+	if (fetch_require_hvcheck('lostpw'))
+	{
+		require_once(DIR . '/includes/class_humanverify.php');
+		$verify =& vB_HumanVerify::fetch_library($vbulletin);
+		if (!$verify->verify_token($vbulletin->GPC['humanverify']))
+		{
+	  		standard_error(fetch_error($verify->fetch_error()));
+	  	}
 	}
 
 	require_once(DIR . '/includes/functions_user.php');
@@ -213,8 +237,8 @@ if ($vbulletin->GPC['a'] == 'pwd' OR $_REQUEST['do'] == 'resetpassword')
 	$vbulletin->input->clean_array_gpc('r', array(
 		'userid'       => TYPE_UINT,
 		'u'            => TYPE_UINT,
-		'activationid' => TYPE_UINT,
-		'i'            => TYPE_UINT
+		'activationid' => TYPE_STR,
+		'i'            => TYPE_STR
 	));
 
 	if (!$vbulletin->GPC['userid'])
@@ -255,8 +279,7 @@ if ($vbulletin->GPC['a'] == 'pwd' OR $_REQUEST['do'] == 'resetpassword')
 	// delete old activation id
 	$db->query_write("DELETE FROM " . TABLE_PREFIX . "useractivation WHERE userid = $userinfo[userid] AND type = 1");
 
-	// make random number
-	$newpassword = vbrand(0, 100000000);
+	$newpassword = fetch_random_password(8);
 
 	// init user data manager
 	$userdata =& datamanager_init('User', $vbulletin, ERRTYPE_STANDARD);
@@ -275,8 +298,8 @@ if ($vbulletin->GPC['a'] == 'pwd' OR $_REQUEST['do'] == 'resetpassword')
 
 /*======================================================================*\
 || ####################################################################
-|| # Downloaded: 16:21, Sat Apr 6th 2013
-|| # CVS: $RCSfile$ - $Revision: 26512 $
+|| # Downloaded: 20:50, Sun Aug 11th 2013
+|| # CVS: $RCSfile$ - $Revision: 39862 $
 || ####################################################################
 \*======================================================================*/
 ?>

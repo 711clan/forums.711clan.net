@@ -1,9 +1,9 @@
 <?php
 /*======================================================================*\
 || #################################################################### ||
-|| # vBulletin 3.7.2 Patch Level 2 - Licence Number VBF2470E4F
+|| # vBulletin 3.8.7 Patch Level 3 - Licence Number VBC2DDE4FB
 || # ---------------------------------------------------------------- # ||
-|| # Copyright ©2000-2013 Jelsoft Enterprises Ltd. All Rights Reserved. ||
+|| # Copyright ©2000-2013 vBulletin Solutions, Inc. All Rights Reserved. ||
 || # This file may not be redistributed in whole or significant part. # ||
 || # ---------------- VBULLETIN IS NOT FREE SOFTWARE ---------------- # ||
 || # http://www.vbulletin.com | http://www.vbulletin.com/license.html # ||
@@ -11,7 +11,7 @@
 \*======================================================================*/
 
 // ####################### SET PHP ENVIRONMENT ###########################
-error_reporting(E_ALL & ~E_NOTICE);
+error_reporting(E_ALL & ~E_NOTICE & ~8192);
 
 // #################### DEFINE IMPORTANT CONSTANTS #######################
 define('THIS_SCRIPT', 'poll');
@@ -195,7 +195,7 @@ if ($_POST['do'] == 'postpoll')
 		eval(standard_error(fetch_error('polloptionlength', $vbulletin->options['maxpolllength'], $badoption)));
 	}
 
-	$bbcode_parser =& new vB_BbCodeParser($vbulletin, fetch_tag_list());
+	$bbcode_parser = new vB_BbCodeParser($vbulletin, fetch_tag_list());
 
 	if ($vbulletin->GPC['preview'] != '' OR $vbulletin->GPC['updatenumber'] != '')
 	{
@@ -243,7 +243,7 @@ if ($_POST['do'] == 'postpoll')
 				$maximgtest .= $vbulletin->GPC['options']["$counter"];
 			}
 
-			$img_parser =& new vB_BbCodeParser_ImgCheck($vbulletin, fetch_tag_list());
+			$img_parser = new vB_BbCodeParser_ImgCheck($vbulletin, fetch_tag_list());
 			$parsedmessage = $img_parser->parse($maximgtest . $question, $foruminfo['forumid'], $foruminfo['allowsmilies'], true);
 
 			require_once(DIR . '/includes/functions_misc.php');
@@ -453,6 +453,8 @@ if ($_REQUEST['do'] == 'polledit')
 
 	//get options
 	$splitoptions = explode('|||', $pollinfo['options']);
+	$splitoptions = array_map('rtrim', $splitoptions);
+
 	$splitvotes = explode('|||', $pollinfo['votes']);
 
 	$counter = 0;
@@ -585,11 +587,13 @@ if ($_REQUEST['do'] == 'showresults')
 	$counter = 1;
 	$pollbits = '';
 
-	$bbcode_parser =& new vB_BbCodeParser($vbulletin, fetch_tag_list());
+	$bbcode_parser = new vB_BbCodeParser($vbulletin, fetch_tag_list());
 
 	$pollinfo['question'] = $bbcode_parser->parse(unhtmlspecialchars($pollinfo['question']), $foruminfo['forumid'], 1);
 
 	$splitoptions = explode('|||', $pollinfo['options']);
+	$splitoptions = array_map('rtrim', $splitoptions);
+
 	$splitvotes = explode('|||', $pollinfo['votes']);
 
 	$pollinfo['numbervotes'] = array_sum($splitvotes);
@@ -868,8 +872,8 @@ if ($_POST['do'] == 'pollvote')
 
 /*======================================================================*\
 || ####################################################################
-|| # Downloaded: 16:21, Sat Apr 6th 2013
-|| # CVS: $RCSfile$ - $Revision: 26399 $
+|| # Downloaded: 20:50, Sun Aug 11th 2013
+|| # CVS: $RCSfile$ - $Revision: 39862 $
 || ####################################################################
 \*======================================================================*/
 ?>

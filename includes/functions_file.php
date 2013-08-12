@@ -1,9 +1,9 @@
 <?php
 /*======================================================================*\
 || #################################################################### ||
-|| # vBulletin 3.7.2 Patch Level 2 - Licence Number VBF2470E4F
+|| # vBulletin 3.8.7 Patch Level 3 - Licence Number VBC2DDE4FB
 || # ---------------------------------------------------------------- # ||
-|| # Copyright ©2000-2013 Jelsoft Enterprises Ltd. All Rights Reserved. ||
+|| # Copyright ©2000-2013 vBulletin Solutions, Inc. All Rights Reserved. ||
 || # This file may not be redistributed in whole or significant part. # ||
 || # ---------------- VBULLETIN IS NOT FREE SOFTWARE ---------------- # ||
 || # http://www.vbulletin.com | http://www.vbulletin.com/license.html # ||
@@ -148,7 +148,7 @@ function file_download($filestring, $filename, $filetype = 'application/octet-st
 	header('Expires: ' . gmdate('D, d M Y H:i:s') . ' GMT');
 	header('Content-Disposition: attachment; ' . $filename);
 	header('Content-Length: ' . strlen($filestring));
-	header('Cache-Control: must-revalidate, post-check=0, pre-check=0');
+	header('Cache-Control: private, must-revalidate, post-check=0, pre-check=0');
 	header('Pragma: public');
 
 	echo $filestring;
@@ -209,8 +209,8 @@ function fetch_body_request($url, $maxsize = 0, $dieonmaxsize = false, $returnhe
 
 /*======================================================================*\
 || ####################################################################
-|| # Downloaded: 16:21, Sat Apr 6th 2013
-|| # CVS: $RCSfile$ - $Revision: 16413 $
+|| # Downloaded: 20:50, Sun Aug 11th 2013
+|| # CVS: $RCSfile$ - $Revision: 39862 $
 || ####################################################################
 \*======================================================================*/
 ?>

@@ -1,9 +1,9 @@
 <?php
 /*======================================================================*\
 || #################################################################### ||
-|| # vBulletin 3.7.2 Patch Level 2 - Licence Number VBF2470E4F
+|| # vBulletin 3.8.7 Patch Level 3 - Licence Number VBC2DDE4FB
 || # ---------------------------------------------------------------- # ||
-|| # Copyright ©2000-2013 Jelsoft Enterprises Ltd. All Rights Reserved. ||
+|| # Copyright ©2000-2013 vBulletin Solutions, Inc. All Rights Reserved. ||
 || # This file may not be redistributed in whole or significant part. # ||
 || # ---------------- VBULLETIN IS NOT FREE SOFTWARE ---------------- # ||
 || # http://www.vbulletin.com | http://www.vbulletin.com/license.html # ||
@@ -11,10 +11,10 @@
 \*======================================================================*/
 
 // ######################## SET PHP ENVIRONMENT ###########################
-error_reporting(E_ALL & ~E_NOTICE);
+error_reporting(E_ALL & ~E_NOTICE & ~8192);
 
 // ##################### DEFINE IMPORTANT CONSTANTS #######################
-define('CVS_REVISION', '$RCSfile$ - $Revision: 26416 $');
+define('CVS_REVISION', '$RCSfile$ - $Revision: 39862 $');
 
 // #################### PRE-CACHE TEMPLATES AND DATA ######################
 $phrasegroups = array('sql');
@@ -201,7 +201,7 @@ if ($_REQUEST['do'] == 'list')
 	$headings[] = $vbphrase['data_length'];
 	$headings[] = $vbphrase['index_length'];
 	$headings[] = $vbphrase['overhead'];
-	$headings[] = "<input type=\"checkbox\" name=\"allbox\" title=\"$vbphrase[check_all]\" onclick=\"js_check_all(this.form);\" />$vbphrase[check_all]";
+	$headings[] = "<input type=\"checkbox\" name=\"allbox\" id=\"allbox\" title=\"$vbphrase[check_all]\" onclick=\"js_check_all(this.form);\" /><label for=\"allbox\">$vbphrase[check_all]</label>";
 	print_cells_row($headings, 1);
 
 	$mysqlversion = $db->query_first("SELECT VERSION() AS version");
@@ -222,7 +222,7 @@ if ($_REQUEST['do'] == 'list')
 			$cells[] = vb_number_format($table['Data_length'], 0, true);
 			$cells[] = vb_number_format($table['Index_length'], 0, true);
 			$cells[] = vb_number_format($table['Data_free'], 0, true);
-			$cells[] = "<input type=\"checkbox\" name=\"tablelist[$nullcount]\" title=\"$table[Name]\" value=\"$table[Name]\" />$vbphrase[yes]";
+			$cells[] = "<input type=\"checkbox\" name=\"tablelist[$nullcount]\" id=\"tablelist_$nullcount\" title=\"$table[Name]\" value=\"$table[Name]\" /><label for=\"tablelist_$nullcount\">$vbphrase[yes]</label>";
 			print_cells_row($cells);
 			$nullcount++;
 			if ($table['Engine'] == 'ISAM')
@@ -445,8 +445,8 @@ print_cp_footer();
 
 /*======================================================================*\
 || ####################################################################
-|| # Downloaded: 16:21, Sat Apr 6th 2013
-|| # CVS: $RCSfile$ - $Revision: 26416 $
+|| # Downloaded: 20:50, Sun Aug 11th 2013
+|| # CVS: $RCSfile$ - $Revision: 39862 $
 || ####################################################################
 \*======================================================================*/
 ?>

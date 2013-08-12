@@ -1,16 +1,16 @@
 <?php
 /*======================================================================*\
 || #################################################################### ||
-|| # vBulletin 3.7.2 Patch Level 2 - Licence Number VBF2470E4F
+|| # vBulletin 3.8.7 Patch Level 3 - Licence Number VBC2DDE4FB
 || # ---------------------------------------------------------------- # ||
-|| # Copyright ©2000-2013 Jelsoft Enterprises Ltd. All Rights Reserved. ||
+|| # Copyright ©2000-2013 vBulletin Solutions, Inc. All Rights Reserved. ||
 || # This file may not be redistributed in whole or significant part. # ||
 || # ---------------- VBULLETIN IS NOT FREE SOFTWARE ---------------- # ||
 || # http://www.vbulletin.com | http://www.vbulletin.com/license.html # ||
 || #################################################################### ||
 \*======================================================================*/
 
-error_reporting(E_ALL & ~E_NOTICE);
+error_reporting(E_ALL & ~E_NOTICE & ~8192);
 
 define('ERRDB_FIELD_DOES_NOT_EXIST', 1);
 define('ERRDB_FIELD_EXISTS', 2);
@@ -26,8 +26,8 @@ define('ERRDB_MYSQL', 100);
 * This class allows an abstracted method for altering database structure without throwing database errors willy nilly
 *
 * @package 		vBulletin
-* @version		$Revision: 25978 $
-* @date 		$Date: 2008-03-05 23:49:13 -0600 (Wed, 05 Mar 2008) $
+* @version		$Revision: 39862 $
+* @date 		$Date: 2010-10-18 18:16:44 -0700 (Mon, 18 Oct 2010) $
 * @copyright 	http://www.vbulletin.com/license.html
 *
 */
@@ -298,7 +298,9 @@ class vB_Database_Alter
 	{
 		if (!$this->init)
 		{
-			die('<strong>vB_Database_Alter</strong>: fetch_table_info() has not been called successfully.');
+			echo '<strong>vB_Database_Alter</strong>: fetch_table_info() has not been called successfully.<br />';
+			echo $this->fetch_error_message();
+			exit;
 		}
 		$this->set_error();
 	}
@@ -847,8 +849,8 @@ class vB_Database_Alter_MySQL extends vB_Database_Alter
 
 /*======================================================================*\
 || ####################################################################
-|| # Downloaded: 16:21, Sat Apr 6th 2013
-|| # CVS: $Revision: 25978 $
+|| # Downloaded: 20:50, Sun Aug 11th 2013
+|| # CVS: $Revision: 39862 $
 || ####################################################################
 \*======================================================================*/
 

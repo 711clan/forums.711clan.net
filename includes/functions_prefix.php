@@ -1,9 +1,9 @@
 <?php
 /*======================================================================*\
 || #################################################################### ||
-|| # vBulletin 3.7.2 Patch Level 2 - Licence Number VBF2470E4F
+|| # vBulletin 3.8.7 Patch Level 3 - Licence Number VBC2DDE4FB
 || # ---------------------------------------------------------------- # ||
-|| # Copyright ©2000-2013 Jelsoft Enterprises Ltd. All Rights Reserved. ||
+|| # Copyright ©2000-2013 vBulletin Solutions, Inc. All Rights Reserved. ||
 || # This file may not be redistributed in whole or significant part. # ||
 || # ---------------- VBULLETIN IS NOT FREE SOFTWARE ---------------- # ||
 || # http://www.vbulletin.com | http://www.vbulletin.com/license.html # ||
@@ -30,16 +30,28 @@ function fetch_prefix_array($forumid)
 	{
 		$prefixsets = array();
 		$prefix_sql = $vbulletin->db->query_read("
-			SELECT prefix.*
+			SELECT prefix.*, prefixpermission.usergroupid AS restriction
 			FROM " . TABLE_PREFIX . "forumprefixset AS forumprefixset
 			INNER JOIN " . TABLE_PREFIX . "prefixset AS prefixset ON (prefixset.prefixsetid = forumprefixset.prefixsetid)
 			INNER JOIN " . TABLE_PREFIX . "prefix AS prefix ON (prefix.prefixsetid = prefixset.prefixsetid)
+			LEFT JOIN " . TABLE_PREFIX . "prefixpermission AS prefixpermission ON (prefix.prefixid = prefixpermission.prefixid)
 			WHERE forumprefixset.forumid = " . intval($forumid) . "
 			ORDER BY prefixset.displayorder, prefix.displayorder
 		");
 		while ($prefix = $vbulletin->db->fetch_array($prefix_sql))
 		{
-			$prefixsets["$prefix[prefixsetid]"][] = $prefix['prefixid'];
+			if (empty($prefixsets["$prefix[prefixsetid]"]["$prefix[prefixid]"]))
+			{
+				$prefixsets["$prefix[prefixsetid]"]["$prefix[prefixid]"] = array(
+					'prefixid' => $prefix['prefixid'],
+					'restrictions' => array()
+				);
+			}
+
+			if ($prefix['restriction'])
+			{
+				$prefixsets["$prefix[prefixsetid]"]["$prefix[prefixid]"]['restrictions'][] = $prefix['restriction'];
+			}
 		}
 
 		($hook = vBulletinHook::fetch_hook('prefix_fetch_array')) ? eval($hook) : false;
@@ -49,15 +61,67 @@ function fetch_prefix_array($forumid)
 }
 
 /**
+ * Prefix Permission Check
+ *
+ * @param	string	The prefix ID to check
+ * @param	array	The restricted usergroups (used when we have the restrictions already)
+ *
+ * @return 	boolean
+ */
+function can_use_prefix($prefixid, $restrictions = null)
+{
+	global $vbulletin;
+
+	if (!is_array($restrictions))
+	{
+		$restrictions = array();
+		$restrictions_db = $vbulletin->db->query_read("
+			SELECT prefixpermission.usergroupid
+			FROM " . TABLE_PREFIX . "prefixpermission AS prefixpermission
+			WHERE prefixpermission.prefixid = '" . $vbulletin->db->escape_string($prefixid) . "'
+		");
+
+		while ($restriction = $vbulletin->db->fetch_array($restrictions_db))
+		{
+			$restrictions[] = intval($restriction['usergroupid']);
+		}
+	}
+
+	if (empty($restrictions))
+	{
+		return true;
+	}
+
+	$membergroups = fetch_membergroupids_array($vbulletin->userinfo);
+	$infractiongroups = explode(',', str_replace(' ', '', $vbulletin->userinfo['infractiongroupids']));
+
+	foreach ($restrictions AS $usergroup)
+	{
+		if (in_array($usergroup, $infractiongroups))
+		{
+			return false;
+		}
+	}
+
+	if (!count(array_diff($membergroups, $restrictions)))
+	{
+		return false;
+	}
+
+	return true;
+}
+
+/**
 * Returns HTML of options/optgroups for direct display in a template for the
 * selected forum.
 *
 * @param	integer	Forum ID to show prefixes from
 * @param	string	Selected prefix ID
+* @param	boolean	Whether to check whether the user can use the prefix before returning it in the list
 *
 * @return	string	HTML to output
 */
-function fetch_prefix_html($forumid, $selectedid = '')
+function fetch_prefix_html($forumid, $selectedid = '', $permcheck = false)
 {
 	global $vbulletin, $stylevar, $vbphrase;
 
@@ -67,8 +131,13 @@ function fetch_prefix_html($forumid, $selectedid = '')
 		foreach ($prefixsets AS $prefixsetid => $prefixes)
 		{
 			$optgroup_options = '';
-			foreach ($prefixes AS $prefixid)
+			foreach ($prefixes AS $prefixid => $prefix)
 			{
+				if ($permcheck AND !can_use_prefix($prefixid, $prefix['restrictions']) AND $prefixid != $selectedid)
+				{
+					continue;
+				}
+
 				$optionvalue = $prefixid;
 				$optiontitle = htmlspecialchars_uni($vbphrase["prefix_{$prefixid}_title_plain"]);
 				$optionselected = ($prefixid == $selectedid ? ' selected="selected"' : '');
@@ -76,15 +145,20 @@ function fetch_prefix_html($forumid, $selectedid = '')
 				eval('$optgroup_options .= "' . fetch_template('option') . '";');
 			}
 
-			// if there's only 1 prefix set available, we don't want to show the optgroup
-			if (sizeof($prefixsets) > 1)
+			// Make sure we dont try to add the prefix set if we've restricted them all.
+			if ($optgroup_options != '')
 			{
-				$optgroup_label = htmlspecialchars_uni($vbphrase["prefixset_{$prefixsetid}_title"]);
-				eval('$prefix_options .= "' . fetch_template('optgroup') . '";');
-			}
-			else
-			{
-				$prefix_options = $optgroup_options;
+
+				// if there's only 1 prefix set available, we don't want to show the optgroup
+				if (sizeof($prefixsets) > 1)
+				{
+					$optgroup_label = htmlspecialchars_uni($vbphrase["prefixset_{$prefixsetid}_title"]);
+					eval('$prefix_options .= "' . fetch_template('optgroup') . '";');
+				}
+				else
+				{
+					$prefix_options = $optgroup_options;
+				}
 			}
 		}
 	}
@@ -118,7 +192,7 @@ function remove_invalid_prefixes($threadids, $forumid = 0)
 		$valid_prefix_sets = fetch_prefix_array($forumid);
 		foreach ($valid_prefix_sets AS $prefixset)
 		{
-			foreach ($prefixset AS $prefixid)
+			foreach ($prefixset AS $prefixid => $prefix)
 			{
 				$valid_prefixes[] = "'" . $vbulletin->db->escape_string($prefixid) . "'";
 			}
@@ -135,8 +209,8 @@ function remove_invalid_prefixes($threadids, $forumid = 0)
 
 /*======================================================================*\
 || ####################################################################
-|| # Downloaded: 16:21, Sat Apr 6th 2013
-|| # CVS: $RCSfile$ - $Revision: 25686 $
+|| # Downloaded: 20:50, Sun Aug 11th 2013
+|| # CVS: $RCSfile$ - $Revision: 39862 $
 || ####################################################################
 \*======================================================================*/
 ?>

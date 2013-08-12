@@ -1,9 +1,9 @@
 <?php
 /*======================================================================*\
 || #################################################################### ||
-|| # vBulletin 3.7.2 Patch Level 2 - Licence Number VBF2470E4F
+|| # vBulletin 3.8.7 Patch Level 3 - Licence Number VBC2DDE4FB
 || # ---------------------------------------------------------------- # ||
-|| # Copyright ©2000-2013 Jelsoft Enterprises Ltd. All Rights Reserved. ||
+|| # Copyright ©2000-2013 vBulletin Solutions, Inc. All Rights Reserved. ||
 || # This file may not be redistributed in whole or significant part. # ||
 || # ---------------- VBULLETIN IS NOT FREE SOFTWARE ---------------- # ||
 || # http://www.vbulletin.com | http://www.vbulletin.com/license.html # ||
@@ -11,10 +11,10 @@
 \*======================================================================*/
 
 // ######################## SET PHP ENVIRONMENT ###########################
-error_reporting(E_ALL & ~E_NOTICE);
+error_reporting(E_ALL & ~E_NOTICE & ~8192);
 
 // ##################### DEFINE IMPORTANT CONSTANTS #######################
-define('CVS_REVISION', '$RCSfile$ - $Revision: 26275 $');
+define('CVS_REVISION', '$RCSfile$ - $Revision: 39862 $');
 
 // #################### PRE-CACHE TEMPLATES AND DATA ######################
 $phrasegroups = array('logging', 'threadmanage');
@@ -219,6 +219,11 @@ if ($_REQUEST['do'] == 'view')
 			reset($princids);
 			foreach ($princids AS $sqlfield => $output)
 			{
+				if ($sqlfield == 'post_title' AND $log['post_title'] == '' AND !empty($log['postid']))
+				{
+					$log['post_title'] = $vbphrase['untitled'];
+				}
+
 				if ($log["$sqlfield"])
 				{
 					if ($celldata)
@@ -229,7 +234,7 @@ if ($_REQUEST['do'] == 'view')
 					switch($sqlfield)
 					{
 						case 'post_title':
-							$celldata .= construct_link_code($log["$sqlfield"], "../showthread.php?" . $vbulletin->session->vars['sessionurl'] . "p=$log[postid]#$log[postid]", true);
+							$celldata .= construct_link_code($log["$sqlfield"], "../showthread.php?" . $vbulletin->session->vars['sessionurl'] . "p=$log[postid]#post$log[postid]", true);
 							break;
 						case 'thread_title':
 							$celldata .= construct_link_code($log["$sqlfield"], "../showthread.php?" . $vbulletin->session->vars['sessionurl'] . "t=$log[threadid]", true);
@@ -238,7 +243,7 @@ if ($_REQUEST['do'] == 'view')
 							$celldata .= construct_link_code($log["$sqlfield"], "../forumdisplay.php?" . $vbulletin->session->vars['sessionurl'] . "f=$log[forumid]", true);
 							break;
 						case 'attachment_title':
-							$celldata .= construct_link_code(htmlspecialchars_uni($log["$sqlfield"]), "../attachment.php?" . $vbulletin->session->vars['sessionurl'] . "attachmentid=$log[attachmentid]&amp;nocache=" . vbrand(0,1000000), true);
+							$celldata .= construct_link_code(htmlspecialchars_uni($log["$sqlfield"]), "../attachment.php?" . $vbulletin->session->vars['sessionurl'] . "attachmentid=$log[attachmentid]&amp;nocache=" . TIMENOW, true);
 							break;
 						default:
 							$handled = false;
@@ -410,8 +415,8 @@ print_cp_footer();
 
 /*======================================================================*\
 || ####################################################################
-|| # Downloaded: 16:21, Sat Apr 6th 2013
-|| # CVS: $RCSfile$ - $Revision: 26275 $
+|| # Downloaded: 20:50, Sun Aug 11th 2013
+|| # CVS: $RCSfile$ - $Revision: 39862 $
 || ####################################################################
 \*======================================================================*/
 ?>

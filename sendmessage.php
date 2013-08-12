@@ -1,9 +1,9 @@
 <?php
 /*======================================================================*\
 || #################################################################### ||
-|| # vBulletin 3.7.2 Patch Level 2 - Licence Number VBF2470E4F
+|| # vBulletin 3.8.7 Patch Level 3 - Licence Number VBC2DDE4FB
 || # ---------------------------------------------------------------- # ||
-|| # Copyright ©2000-2013 Jelsoft Enterprises Ltd. All Rights Reserved. ||
+|| # Copyright ©2000-2013 vBulletin Solutions, Inc. All Rights Reserved. ||
 || # This file may not be redistributed in whole or significant part. # ||
 || # ---------------- VBULLETIN IS NOT FREE SOFTWARE ---------------- # ||
 || # http://www.vbulletin.com | http://www.vbulletin.com/license.html # ||
@@ -11,7 +11,7 @@
 \*======================================================================*/
 
 // ######################### SET PHP ENVIRONMENT ###########################
-error_reporting(E_ALL & ~E_NOTICE);
+error_reporting(E_ALL & ~E_NOTICE & ~8192);
 
 // #################### DEFINE IMPORTANT CONSTANTS #######################
 define('THIS_SCRIPT', 'sendmessage');
@@ -84,6 +84,13 @@ if ($_REQUEST['do'] == 'im')
 
 	// verify userid
 	$userinfo = verify_id('user', $vbulletin->GPC['userid'], 1, 1, 15);
+
+	require_once(DIR . '/includes/functions_user.php');
+	if (!can_view_profile_section($userinfo['userid'], 'contactinfo'))
+	{
+		define('VB_ERROR_LITE', true);
+		standard_error(fetch_error('user_chosen_privacy_prevents_viewing'));
+	}
 
 	$type = $vbulletin->GPC['type'];
 
@@ -219,7 +226,13 @@ if ($_POST['do'] == 'docontactus')
 	$email =& $vbulletin->GPC['email'];
 
 	// check we have a message and a subject
-	if ($message == '' OR $subject == '' OR ($vbulletin->options['contactusoptions'] AND $subject == 'other' AND $vbulletin->GPC['other_subject'] == ''))
+	if ($message == '' OR $subject == ''
+			OR (
+				$vbulletin->options['contactusoptions']
+				AND $subject == 'other'
+				AND ($vbulletin->GPC['other_subject'] == '' OR !$vbulletin->options['contactusother'])
+			)
+		)
 	{
 		$errors[] = fetch_error('nosubject');
 	}
@@ -230,7 +243,7 @@ if ($_POST['do'] == 'docontactus')
 		$errors[] = fetch_error('bademail');
 	}
 
-	if (!$vbulletin->userinfo['userid'] AND $vbulletin->options['hvcheck_contactus'])
+	if (fetch_require_hvcheck('contactus'))
 	{
 		require_once(DIR . '/includes/class_humanverify.php');
 		$verify =& vB_HumanVerify::fetch_library($vbulletin);
@@ -282,7 +295,7 @@ if ($_POST['do'] == 'docontactus')
 
 		if (!empty($alt_email))
 		{
-			if ($destemail == $vbulletin->options['webmasteremail'])
+			if ($alt_email == $vbulletin->options['webmasteremail'] OR $alt_email == $vbulletin->options['contactusemail'])
 			{
 				$ip = IPADDRESS;
 			}
@@ -295,7 +308,14 @@ if ($_POST['do'] == 'docontactus')
 		else
 		{
 			$ip = IPADDRESS;
-			$destemail =& $vbulletin->options['webmasteremail'];
+			if ($vbulletin->options['contactusemail'])
+			{
+				$destemail =& $vbulletin->options['contactusemail'];
+			}
+			else
+			{
+				$destemail =& $vbulletin->options['webmasteremail'];
+			}
 		}
 
 		($hook = vBulletinHook::fetch_hook('sendmessage_docontactus_complete')) ? eval($hook) : false;
@@ -333,6 +353,7 @@ if ($_REQUEST['do'] == 'contactus')
 		'name'		=> TYPE_STR,
 		'email'		=> TYPE_STR,
 		'subject'	=> TYPE_STR,
+		'other_subject' => TYPE_STR,
 		'message'	=> TYPE_STR,
 	));
 
@@ -341,6 +362,7 @@ if ($_REQUEST['do'] == 'contactus')
 	$name = htmlspecialchars_uni($vbulletin->GPC['name']);
 	$email = htmlspecialchars_uni($vbulletin->GPC['email']);
 	$subject = htmlspecialchars_uni($vbulletin->GPC['subject']);
+	$other_subject = htmlspecialchars_uni($vbulletin->GPC['other_subject']);
 	$message = htmlspecialchars_uni($vbulletin->GPC['message']);
 
 	// enter $vbulletin->userinfo's name and email if necessary
@@ -364,7 +386,7 @@ if ($_REQUEST['do'] == 'contactus')
 				$title =& $matches[2];
 			}
 
-			if ($subject == $index)
+			if ($subject == strval($index))
 			{
 				$checked = 'checked="checked"';
 			}
@@ -376,7 +398,9 @@ if ($_REQUEST['do'] == 'contactus')
 		}
 	}
 
-	if (!$vbulletin->userinfo['userid'] AND $vbulletin->options['hvcheck_contactus'])
+	$other_subject_checked = ($subject == 'other' ? 'checked="checked"' : '');
+
+	if (fetch_require_hvcheck('contactus'))
 	{
 		require_once(DIR . '/includes/class_humanverify.php');
 		$verification =& vB_HumanVerify::fetch_library($vbulletin);
@@ -432,7 +456,7 @@ if ($_REQUEST['do'] == 'sendtofriend')
 	eval('$usernamecode = "' . fetch_template('newpost_usernamecode') . '";');
 
 	// human verification
-	if (!$vbulletin->userinfo['userid'] AND $vbulletin->options['hvcheck_contactus'])
+	if (fetch_require_hvcheck('contactus'))
 	{
 		require_once(DIR . '/includes/class_humanverify.php');
 		$verification =& vB_HumanVerify::fetch_library($vbulletin);
@@ -488,7 +512,7 @@ if ($_POST['do'] == 'dosendtofriend')
 	if ($perform_floodcheck)
 	{
 		require_once(DIR . '/includes/class_floodcheck.php');
-		$floodcheck =& new vB_FloodCheck($vbulletin, 'user', 'emailstamp');
+		$floodcheck = new vB_FloodCheck($vbulletin, 'user', 'emailstamp');
 		$floodcheck->commit_key($vbulletin->userinfo['userid'], TIMENOW, TIMENOW - $vbulletin->options['emailfloodtime']);
 		if ($floodcheck->is_flooding())
 		{
@@ -496,7 +520,7 @@ if ($_POST['do'] == 'dosendtofriend')
 		}
 	}
 
-	if (!$vbulletin->userinfo['userid'] AND $vbulletin->options['hvcheck_contactus'])
+	if (fetch_require_hvcheck('contactus'))
 	{
 		require_once(DIR . '/includes/class_humanverify.php');
 		$verify =& vB_HumanVerify::fetch_library($vbulletin);
@@ -590,6 +614,12 @@ if ($_REQUEST['do'] == 'mailmember')
 		}
 		else
 		{
+			require_once(DIR . '/includes/functions_user.php');
+			if (!can_view_profile_section($userinfo['userid'], 'contactinfo'))
+			{
+				standard_error(fetch_error('user_chosen_privacy_prevents_viewing'));
+			}
+
 			// show the user's email address
 			eval(standard_error(fetch_error('showemail', $destusername, htmlspecialchars_uni($userinfo['email']))));
 		}
@@ -624,7 +654,7 @@ if ($_POST['do'] == 'domailmember')
 		if ($perform_floodcheck)
 		{
 			require_once(DIR . '/includes/class_floodcheck.php');
-			$floodcheck =& new vB_FloodCheck($vbulletin, 'user', 'emailstamp');
+			$floodcheck = new vB_FloodCheck($vbulletin, 'user', 'emailstamp');
 			$floodcheck->commit_key($vbulletin->userinfo['userid'], TIMENOW, TIMENOW - $vbulletin->options['emailfloodtime']);
 			if ($floodcheck->is_flooding())
 			{
@@ -649,8 +679,8 @@ if ($_POST['do'] == 'domailmember')
 
 /*======================================================================*\
 || ####################################################################
-|| # Downloaded: 16:21, Sat Apr 6th 2013
-|| # CVS: $RCSfile$ - $Revision: 26399 $
+|| # Downloaded: 20:50, Sun Aug 11th 2013
+|| # CVS: $RCSfile$ - $Revision: 39862 $
 || ####################################################################
 \*======================================================================*/
 ?>

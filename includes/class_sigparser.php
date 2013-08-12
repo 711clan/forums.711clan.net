@@ -1,9 +1,9 @@
 <?php
 /*======================================================================*\
 || #################################################################### ||
-|| # vBulletin 3.7.2 Patch Level 2 - Licence Number VBF2470E4F
+|| # vBulletin 3.8.7 Patch Level 3 - Licence Number VBC2DDE4FB
 || # ---------------------------------------------------------------- # ||
-|| # Copyright ©2000-2013 Jelsoft Enterprises Ltd. All Rights Reserved. ||
+|| # Copyright ©2000-2013 vBulletin Solutions, Inc. All Rights Reserved. ||
 || # This file may not be redistributed in whole or significant part. # ||
 || # ---------------- VBULLETIN IS NOT FREE SOFTWARE ---------------- # ||
 || # http://www.vbulletin.com | http://www.vbulletin.com/license.html # ||
@@ -21,8 +21,8 @@ require_once(DIR . '/includes/class_bbcode.php');
 * Stack based BB code parser.
 *
 * @package 		vBulletin
-* @version		$Revision: 25833 $
-* @date 		$Date: 2008-02-22 08:10:39 -0600 (Fri, 22 Feb 2008) $
+* @version		$Revision: 39862 $
+* @date 		$Date: 2010-10-18 18:16:44 -0700 (Mon, 18 Oct 2010) $
 *
 */
 class vB_SignatureParser extends vB_BbCodeParser
@@ -266,8 +266,8 @@ class vB_SignatureParser extends vB_BbCodeParser
 
 /*======================================================================*\
 || ####################################################################
-|| # Downloaded: 16:21, Sat Apr 6th 2013
-|| # CVS: $RCSfile$ - $Revision: 25833 $
+|| # Downloaded: 20:50, Sun Aug 11th 2013
+|| # CVS: $RCSfile$ - $Revision: 39862 $
 || ####################################################################
 \*======================================================================*/
 

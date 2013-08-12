@@ -1,9 +1,9 @@
 <?php
 /*======================================================================*\
 || #################################################################### ||
-|| # vBulletin 3.7.2 Patch Level 2 - Licence Number VBF2470E4F
+|| # vBulletin 3.8.7 Patch Level 3 - Licence Number VBC2DDE4FB
 || # ---------------------------------------------------------------- # ||
-|| # Copyright ©2000-2013 Jelsoft Enterprises Ltd. All Rights Reserved. ||
+|| # Copyright ©2000-2013 vBulletin Solutions, Inc. All Rights Reserved. ||
 || # This file may not be redistributed in whole or significant part. # ||
 || # ---------------- VBULLETIN IS NOT FREE SOFTWARE ---------------- # ||
 || # http://www.vbulletin.com | http://www.vbulletin.com/license.html # ||
@@ -11,7 +11,7 @@
 \*======================================================================*/
 
 // ######################## SET PHP ENVIRONMENT ###########################
-error_reporting(E_ALL & ~E_NOTICE);
+error_reporting(E_ALL & ~E_NOTICE & ~8192);
 
 // ##################### DEFINE IMPORTANT CONSTANTS #######################
 define('THIS_SCRIPT', 'calendar');
@@ -39,6 +39,10 @@ $specialtemplates = array(
 $globaltemplates = array(
 	'calendarjump',
 	'calendarjumpbit',
+	'bbcode_code',
+	'bbcode_html',
+	'bbcode_php',
+	'bbcode_quote',
 );
 
 // pre-cache templates used by specific actions
@@ -737,6 +741,8 @@ if ($_REQUEST['do'] == 'displayweek')
 				unset($holidayid);
 				$show['holiday'] = false;
 			}
+
+			$show['highlighttoday'] = ("$today[year]-$today[mon]-$today[mday]" == "$weekyear-$month-$weekday");
 
 			eval('$weekbits .= "' . fetch_template('calendar_weekly_day') . '";');
 			$lastmonth = $weekmonth;
@@ -1883,7 +1889,7 @@ if ($_POST['do'] == 'update')
 			$eventdata->set_existing($eventinfo);
 			$eventdata->delete();
 
-			$vbulletin->url = 'calendar.php' . $vbulletin->session->vars['sessionurl_q'];
+			$vbulletin->url = 'calendar.php?' . $vbulletin->session->vars['sessionurl_q'] . "c=$calendarinfo[calendarid]";
 			eval(print_standard_redirect('redirect_calendardeleteevent'));
 		}
 		else
@@ -1975,7 +1981,7 @@ if ($_POST['do'] == 'update')
 			$vbulletin->userinfo['username'] = unhtmlspecialchars($vbulletin->userinfo['username']); //for emails
 
 			require_once(DIR . '/includes/class_bbcode_alt.php');
-			$plaintext_parser =& new vB_BbCodeParser_PlainText($vbulletin, fetch_tag_list());
+			$plaintext_parser = new vB_BbCodeParser_PlainText($vbulletin, fetch_tag_list());
 			$plaintext_parser->set_parsing_language(0); // email addresses don't have a language ID
 			$eventmessage = $plaintext_parser->parse($message, 'calendar');
 
@@ -2321,8 +2327,8 @@ eval(standard_error(fetch_error('invalidid', $idname, $vbulletin->options['conta
 
 /*======================================================================*\
 || ####################################################################
-|| # Downloaded: 16:21, Sat Apr 6th 2013
-|| # CVS: $RCSfile$ - $Revision: 26399 $
+|| # Downloaded: 20:50, Sun Aug 11th 2013
+|| # CVS: $RCSfile$ - $Revision: 39862 $
 || ####################################################################
 \*======================================================================*/
 ?>

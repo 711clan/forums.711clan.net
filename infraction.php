@@ -1,9 +1,9 @@
 <?php
 /*======================================================================*\
 || #################################################################### ||
-|| # vBulletin 3.7.2 Patch Level 2 - Licence Number VBF2470E4F
+|| # vBulletin 3.8.7 Patch Level 3 - Licence Number VBC2DDE4FB
 || # ---------------------------------------------------------------- # ||
-|| # Copyright ©2000-2013 Jelsoft Enterprises Ltd. All Rights Reserved. ||
+|| # Copyright ©2000-2013 vBulletin Solutions, Inc. All Rights Reserved. ||
 || # This file may not be redistributed in whole or significant part. # ||
 || # ---------------- VBULLETIN IS NOT FREE SOFTWARE ---------------- # ||
 || # http://www.vbulletin.com | http://www.vbulletin.com/license.html # ||
@@ -11,7 +11,7 @@
 \*======================================================================*/
 
 // ####################### SET PHP ENVIRONMENT ###########################
-error_reporting(E_ALL & ~E_NOTICE);
+error_reporting(E_ALL & ~E_NOTICE & ~8192);
 
 // #################### DEFINE IMPORTANT CONSTANTS #######################
 define('THIS_SCRIPT', 'infraction');
@@ -20,7 +20,7 @@ define('GET_EDIT_TEMPLATES', 'report,update');
 
 // ################### PRE-CACHE TEMPLATES AND DATA ######################
 // get special phrase groups
-$phrasegroups = array('infraction', 'infractionlevel', 'pm', 'posting', 'banning');
+$phrasegroups = array('infraction', 'infractionlevel', 'pm', 'posting', 'banning', 'user');
 
 // get special data templates from the datastore
 $specialtemplates = array('smiliecache', 'bbcodecache');
@@ -496,6 +496,11 @@ if ($_REQUEST['do'] == 'view')
 	{
 		$navbits['showthread.php?' . $vbulletin->session->vars['sessionurl'] . "p=$postinfo[postid]#post$postinfo[postid]"] = $threadinfo['prefix_plain_html'] . ' ' . $threadinfo['title'];
 	}
+	else
+	{
+		$navbits['member.php?' . $vbulletin->session->vars['sessionurl'] . "u=$userinfo[userid]"] = construct_phrase($vbphrase['xs_profile'], $userinfo['username']);
+	}
+
 	$navbits[''] = construct_phrase($vbphrase['user_infraction_for_x'], $userinfo['username']);
 	$navbits = construct_navbits($navbits);
 
@@ -796,7 +801,7 @@ if ($_POST['do'] == 'update')
 		else
 		{	// Email User
 			require_once(DIR . '/includes/class_bbcode_alt.php');
-			$plaintext_parser =& new vB_BbCodeParser_PlainText($vbulletin, fetch_tag_list());
+			$plaintext_parser = new vB_BbCodeParser_PlainText($vbulletin, fetch_tag_list());
 			$plaintext_parser->set_parsing_language($touserinfo['languageid']);
 
 			$infraction = array(
@@ -854,7 +859,8 @@ if ($_POST['do'] == 'update')
 		$infdata->save();
 
 		// Ban
-		if (!empty($banlist) AND $points = $infdata->fetch_field('points'))
+		require_once(DIR . '/includes/adminfunctions.php');
+		if (!empty($banlist) AND $points = $infdata->fetch_field('points') AND !is_unalterable_user($userinfo['userid']))
 		{
 			if ($banusergroupid)
 			{
@@ -1075,6 +1081,11 @@ if ($_REQUEST['do'] == 'report')
 		}
 		$navbits['showthread.php?' . $vbulletin->session->vars['sessionurl'] . "p=$postid"] = $threadinfo['prefix_plain_html'] . ' ' . $threadinfo['title'];
 	}
+	else
+	{
+		$navbits['member.php?' . $vbulletin->session->vars['sessionurl'] . "u=$userinfo[userid]"] = construct_phrase($vbphrase['xs_profile'], $userinfo['username']);
+	}
+
 	$navbits[''] = construct_phrase($vbphrase['user_infraction_for_x'], $userinfo['username']);
 	$navbits = construct_navbits($navbits);
 
@@ -1176,8 +1187,8 @@ if ($_REQUEST['do'] == 'report')
 
 /*======================================================================*\
 || ####################################################################
-|| # Downloaded: 16:21, Sat Apr 6th 2013
-|| # CVS: $RCSfile$ - $Revision: 26399 $
+|| # Downloaded: 20:50, Sun Aug 11th 2013
+|| # CVS: $RCSfile$ - $Revision: 39862 $
 || ####################################################################
 \*======================================================================*/
 ?>

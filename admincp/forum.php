@@ -1,9 +1,9 @@
 <?php
 /*======================================================================*\
 || #################################################################### ||
-|| # vBulletin 3.7.2 Patch Level 2 - Licence Number VBF2470E4F
+|| # vBulletin 3.8.7 Patch Level 3 - Licence Number VBC2DDE4FB
 || # ---------------------------------------------------------------- # ||
-|| # Copyright ©2000-2013 Jelsoft Enterprises Ltd. All Rights Reserved. ||
+|| # Copyright ©2000-2013 vBulletin Solutions, Inc. All Rights Reserved. ||
 || # This file may not be redistributed in whole or significant part. # ||
 || # ---------------- VBULLETIN IS NOT FREE SOFTWARE ---------------- # ||
 || # http://www.vbulletin.com | http://www.vbulletin.com/license.html # ||
@@ -11,11 +11,11 @@
 \*======================================================================*/
 
 // ######################## SET PHP ENVIRONMENT ###########################
-error_reporting(E_ALL & ~E_NOTICE);
+error_reporting(E_ALL & ~E_NOTICE & ~8192);
 @set_time_limit(0);
 
 // ##################### DEFINE IMPORTANT CONSTANTS #######################
-define('CVS_REVISION', '$RCSfile$ - $Revision: 25491 $');
+define('CVS_REVISION', '$RCSfile$ - $Revision: 39862 $');
 
 // #################### PRE-CACHE TEMPLATES AND DATA ######################
 $phrasegroups = array('forum', 'cpuser', 'forumdisplay', 'prefix');
@@ -104,7 +104,8 @@ if ($_REQUEST['do'] == 'add' OR $_REQUEST['do'] == 'edit')
 			'showonforumjump' => 1,
 			'defaultsortfield' => 'lastpost',
 			'defaultsortorder' => 'desc',
-   			'imageprefix' => ''
+   			'imageprefix' => '',
+   			'prefixrequired' => 0
 		);
 
 		if (!empty($vbulletin->GPC['defaultforumid']))
@@ -229,7 +230,7 @@ if ($_REQUEST['do'] == 'add' OR $_REQUEST['do'] == 'edit')
 	print_yes_no_row($vbphrase['count_posts_in_forum'], 'forum[options][countposts]', $forum['countposts']);
 	print_yes_no_row($vbphrase['show_forum_on_forum_jump'], 'forum[options][showonforumjump]', $forum['showonforumjump']);
 
-	$prefixsets = construct_prefixset_checkboxes('prefixset', $forum['forumid']);
+	$prefixsets = construct_prefixset_checkboxes('prefixset', $vbulletin->GPC['defaultforumid'] ? $vbulletin->GPC['defaultforumid'] : $forum['forumid']);
 	if ($prefixsets)
 	{
 		print_label_row($vbphrase['use_selected_prefix_sets'], $prefixsets, '', 'top', 'prefixset');
@@ -776,8 +777,8 @@ print_cp_footer();
 
 /*======================================================================*\
 || ####################################################################
-|| # Downloaded: 16:21, Sat Apr 6th 2013
-|| # CVS: $RCSfile$ - $Revision: 25491 $
+|| # Downloaded: 20:50, Sun Aug 11th 2013
+|| # CVS: $RCSfile$ - $Revision: 39862 $
 || ####################################################################
 \*======================================================================*/
 ?>

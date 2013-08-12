@@ -1,16 +1,16 @@
 <?php
 /*======================================================================*\
 || #################################################################### ||
-|| # vBulletin 3.7.2 Patch Level 2 - Licence Number VBF2470E4F
+|| # vBulletin 3.8.7 Patch Level 3 - Licence Number VBC2DDE4FB
 || # ---------------------------------------------------------------- # ||
-|| # Copyright ©2000-2013 Jelsoft Enterprises Ltd. All Rights Reserved. ||
+|| # Copyright ©2000-2013 vBulletin Solutions, Inc. All Rights Reserved. ||
 || # This file may not be redistributed in whole or significant part. # ||
 || # ---------------- VBULLETIN IS NOT FREE SOFTWARE ---------------- # ||
 || # http://www.vbulletin.com | http://www.vbulletin.com/license.html # ||
 || #################################################################### ||
 \*======================================================================*/
 
-error_reporting(E_ALL & ~E_NOTICE);
+error_reporting(E_ALL & ~E_NOTICE & ~8192);
 define('ADMINHASH', md5(COOKIE_SALT . $vbulletin->userinfo['userid'] . $vbulletin->userinfo['salt']));
 
 // #############################################################################
@@ -140,6 +140,7 @@ function print_cp_login($mismatch = false)
 		<col width="50%"></col>
 
 		<!-- login fields -->
+		<tbody>
 		<tr>
 			<td><?php echo $vbphrase['username']; ?></td>
 			<td><input type="text" style="padding-<?php echo $stylevar['left']; ?>:5px; font-weight:bold; width:250px" name="vb_login_username" value="<?php echo $printusername; ?>" accesskey="u" tabindex="1" id="vb_login_username" /></td>
@@ -155,6 +156,7 @@ function print_cp_login($mismatch = false)
 			<td class="tborder"><?php echo $vbphrase['caps_lock_is_on']; ?></td>
 			<td>&nbsp;</td>
 		</tr>
+		</tbody>
 		<!-- /login fields -->
 
 		<?php if ($showoptions) { ?>
@@ -177,12 +179,14 @@ function print_cp_login($mismatch = false)
 		<?php } ?>
 
 		<!-- submit row -->
+		<tbody>
 		<tr>
 			<td colspan="3" align="center">
 				<input type="submit" class="button" value="  <?php echo $vbphrase['log_in']; ?>  " accesskey="s" tabindex="3" />
 				<?php if ($showoptions) { ?><input type="button" class="button" value=" <?php echo $vbphrase['options']; ?> " accesskey="o" onclick="js_show_options('loginoptions', this)" tabindex="4" /><?php } ?>
 			</td>
 		</tr>
+		</tbody>
 		<!-- /submit row -->
 		</table>
 
@@ -238,9 +242,8 @@ function print_cp_header($title = '', $onload = '', $headinsert = '', $marginwid
 	// start GZ encoding output
 	if ($vbulletin->options['gzipoutput'] AND !$vbulletin->nozip AND !headers_sent() AND function_exists('ob_start') AND function_exists('crc32') AND function_exists('gzcompress'))
 	{
-		$output_handler = @ini_get('output_handler');
-
-		if ($output_handler != 'ob_gzhandler')
+		// This will destroy all previous output buffers that could have been stacked up here.
+		while (ob_get_level())
 		{
 			@ob_end_clean();
 		}
@@ -398,7 +401,10 @@ function print_cp_footer()
 	if ($vbulletin->options['gzipoutput'] AND function_exists("ob_start") AND function_exists("crc32") AND function_exists("gzcompress") AND !$vbulletin->nozip)
 	{
 		$text = ob_get_contents();
-		while (@ob_end_clean());
+		while (ob_get_level())
+		{
+			@ob_end_clean();
+		}
 
 		if (!(SAPI_NAME == 'apache2handler' AND PHP_VERSION <= '4.3.3') AND !headers_sent() AND SAPI_NAME != 'apache2filter')
 		{
@@ -459,7 +465,7 @@ function fetch_uniqueid_counter($increment = true)
 * @param	string	Form method (GET / POST)
 * @param	integer	CellSpacing for Table
 */
-function print_form_header($phpscript = '', $do = '', $uploadform = false, $addtable = true, $name = 'cpform', $width = '90%', $target = '', $echobr = true, $method = 'post', $cellspacing = 0)
+function print_form_header($phpscript = '', $do = '', $uploadform = false, $addtable = true, $name = 'cpform', $width = '90%', $target = '', $echobr = true, $method = 'post', $cellspacing = 0, $border_collapse = false)
 {
 	global $vbulletin, $tableadded;
 
@@ -490,7 +496,7 @@ function print_form_header($phpscript = '', $do = '', $uploadform = false, $addt
 
 	if ($addtable)
 	{
-		print_table_start($echobr, $width, $cellspacing, $clean_name . '_table');
+		print_table_start($echobr, $width, $cellspacing, $clean_name . '_table', $border_collapse);
 	}
 	else
 	{
@@ -505,8 +511,9 @@ function print_form_header($phpscript = '', $do = '', $uploadform = false, $addt
 * @param	boolean	Whether or not to place a <br /> before the opening table tag
 * @param	string	Width for the <table> - default = '90%'
 * @param	integer	Width in pixels for the table's 'cellspacing' attribute
+* @param	boolean Whether to collapse borders in the table
 */
-function print_table_start($echobr = true, $width = '90%', $cellspacing = 0, $id = '')
+function print_table_start($echobr = true, $width = '90%', $cellspacing = 0, $id = '', $border_collapse = false)
 {
 	global $tableadded;
 
@@ -519,7 +526,7 @@ function print_table_start($echobr = true, $width = '90%', $cellspacing = 0, $id
 
 	$id_html = ($id == '' ? '' : " id=\"$id\"");
 
-	echo "\n<table cellpadding=\"4\" cellspacing=\"$cellspacing\" border=\"0\" align=\"center\" width=\"$width\" class=\"tborder\"$id_html>\n";
+	echo "\n<table cellpadding=\"4\" cellspacing=\"$cellspacing\" border=\"0\" align=\"center\" width=\"$width\" style=\"border-collapse:" . ($border_collapse ? 'collapse' : 'separate') . "\" class=\"tborder\"$id_html>\n";
 }
 
 // #############################################################################
@@ -571,7 +578,7 @@ function print_submit_row($submitname = '', $resetname = '_default_', $colspan =
 			/>
 			<script type=\"text/javascript\">
 			<!--
-			if (history.length < 1 || (is_saf && history.length <= 1)) // safari seems to bypass a 0 history length
+			if (history.length < 1 || ((is_saf || is_moz) && history.length <= 1)) // safari + gecko start at 1
 			{
 				document.getElementById('goback$count').parentNode.removeChild(document.getElementById('goback$count'));
 			}
@@ -1650,8 +1657,9 @@ function construct_day_select_html($selected = 1, $name = 'day', $htmlise = fals
 * @param	string	Optional extra <option> for the top of the list - value is -1, specify text here
 * @param	integer	Size of select field. If non-zero, shows multi-line
 * @param	string	Optional 'WHERE' clause for the SELECT query
+* @param	boolean	Whether or not to allow multiple selections
 */
-function print_chooser_row($title, $name, $tablename, $selvalue = -1, $extra = '', $size = 0, $wherecondition = '')
+function print_chooser_row($title, $name, $tablename, $selvalue = -1, $extra = '', $size = 0, $wherecondition = '', $multiple = false)
 {
 	global $vbulletin;
 
@@ -1683,7 +1691,7 @@ function print_chooser_row($title, $name, $tablename, $selvalue = -1, $extra = '
 		$selectoptions["$itemid"] = $itemtitle;
 	}
 
-	print_select_row($title, $name, $selectoptions, $selvalue, 0, $size);
+	print_select_row($title, $name, $selectoptions, $selvalue, 0, $size, $multiple);
 }
 
 // #############################################################################
@@ -2808,14 +2816,7 @@ function print_cp_message($text = '', $redirect = NULL, $delay = 1, $backurl = N
 		// end the table and halt
 		if ($backurl === NULL)
 		{
-			if (!REFERRER OR strpos(REFERRER, '?') !== false)
-			{
-				$backurl = 'javascript:history.back(1)';
-			}
-			else
-			{
-				$backurl = '';
-			}
+			$backurl = 'javascript:history.back(1)';
 		}
 
 		if (strpos($backurl, 'history.back(') !== false)
@@ -2826,7 +2827,7 @@ function print_cp_message($text = '', $redirect = NULL, $delay = 1, $backurl = N
 				&nbsp;
 				<script type="text/javascript">
 				<!--
-				if (history.length < 1 || (is_saf && history.length <= 1)) // safari seems to bypass a 0 history length
+				if (history.length < 1 || ((is_saf || is_moz) && history.length <= 1)) // safari + gecko start at 1
 				{
 					document.getElementById("backbutton").parentNode.removeChild(document.getElementById("backbutton"));
 				}
@@ -2966,6 +2967,9 @@ function build_image_cache($table)
 	{
 		$items = $vbulletin->db->query_read("SELECT * FROM " . TABLE_PREFIX . "$table ORDER BY imagecategoryid, displayorder");
 	}
+
+	$itemarray = array();
+
 	while ($item = $vbulletin->db->fetch_array($items))
 	{
 		$itemarray["$item[$itemid]"] = array();
@@ -3146,7 +3150,7 @@ function build_forum_permissions($rebuild_genealogy = true)
 		foreach ($newforum AS $key => $val)
 		{
 			/* values which begin with 0 and are greater than 1 character are strings, since 01 would be an octal number in PHP */
-			if (is_numeric($val) AND !(substr($val, 0, 1) == '0' AND strlen($val) > 1))
+			if (is_numeric($val) AND !(substr($val, 0, 1) == '0' AND strlen($val) > 1) AND !in_array($key, array('title', 'title_clean', 'description', 'description_clean')))
 			{
 				$newforum["$key"] += 0;
 			}
@@ -3315,7 +3319,7 @@ function fetch_forum_child_list($mainforumid, $parentid)
 		foreach ($vbulletin->iforumcache["$parentid"] AS $forumid => $forumparentid)
 		{
 			$vbulletin->forumcache["$mainforumid"]['childlist'] .= ',' . $forumid;
-			fetch_forum_child_list($mainforumid, $forumid, $sql);
+			fetch_forum_child_list($mainforumid, $forumid);
 		}
 	}
 }
@@ -3474,28 +3478,36 @@ function convert_to_valid_html($text)
 */
 function vbflush()
 {
-	static $output_handler = null;
-	if ($output_handler === null)
+	static $gzip_handler = null;
+	if ($gzip_handler === null)
 	{
-		$output_handler = @ini_get('output_handler');
+		$gzip_handler = false;
+		$output_handlers = ob_list_handlers();
+		if (is_array($output_handlers))
+		{
+			foreach ($output_handlers AS $handler)
+			{
+				if ($handler == 'ob_gzhandler')
+				{
+					$gzip_handler = true;
+					break;
+				}
+			}
+		}
 	}
 
-	if ($output_handler == 'ob_gzhandler')
+	if ($gzip_handler)
 	{
 		// forcing a flush with this is very bad
 		return;
 	}
 
-	flush();
-	if (function_exists('ob_flush') AND function_exists('ob_get_length') AND ob_get_length() !== false)
+	if (ob_get_length() !== false)
 	{
 		@ob_flush();
 	}
-	else if (function_exists('ob_end_flush') AND function_exists('ob_start') AND function_exists('ob_get_length') AND ob_get_length() !== FALSE)
-	{
-		@ob_end_flush();
-		@ob_start();
-	}
+	flush();
+
 }
 
 // ############################## Start fetch_product_list ####################################
@@ -3693,10 +3705,29 @@ function is_unalterable_user($userid)
 	return in_array($userid, $noalter);
 }
 
+/**
+* Resolves an image URL used in the CP that should be relative to the root directory.
+*
+* @param	string	The path to resolve
+*
+* @return	string	Resolved path
+*/
+function resolve_cp_image_url($image_path)
+{
+	if ($image_path[0] == '/' OR preg_match('#^https?://#i', $image_path))
+	{
+		return $image_path;
+	}
+	else
+	{
+		return "../$image_path";
+	}
+}
+
 /*======================================================================*\
 || ####################################################################
-|| # Downloaded: 16:21, Sat Apr 6th 2013
-|| # CVS: $RCSfile$ - $Revision: 27099 $
+|| # Downloaded: 20:50, Sun Aug 11th 2013
+|| # CVS: $RCSfile$ - $Revision: 39862 $
 || ####################################################################
 \*======================================================================*/
 ?>

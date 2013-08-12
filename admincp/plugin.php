@@ -1,9 +1,9 @@
 <?php
 /*======================================================================*\
 || #################################################################### ||
-|| # vBulletin 3.7.2 Patch Level 2 - Licence Number VBF2470E4F
+|| # vBulletin 3.8.7 Patch Level 3 - Licence Number VBC2DDE4FB
 || # ---------------------------------------------------------------- # ||
-|| # Copyright ©2000-2013 Jelsoft Enterprises Ltd. All Rights Reserved. ||
+|| # Copyright ©2000-2013 vBulletin Solutions, Inc. All Rights Reserved. ||
 || # This file may not be redistributed in whole or significant part. # ||
 || # ---------------- VBULLETIN IS NOT FREE SOFTWARE ---------------- # ||
 || # http://www.vbulletin.com | http://www.vbulletin.com/license.html # ||
@@ -11,10 +11,10 @@
 \*======================================================================*/
 
 // ######################## SET PHP ENVIRONMENT ###########################
-error_reporting(E_ALL & ~E_NOTICE);
+error_reporting(E_ALL & ~E_NOTICE & ~8192);
 
 // ##################### DEFINE IMPORTANT CONSTANTS #######################
-define('CVS_REVISION', '$RCSfile$ - $Revision: 26533 $');
+define('CVS_REVISION', '$RCSfile$ - $Revision: 39862 $');
 define('FORCE_HOOKS', true);
 
 // #################### PRE-CACHE TEMPLATES AND DATA ######################
@@ -320,6 +320,7 @@ if ($_POST['do'] == 'update')
 		'active'         => TYPE_BOOL,
 		'product'        => TYPE_STR,
 		'executionorder' => TYPE_UINT,
+		'return'         => TYPE_STR
 	));
 
 	if (!$vbulletin->GPC['hookname'] OR !$vbulletin->GPC['title'] OR !$vbulletin->GPC['phpcode'])
@@ -362,7 +363,15 @@ if ($_POST['do'] == 'update')
 	vBulletinHook::build_datastore($db);
 
 	// stuff to handle the redirect
-	define('CP_REDIRECT', 'plugin.php');
+	if ($vbulletin->GPC['return'])
+	{
+		define('CP_REDIRECT', "plugin.php?do=edit&amp;pluginid=" . $vbulletin->GPC['pluginid']);
+	}
+	else
+	{
+		define('CP_REDIRECT', 'plugin.php');
+	}
+
 	print_stop_message('saved_plugin_successfully');
 }
 
@@ -479,7 +488,7 @@ if ($_REQUEST['do'] == 'edit' OR $_REQUEST['do'] == 'add')
 		print_description_row(construct_phrase($vbphrase['plugin_inactive_due_to_product_disabled'], $products["$plugin[product]"]));
 	}
 	print_yes_no_row("$vbphrase[plugin_is_active] <dfn>$vbphrase[plugin_active_desc]</dfn>", 'active', $plugin['active']);
-	print_submit_row($vbphrase['save'], $vbphrase['reset']);
+	print_submit_row($vbphrase['save'], '_default_', 2, '', "<input type=\"submit\" class=\"button\" tabindex=\"1\" name=\"return\" value=\"$vbphrase[save_and_reload]\" accesskey=\"e\" />");
 
 	if ($plugin['phpcode'] != '')
 	{
@@ -567,9 +576,10 @@ if ($_REQUEST['do'] == 'modify')
 		default:
 		{
 			$plugins = $db->query_read("
-				SELECT *, IF(product = '', 'vbulletin', product) AS productcomputed
-				FROM " . TABLE_PREFIX . "plugin
-				ORDER BY productcomputed, title
+				SELECT plugin.*, IF(plugin.product = '', 'vbulletin', product.title) AS producttitle
+				FROM " . TABLE_PREFIX . "plugin AS plugin
+				LEFT JOIN " . TABLE_PREFIX . "product AS product ON (plugin.product = product.productid)
+				ORDER BY producttitle, plugin.title
 			");
 
 			print_cells_row(
@@ -799,8 +809,8 @@ if ($_REQUEST['do'] == 'productversioncheck')
 	if ($version_url['query'])
 	{
 		$send_headers .= "Content-Type: application/x-www-form-urlencoded\r\n";
-		$send_headers .= "Content-Length: " . strlen($version_url['query']) . "\r\n";
 	}
+	$send_headers .= "Content-Length: " . strlen($version_url['query']) . "\r\n";
 	$send_headers .= "\r\n";
 
 	fwrite($fp, $send_headers . $version_url['query']);
@@ -1516,7 +1526,7 @@ if ($_POST['do'] == 'productkill')
 	// need to remove the language columns for this product as well
 	require_once(DIR . '/includes/class_dbalter.php');
 
-	$db_alter =& new vB_Database_Alter_MySQL($db);
+	$db_alter = new vB_Database_Alter_MySQL($db);
 	if ($db_alter->fetch_table_info('language'))
 	{
 		$phrasetypes = $db->query_read("
@@ -1552,7 +1562,7 @@ if ($_POST['do'] == 'productkill')
 
 	if (!defined('DISABLE_PRODUCT_REDIRECT'))
 	{
-		define('CP_REDIRECT', 'plugin.php?do=product');
+		define('CP_REDIRECT', 'index.php?loc=' . urlencode('plugin.php?do=product'));
 	}
 	print_stop_message('product_x_uninstalled', $vbulletin->GPC['productid']);
 }
@@ -2169,7 +2179,7 @@ if ($_POST['do'] == 'productimport')
 				// need to add the column to the language table as well
 				require_once(DIR . '/includes/class_dbalter.php');
 
-				$db_alter =& new vB_Database_Alter_MySQL($db);
+				$db_alter = new vB_Database_Alter_MySQL($db);
 				if ($db_alter->fetch_table_info('language'))
 				{
 					$db_alter->add_field(array(
@@ -2500,7 +2510,7 @@ if ($_POST['do'] == 'productimport')
 
 	if (!defined('DISABLE_PRODUCT_REDIRECT'))
 	{
-		define('CP_REDIRECT', 'plugin.php?do=product');
+		define('CP_REDIRECT', 'index.php?loc=' . urlencode('plugin.php?do=product'));
 	}
 	print_stop_message('product_x_imported', $info['productid']);
 }
@@ -2901,8 +2911,8 @@ print_cp_footer();
 
 /*======================================================================*\
 || ####################################################################
-|| # Downloaded: 16:21, Sat Apr 6th 2013
-|| # CVS: $RCSfile$ - $Revision: 26533 $
+|| # Downloaded: 20:50, Sun Aug 11th 2013
+|| # CVS: $RCSfile$ - $Revision: 39862 $
 || ####################################################################
 \*======================================================================*/
 ?>

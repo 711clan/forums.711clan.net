@@ -1,9 +1,9 @@
 <?php
 /*======================================================================*\
 || #################################################################### ||
-|| # vBulletin 3.7.2 Patch Level 2 - Licence Number VBF2470E4F
+|| # vBulletin 3.8.7 Patch Level 3 - Licence Number VBC2DDE4FB
 || # ---------------------------------------------------------------- # ||
-|| # Copyright ©2000-2013 Jelsoft Enterprises Ltd. All Rights Reserved. ||
+|| # Copyright ©2000-2013 vBulletin Solutions, Inc. All Rights Reserved. ||
 || # This file may not be redistributed in whole or significant part. # ||
 || # ---------------- VBULLETIN IS NOT FREE SOFTWARE ---------------- # ||
 || # http://www.vbulletin.com | http://www.vbulletin.com/license.html # ||
@@ -23,6 +23,12 @@ if (isset($_REQUEST['GLOBALS']) OR isset($_FILES['GLOBALS']))
 }
 
 @ini_set('pcre.backtrack_limit', -1);
+
+// Force PHP 5.3.0+ to take time zone information from OS
+if (version_compare(phpversion(), '5.3.0', '>='))
+{ 
+	@date_default_timezone_set(date_default_timezone_get());
+}
 
 // start the page generation timer
 $pagestarttime = microtime();
@@ -46,10 +52,14 @@ require_once(CWD . '/includes/class_core.php');
 set_error_handler('vb_error_handler');
 
 // initialize the data registry
-$vbulletin = new vB_Registry();
+$vbulletin =& new vB_Registry();
 
 // parse the configuration ini file
 $vbulletin->fetch_config();
+
+// Add AdSense if present
+$vbulletin->adsense_pub_id = '';
+$vbulletin->adsense_host_id = '';
 
 if (CWD == '.')
 {
@@ -94,11 +104,11 @@ switch (strtolower($vbulletin->config['Database']['dbtype']))
 		{
 			// load 'explain' database class
 			require_once(DIR . '/includes/class_database_explain.php');
-			$db = new vB_Database_Explain($vbulletin);
+			$db =& new vB_Database_Explain($vbulletin);
 		}
 		else
 		{
-			$db = new vB_Database($vbulletin);
+			$db =& new vB_Database($vbulletin);
 		}
 		break;
 	}
@@ -106,7 +116,7 @@ switch (strtolower($vbulletin->config['Database']['dbtype']))
 	case 'mysql_slave':
 	{
 		require_once(DIR . '/includes/class_database_slave.php');
-		$db = new vB_Database_Slave($vbulletin);
+		$db =& new vB_Database_Slave($vbulletin);
 		break;
 	}
 
@@ -117,11 +127,11 @@ switch (strtolower($vbulletin->config['Database']['dbtype']))
 		{
 			// load 'explain' database class
 			require_once(DIR . '/includes/class_database_explain.php');
-			$db = new vB_Database_MySQLi_Explain($vbulletin);
+			$db =& new vB_Database_MySQLi_Explain($vbulletin);
 		}
 		else
 		{
-			$db = new vB_Database_MySQLi($vbulletin);
+			$db =& new vB_Database_MySQLi($vbulletin);
 		}
 		break;
 	}
@@ -129,7 +139,7 @@ switch (strtolower($vbulletin->config['Database']['dbtype']))
 	case 'mysqli_slave':
 	{
 		require_once(DIR . '/includes/class_database_slave.php');
-		$db = new vB_Database_Slave_MySQLi($vbulletin);
+		$db =& new vB_Database_Slave_MySQLi($vbulletin);
 		break;
 	}
 
@@ -138,7 +148,7 @@ switch (strtolower($vbulletin->config['Database']['dbtype']))
 	{
 	// this is not implemented fully yet
 	//	$db = 'vB_Database_' . $vbulletin->config['Database']['dbtype'];
-	//	$db = new $db($vbulletin);
+	//	$db =& new $db($vbulletin);
 		die('Fatal error: Database class not found');
 	}
 }
@@ -198,7 +208,7 @@ if ($datastore_class != 'vB_Datastore')
 {
 	require_once(DIR . '/includes/class_datastore.php');
 }
-$vbulletin->datastore = new $datastore_class($vbulletin, $db);
+$vbulletin->datastore =& new $datastore_class($vbulletin, $db);
 $vbulletin->datastore->fetch($specialtemplates);
 
 if ($vbulletin->bf_ugp === null)
@@ -273,6 +283,7 @@ if ($vbulletin->options['enablehooks'] OR defined('FORCE_HOOKS'))
 		}
 		$hookobj->set_pluginlist($vbulletin->pluginlist);
 	}
+	unset($hookobj);
 }
 else
 {
@@ -319,8 +330,8 @@ $vbulletin->input->clean_array_gpc('c', array(
 	COOKIE_PREFIX . 'password'     => TYPE_STR,
 	COOKIE_PREFIX . 'lastvisit'    => TYPE_UINT,
 	COOKIE_PREFIX . 'lastactivity' => TYPE_UINT,
-	COOKIE_PREFIX . 'threadedmode' => TYPE_STR,
-	COOKIE_PREFIX . 'sessionhash'  => TYPE_STR,
+	COOKIE_PREFIX . 'threadedmode' => TYPE_NOHTML,
+	COOKIE_PREFIX . 'sessionhash'  => TYPE_NOHTML,
 	COOKIE_PREFIX . 'styleid'      => TYPE_UINT,
 	COOKIE_PREFIX . 'languageid'   => TYPE_UINT,
 ));
@@ -333,7 +344,7 @@ if (!empty($db->explain))
 }
 
 $vbulletin->input->clean_array_gpc('r', array(
-	's'       => TYPE_STR,
+	's'       => TYPE_NOHTML,
 	'styleid' => TYPE_INT,
 	'langid'  => TYPE_INT,
 ));
@@ -375,7 +386,7 @@ else
 }
 
 // build the session and setup the environment
-$vbulletin->session = new vB_Session($vbulletin, $sessionhash, $vbulletin->GPC[COOKIE_PREFIX . 'userid'], $vbulletin->GPC[COOKIE_PREFIX . 'password'], $styleid, $languageid);
+$vbulletin->session =& new vB_Session($vbulletin, $sessionhash, $vbulletin->GPC[COOKIE_PREFIX . 'userid'], $vbulletin->GPC[COOKIE_PREFIX . 'password'], $styleid, $languageid);
 
 // Hide sessionid in url if we are a search engine or if we have a cookie
 $vbulletin->session->set_session_visibility($show['search_engine'] OR $vbulletin->superglobal_size['_COOKIE'] > 0);
@@ -417,6 +428,9 @@ if (strtoupper($_SERVER['REQUEST_METHOD']) == 'POST')
 					case 'guest':
 						define('CSRF_ERROR', 'guest');
 						break;
+					case 'timeout':
+						define('CSRF_ERROR', 'timeout');
+						break;
 					default:
 						define('CSRF_ERROR', 'invalid');
 				}
@@ -436,29 +450,40 @@ if (strtoupper($_SERVER['REQUEST_METHOD']) == 'POST')
 
 		if ($http_host AND $_SERVER['HTTP_REFERER'])
 		{
-			$http_host = preg_replace('#:80$#', '', trim($http_host));
+			$http_host = strtolower(preg_replace('#:80$#', '', trim($http_host)));
 			$referrer_parts = @parse_url($_SERVER['HTTP_REFERER']);
 			$ref_port = intval($referrer_parts['port']);
-			$ref_host = $referrer_parts['host'] . ((!empty($ref_port) AND $ref_port != '80') ? ":$ref_port" : '');
+			$ref_host = strtolower($referrer_parts['host'] . ((!empty($ref_port) AND $ref_port != '80') ? ":$ref_port" : ''));
 
-			$allowed = preg_split('#\s+#', $vbulletin->options['allowedreferrers'], -1, PREG_SPLIT_NO_EMPTY);
-			$allowed[] = preg_replace('#^www\.#i', '', $http_host);
-			$allowed[] = '.paypal.com';
-
-			$pass_ref_check = false;
-			foreach ($allowed AS $host)
-			{
-				if (preg_match('#' . preg_quote($host, '#') . '$#siU', $ref_host))
-				{
-					$pass_ref_check = true;
-					break;
-				}
+			if ($http_host == $ref_host)
+			{	/* Instant match is good enough
+				no need to check anything further. */
+				$pass_ref_check = true;
 			}
-			unset($allowed);
+			else
+			{
+				$pass_ref_check = false;
+				$allowed = array('.paypal.com');
+				$allowed[] = '.'.preg_replace('#^www\.#i', '', $http_host);
+				$whitelist = preg_split('#\s+#', $vbulletin->options['allowedreferrers'], -1, PREG_SPLIT_NO_EMPTY); // Get whitelist
+				$allowed = array_unique(is_array($whitelist) ? array_merge($allowed,$whitelist) : $allowed); // Merge and de-duplicate.
+
+				foreach ($allowed AS $host)
+				{
+					$host = strtolower($host);
+					if (substr($host,0,1) == '.' AND 
+					(preg_match('#' . preg_quote($host, '#') . '$#siU', $ref_host) OR substr($host,1) == $ref_host))
+					{
+						$pass_ref_check = true;
+						break;
+					}
+				}
+				unset($allowed, $whitelist);
+			}
 
 			if ($pass_ref_check == false)
 			{
-				die('In order to accept POST request originating from this domain, the admin must add this domain to the whitelist.');
+				die('In order to accept POST requests originating from this domain, the admin must add the domain to the whitelist.');
 			}
 		}
 	}
@@ -493,8 +518,8 @@ if (!empty($db->explain))
 
 /*======================================================================*\
 || ####################################################################
-|| # Downloaded: 16:21, Sat Apr 6th 2013
-|| # CVS: $RCSfile$ - $Revision: 26768 $
+|| # Downloaded: 20:50, Sun Aug 11th 2013
+|| # CVS: $RCSfile$ - $Revision: 59081 $
 || ####################################################################
 \*======================================================================*/
 ?>

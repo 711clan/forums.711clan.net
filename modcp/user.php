@@ -1,9 +1,9 @@
 <?php
 /*======================================================================*\
 || #################################################################### ||
-|| # vBulletin 3.7.2 Patch Level 2 - Licence Number VBF2470E4F
+|| # vBulletin 3.8.7 Patch Level 3 - Licence Number VBC2DDE4FB
 || # ---------------------------------------------------------------- # ||
-|| # Copyright ©2000-2013 Jelsoft Enterprises Ltd. All Rights Reserved. ||
+|| # Copyright ©2000-2013 vBulletin Solutions, Inc. All Rights Reserved. ||
 || # This file may not be redistributed in whole or significant part. # ||
 || # ---------------- VBULLETIN IS NOT FREE SOFTWARE ---------------- # ||
 || # http://www.vbulletin.com | http://www.vbulletin.com/license.html # ||
@@ -11,10 +11,10 @@
 \*======================================================================*/
 
 // ######################## SET PHP ENVIRONMENT ###########################
-error_reporting(E_ALL & ~E_NOTICE);
+error_reporting(E_ALL & ~E_NOTICE & ~8192);
 
 // ##################### DEFINE IMPORTANT CONSTANTS #######################
-define('CVS_REVISION', '$RCSfile$ - $Revision: 26706 $');
+define('CVS_REVISION', '$RCSfile$ - $Revision: 39862 $');
 
 // #################### PRE-CACHE TEMPLATES AND DATA ######################
 $phrasegroups = array('banning', 'cpuser', 'forum', 'timezone', 'user', 'cprofilefield', 'profilefield');
@@ -276,7 +276,6 @@ if ($_REQUEST['do'] == 'findnames')
 // ###################### Start viewuser #######################
 if ($_REQUEST['do'] == 'viewuser')
 {
-
 	if (!can_moderate(0, 'canviewprofile'))
 	{
 		print_stop_message('no_permission');
@@ -392,7 +391,7 @@ if ($_REQUEST['do'] == 'viewuser')
 	print_table_header($vbphrase['image_options']);
 	if ($user['avatarid'])
 	{
-		$avatarurl = iif(substr($user['avatarpath'], 0, 7) != 'http://' AND substr($user['avatarpath'], 0, 1) != '/', '../') . $user['avatarpath'];
+		$avatarurl = resolve_cp_image_url($user['avatarpath']);
 	}
 	else
 	{
@@ -400,7 +399,7 @@ if ($_REQUEST['do'] == 'viewuser')
 		{
 			if ($vbulletin->options['usefileavatar'])
 			{
-				$avatarurl = iif(substr($vbulletin->options['avatarurl'] , 0, 7) == 'http://', '', '../') . $vbulletin->options['avatarurl'] . "/avatar$user[userid]_$user[avatarrevision].gif";
+				$avatarurl = resolve_cp_image_url($vbulletin->options['avatarurl'] . "/avatar$user[userid]_$user[avatarrevision].gif");
 			}
 			else
 			{
@@ -420,7 +419,7 @@ if ($_REQUEST['do'] == 'viewuser')
 	{
 		if ($vbulletin->options['usefileavatar'])
 		{
-			$profilepicurl = iif(substr($vbulletin->options['profilepicurl'] , 0, 7) == 'http://', '', '../') . $vbulletin->options['profilepicurl'] . "/profilepic$user[userid]_$user[profilepicrevision].gif";
+			$profilepicurl = resolve_cp_image_url($vbulletin->options['profilepicurl'] . "/profilepic$user[userid]_$user[profilepicrevision].gif");
 		}
 		else
 		{
@@ -467,7 +466,7 @@ if ($_REQUEST['do'] == 'viewuser')
 			print_description_row(construct_phrase($vbphrase['fields_from_form_x'], $forms["$profilefield[form]"]), false, 2, 'optiontitle');
 			$currentform = $profilefield['form'];
 		}
-		print_profilefield_row('profile', $profilefield, $userfield);
+		print_profilefield_row('profile', $profilefield, $userfield, false);
 	}
 
 	($hook = vBulletinHook::fetch_hook('useradmin_edit_column1')) ? eval($hook) : false;
@@ -505,6 +504,7 @@ if ($_REQUEST['do'] == 'viewuser')
 	print_yes_no_row($vbphrase['receive_private_messages'], 'options[receivepm]', $user['receivepm']);
 	print_yes_no_row($vbphrase['send_notification_email_when_a_private_message_is_received'], 'options[emailonpm]', $user['emailonpm']);
 	print_yes_no_row($vbphrase['pop_up_notification_box_when_a_private_message_is_received'], 'user[pmpopup]', $user['pmpopup']);
+	print_yes_no_row(construct_phrase($vbphrase['save_pm_copy_default'], '../private.php?folderid=-1'), 'user[pmdefaultsavecopy]', $user['pmdefaultsavecopy']);
 	print_yes_no_row($vbphrase['display_signature'], 'options[showsignatures]', $user['showsignatures']);
 	print_yes_no_row($vbphrase['display_avatars'], 'options[showavatars]', $user['showavatars']);
 	print_yes_no_row($vbphrase['display_images'], 'options[showimages]', $user['showimages']);
@@ -863,7 +863,7 @@ if ($_REQUEST['do'] == 'avatar')
 	while ($avatar = $db->fetch_array($avatars))
 	{
 		$avatarid = $avatar['avatarid'];
-		$avatar['avatarpath'] = iif(substr($avatar['avatarpath'], 0, 7) != 'http://' AND $avatar['avatarpath']{0} != '/', '../', '') . $avatar['avatarpath'];
+		$avatar['avatarpath'] = resolve_cp_image_url($avatar['avatarpath']);
 		if ($avatarcount == 0)
 		{
 			$output .= '<tr class="' . fetch_row_bgclass() . '">';
@@ -1322,8 +1322,8 @@ print_cp_footer();
 
 /*======================================================================*\
 || ####################################################################
-|| # Downloaded: 16:21, Sat Apr 6th 2013
-|| # CVS: $RCSfile$ - $Revision: 26706 $
+|| # Downloaded: 20:50, Sun Aug 11th 2013
+|| # CVS: $RCSfile$ - $Revision: 39862 $
 || ####################################################################
 \*======================================================================*/
 ?>

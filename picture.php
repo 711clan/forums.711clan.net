@@ -1,9 +1,9 @@
 <?php
 /*======================================================================*\
 || #################################################################### ||
-|| # vBulletin 3.7.2 Patch Level 2 - Licence Number VBF2470E4F
+|| # vBulletin 3.8.7 Patch Level 3 - Licence Number VBC2DDE4FB
 || # ---------------------------------------------------------------- # ||
-|| # Copyright ©2000-2013 Jelsoft Enterprises Ltd. All Rights Reserved. ||
+|| # Copyright ©2000-2013 vBulletin Solutions, Inc. All Rights Reserved. ||
 || # This file may not be redistributed in whole or significant part. # ||
 || # ---------------- VBULLETIN IS NOT FREE SOFTWARE ---------------- # ||
 || # http://www.vbulletin.com | http://www.vbulletin.com/license.html # ||
@@ -11,7 +11,7 @@
 \*======================================================================*/
 
 // ####################### SET PHP ENVIRONMENT ###########################
-error_reporting(E_ALL & ~E_NOTICE);
+error_reporting(E_ALL & ~E_NOTICE & ~8192);
 
 // #################### DEFINE IMPORTANT CONSTANTS #######################
 define('NOSHUTDOWNFUNC', 1);
@@ -53,6 +53,7 @@ $actiontemplates = array();
 // ######################### REQUIRE BACK-END ############################
 require_once('./global.php');
 require_once(DIR . '/includes/functions_album.php');
+require_once(DIR . '/includes/functions_user.php');
 
 $vbulletin->input->clean_array_gpc('r', array(
 	'pictureid' => TYPE_UINT,
@@ -75,7 +76,7 @@ else if ($vbulletin->GPC['albumid'])
 {
 	$imageinfo = $db->query_first_slave("
 		SELECT picture.pictureid, picture.userid, picture.extension, picture.idhash, picture.state,
-			albumpicture.dateline, album.state AS albumstate,
+			albumpicture.dateline, album.state AS albumstate, profileblockprivacy.requirement AS privacy_requirement,
 			" . ($vbulletin->GPC['thumb'] ?
 				"picture.thumbnail AS filedata, picture.thumbnail_filesize AS filesize" :
 				'picture.filedata, picture.filesize'
@@ -83,6 +84,8 @@ else if ($vbulletin->GPC['albumid'])
 		FROM " . TABLE_PREFIX . "albumpicture AS albumpicture
 		INNER JOIN " . TABLE_PREFIX . "picture AS picture ON (albumpicture.pictureid = picture.pictureid)
 		INNER JOIN " . TABLE_PREFIX . "album AS album ON (albumpicture.albumid = album.albumid)
+		LEFT JOIN " . TABLE_PREFIX . "profileblockprivacy AS profileblockprivacy ON
+			(profileblockprivacy.userid = picture.userid AND profileblockprivacy.blockid = 'albums')
 		WHERE albumpicture.albumid = " . $vbulletin->GPC['albumid'] . " AND albumpicture.pictureid = " . $vbulletin->GPC['pictureid']
 	);
 }
@@ -117,7 +120,7 @@ else
 
 $have_image = ($imageinfo ? true : false);
 
-if ($have_image AND $imageinfo['state'] == 'moderation' AND !can_moderate(0, 'canmoderatepictures') AND $imageinfo['userid'] != $vbulletin->userinfo['userid'])
+if ($have_image AND $imageinfo['state'] == 'moderation' AND !can_moderate(0, 'canmoderatepictures') AND $imageinfo['userid'] != $vbulletin->userinfo['userid'] AND !can_moderate(0, 'caneditalbumpicture'))
 {
 	$have_image = false;
 }
@@ -136,6 +139,14 @@ if ($have_image)
 
 if ($have_image)
 {
+	if ($vbulletin->GPC['albumid'] AND $imageinfo['privacy_requirement'])
+	{
+		if (fetch_user_relationship($imageinfo['userid'], $vbulletin->userinfo['userid']) < $imageinfo['privacy_requirement'])
+		{
+			$have_image = false;
+		}
+	}
+
 	if ($imageinfo['albumstate'] != 'profile' AND !($vbulletin->userinfo['permissions']['albumpermissions'] & $vbulletin->bf_ugp_albumpermissions['canviewalbum']))
 	{	// user's w/o viewing permission can only view profile category pictures directly
 		$have_image = false;
@@ -197,8 +208,8 @@ else
 
 /*======================================================================*\
 || ####################################################################
-|| # Downloaded: 16:21, Sat Apr 6th 2013
-|| # CVS: $RCSfile$ - $Revision: 26684 $
+|| # Downloaded: 20:50, Sun Aug 11th 2013
+|| # CVS: $RCSfile$ - $Revision: 39862 $
 || ####################################################################
 \*======================================================================*/
 ?>

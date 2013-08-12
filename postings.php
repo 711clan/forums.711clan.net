@@ -1,9 +1,9 @@
 <?php
 /*======================================================================*\
 || #################################################################### ||
-|| # vBulletin 3.7.2 Patch Level 2 - Licence Number VBF2470E4F
+|| # vBulletin 3.8.7 Patch Level 3 - Licence Number VBC2DDE4FB
 || # ---------------------------------------------------------------- # ||
-|| # Copyright ©2000-2013 Jelsoft Enterprises Ltd. All Rights Reserved. ||
+|| # Copyright ©2000-2013 vBulletin Solutions, Inc. All Rights Reserved. ||
 || # This file may not be redistributed in whole or significant part. # ||
 || # ---------------- VBULLETIN IS NOT FREE SOFTWARE ---------------- # ||
 || # http://www.vbulletin.com | http://www.vbulletin.com/license.html # ||
@@ -11,7 +11,7 @@
 \*======================================================================*/
 
 // ####################### SET PHP ENVIRONMENT ###########################
-error_reporting(E_ALL & ~E_NOTICE);
+error_reporting(E_ALL & ~E_NOTICE & ~8192);
 
 // #################### DEFINE IMPORTANT CONSTANTS #######################
 define('THIS_SCRIPT', 'postings');
@@ -108,6 +108,7 @@ switch ($_REQUEST['do'])
 	case 'copythread':
 	case 'editthread':
 	case 'mergethread':
+	case 'moderatethread':
 
 		if (!$threadinfo['threadid'])
 		{
@@ -470,7 +471,7 @@ if ($_REQUEST['do'] == 'movethread' OR $_REQUEST['do'] == 'copythread')
 	if ($show['move'])
 	{
 		require_once(DIR . '/includes/functions_prefix.php');
-		$prefix_options = fetch_prefix_html($threadinfo['forumid'], $threadinfo['prefixid']);
+		$prefix_options = fetch_prefix_html($threadinfo['forumid'], $threadinfo['prefixid'], true);
 	}
 	else
 	{
@@ -689,7 +690,7 @@ if ($_POST['do'] == 'domovethread')
 					'postusername' => $threadinfo['postusername'],
 					'postuserid'   => intval($threadinfo['postuserid']),
 					'lastposter'   => $threadinfo['lastposter'],
-					'dateline'     => TIMENOW,
+					'dateline'     => intval($threadinfo['dateline']),
 					'views'        => intval($threadinfo['views']),
 					'iconid'       => intval($threadinfo['iconid']),
 					'visible'      => 1
@@ -725,8 +726,11 @@ if ($_POST['do'] == 'domovethread')
 					}
 				}
 
-				$redir->set('prefixid', $vbulletin->GPC['redirectprefixid']);
-
+				require_once(DIR . '/includes/functions_prefix.php');
+				if (can_use_prefix($vbulletin->GPC['redirectprefixid']))
+				{
+					$redir->set('prefixid', $vbulletin->GPC['redirectprefixid']);
+				}
 				($hook = vBulletinHook::fetch_hook('threadmanage_move_redirect_notice')) ? eval($hook) : false;
 
 				if ($redirthreadid = $redir->save() AND $vbulletin->GPC['redirect'] == 'expires')
@@ -783,6 +787,7 @@ if ($_POST['do'] == 'domovethread')
 					$poll->set('dateline',	$pollinfo['dateline']);
 					foreach (explode('|||', $pollinfo['options']) AS $option)
 					{
+						$option = rtrim($option);
 						$poll->set_option($option);
 					}
 					$poll->set('active',	$pollinfo['active']);
@@ -937,7 +942,7 @@ if ($_POST['do'] == 'domovethread')
 					{	// Insert Moderation Record
 						$db->query_write("
 							INSERT INTO " . TABLE_PREFIX . "moderation
-							(threadid, type, dateline)
+							(primaryid, type, dateline)
 							VALUES
 							($newthreadid, 'thread', " . (!empty($post['moderateddateline']) ? $post['moderateddateline'] : TIMENOW) . ")
 						");
@@ -1282,7 +1287,7 @@ if ($_REQUEST['do'] == 'managepost')
 		}
 
 		require_once(DIR . '/includes/class_bbcode.php');
-		$bbcode_parser =& new vB_BbCodeParser($vbulletin, fetch_tag_list());
+		$bbcode_parser = new vB_BbCodeParser($vbulletin, fetch_tag_list());
 		$postinfo['pagetext'] = $bbcode_parser->parse($postinfo['pagetext'], $forumid);
 
 		$postinfo['postdate'] = vbdate($vbulletin->options['dateformat'], $postinfo['dateline'], 1);
@@ -1325,7 +1330,7 @@ if ($_REQUEST['do'] == 'editthread')
 	$posticons = construct_icons($threadinfo['iconid'], $foruminfo['allowicons']);
 
 	require_once(DIR . '/includes/functions_prefix.php');
-	$prefix_options = fetch_prefix_html($foruminfo['forumid'], $threadinfo['prefixid']);
+	$prefix_options = fetch_prefix_html($foruminfo['forumid'], $threadinfo['prefixid'], true);
 
 	$show['ipaddress'] = can_moderate($threadinfo['forumid'], 'canviewips') ? true : false;
 
@@ -1535,7 +1540,12 @@ if ($_POST['do'] == 'updatethread')
 		// re-enable mod logging for the title since we don't include it in the other log info
 		$threadman->set_info('skip_moderator_log', false);
 		$threadman->set('title', $vbulletin->GPC['title']);
-		$threadman->set('prefixid', $vbulletin->GPC['prefixid']);
+
+		require_once(DIR . '/includes/functions_prefix.php');
+		if (can_use_prefix($vbulletin->GPC['prefixid']))
+		{
+			$threadman->set('prefixid', $vbulletin->GPC['prefixid']);
+		}
 
 		($hook = vBulletinHook::fetch_hook('threadmanage_update')) ? eval($hook) : false;
 		$threadman->save();
@@ -2228,6 +2238,31 @@ if ($_POST['do'] == 'domanagepost')
 	eval(print_standard_redirect('redirect_post_manage'));
 }
 
+// ############################### start moderate thread ###############################
+if ($_POST['do'] == 'moderatethread')
+{
+	if (!can_moderate($threadinfo['forumid'], 'canmoderateposts'))
+	{
+		print_no_permission();
+	}
+
+	if ($threadinfo['open'] != 10)
+	{
+		if ($threadinfo['visible'] == 0)
+		{
+			approve_thread($threadid, $foruminfo['countposts'], true, $threadinfo);
+
+			eval(print_standard_redirect('thread_approved'));
+		}
+		else
+		{
+			unapprove_thread($threadid, $foruminfo['countposts'], true, $threadinfo);
+
+			eval(print_standard_redirect('thread_unapproved'));
+		}
+	}
+}
+
 // ############################### all done, do shell template ###############################
 
 if ($templatename != '')
@@ -2244,8 +2279,8 @@ if ($templatename != '')
 
 /*======================================================================*\
 || ####################################################################
-|| # Downloaded: 16:21, Sat Apr 6th 2013
-|| # CVS: $RCSfile$ - $Revision: 26623 $
+|| # Downloaded: 20:50, Sun Aug 11th 2013
+|| # CVS: $RCSfile$ - $Revision: 39862 $
 || ####################################################################
 \*======================================================================*/
 ?>

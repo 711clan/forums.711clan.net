@@ -1,23 +1,23 @@
 <?php
 /*======================================================================*\
 || #################################################################### ||
-|| # vBulletin 3.7.2 Patch Level 2 - Licence Number VBF2470E4F
+|| # vBulletin 3.8.7 Patch Level 3 - Licence Number VBC2DDE4FB
 || # ---------------------------------------------------------------- # ||
-|| # Copyright ©2000-2013 Jelsoft Enterprises Ltd. All Rights Reserved. ||
+|| # Copyright ©2000-2013 vBulletin Solutions, Inc. All Rights Reserved. ||
 || # This file may not be redistributed in whole or significant part. # ||
 || # ---------------- VBULLETIN IS NOT FREE SOFTWARE ---------------- # ||
 || # http://www.vbulletin.com | http://www.vbulletin.com/license.html # ||
 || #################################################################### ||
 \*======================================================================*/
 
-error_reporting(E_ALL & ~E_NOTICE);
+error_reporting(E_ALL & ~E_NOTICE & ~8192);
 
 // Attempt to load XML extension if we don't have the XML functions
 // already loaded.
 if (!function_exists('xml_set_element_handler'))
 {
 	$extension_dir = ini_get('extension_dir');
-	if (strtoupper(substr(PHP_OS, 0, 3) == 'WIN'))
+	if (strtoupper(substr(PHP_OS, 0, 3)) == 'WIN')
 	{
 		$extension_file = 'php_xml.dll';
 	}
@@ -44,8 +44,8 @@ if (!function_exists('ini_size_to_bytes') OR (($current_memory_limit = ini_size_
 *
 * @package 		vBulletin
 * @author		Scott MacVicar
-* @version		$Revision: 26624 $
-* @date 		$Date: 2008-05-13 08:43:17 -0500 (Tue, 13 May 2008) $
+* @version		$Revision: 39862 $
+* @date 		$Date: 2010-10-18 18:16:44 -0700 (Mon, 18 Oct 2010) $
 * @copyright 	http://www.vbulletin.com/license.html
 *
 */
@@ -158,6 +158,7 @@ class vB_XML_Parser
 	{
 		if (empty($this->xmldata) OR $this->error_no > 0)
 		{
+			$this->error_code = XML_ERROR_NO_ELEMENTS + (PHP_VERSION > '5.2.8' ? 0 : 1);
 			return false;
 		}
 
@@ -171,7 +172,7 @@ class vB_XML_Parser
 		xml_set_character_data_handler($this->xml_parser, array(&$this, 'handle_cdata'));
 		xml_set_element_handler($this->xml_parser, array(&$this, 'handle_element_start'), array(&$this, 'handle_element_end'));
 
-		xml_parse($this->xml_parser, $this->xmldata);
+		xml_parse($this->xml_parser, $this->xmldata, true);
 		$err = xml_get_error_code($this->xml_parser);
 
 		if ($emptydata)
@@ -637,6 +638,11 @@ class vB_XML_Builder
 	*/
 	function print_xml($full_shutdown = false)
 	{
+		if (class_exists('vBulletinHook'))
+		{
+			($hook = vBulletinHook::fetch_hook('xml_print_output')) ? eval($hook) : false;
+		}
+
 		if (defined('NOSHUTDOWNFUNC'))
 		{
 			if ($full_shutdown)
@@ -650,6 +656,13 @@ class vB_XML_Builder
 		}
 
 		$this->send_content_type_header();
+
+		if (strpos($_SERVER['SERVER_SOFTWARE'], 'Microsoft-IIS') !== false)
+		{
+			// this line is causing problems with mod_gzip/deflate, but is needed for some IIS setups
+			$this->send_content_length_header();
+		}
+
 		echo $this->fetch_xml_tag() . $this->output();
 		exit;
 	}
@@ -679,8 +692,8 @@ class XMLexporter extends vB_XML_Builder
 
 /*======================================================================*\
 || ####################################################################
-|| # Downloaded: 16:21, Sat Apr 6th 2013
-|| # CVS: $RCSfile$ - $Revision: 26624 $
+|| # Downloaded: 20:50, Sun Aug 11th 2013
+|| # CVS: $RCSfile$ - $Revision: 39862 $
 || ####################################################################
 \*======================================================================*/
 

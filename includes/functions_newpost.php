@@ -1,9 +1,9 @@
 <?php
 /*======================================================================*\
 || #################################################################### ||
-|| # vBulletin 3.7.2 Patch Level 2 - Licence Number VBF2470E4F
+|| # vBulletin 3.8.7 Patch Level 3 - Licence Number VBC2DDE4FB
 || # ---------------------------------------------------------------- # ||
-|| # Copyright ©2000-2013 Jelsoft Enterprises Ltd. All Rights Reserved. ||
+|| # Copyright ©2000-2013 vBulletin Solutions, Inc. All Rights Reserved. ||
 || # This file may not be redistributed in whole or significant part. # ||
 || # ---------------- VBULLETIN IS NOT FREE SOFTWARE ---------------- # ||
 || # http://www.vbulletin.com | http://www.vbulletin.com/license.html # ||
@@ -169,8 +169,32 @@ function prepare_newpost_attachmentbit()
 */
 function convert_url_to_bbcode($messagetext)
 {
+	global $vbulletin;
+
 	// areas we should attempt to skip auto-parse in
 	$skiptaglist = 'url|email|code|php|html|noparse';
+
+	if (!isset($vbulletin->bbcodecache))
+	{
+		$vbulletin->bbcodecache = array();
+
+		$bbcodes = $vbulletin->db->query_read_slave("
+			SELECT *
+			FROM " . TABLE_PREFIX . "bbcode
+		");
+		while ($customtag = $vbulletin->db->fetch_array($bbcodes))
+		{
+			$vbulletin->bbcodecache["$customtag[bbcodeid]"] = $customtag;
+		}
+	}
+
+	foreach ($vbulletin->bbcodecache AS $customtag)
+	{
+		if (intval($customtag['options']) & $vbulletin->bf_misc['bbcodeoptions']['stop_parse'] OR intval($customtag['options']) & $vbulletin->bf_misc['bbcodeoptions']['disable_urlconversion'])
+		{
+			$skiptaglist .= '|' . preg_quote($customtag['bbcodetag'], '#');
+		}
+	}
 
 	($hook = vBulletinHook::fetch_hook('url_to_bbcode')) ? eval($hook) : false;
 
@@ -191,6 +215,8 @@ function convert_url_to_bbcode($messagetext)
 */
 function convert_url_to_bbcode_callback($messagetext, $prepend)
 {
+	global $vbulletin;
+
 	// the auto parser - adds [url] tags around neccessary things
 	$messagetext = str_replace('\"', '"', $messagetext);
 	$prepend = str_replace('\"', '"', $prepend);
@@ -200,6 +226,18 @@ function convert_url_to_bbcode_callback($messagetext, $prepend)
 	{
 		$taglist = '\[b|\[i|\[u|\[left|\[center|\[right|\[indent|\[quote|\[highlight|\[\*' .
 			'|\[/b|\[/i|\[/u|\[/left|\[/center|\[/right|\[/indent|\[/quote|\[/highlight';
+
+		foreach ($vbulletin->bbcodecache AS $customtag)
+		{
+			if (!(intval($customtag['options']) & $vbulletin->bf_misc['bbcodeoptions']['disable_urlconversion']))
+			{
+				$customtag_quoted = preg_quote($customtag['bbcodetag'], '#');
+				$taglist .= '|\[' . $customtag_quoted . '|\[/' . $customtag_quoted;
+			}
+		}
+
+		($hook = vBulletinHook::fetch_hook('url_to_bbcode_callback')) ? eval($hook) : false;
+
 		$urlSearchArray = array(
 			'#(^|(?<=[^_a-z0-9-=\]"\'/@]|(?<=' . $taglist . ')\]))((https?|ftp|gopher|news|telnet)://|www\.)((\[(?!/)|[^\s[^$`"{}<>])+)(?!\[/url|\[/img)(?=[,.!\')]*(\)\s|\)$|[\s[]|$))#siU'
 		);
@@ -209,8 +247,8 @@ function convert_url_to_bbcode_callback($messagetext, $prepend)
 		);
 
 		$emailSearchArray = array(
-			'/([ \n\r\t])([_a-z0-9-]+(\.[_a-z0-9-]+)*@[^\s]+(\.[a-z0-9-]+)*(\.[a-z]{2,4}))/si',
-			'/^([_a-z0-9-]+(\.[_a-z0-9-]+)*@[^\s]+(\.[a-z0-9-]+)*(\.[a-z]{2,4}))/si'
+			'/([ \n\r\t])([_a-z0-9-+]+(\.[_a-z0-9-+]+)*@[^\s]+(\.[a-z0-9-]+)*(\.[a-z]{2,6}))/si',
+			'/^([_a-z0-9-+]+(\.[_a-z0-9-+]+)*@[^\s]+(\.[a-z0-9-]+)*(\.[a-z]{2,6}))/si'
 		);
 
 		$emailReplaceArray = array(
@@ -381,7 +419,7 @@ function build_new_post($type = 'thread', $foruminfo, $threadinfo, $postinfo, &$
 		return;
 	}
 
-	if ($vbulletin->options['hvcheck_post'] AND !$post['preview'] AND !$vbulletin->userinfo['userid'])
+	if (fetch_require_hvcheck('post') AND !$post['preview'])
 	{
 		require_once(DIR . '/includes/class_humanverify.php');
 		$verify =& vB_HumanVerify::fetch_library($vbulletin);
@@ -467,7 +505,16 @@ function build_new_post($type = 'thread', $foruminfo, $threadinfo, $postinfo, &$
 			else
 			{
 				$vbulletin->url = 'showthread.php?' . $vbulletin->session->vars['sessionurl'] . "t=$prevpostthreadid&goto=newpost";
-				eval(print_standard_redirect('redirect_duplicatepost', true, true));
+				if ($post['ajaxqrfailed'])
+				{
+					// ajax qr failed. While this is a dupe, most likely the user didn't
+					// see the initial post, so act like it went through.
+					eval(print_standard_redirect('redirect_postthanks'));
+				}
+				else
+				{
+					eval(print_standard_redirect('redirect_duplicatepost', true, true));
+				}
 			}
 		}
 	}
@@ -620,7 +667,7 @@ function split_tag_list($taglist)
 
 	if (empty($delimiters))
 	{
-		$delimiter_list = $vbulletin->options['tagdelimiter'];
+		$delimiter_list = htmlspecialchars_uni($vbulletin->options['tagdelimiter']);
 		$delimiters = array(',');
 
 		// match {...} segments as is, then remove them from the string
@@ -648,8 +695,6 @@ function split_tag_list($taglist)
 		: array($taglist)
 	);
 }
-
-//split_tag_list('a bx yte!stzmoo');
 
 /**
 * Fetch the valid tags from a list. Filters are length, censorship, perms (if desired).
@@ -699,18 +744,18 @@ function fetch_valid_tags($threadinfo, $taglist, &$errors, $check_browser_perms 
 
 	// stop words: too common
 	require(DIR . '/includes/searchwords.php'); // get the stop word list; allow multiple requires
-	
+
 	// filter the stop words by adding custom stop words (tagbadwords) and allowing through exceptions (taggoodwords)
 	if (!is_array($tagbadwords))
 	{
 		$tagbadwords = preg_split('/\s+/s', vbstrtolower($vbulletin->options['tagbadwords']), -1, PREG_SPLIT_NO_EMPTY);
 	}
-	
+
 	if (!is_array($taggoodwords))
 	{
 		$taggoodwords = preg_split('/\s+/s', vbstrtolower($vbulletin->options['taggoodwords']), -1, PREG_SPLIT_NO_EMPTY);
 	}
-	
+
 	// merge hard-coded badwords and tag-specific badwords
 	$badwords = array_merge($badwords, $tagbadwords);
 
@@ -721,30 +766,30 @@ function fetch_valid_tags($threadinfo, $taglist, &$errors, $check_browser_perms 
 		{
 			continue;
 		}
-		
+
 		if (!in_array(vbstrtolower($tagtext), $taggoodwords))
 		{
 			$char_strlen = vbstrlen($tagtext, true);
-	
+
 			if ($vbulletin->options['tagminlen'] AND $char_strlen < $vbulletin->options['tagminlen'])
 			{
 				$errors['min_length'] = $evalerrors ? fetch_error('tag_too_short_min_x', $vbulletin->options['tagminlen']) : array('tag_too_short_min_x', $vbulletin->options['tagminlen']);
 				continue;
 			}
-	
+
 			if ($char_strlen > $vbulletin->options['tagmaxlen'])
 			{
 				$errors['max_length'] =  $evalerrors ? fetch_error('tag_too_long_max_x', $vbulletin->options['tagmaxlen']) : array('tag_too_long_max_x', $vbulletin->options['tagmaxlen']);
 				continue;
 			}
-	
+
 			if (strlen($tagtext) > 100)
 			{
 				// only have 100 bytes to store a tag
 				$errors['max_length'] =  $evalerrors ? fetch_error('tag_too_long_max_x', $vbulletin->options['tagmaxlen']) : array('tag_too_long_max_x', $vbulletin->options['tagmaxlen']);
 				continue;
 			}
-	
+
 			$censored = fetch_censored_text($tagtext);
 			if ($censored != $tagtext)
 			{
@@ -752,14 +797,14 @@ function fetch_valid_tags($threadinfo, $taglist, &$errors, $check_browser_perms 
 				$errors['censor'] = $evalerrors ? fetch_error('tag_no_censored') : 'tag_no_censored';
 				continue;
 			}
-	
+
 			if (count(split_tag_list($tagtext)) > 1)
 			{
 				// contains a delimiter character
 				$errors['comma'] = $evalerrors ? fetch_error('tag_no_comma') : 'tag_no_comma';
 				continue;
 			}
-	
+
 			if (in_array(strtolower($tagtext), $badwords))
 			{
 				$errors['common'] = $evalerrors ? fetch_error('tag_x_not_be_common_words', $tagtext) : array('tag_x_not_be_common_words', $tagtext);
@@ -1071,7 +1116,7 @@ function construct_errors($errors)
  */
 function process_post_preview(&$newpost, $postuserid = 0, $attachmentinfo = NULL)
 {
-	global $vbphrase, $checked, $rate, $previewpost, $stylevar, $foruminfo, $vbulletin, $show;
+	global $vbphrase, $checked, $rate, $previewpost, $stylevar, $foruminfo, $threadinfo, $vbulletin, $show;
 
 	require_once(DIR . '/includes/class_bbcode.php');
 	$bbcode_parser =& new vB_BbCodeParser($vbulletin, fetch_tag_list());
@@ -1094,6 +1139,7 @@ function process_post_preview(&$newpost, $postuserid = 0, $attachmentinfo = NULL
 		$post['attachments'] =& $attachmentinfo;
 		$postbit_factory =& new vB_Postbit_Factory();
 		$postbit_factory->registry =& $vbulletin;
+		$postbit_factory->thread =& $threadinfo;
 		$postbit_factory->forum =& $foruminfo;
 		$postbit_obj =& $postbit_factory->fetch_postbit('post');
 		$postbit_obj->post =& $post;
@@ -1235,7 +1281,7 @@ function fetch_no_shouting_text($text)
  * Ignores locales
  *
  * @param	string	Text to capitalize
- * 
+ *
  * @return	string
  */
 function fetch_sentence_case($text)
@@ -1352,6 +1398,8 @@ function exec_send_notification($threadid, $userid, $postid)
 
 	($hook = vBulletinHook::fetch_hook('newpost_notification_start')) ? eval($hook) : false;
 
+	//If the target user's location is the same as the current user, then don't send them
+	//a notification.
 	$useremails = $vbulletin->db->query_read_slave("
 		SELECT user.*, subscribethread.emailupdate, subscribethread.subscribethreadid
 		FROM " . TABLE_PREFIX . "subscribethread AS subscribethread
@@ -1784,10 +1832,80 @@ function fetch_quotable_posts($quote_postids, $threadid, &$unquoted_posts, &$quo
 	return $message;
 }
 
+/**
+ * Prepares pm array for use in replies.
+ *
+ * @param integer $pmid							- The pm being replied to
+ * @returns array mixed							- The normalized pm info array
+ */
+function fetch_privatemessage_reply($pm)
+{
+	global $vbulletin, $vbphrase;
+
+	if ($pm)
+	{
+		($hook = vBulletinHook::fetch_hook('private_fetchreply_start')) ? eval($hook) : false;
+
+		// quote reply
+		$originalposter = fetch_quote_username($pm['fromusername']);
+
+		// allow quotes to remain with an optional request variable
+		// this will fix a problem with forwarded PMs and replying to them
+		if ($vbulletin->GPC['stripquote'])
+		{
+			$pagetext = strip_quotes($pm['message']);
+		}
+		else
+		{
+			// this is now the default behavior -- leave quotes, like vB2
+			$pagetext = $pm['message'];
+		}
+		$pagetext = trim(htmlspecialchars_uni($pagetext));
+
+		eval('$pm[\'message\'] = "' . fetch_template('newpost_quote', 0, false) . '";');
+
+		// work out FW / RE bits
+		if (preg_match('#^' . preg_quote($vbphrase['forward_prefix'], '#') . '(\s+)?#i', $pm['title'], $matches))
+		{
+			$pm['title'] = substr($pm['title'], strlen($vbphrase['forward_prefix']) + (isset($matches[1]) ? strlen($matches[1]) : 0));
+		}
+		else if (preg_match('#^' . preg_quote($vbphrase['reply_prefix'], '#') . '(\s+)?#i', $pm['title'], $matches))
+		{
+			$pm['title'] = substr($pm['title'], strlen($vbphrase['reply_prefix']) + (isset($matches[1]) ? strlen($matches[1]) : 0));
+		}
+		else
+		{
+			$pm['title'] = preg_replace('#^[a-z]{2}:#i', '', $pm['title']);
+		}
+
+		$pm['title'] = trim($pm['title']);
+
+		if ($vbulletin->GPC['forward'])
+		{
+			$pm['title'] = $vbphrase['forward_prefix'] . " $pm[title]";
+			$pm['recipients'] = '';
+			$pm['forward'] = 1;
+		}
+		else
+		{
+			$pm['title'] = $vbphrase['reply_prefix'] . " $pm[title]";
+			$pm['recipients'] = $pm['fromusername'] . ' ; ';
+			$pm['forward'] = 0;
+		}
+
+		($hook = vBulletinHook::fetch_hook('private_newpm_reply')) ? eval($hook) : false;
+	}
+	else
+	{
+		eval(standard_error(fetch_error('invalidid', $vbphrase['private_message'], $vbulletin->options['contactuslink'])));
+	}
+
+	return $pm;
+}
 /*======================================================================*\
 || ####################################################################
-|| # Downloaded: 16:21, Sat Apr 6th 2013
-|| # CVS: $RCSfile$ - $Revision: 26840 $
+|| # Downloaded: 20:50, Sun Aug 11th 2013
+|| # CVS: $RCSfile$ - $Revision: 39862 $
 || ####################################################################
 \*======================================================================*/
 ?>

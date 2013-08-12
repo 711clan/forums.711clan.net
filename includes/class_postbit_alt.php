@@ -1,9 +1,9 @@
 <?php
 /*======================================================================*\
 || #################################################################### ||
-|| # vBulletin 3.7.2 Patch Level 2 - Licence Number VBF2470E4F
+|| # vBulletin 3.8.7 Patch Level 3 - Licence Number VBC2DDE4FB
 || # ---------------------------------------------------------------- # ||
-|| # Copyright ©2000-2013 Jelsoft Enterprises Ltd. All Rights Reserved. ||
+|| # Copyright ©2000-2013 vBulletin Solutions, Inc. All Rights Reserved. ||
 || # This file may not be redistributed in whole or significant part. # ||
 || # ---------------- VBULLETIN IS NOT FREE SOFTWARE ---------------- # ||
 || # http://www.vbulletin.com | http://www.vbulletin.com/license.html # ||
@@ -19,8 +19,8 @@ if (!isset($GLOBALS['vbulletin']->db))
 * Postbit optimized for announcements
 *
 * @package 		vBulletin
-* @version		$Revision: 26661 $
-* @date 		$Date: 2008-05-21 04:46:39 -0500 (Wed, 21 May 2008) $
+* @version		$Revision: 39862 $
+* @date 		$Date: 2010-10-18 18:16:44 -0700 (Mon, 18 Oct 2010) $
 *
 */
 class vB_Postbit_Announcement extends vB_Postbit
@@ -140,8 +140,8 @@ class vB_Postbit_Announcement extends vB_Postbit
 * Postbit optimized for private messages
 *
 * @package 		vBulletin
-* @version		$Revision: 26661 $
-* @date 		$Date: 2008-05-21 04:46:39 -0500 (Wed, 21 May 2008) $
+* @version		$Revision: 39862 $
+* @date 		$Date: 2010-10-18 18:16:44 -0700 (Mon, 18 Oct 2010) $
 *
 */
 class vB_Postbit_Pm extends vB_Postbit
@@ -239,8 +239,8 @@ class vB_Postbit_Pm extends vB_Postbit
 * Postbit optimized for soft deleted posts
 *
 * @package 		vBulletin
-* @version		$Revision: 26661 $
-* @date 		$Date: 2008-05-21 04:46:39 -0500 (Wed, 21 May 2008) $
+* @version		$Revision: 39862 $
+* @date 		$Date: 2010-10-18 18:16:44 -0700 (Mon, 18 Oct 2010) $
 *
 */
 class vB_Postbit_Post_Deleted extends vB_Postbit_Post
@@ -278,8 +278,8 @@ class vB_Postbit_Post_Deleted extends vB_Postbit_Post
 * Postbit optimized for global ignored (tachy'd) posts
 *
 * @package 		vBulletin
-* @version		$Revision: 26661 $
-* @date 		$Date: 2008-05-21 04:46:39 -0500 (Wed, 21 May 2008) $
+* @version		$Revision: 39862 $
+* @date 		$Date: 2010-10-18 18:16:44 -0700 (Mon, 18 Oct 2010) $
 *
 */
 class vB_Postbit_Post_Global_Ignore extends vB_Postbit_Post
@@ -317,8 +317,8 @@ class vB_Postbit_Post_Global_Ignore extends vB_Postbit_Post
 * Postbit optimized for regular (ignore list) ignored posts
 *
 * @package 		vBulletin
-* @version		$Revision: 26661 $
-* @date 		$Date: 2008-05-21 04:46:39 -0500 (Wed, 21 May 2008) $
+* @version		$Revision: 39862 $
+* @date 		$Date: 2010-10-18 18:16:44 -0700 (Mon, 18 Oct 2010) $
 *
 */
 class vB_Postbit_Post_Ignore extends vB_Postbit_Post
@@ -357,8 +357,8 @@ class vB_Postbit_Post_Ignore extends vB_Postbit_Post
 * Postbit optimized for user notes
 *
 * @package 		vBulletin
-* @version		$Revision: 26661 $
-* @date 		$Date: 2008-05-21 04:46:39 -0500 (Wed, 21 May 2008) $
+* @version		$Revision: 39862 $
+* @date 		$Date: 2010-10-18 18:16:44 -0700 (Mon, 18 Oct 2010) $
 *
 */
 class vB_Postbit_Usernote extends vB_Postbit
@@ -368,9 +368,15 @@ class vB_Postbit_Usernote extends vB_Postbit
 	*/
 	function prep_post_end()
 	{
-		global $show;
+		global $show, $vbulletin;
 
-		$this->post['editlink'] = 'usernote.php?' . $this->registry->session->vars['sessionurl'] . 'do=editnote&amp;usernoteid=' . $this->post['usernoteid'];
+		if ((($this->post['posterid'] == $vbulletin->userinfo['userid']) AND ($vbulletin->userinfo['permissions']['genericpermissions'] & $vbulletin->bf_ugp_genericpermissions['caneditownusernotes']))
+			OR ($this->post['viewself'] AND ($vbulletin->userinfo['permissions']['genericpermissions'] & $vbulletin->bf_ugp_genericpermissions['canmanageownusernotes']))
+			OR (!$this->post['viewself'] AND ($vbulletin->userinfo['permissions']['genericpermissions'] & $vbulletin->bf_ugp_genericpermissions['canmanageothersusernotes'])))
+		{
+			$this->post['editlink'] = 'usernote.php?' . $this->registry->session->vars['sessionurl'] . 'do=editnote&amp;usernoteid=' . $this->post['usernoteid'];
+		}
+
 		$this->post['replylink'] = false;
 		$this->post['forwardlink'] = false;
 
@@ -393,8 +399,8 @@ class vB_Postbit_Usernote extends vB_Postbit
 * Postbit optimized for RSS
 *
 * @package 		vBulletin
-* @version		$Revision: 26661 $
-* @date 		$Date: 2008-05-21 04:46:39 -0500 (Wed, 21 May 2008) $
+* @version		$Revision: 39862 $
+* @date 		$Date: 2010-10-18 18:16:44 -0700 (Mon, 18 Oct 2010) $
 *
 */
 class vB_Postbit_External extends vB_Postbit
@@ -490,8 +496,8 @@ class vB_Postbit_External extends vB_Postbit
 * Postbit optimized for Auto-Moderated posts
 *
 * @package 		vBulletin
-* @version		$Revision: 26661 $
-* @date 		$Date: 2008-05-21 04:46:39 -0500 (Wed, 21 May 2008) $
+* @version		$Revision: 39862 $
+* @date 		$Date: 2010-10-18 18:16:44 -0700 (Mon, 18 Oct 2010) $
 *
 */
 class vB_Postbit_Post_AutoModerated extends vB_Postbit_Post
@@ -529,8 +535,8 @@ class vB_Postbit_Post_AutoModerated extends vB_Postbit_Post
 
 /*======================================================================*\
 || ####################################################################
-|| # Downloaded: 16:21, Sat Apr 6th 2013
-|| # CVS: $RCSfile$ - $Revision: 26661 $
+|| # Downloaded: 20:50, Sun Aug 11th 2013
+|| # CVS: $RCSfile$ - $Revision: 39862 $
 || ####################################################################
 \*======================================================================*/
 ?>

@@ -1,9 +1,9 @@
 <?php
 /*======================================================================*\
 || #################################################################### ||
-|| # vBulletin 3.7.2 Patch Level 2 - Licence Number VBF2470E4F
+|| # vBulletin 3.8.7 Patch Level 3 - Licence Number VBC2DDE4FB
 || # ---------------------------------------------------------------- # ||
-|| # Copyright ©2000-2013 Jelsoft Enterprises Ltd. All Rights Reserved. ||
+|| # Copyright ©2000-2013 vBulletin Solutions, Inc. All Rights Reserved. ||
 || # This file may not be redistributed in whole or significant part. # ||
 || # ---------------- VBULLETIN IS NOT FREE SOFTWARE ---------------- # ||
 || # http://www.vbulletin.com | http://www.vbulletin.com/license.html # ||
@@ -11,7 +11,7 @@
 \*======================================================================*/
 
 // ####################### SET PHP ENVIRONMENT ###########################
-error_reporting(E_ALL & ~E_NOTICE);
+error_reporting(E_ALL & ~E_NOTICE & ~8192);
 
 // #################### DEFINE IMPORTANT CONSTANTS #######################
 define('GET_EDIT_TEMPLATES', true);
@@ -53,6 +53,7 @@ require_once(DIR . '/includes/functions_newpost.php');
 require_once(DIR . '/includes/functions_bigthree.php');
 require_once(DIR . '/includes/functions_editor.php');
 require_once(DIR . '/includes/functions_log_error.php');
+require_once(DIR . '/includes/functions_prefix.php');
 
 // #######################################################################
 // ######################## START MAIN SCRIPT ############################
@@ -281,7 +282,7 @@ if ($_POST['do'] == 'updatepost')
 	{
 		$edit['iconid'] =& $vbulletin->GPC['iconid'];
 		$edit['title'] =& $vbulletin->GPC['title'];
-		$edit['prefixid'] = ($vbulletin->GPC_exists['prefixid'] ? $vbulletin->GPC['prefixid'] : $threadinfo['prefixid']);
+		$edit['prefixid'] = (($vbulletin->GPC_exists['prefixid'] AND can_use_prefix($vbulletin->GPC['prefixid'])) ? $vbulletin->GPC['prefixid'] : $threadinfo['prefixid']);
 
 		$edit['podcasturl'] =& $vbulletin->GPC['podcasturl'];
 		$edit['podcastsize'] =& $vbulletin->GPC['podcastsize'];
@@ -327,7 +328,7 @@ if ($_POST['do'] == 'updatepost')
 	($hook = vBulletinHook::fetch_hook('editpost_update_process')) ? eval($hook) : false;
 
 	// set info
-	$dataman->set_info('parseurl', ($foruminfo['allowbbcode'] AND $edit['parseurl']));
+	$dataman->set_info('parseurl', (($vbulletin->options['allowedbbcodes'] & ALLOW_BBCODE_URL) AND $foruminfo['allowbbcode'] AND $edit['parseurl']));
 	$dataman->set_info('posthash', $posthash);
 	$dataman->set_info('forum', $foruminfo);
 	$dataman->set_info('thread', $threadinfo);
@@ -549,7 +550,7 @@ if ($_POST['do'] == 'updatepost')
 				$threadman->set('iconid', $edit['iconid']);
 			}
 
-			if ($vbulletin->GPC_exists['prefixid'])
+			if ($vbulletin->GPC_exists['prefixid'] AND can_use_prefix($vbulletin->GPC['prefixid']))
 			{
 				$threadman->set('prefixid', $vbulletin->GPC['prefixid']);
 				if ($threadman->thread['prefixid'] === '' AND ($foruminfo['options'] & $vbulletin->bf_misc_forumoptions['prefixrequired']))
@@ -663,7 +664,7 @@ if ($_POST['do'] == 'updatepost')
 					postparsed.pagetext_html, postparsed.hasimages,
 					sigparsed.signatureparsed, sigparsed.hasimages AS sighasimages,
 					sigpic.userid AS sigpic, sigpic.dateline AS sigpicdateline, sigpic.width AS sigpicwidth, sigpic.height AS sigpicheight,
-					IF(displaygroupid=0, user.usergroupid, displaygroupid) AS displaygroupid, infractiongroupid
+					IF(user.displaygroupid=0, user.usergroupid, user.displaygroupid) AS displaygroupid, infractiongroupid
 					" . iif(!($permissions['genericpermissions'] & $vbulletin->bf_ugp_genericpermissions['canseehiddencustomfields']), $vbulletin->profilefield['hidden']) . "
 					$hook_query_fields
 				FROM " . TABLE_PREFIX . "post AS post
@@ -694,12 +695,12 @@ if ($_POST['do'] == 'updatepost')
 
 			$see_deleted = ($forumperms & $vbulletin->bf_ugp_forumpermissions['canseedelnotice'] OR can_moderate($threadinfo['forumid']));
 
-			$postbit_factory =& new vB_Postbit_Factory();
+			$postbit_factory = new vB_Postbit_Factory();
 			$postbit_factory->registry =& $vbulletin;
 			$postbit_factory->forum =& $foruminfo;
 			$postbit_factory->thread =& $thread;
 			$postbit_factory->cache = array();
-			$postbit_factory->bbcode_parser =& new vB_BbCodeParser($vbulletin, fetch_tag_list());
+			$postbit_factory->bbcode_parser = new vB_BbCodeParser($vbulletin, fetch_tag_list());
 
 			if ($postinfo['attach'])
 			{
@@ -952,8 +953,7 @@ if ($_REQUEST['do'] == 'editpost')
 	// load prefix stuff if necessary
 	if ($can_update_thread)
 	{
-		require_once(DIR . '/includes/functions_prefix.php');
-		$prefix_options = fetch_prefix_html($foruminfo['forumid'], (isset($edit['prefixid']) ? $edit['prefixid'] : $threadinfo['prefixid']));
+		$prefix_options = fetch_prefix_html($foruminfo['forumid'], (isset($edit['prefixid']) ? $edit['prefixid'] : $threadinfo['prefixid']), true);
 		$show['empty_prefix_option'] = ($threadinfo['prefixid'] == '' OR !($foruminfo['options'] & $vbulletin->bf_misc_forumoptions['prefixrequired']));
 	}
 	else
@@ -1053,7 +1053,7 @@ if ($_REQUEST['do'] == 'editpost')
 			eval('$attachmentoption = "' . fetch_template('newpost_attachment') . '";');
 
 			$attach_editor['hash'] = $postinfo['postid'];
-			$attach_editor['url'] = "newattachment.php?$session[sessionurl]p=$postinfo[postid]&amp;editpost=1&amp;poststarttime=$poststarttime&amp;posthash=$posthash";
+			$attach_editor['url'] = "newattachment.php?" . $vbulletin->session->vars['sessionurl'] . "p=$postinfo[postid]&amp;editpost=1&amp;poststarttime=$poststarttime&amp;posthash=$posthash";
 		}
 	}
 	else
@@ -1161,7 +1161,7 @@ if ($_REQUEST['do'] == 'editpost')
 	$navbits = construct_navbits($navbits);
 	eval('$navbar = "' . fetch_template('navbar') . '";');
 
-	$show['parseurl'] = $foruminfo['allowbbcode'];
+	$show['parseurl'] = (($vbulletin->options['allowedbbcodes'] & ALLOW_BBCODE_URL) AND $foruminfo['allowbbcode']);
 	$show['misc_options'] = ($vbulletin->userinfo['signature'] != '' OR $show['parseurl'] OR !empty($disablesmiliesoption));
 
 	($hook = vBulletinHook::fetch_hook('editpost_edit_complete')) ? eval($hook) : false;
@@ -1318,8 +1318,8 @@ if ($_POST['do'] == 'deletepost')
 
 /*======================================================================*\
 || ####################################################################
-|| # Downloaded: 16:21, Sat Apr 6th 2013
-|| # CVS: $RCSfile$ - $Revision: 26636 $
+|| # Downloaded: 20:50, Sun Aug 11th 2013
+|| # CVS: $RCSfile$ - $Revision: 39862 $
 || ####################################################################
 \*======================================================================*/
 ?>

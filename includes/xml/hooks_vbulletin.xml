@@ -46,6 +46,7 @@
 		<hook>album_user_query</hook>
 		<hook>album_user_albumbit</hook>
 		<hook>album_user_complete</hook>
+		<hook>album_latest_complete</hook>
 		<hook>album_moderated_complete</hook>
 		<hook>album_unread_picturebit</hook>
 		<hook>album_unread_complete</hook>
@@ -53,6 +54,9 @@
 		<hook>album_fetch_pictureinfo</hook>
 		<hook>album_prepare_thumb</hook>
 		<hook>album_can_see_private</hook>
+		<hook>albumbit_display_start</hook>
+		<hook>albumbit_display_complete</hook>
+		<hook>album_sort_field</hook>
 	</hooktype>
 
 	<hooktype type="albumdata">
@@ -163,6 +167,8 @@
 		<hook>digest_thread_process</hook>
 		<hook>digest_forum_thread</hook>
 		<hook>digest_forum_process</hook>
+		<hook>digest_group_discussion</hook>
+		<hook>digest_group_process</hook>
 	</hooktype>
 
 	<hooktype type="editor">
@@ -297,10 +303,16 @@
 		<hook>bbcode_parse_complete</hook>
 		<hook>dot_threads_array</hook>
 		<hook>url_to_bbcode</hook>
+		<hook>url_to_bbcode_callback</hook>
 		<hook>quotable_posts_query</hook>
 		<hook>quotable_posts_logic</hook>
 		<hook>upload_accept</hook>
+		<hook>upload_attachsum_total</hook>
+		<hook>upload_attachsum_user</hook>
 		<hook>prefix_fetch_array</hook>
+		<hook>collection_factory_create</hook>
+		<hook>bit_factory_create</hook>
+		<hook>xml_print_output</hook>
 	</hooktype>
 
 	<hooktype type="generaladmin" admin="1">
@@ -368,7 +380,9 @@
 		<hook>group_docreate</hook>
 		<hook>group_doedit</hook>
 		<hook>group_memberbit</hook>
-		<hook>group_view_message_start</hook>
+		<hook>group_discuss_start</hook>
+		<hook>group_discuss_end</hook>
+		<hook>group_view_discussion_start</hook>
 		<hook>group_view_message_query</hook>
 		<hook>group_view_pictures_start</hook>
 		<hook>group_pictures_query</hook>
@@ -382,6 +396,7 @@
 		<hook>group_picturebit</hook>
 		<hook>group_picture</hook>
 		<hook>group_manage_memberbit</hook>
+		<hook>group_newgroup_bit</hook>
 		<hook>group_kickmember</hook>
 		<hook>group_kickmember_complete</hook>
 		<hook>group_pending_members</hook>
@@ -389,7 +404,38 @@
 		<hook>group_complete</hook>
 		<hook>group_prepareinfo</hook>
 		<hook>group_fetch_pictureinfo</hook>
+		<hook>group_fetch_random</hook>
+		<hook>group_fetch_newest</hook>
+		<hook>group_fetch_own</hook>
 		<hook>group_build_counters</hook>
+		<hook>group_update_groupicon_start</hook>
+		<hook>group_update_groupicon_complete</hook>
+		<hook>group_edit_groupicon</hook>
+		<hook>group_overview</hook>
+		<hook>group_view_categories_start</hook>
+		<hook>group_view_categories_query</hook>
+	</hooktype>
+
+	<hooktype type="group_category">
+		<hook>categorylist_bit_display_start</hook>
+		<hook>categorylist_bit_display_complete</hook>
+	</hooktype>
+
+	<hooktype type="group_discussion">
+		<hook>discussiondata_start</hook>
+		<hook>discussiondata_presave</hook>
+		<hook>discussiondata_postsave</hook>
+		<hook>discussiondata_delete</hook>
+		<hook>discussion_build_counters</hook>
+		<hook>group_view_discussion_query</hook>
+		<hook>group_messagebit_display_start</hook>
+		<hook>group_messagebit_display_complete</hook>
+		<hook>group_message_sort_field</hook>
+		<hook>group_discussion_sort_field</hook>
+		<hook>group_discussionbit_display_start</hook>
+		<hook>group_discussionbit_display_complete</hook>
+		<hook>newpost_sg_notification_start</hook>
+		<hook>new_sg_message_notification_message</hook>
 	</hooktype>
 
 	<hooktype type="group_inlinemod">
@@ -409,7 +455,6 @@
 		<hook>group_message_form_complete</hook>
 		<hook>group_message_delete</hook>
 		<hook>group_message_getip</hook>
-		<hook>group_messagebit_factory</hook>
 		<hook>group_messagebit_display_start</hook>
 		<hook>group_messagebit_display_complete</hook>
 	</hooktype>
@@ -594,7 +639,6 @@
 		<hook>moderation_visitor_messages_query</hook>
 		<hook>moderation_visitor_messages_complete</hook>
 		<hook>moderation_group_messages_start</hook>
-		<hook>moderation_group_messages_sort</hook>
 		<hook>moderation_group_messages_query</hook>
 		<hook>moderation_group_messages_complete</hook>
 		<hook>moderation_picture_comments_start</hook>
@@ -617,6 +661,7 @@
 	<hooktype type="newattachment">
 		<hook>newattachment_start</hook>
 		<hook>newattachment_attach</hook>
+		<hook>newattachment_attachsum</hook>
 		<hook>newattachment_complete</hook>
 	</hooktype>
 
@@ -830,6 +875,7 @@
 		<hook>private_confirmemptyfolder</hook>
 		<hook>private_editfolders_start</hook>
 		<hook>private_editfolders_bit</hook>
+		<hook>private_fetchreply_start</hook>
 		<hook>private_deletepmreceipt</hook>
 		<hook>private_dopmreceipt</hook>
 		<hook>private_trackpm_start</hook>
@@ -965,6 +1011,7 @@
 		<hook>search_start</hook>
 		<hook>search_intro</hook>
 		<hook>search_stopwords</hook>
+		<hook>search_before_process</hook>
 		<hook>search_process_start</hook>
 		<hook>search_process_fullsearch</hook>
 		<hook>search_process_postindex</hook>
@@ -1014,11 +1061,25 @@
 		<hook>socgroupdata_delete</hook>
 	</hooktype>
 
+	<hooktype type="socgroupcatdata">
+		<hook>socgroupcatdata_start</hook>
+		<hook>socgroupcatdata_presave</hook>
+		<hook>socgroupcatdata_postsave</hook>
+		<hook>socgroupcatdata_delete</hook>
+	</hooktype>
+
 	<hooktype type="socgroupmemberdata">
 		<hook>socgroupmemberdata_start</hook>
 		<hook>socgroupmemberdata_presave</hook>
 		<hook>socgroupmemberdata_postsave</hook>
 		<hook>socgroupmemberdata_delete</hook>
+	</hooktype>
+
+	<hooktype type="socgroupicondata">
+		<hook>socgroupicondata_start</hook>
+		<hook>socgroupicondata_presave</hook>
+		<hook>socgroupicondata_postsave</hook>
+		<hook>socgroupicondata_delete</hook>
 	</hooktype>
 
 	<hooktype type="showgroups">
@@ -1142,6 +1203,7 @@
 		<hook>useradmin_edit_start</hook>
 		<hook>useradmin_edit_column1</hook>
 		<hook>useradmin_edit_column2</hook>
+		<hook>useradmin_update_choose</hook>
 		<hook>useradmin_update_save</hook>
 		<hook>useradmin_merge</hook>
 		<hook>useradmin_gethost</hook>
@@ -1215,6 +1277,10 @@
 		<hook>usersub_doeditfolders</hook>
 	</hooktype>
 
+	<hooktype type="usergroupsub">
+		<hook>usergroupsub_view_complete</hook>
+	</hooktype>
+
 	<hooktype type="visitormessage">
 		<hook>visitor_message_start</hook>
 		<hook>visitor_message_post_start</hook>
@@ -1245,4 +1311,4 @@
 
 </hooks>
 
-<!-- CVS: $RCSfile$ - $Revision: 26979 $ -->
+<!-- CVS: $RCSfile$ - $Revision: 35430 $ -->

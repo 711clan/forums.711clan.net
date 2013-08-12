@@ -1,9 +1,9 @@
 <?php
 /*======================================================================*\
 || #################################################################### ||
-|| # vBulletin 3.7.2 Patch Level 2 - Licence Number VBF2470E4F
+|| # vBulletin 3.8.7 Patch Level 3 - Licence Number VBC2DDE4FB
 || # ---------------------------------------------------------------- # ||
-|| # Copyright ©2000-2013 Jelsoft Enterprises Ltd. All Rights Reserved. ||
+|| # Copyright ©2000-2013 vBulletin Solutions, Inc. All Rights Reserved. ||
 || # This file may not be redistributed in whole or significant part. # ||
 || # ---------------- VBULLETIN IS NOT FREE SOFTWARE ---------------- # ||
 || # http://www.vbulletin.com | http://www.vbulletin.com/license.html # ||
@@ -11,10 +11,10 @@
 \*======================================================================*/
 
 // ######################## SET PHP ENVIRONMENT ###########################
-error_reporting(E_ALL & ~E_NOTICE);
+error_reporting(E_ALL & ~E_NOTICE & ~8192);
 
 // ##################### DEFINE IMPORTANT CONSTANTS #######################
-define('CVS_REVISION', '$RCSfile$ - $Revision: 25974 $');
+define('CVS_REVISION', '$RCSfile$ - $Revision: 39862 $');
 
 // #################### PRE-CACHE TEMPLATES AND DATA ######################
 $phrasegroups = array('cppermission', 'forum', 'moderator');
@@ -174,7 +174,15 @@ if ($_REQUEST['do'] == 'add' OR $_REQUEST['do'] == 'edit' OR $_REQUEST['do'] == 
 	if ($_REQUEST['do'] != 'editglobal')
 	{
 		print_forum_chooser($vbphrase['forum_and_children'], 'forumid', $moderator['forumid']);
-		print_input_row($vbphrase['moderator_usernames'] . "<dfn>$vbphrase[separate_usernames_semicolon]</dfn>", 'modusername', $moderator['username'], 0);
+		if ($_REQUEST['do'] == 'add')
+		{
+			print_input_row($vbphrase['moderator_usernames'] . "<dfn>$vbphrase[separate_usernames_semicolon]</dfn>", 'modusername', $moderator['username'], 0);
+		}
+		else if ($_REQUEST['do'] == 'edit')
+		{
+			print_input_row($vbphrase['moderator_username'], 'modusername', $moderator['username'], 0);
+		}
+
 		construct_hidden_code('redir', $vbulletin->GPC['redir']);
 	}
 
@@ -220,10 +228,15 @@ if ($_REQUEST['do'] == 'add' OR $_REQUEST['do'] == 'edit' OR $_REQUEST['do'] == 
 	print_description_row($vbphrase['social_group_permissions'], false, 2, 'thead');
 	print_yes_no_row($vbphrase['can_edit_social_groups'], 'modperms[caneditsocialgroups]', $moderator['caneditsocialgroups']);
 	print_yes_no_row($vbphrase['can_delete_social_groups'], 'modperms[candeletesocialgroups]', $moderator['candeletesocialgroups']);
+	print_yes_no_row($vbphrase['can_transfer_social_groups'], 'modperms[cantransfersocialgroups]', $moderator['cantransfersocialgroups']);
 	print_yes_no_row($vbphrase['can_edit_posts'], 'modperms[caneditgroupmessages]', $moderator['caneditgroupmessages']);
+	print_yes_no_row($vbphrase['can_moderate_posts'], 'modperms[canmoderategroupmessages]', $moderator['canmoderategroupmessages']);
 	print_yes_no_row($vbphrase['can_delete_posts'], 'modperms[candeletegroupmessages]', $moderator['candeletegroupmessages']);
 	print_yes_no_row($vbphrase['can_physically_delete_posts'], 'modperms[canremovegroupmessages]', $moderator['canremovegroupmessages']);
-	print_yes_no_row($vbphrase['can_moderate_posts'], 'modperms[canmoderategroupmessages]', $moderator['canmoderategroupmessages']);
+	print_yes_no_row($vbphrase['can_edit_discussions'], 'modperms[caneditdiscussions]', $moderator['caneditdiscussions']);
+	print_yes_no_row($vbphrase['can_moderate_discussions'], 'modperms[canmoderatediscussions]', $moderator['canmoderatediscussions']);
+	print_yes_no_row($vbphrase['can_delete_discussions'], 'modperms[candeletediscussions]', $moderator['candeletediscussions']);
+	print_yes_no_row($vbphrase['can_physically_delete_discussions'], 'modperms[canremovediscussions]', $moderator['canremovediscussions']);
 
 	// user permissions
 	print_description_row($vbphrase['user_permissions'], false, 2, 'thead');
@@ -825,8 +838,8 @@ print_cp_footer();
 
 /*======================================================================*\
 || ####################################################################
-|| # Downloaded: 16:21, Sat Apr 6th 2013
-|| # CVS: $RCSfile$ - $Revision: 25974 $
+|| # Downloaded: 20:50, Sun Aug 11th 2013
+|| # CVS: $RCSfile$ - $Revision: 39862 $
 || ####################################################################
 \*======================================================================*/
 ?>

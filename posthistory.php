@@ -1,9 +1,9 @@
 <?php
 /*======================================================================*\
 || #################################################################### ||
-|| # vBulletin 3.7.2 Patch Level 2 - Licence Number VBF2470E4F
+|| # vBulletin 3.8.7 Patch Level 3 - Licence Number VBC2DDE4FB
 || # ---------------------------------------------------------------- # ||
-|| # Copyright ©2000-2013 Jelsoft Enterprises Ltd. All Rights Reserved. ||
+|| # Copyright ©2000-2013 vBulletin Solutions, Inc. All Rights Reserved. ||
 || # This file may not be redistributed in whole or significant part. # ||
 || # ---------------- VBULLETIN IS NOT FREE SOFTWARE ---------------- # ||
 || # http://www.vbulletin.com | http://www.vbulletin.com/license.html # ||
@@ -11,7 +11,7 @@
 \*======================================================================*/
 
 // ####################### SET PHP ENVIRONMENT ###########################
-error_reporting(E_ALL & ~E_NOTICE);
+error_reporting(E_ALL & ~E_NOTICE & ~8192);
 
 // #################### DEFINE IMPORTANT CONSTANTS #######################
 define('THIS_SCRIPT', 'showpostedithistory');
@@ -134,9 +134,16 @@ if ($db->num_rows($histories_result) < 2)
 
 // fetching the history list
 $historybits = '';
+$shown_original = false;
 
 while ($history = $db->fetch_array($histories_result))
 {
+	// Don't show two original posts
+	if ($history['original'] AND $shown_original)
+	{
+		continue;
+	}
+
 	if ($newver == $history['postedithistoryid'])
 	{
 		$compare['newver'] = $history;
@@ -166,6 +173,7 @@ while ($history = $db->fetch_array($histories_result))
 	if ($history['original'])
 	{
 		$history['reason'] = $vbphrase['original_post'];
+		$shown_original = true;
 	}
 
 	$newver_selected = ($newver == $history['postedithistoryid'] ? 'checked="checked"' : '');
@@ -201,15 +209,15 @@ if ($_REQUEST['do'] == 'compare')
 		{
 			$compare_show = array();
 
-			if ($diffrow->fetch_data_old() == $diffrow->fetch_data_new())
+			if ($diffrow->old_class == 'unchanged' AND $diffrow->new_class == 'unchanged')
 			{ // no change
-				$compare_show['olddata'] = fetch_word_wrapped_string(nl2br(htmlspecialchars_uni($diffrow->fetch_data_old())));
+				$compare_show['olddata'] = fetch_word_wrapped_string(nl2br(htmlspecialchars_uni(implode("\n", $diffrow->fetch_data_old()))));
 				$compare_show['template'] = 'posthistory_content_not_changed';
 			}
 			else
 			{ // something has changed
-				$compare_show['olddata'] = fetch_word_wrapped_string(nl2br(htmlspecialchars_uni($diffrow->fetch_data_old())));
-				$compare_show['newdata'] = fetch_word_wrapped_string(nl2br(htmlspecialchars_uni($diffrow->fetch_data_new())));
+				$compare_show['olddata'] = fetch_word_wrapped_string(nl2br(htmlspecialchars_uni(implode("\n", $diffrow->fetch_data_old()))));
+				$compare_show['newdata'] = fetch_word_wrapped_string(nl2br(htmlspecialchars_uni(implode("\n", $diffrow->fetch_data_new()))));
 				$compare_show['template'] = 'posthistory_content_changed';
 			}
 
@@ -250,8 +258,8 @@ eval('print_output("' . fetch_template('posthistory') . '");');
 
 /*======================================================================*\
 || ####################################################################
-|| # Downloaded: 16:21, Sat Apr 6th 2013
-|| # CVS: $RCSfile$ - $Revision: 26399 $
+|| # Downloaded: 20:50, Sun Aug 11th 2013
+|| # CVS: $RCSfile$ - $Revision: 39862 $
 || ####################################################################
 \*======================================================================*/
 ?>

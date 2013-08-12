@@ -1,9 +1,9 @@
 <?php
 /*======================================================================*\
 || #################################################################### ||
-|| # vBulletin 3.7.2 Patch Level 2 - Licence Number VBF2470E4F
+|| # vBulletin 3.8.7 Patch Level 3 - Licence Number VBC2DDE4FB
 || # ---------------------------------------------------------------- # ||
-|| # Copyright ©2000-2013 Jelsoft Enterprises Ltd. All Rights Reserved. ||
+|| # Copyright ©2000-2013 vBulletin Solutions, Inc. All Rights Reserved. ||
 || # This file may not be redistributed in whole or significant part. # ||
 || # ---------------- VBULLETIN IS NOT FREE SOFTWARE ---------------- # ||
 || # http://www.vbulletin.com | http://www.vbulletin.com/license.html # ||
@@ -21,8 +21,8 @@ require_once(DIR . '/includes/functions_newpost.php');
 * Base data manager for threads and posts. Uninstantiable.
 *
 * @package	vBulletin
-* @version	$Revision: 26836 $
-* @date		$Date: 2008-06-04 11:15:30 -0500 (Wed, 04 Jun 2008) $
+* @version	$Revision: 63385 $
+* @date		$Date: 2012-06-06 16:19:39 -0700 (Wed, 06 Jun 2012) $
 */
 class vB_DataManager_ThreadPost extends vB_DataManager
 {
@@ -437,8 +437,7 @@ class vB_DataManager_ThreadPost extends vB_DataManager
 				}
 				$user =& $this->info['user'];
 
-				if ($user['lastpost'] <= TIMENOW AND
-					!can_moderate($this->info['forum']['forumid'], '', $user['userid'], $user['usergroupid'] . (trim($user['membergroupids']) ? ",$user[membergroupids]" : '')))
+				if (!can_moderate($this->info['forum']['forumid'], '', $user['userid'], $user['usergroupid'] . (trim($user['membergroupids']) ? ",$user[membergroupids]" : '')))
 				{
 					if (!class_exists('vB_FloodCheck'))
 					{
@@ -488,7 +487,7 @@ class vB_DataManager_ThreadPost extends vB_DataManager
 			$akismet = new vB_Akismet($this->registry);
 			$akismet->akismet_board = $this->registry->options['bburl'];
 			$akismet->akismet_key = $this->registry->options['vb_antispam_key'];
-			if ($akismet->verify_text(array('user_ip' => IPADDRESS, 'user_agent' => USER_AGENT, 'comment_type' => 'post', 'comment_author' => ($this->registry->userinfo['userid'] ? $this->registry->userinfo['username'] : $this->fetch_field('username', 'post')), 'comment_content' => $this->fetch_field('pagetext', 'post'))) === 'spam')
+			if ($akismet->verify_text(array('user_ip' => IPADDRESS, 'user_agent' => USER_AGENT, 'comment_type' => 'post', 'comment_author' => ($this->registry->userinfo['userid'] ? $this->registry->userinfo['username'] : $this->fetch_field('username', 'post')), 'comment_author_email' => $this->registry->userinfo['email'], 'comment_author_url' => $this->registry->userinfo['homepage'], 'comment_content' => $this->fetch_field('pagetext', 'post'))) === 'spam')
 			{
 				$this->set('visible', 0);
 				$this->spamlog_insert = true;
@@ -606,7 +605,7 @@ class vB_DataManager_ThreadPost extends vB_DataManager
 				$forumdata->save();
 			}
 
-			if ($this->info['user'] AND empty($this->info['is_automated']))
+			if ($this->info['user'] AND (empty($this->info['is_automated']) OR $this->info['is_automated'] == 'rss'))
 			{
 				$user =& datamanager_init('User', $this->registry, ERRTYPE_SILENT);
 				$user->set_existing($this->info['user']);
@@ -641,8 +640,8 @@ class vB_DataManager_ThreadPost extends vB_DataManager
 * Class to do data save/delete operations for POSTS
 *
 * @package	vBulletin
-* @version	$Revision: 26836 $
-* @date		$Date: 2008-06-04 11:15:30 -0500 (Wed, 04 Jun 2008) $
+* @version	$Revision: 63385 $
+* @date		$Date: 2012-06-06 16:19:39 -0700 (Wed, 06 Jun 2012) $
 */
 class vB_DataManager_Post extends vB_DataManager_ThreadPost
 {
@@ -795,9 +794,12 @@ class vB_DataManager_Post extends vB_DataManager_ThreadPost
 					);
 				}
 
-				$thread->set('lastpost', TIMENOW);
-				$thread->set('lastposter', $this->fetch_field('username'));
-				$thread->set('lastpostid', $postid);
+				if ($this->fetch_field('dateline') == TIMENOW)
+				{
+					$thread->set('lastpost', TIMENOW);
+					$thread->set('lastposter', $this->fetch_field('username'));
+					$thread->set('lastpostid', $postid);
+				}
 
 				// update last post info for this thread
 				if ($this->info['thread']['replycount'] % 10 == 0)
@@ -909,8 +911,8 @@ class vB_DataManager_Post extends vB_DataManager_ThreadPost
 * the picture.
 *
 * @package	vBulletin
-* @version	$Revision: 26836 $
-* @date		$Date: 2008-06-04 11:15:30 -0500 (Wed, 04 Jun 2008) $
+* @version	$Revision: 63385 $
+* @date		$Date: 2012-06-06 16:19:39 -0700 (Wed, 06 Jun 2012) $
 */
 class vB_DataManager_Thread extends vB_DataManager_ThreadPost
 {
@@ -1385,8 +1387,8 @@ class vB_DataManager_Thread extends vB_DataManager_ThreadPost
 * This is an important distinction!
 *
 * @package	vBulletin
-* @version	$Revision: 26836 $
-* @date		$Date: 2008-06-04 11:15:30 -0500 (Wed, 04 Jun 2008) $
+* @version	$Revision: 63385 $
+* @date		$Date: 2012-06-06 16:19:39 -0700 (Wed, 06 Jun 2012) $
 */
 class vB_DataManager_Thread_FirstPost extends vB_DataManager_Thread
 {
@@ -1669,13 +1671,6 @@ class vB_DataManager_Thread_FirstPost extends vB_DataManager_Thread
 			$this->insert_postlog_data();
 		}
 
-		if ($this->info['forum'] AND $this->fetch_field('firstpostid'))
-		{
-			// ### UPDATE SEARCH INDEX ###
-			require_once(DIR . '/includes/functions_databuild.php');
-			build_post_index($this->fetch_field('firstpostid'), $this->info['forum'], 1);
-		}
-
 		$threadid = intval($this->fetch_field('threadid'));
 
 		if ($this->thread['visible'] === 0)
@@ -1727,6 +1722,13 @@ class vB_DataManager_Thread_FirstPost extends vB_DataManager_Thread
 			$this->email_moderators(array('newthreademail', 'newpostemail'));
 		}
 
+		if ($this->info['forum'] AND $this->fetch_field('firstpostid'))
+		{
+			// ### UPDATE SEARCH INDEX ###
+			require_once(DIR . '/includes/functions_databuild.php');
+			build_post_index($this->fetch_field('firstpostid'), $this->info['forum'], 1);
+		}
+
 		($hook = vBulletinHook::fetch_hook('threadfpdata_postsave')) ? eval($hook) : false;
 	}
 
@@ -1752,8 +1754,8 @@ class vB_DataManager_Thread_FirstPost extends vB_DataManager_Thread
 * Class to do data update operations for multiple POSTS simultaneously
 *
 * @package	vBulletin
-* @version	$Revision: 26836 $
-* @date		$Date: 2008-06-04 11:15:30 -0500 (Wed, 04 Jun 2008) $
+* @version	$Revision: 63385 $
+* @date		$Date: 2012-06-06 16:19:39 -0700 (Wed, 06 Jun 2012) $
 */
 class vB_DataManager_Post_Multiple extends vB_DataManager_Multiple
 {
@@ -1806,8 +1808,8 @@ class vB_DataManager_Post_Multiple extends vB_DataManager_Multiple
 * Class to do data update operations for multiple THREADS simultaneously
 *
 * @package	vBulletin
-* @version	$Revision: 26836 $
-* @date		$Date: 2008-06-04 11:15:30 -0500 (Wed, 04 Jun 2008) $
+* @version	$Revision: 63385 $
+* @date		$Date: 2012-06-06 16:19:39 -0700 (Wed, 06 Jun 2012) $
 */
 class vB_DataManager_Thread_Multiple extends vB_DataManager_Multiple
 {
@@ -1857,8 +1859,8 @@ class vB_DataManager_Thread_Multiple extends vB_DataManager_Multiple
 
 /*======================================================================*\
 || ####################################################################
-|| # Downloaded: 16:21, Sat Apr 6th 2013
-|| # CVS: $RCSfile$ - $Revision: 26836 $
+|| # Downloaded: 20:50, Sun Aug 11th 2013
+|| # CVS: $RCSfile$ - $Revision: 63385 $
 || ####################################################################
 \*======================================================================*/
 ?>

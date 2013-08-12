@@ -1,9 +1,9 @@
 <?php
 /*======================================================================*\
 || #################################################################### ||
-|| # vBulletin 3.7.2 Patch Level 2 - Licence Number VBF2470E4F
+|| # vBulletin 3.8.7 Patch Level 3 - Licence Number VBC2DDE4FB
 || # ---------------------------------------------------------------- # ||
-|| # Copyright ©2000-2013 Jelsoft Enterprises Ltd. All Rights Reserved. ||
+|| # Copyright ©2000-2013 vBulletin Solutions, Inc. All Rights Reserved. ||
 || # This file may not be redistributed in whole or significant part. # ||
 || # ---------------- VBULLETIN IS NOT FREE SOFTWARE ---------------- # ||
 || # http://www.vbulletin.com | http://www.vbulletin.com/license.html # ||
@@ -145,7 +145,7 @@ function print_faq_admin_row($faq, $prefix = '')
 }
 
 // ###################### Start getifaqcache #######################
-function cache_ordered_faq($gettext = false)
+function cache_ordered_faq($gettext = false, $disableproducts = false)
 {
 	global $vbulletin, $db, $faqcache, $ifaqcache;
 
@@ -189,6 +189,20 @@ function cache_ordered_faq($gettext = false)
 	}
 	unset($languageorder);
 
+	$activeproducts = array(
+		'', 'vbulletin'
+	);
+	if ($disableproducts)
+	{
+		foreach ($vbulletin->products AS $product => $active)
+		{
+			if ($active)
+			{
+				$activeproducts[] = $product;
+			}
+		}
+	}
+
 	$hook_query_fields = $hook_query_joins = $hook_query_where = '';
 	($hook = vBulletinHook::fetch_hook('faq_cache_query')) ? eval($hook) : false;
 
@@ -198,6 +212,7 @@ function cache_ordered_faq($gettext = false)
 		FROM " . TABLE_PREFIX . "faq AS faq
 		$hook_query_joins
 		WHERE 1=1
+			" . ($disableproducts ? "AND product IN ('" . implode('\', \'', $activeproducts) . "')" : "") . "
 			$hook_query_where
 	");
 	while ($faq = $vbulletin->db->fetch_array($faqs))
@@ -293,8 +308,8 @@ function process_highlight_faq($text, $words, $prepend, $replace)
 
 /*======================================================================*\
 || ####################################################################
-|| # Downloaded: 16:21, Sat Apr 6th 2013
-|| # CVS: $RCSfile$ - $Revision: 26180 $
+|| # Downloaded: 20:50, Sun Aug 11th 2013
+|| # CVS: $RCSfile$ - $Revision: 39862 $
 || ####################################################################
 \*======================================================================*/
 ?>

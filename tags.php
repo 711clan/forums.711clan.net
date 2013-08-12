@@ -1,9 +1,9 @@
 <?php
 /*======================================================================*\
 || #################################################################### ||
-|| # vBulletin 3.7.2 Patch Level 2 - Licence Number VBF2470E4F
+|| # vBulletin 3.8.7 Patch Level 3 - Licence Number VBC2DDE4FB
 || # ---------------------------------------------------------------- # ||
-|| # Copyright ©2000-2013 Jelsoft Enterprises Ltd. All Rights Reserved. ||
+|| # Copyright ©2000-2013 vBulletin Solutions, Inc. All Rights Reserved. ||
 || # This file may not be redistributed in whole or significant part. # ||
 || # ---------------- VBULLETIN IS NOT FREE SOFTWARE ---------------- # ||
 || # http://www.vbulletin.com | http://www.vbulletin.com/license.html # ||
@@ -11,7 +11,7 @@
 \*======================================================================*/
 
 // ####################### SET PHP ENVIRONMENT ###########################
-error_reporting(E_ALL & ~E_NOTICE);
+error_reporting(E_ALL & ~E_NOTICE & ~8192);
 
 // #################### DEFINE IMPORTANT CONSTANTS #######################
 define('THIS_SCRIPT', 'tags');
@@ -115,7 +115,7 @@ if ($_REQUEST['do'] == 'tag')
 	");
 	if (!$tag)
 	{
-		standard_error(fetch_error('invalidid', $vbphrase['tag'], $vbulletin->options['contactuslink']));
+		standard_error(fetch_error('no_content_tagged_with_x', $vbulletin->GPC['tag']));
 	}
 
 	// get forum ids for all forums user is allowed to view
@@ -164,14 +164,14 @@ if ($_REQUEST['do'] == 'tag')
 			IF(tachythreadpost.userid IS NULL, thread.lastposter, tachythreadpost.lastposter) AS lastposter,
 			IF(tachythreadpost.userid IS NULL, thread.lastpostid, tachythreadpost.lastpostid) AS lastpostid,
 			IF(tachythreadcounter.userid IS NULL, thread.replycount, thread.replycount + tachythreadcounter.replycount) AS replycount,
-			IF(views<=IF(tachythreadcounter.userid IS NULL, thread.replycount, thread.replycount + tachythreadcounter.replycount), IF(tachythreadcounter.userid IS NULL, thread.replycount, thread.replycount + tachythreadcounter.replycount)+1, views) AS views
+			IF(thread.views<=IF(tachythreadcounter.userid IS NULL, thread.replycount, thread.replycount + tachythreadcounter.replycount), IF(tachythreadcounter.userid IS NULL, thread.replycount, thread.replycount + tachythreadcounter.replycount)+1, thread.views) AS views
 		";
 
 	}
 	else
 	{
 		$tachyjoin = '';
-		$tachy_columns = 'thread.lastpost, thread.lastposter, thread.lastpostid, replycount, IF(views<=replycount, replycount+1, views) AS views';
+		$tachy_columns = 'thread.lastpost, thread.lastposter, thread.lastpostid, thread.replycount, IF(thread.views<=thread.replycount, thread.replycount+1, thread.views) AS views';
 	}
 
 	$hook_query_joins = $hook_query_where = '';
@@ -198,7 +198,7 @@ if ($_REQUEST['do'] == 'tag')
 	$totalthreads = $db->num_rows($threadid_sql);
 	if (!$totalthreads)
 	{
-		standard_error(fetch_error('invalidid', $vbphrase['tag'], $vbulletin->options['contactuslink']));
+		standard_error(fetch_error('no_content_tagged_with_x', $vbulletin->GPC['tag']));
 	}
 
 	if ($vbulletin->GPC['pagenumber'] <= 1)
@@ -262,6 +262,16 @@ if ($_REQUEST['do'] == 'tag')
 	$threads = array();
 	$lastread = array();
 	$managethread = $movethread = $deletethread = $approvethread = $openthread = array();
+
+	$dotthreads = fetch_dot_threads_array(implode(',', $threadids));
+	if ($vbulletin->options['showdots'] AND $vbulletin->userinfo['userid'])
+	{
+		$show['dotthreads'] = true;
+	}
+	else
+	{
+		$show['dotthreads'] = false;
+	}
 
 	while ($thread = $db->fetch_array($thread_sql))
 	{
@@ -375,8 +385,8 @@ if ($_REQUEST['do'] == 'tag')
 
 /*======================================================================*\
 || ####################################################################
-|| # Downloaded: 16:21, Sat Apr 6th 2013
-|| # CVS: $RCSfile$ - $Revision: 26862 $
+|| # Downloaded: 20:50, Sun Aug 11th 2013
+|| # CVS: $RCSfile$ - $Revision: 39862 $
 || ####################################################################
 \*======================================================================*/
 ?>

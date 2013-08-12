@@ -1,16 +1,16 @@
 <?php
 /*======================================================================*\
 || #################################################################### ||
-|| # vBulletin 3.7.2 Patch Level 2 - Licence Number VBF2470E4F
+|| # vBulletin 3.8.7 Patch Level 3 - Licence Number VBC2DDE4FB
 || # ---------------------------------------------------------------- # ||
-|| # Copyright ©2000-2013 Jelsoft Enterprises Ltd. All Rights Reserved. ||
+|| # Copyright ©2000-2013 vBulletin Solutions, Inc. All Rights Reserved. ||
 || # This file may not be redistributed in whole or significant part. # ||
 || # ---------------- VBULLETIN IS NOT FREE SOFTWARE ---------------- # ||
 || # http://www.vbulletin.com | http://www.vbulletin.com/license.html # ||
 || #################################################################### ||
 \*======================================================================*/
 
-error_reporting(E_ALL & ~E_NOTICE);
+error_reporting(E_ALL & ~E_NOTICE & ~8192);
 
 define('THIS_SCRIPT', 'upgrade_370b2.php');
 define('VERSION', '3.7.0 Beta 2');
@@ -1029,7 +1029,7 @@ if ($vbulletin->GPC['step'] == 4)
 				IF(genericpermissions & " . $vbulletin->bf_ugp_genericpermissions['canviewmembers'] . ", " . $vbulletin->bf_ugp_socialgrouppermissions['canviewgroups'] . ", 0) |
 				IF(forumpermissions & " . $vbulletin->bf_ugp_forumpermissions['caneditpost']  . "
 					OR forumpermissions & " . $vbulletin->bf_ugp_forumpermissions['candeletepost'] . ", " . $vbulletin->bf_ugp_socialgrouppermissions['canmanagemessages'] . ", 0) |
-				IF(adminpermissions & " . $vbulletin->bf_ugp_adminpermissions['ismoderator'] . ", " . $vbulletin->bf_ugp_socialgrouppermissions['canpostnonmembergroup'] . ", 0) |
+				IF(adminpermissions & " . $vbulletin->bf_ugp_adminpermissions['ismoderator'] . ", " . $vbulletin->bf_ugp_socialgrouppermissions['canalwayspostmessage'] . ", 0) |
 				" . $vbulletin->bf_ugp_socialgrouppermissions['followforummoderation'] . "
 		"
 	);
@@ -1150,6 +1150,7 @@ if ($vbulletin->GPC['step'] == 4)
 	if ($db->query_first("SELECT varname FROM " . TABLE_PREFIX . "setting WHERE varname = 'regimagetype' AND value IN ('GDttf', 'GD')"))
 	{
 		require_once(DIR . '/includes/adminfunctions_options.php');
+		$gdinfo = fetch_gdinfo();
 		if ($gdinfo['freetype'] != 'freetype')
 		{
 			// they won't be able to use the simple text version and they don't have FreeType support, so no image verification
@@ -1251,8 +1252,8 @@ print_upgrade_footer();
 
 /*======================================================================*\
 || ####################################################################
-|| # Downloaded: 16:21, Sat Apr 6th 2013
-|| # CVS: $RCSfile$ - $Revision: 26703 $
+|| # Downloaded: 20:50, Sun Aug 11th 2013
+|| # CVS: $RCSfile$ - $Revision: 39862 $
 || ####################################################################
 \*======================================================================*/
 ?>

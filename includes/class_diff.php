@@ -1,9 +1,9 @@
 <?php
 /*======================================================================*\
 || #################################################################### ||
-|| # vBulletin 3.7.2 Patch Level 2 - Licence Number VBF2470E4F
+|| # vBulletin 3.8.7 Patch Level 3 - Licence Number VBC2DDE4FB
 || # ---------------------------------------------------------------- # ||
-|| # Copyright ©2000-2013 Jelsoft Enterprises Ltd. All Rights Reserved. ||
+|| # Copyright ©2000-2013 vBulletin Solutions, Inc. All Rights Reserved. ||
 || # This file may not be redistributed in whole or significant part. # ||
 || # ---------------- VBULLETIN IS NOT FREE SOFTWARE ---------------- # ||
 || # http://www.vbulletin.com | http://www.vbulletin.com/license.html # ||
@@ -14,8 +14,8 @@
 * Finds the difference between two strings using a line as the atom.
 *
 * @package 		vBulletin
-* @version		$Revision: 13326 $
-* @date 		$Date: 2005-09-25 19:12:35 -0500 (Sun, 25 Sep 2005) $
+* @version		$Revision: 39862 $
+* @date 		$Date: 2010-10-18 18:16:44 -0700 (Mon, 18 Oct 2010) $
 *
 */
 class vB_Text_Diff
@@ -47,6 +47,20 @@ class vB_Text_Diff
 	* @var	integer
 	*/
 	var $data_new_len = 0;
+
+	/**
+	 * Last new line since match state change
+	 *
+	 * @var integer
+	 */
+	var $new_end_line = false;
+
+	/**
+	 * Last old line since match state change
+	 *
+	 * @var integer
+	 */
+	var $old_end_line = false;
 
 	/*
 	* The old_len x new_len table that is used to find the LCS. Indexes
@@ -125,8 +139,6 @@ class vB_Text_Diff
 	function compress_row($row)
 	{
 		return implode('|', $row);
-
-		//return serialize($row);
 	}
 
 	/**
@@ -147,8 +159,6 @@ class vB_Text_Diff
 			++$i;
 		}
 		return $return;
-
-		//return unserialize($row);
 	}
 
 	/**
@@ -192,7 +202,7 @@ class vB_Text_Diff
 			if ($this_row[$data_new_key] != $above_row[$data_new_key - 1] AND $this->data_old[$data_old_key] == $this->data_new[$data_new_key])
 			{
 				// this is a non changed entry
-				$this->process_nonmatches($output, $nonmatch1, $nonmatch2);
+				$this->process_nonmatches($output, $nonmatch1, $nonmatch2, $data_old_key, $data_new_key);
 				array_unshift($match, $this->data_old[$data_old_key]);
 
 				$data_old_key--;
@@ -203,7 +213,7 @@ class vB_Text_Diff
 			}
 			else if ($above_row[$data_new_key] > $this_row[$data_new_key - 1])
 			{
-				$this->process_matches($output, $match);
+				$this->process_matches($output, $match, $data_old_key, $data_new_key);
 				array_unshift($nonmatch1, $this->data_old[$data_old_key]);
 
 				$data_old_key--;
@@ -213,14 +223,14 @@ class vB_Text_Diff
 			}
 			else
 			{
-				$this->process_matches($output, $match);
+				$this->process_matches($output, $match, $data_old_key, $data_new_key);
 				array_unshift($nonmatch2, $this->data_new[$data_new_key]);
 
 				$data_new_key--;
 			}
 		}
 
-		$this->process_matches($output, $match);
+		$this->process_matches($output, $match, $data_old_key, $data_new_key);
 		if ($data_old_key > -1 OR $data_new_key > -1)
 		{
 			for (; $data_old_key > -1; $data_old_key--)
@@ -231,7 +241,8 @@ class vB_Text_Diff
 			{
 				array_unshift($nonmatch2, $this->data_new[$data_new_key]);
 			}
-			$this->process_nonmatches($output, $nonmatch1, $nonmatch2);
+
+			$this->process_nonmatches($output, $nonmatch1, $nonmatch2, $data_old_key, $data_new_key);
 		}
 
 		return $output;
@@ -240,15 +251,19 @@ class vB_Text_Diff
 	/**
 	* Processes an array of matching lines. Resets the $match array afterwards.
 	*
-	* @param	array	Array of vB_Text_Diff_Entry objects which will be returned by fetch_diff()
-	* @param	array	Array of text that matches between the two strings
+	* @param array $output						Array of vB_Text_Diff_Entry objects which will be returned by fetch_diff()
+	* @param array $match						Array of text that matches between the two strings
+	* @param integer $old_line					The start line of the old string
+	* @param integer $new_line					The start line of the new string
 	*/
-	function process_matches(&$output, &$match)
+	function process_matches(&$output, &$match, $old_start_line, $new_start_line)
 	{
 		if (sizeof($match) > 0)
 		{
-			$data = implode("\n", $match);
-			array_unshift($output, new vB_Text_Diff_Entry($data, $data));
+			$entry = new vB_Text_Diff_Entry($match, $match);
+			$entry->set_line_numbers($old_start_line, $new_start_line);
+
+			array_unshift($output, $entry);
 		}
 
 		$match = array();
@@ -257,29 +272,40 @@ class vB_Text_Diff
 	/**
 	* Processes an array of nonmatching lines. Resets text arrays afterwards.
 	*
-	* @param	array	Array of vB_Text_Diff_Entry objects which will be returned by fetch_diff()
-	* @param	array	Array of text from the old string which doesn't match the new string
-	* @param	array	Array of text from the new string which doesn't match the old string
+	* @param array $output						Array of vB_Text_Diff_Entry objects which will be returned by fetch_diff()
+	* @param array $text_old					Array of text from the old string which doesn't match the new string
+	* @param array $text_new					Array of text from the new string which doesn't match the old string
+	* @param int $old_line						The start line of the old string
+	* @param int $new_line						The start line of the new string
 	*/
-	function process_nonmatches(&$output, &$text_old, &$text_new)
+	function process_nonmatches(&$output, &$text_old, &$text_new, $old_start_line, $new_start_line)
 	{
 		$s1 = sizeof($text_old);
 		$s2 = sizeof($text_new);
 
+		$entry = false;
+
 		if ($s1 > 0 AND $s2 == 0)
 		{
 			// lines deleted
-			array_unshift($output, new vB_Text_Diff_Entry(implode("\n", $text_old), ''));
+			$entry = new vB_Text_Diff_Entry($text_old, array());
 		}
 		else if ($s2 > 0 AND $s1 == 0)
 		{
 			// lines added
-			array_unshift($output, new vB_Text_Diff_Entry('', implode("\n", $text_new)));
+			$entry = new vB_Text_Diff_Entry(array(), $text_new);
 		}
 		else if ($s1 > 0 AND $s2 > 0)
 		{
 			// substitution
-			array_unshift($output, new vB_Text_Diff_Entry(implode("\n", $text_old), implode("\n", $text_new)));
+			$entry = new vB_Text_Diff_Entry($text_old, $text_new);
+		}
+
+		if ($entry)
+		{
+			$entry->set_line_numbers($old_start_line, $new_start_line);
+
+			array_unshift($output, $entry);
 		}
 
 		$text_old = array();
@@ -292,8 +318,8 @@ class vB_Text_Diff
 * Can be a group of unchanged, added, deleted, or changed lines.
 *
 * @package 		vBulletin
-* @version		$Revision: 13326 $
-* @date 		$Date: 2005-09-25 19:12:35 -0500 (Sun, 25 Sep 2005) $
+* @version		$Revision: 39862 $
+* @date 		$Date: 2010-10-18 18:16:44 -0700 (Mon, 18 Oct 2010) $
 *
 */
 class vB_Text_Diff_Entry
@@ -313,6 +339,41 @@ class vB_Text_Diff_Entry
 	var $data_new = '';
 
 	/**
+	 * The size of the diff
+	 *
+	 * @var integer
+	 */
+	var $size = 0;
+
+	/**
+	 * The first line index of the old data
+	 *
+	 * @var integer
+	 */
+	var $old_start_line;
+
+	/**
+	 * The first line index of the new data
+	 *
+	 * @var integer
+	 */
+	var $new_start_line;
+
+	/**
+	 * Representative name of the diff state of the old data, relative to the new.
+	 *
+	 * @var string
+	 */
+	var $old_class;
+
+	/**
+	 * Representative name of the diff state of the new data, relative to the old.
+	 *
+	 * @var string
+	 */
+	var $new_class;
+
+	/**
 	* Constructor. Sets up data.
 	*
 	* @param	string	Text from the old string
@@ -322,26 +383,54 @@ class vB_Text_Diff_Entry
 	{
 		$this->data_old = $data_old;
 		$this->data_new = $data_new;
+		$this->size = max(sizeof($data_old), sizeof($data_new));
+
+		$this->old_class = $this->fetch_data_old_class();
+		$this->new_class = $this->fetch_data_new_class();
+	}
+
+	function set_line_numbers($old_start_line, $new_start_line)
+	{
+		$this->old_start_line = intval($old_start_line);
+		$this->new_start_line = intval($new_start_line);
 	}
 
 	/**
 	* Fetches data from the old string
 	*
-	* @return	string
+	* @return array
 	*/
 	function fetch_data_old()
 	{
-		return $this->data_old;
+		return $this->prep_data($this->data_old, $this->old_start_line);
 	}
 
 	/**
-	* Fetches data from the new string
-	*
-	* @return	string
-	*/
+	 * Fetches data from new string
+	 *
+	 * @return array
+	 */
 	function fetch_data_new()
 	{
-		return $this->data_new;
+		return $this->prep_data($this->data_new, $this->new_start_line);
+	}
+
+	function prep_data($data, $start_line)
+	{
+		$start_line = $start_line ? $start_line : 1;
+
+		// Reindex data array with the specific line numbers
+		$prep = array();
+
+		if (is_array($data))
+		{
+			foreach ($data AS $line)
+			{
+				$prep[++$start_line] = $line;
+			}
+		}
+
+		return $prep;
 	}
 
 	/**
@@ -359,7 +448,7 @@ class vB_Text_Diff_Entry
 		{
 			return 'deleted';
 		}
-		else if (trim($this->data_old) === '')
+		else if (trim(implode('', $this->data_old)) === '')
 		{
 			return 'notext';
 		}
@@ -384,7 +473,7 @@ class vB_Text_Diff_Entry
 		{
 			return 'added';
 		}
-		else if (trim($this->data_new) === '')
+		else if (trim(implode('', $this->data_new)) === '')
 		{
 			return 'notext';
 		}
@@ -428,8 +517,8 @@ class vB_Text_Diff_Entry
 
 /*======================================================================*\
 || ####################################################################
-|| # Downloaded: 16:21, Sat Apr 6th 2013
-|| # CVS: $RCSfile$ - $Revision: 13326 $
+|| # Downloaded: 20:50, Sun Aug 11th 2013
+|| # CVS: $RCSfile$ - $Revision: 39862 $
 || ####################################################################
 \*======================================================================*/
 ?>

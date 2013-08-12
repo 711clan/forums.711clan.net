@@ -1,14 +1,21 @@
 <?php
 /*======================================================================*\
 || #################################################################### ||
-|| # vBulletin 3.7.2 Patch Level 2 - Licence Number VBF2470E4F
+|| # vBulletin 3.8.7 Patch Level 3 - Licence Number VBC2DDE4FB
 || # ---------------------------------------------------------------- # ||
-|| # Copyright ©2000-2013 Jelsoft Enterprises Ltd. All Rights Reserved. ||
+|| # Copyright ©2000-2013 vBulletin Solutions, Inc. All Rights Reserved. ||
 || # This file may not be redistributed in whole or significant part. # ||
 || # ---------------- VBULLETIN IS NOT FREE SOFTWARE ---------------- # ||
 || # http://www.vbulletin.com | http://www.vbulletin.com/license.html # ||
 || #################################################################### ||
 \*======================================================================*/
+
+global 	$_CALENDAROPTIONS,
+		$_CALENDARHOLIDAYS,
+		$months,
+		$days,
+		$period,
+		$reminder;
 
 // Defined constants used for calendars
 $_CALENDAROPTIONS = array(
@@ -1659,6 +1666,17 @@ function build_events()
 	// check if we have at least one calendar with holidays enabled
 	if ($vbulletin->options['showholidays'])
 	{
+		$holiday_calendarids = array();
+		$holiday_calendars = $vbulletin->db->query_read_slave("
+			SELECT calendarid
+			FROM " . TABLE_PREFIX . "calendar
+			WHERE options & " . intval($_CALENDAROPTIONS['showholidays'])
+		);
+		while ($holiday_calendar = $vbulletin->db->fetch_array($holiday_calendars))
+		{
+			$holiday_calendarids[] = $holiday_calendar['calendarid'];
+		}
+
 		$holidays = $vbulletin->db->query_read_slave("
 			SELECT *
 			FROM " . TABLE_PREFIX . "holiday
@@ -1669,6 +1687,7 @@ function build_events()
 			$holiday['dateline_to'] = $endday;
 			$holiday['visible'] = 1;
 			$holiday['eventid'] = 'h' . $holiday['holidayid'];
+			$holiday['holiday_calendarids'] = $holiday_calendarids;
 			$storeevents["$holiday[eventid]"] = $holiday;
 		}
 	}
@@ -1698,8 +1717,8 @@ function build_events()
 
 /*======================================================================*\
 || ####################################################################
-|| # Downloaded: 16:21, Sat Apr 6th 2013
-|| # CVS: $RCSfile$ - $Revision: 26274 $
+|| # Downloaded: 20:50, Sun Aug 11th 2013
+|| # CVS: $RCSfile$ - $Revision: 39862 $
 || ####################################################################
 \*======================================================================*/
 ?>

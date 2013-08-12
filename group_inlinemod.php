@@ -1,9 +1,9 @@
 <?php
 /*======================================================================*\
 || #################################################################### ||
-|| # vBulletin 3.7.2 Patch Level 2 - Licence Number VBF2470E4F
+|| # vBulletin 3.8.7 Patch Level 3 - Licence Number VBC2DDE4FB
 || # ---------------------------------------------------------------- # ||
-|| # Copyright ©2000-2013 Jelsoft Enterprises Ltd. All Rights Reserved. ||
+|| # Copyright ©2000-2013 vBulletin Solutions, Inc. All Rights Reserved. ||
 || # This file may not be redistributed in whole or significant part. # ||
 || # ---------------- VBULLETIN IS NOT FREE SOFTWARE ---------------- # ||
 || # http://www.vbulletin.com | http://www.vbulletin.com/license.html # ||
@@ -11,7 +11,7 @@
 \*======================================================================*/
 
 // ####################### SET PHP ENVIRONMENT ###########################
-error_reporting(E_ALL & ~E_NOTICE);
+error_reporting(E_ALL & ~E_NOTICE & ~8192);
 
 // #################### DEFINE IMPORTANT CONSTANTS #######################
 if ($_REQUEST['do'] == 'inlinemerge' OR $_POST['do'] == 'doinlinemerge')
@@ -46,6 +46,12 @@ require_once(DIR . '/includes/functions_log_error.php');
 // ######################## START MAIN SCRIPT ############################
 // #######################################################################
 
+if (($current_memory_limit = ini_size_to_bytes(@ini_get('memory_limit'))) < 128 * 1024 * 1024 AND $current_memory_limit > 0)
+{
+	@ini_set('memory_limit', 128 * 1024 * 1024);
+}
+@set_time_limit(0);
+
 if (!$vbulletin->userinfo['userid'] OR !$vbulletin->options['socnet_groups_msg_enabled'])
 {
 	print_no_permission();
@@ -55,20 +61,29 @@ $itemlimit = 200;
 
 // This is a list of ids that were checked on the page we submitted from
 $vbulletin->input->clean_array_gpc('p', array(
-	'gmessagelist' => TYPE_ARRAY_KEYS_INT,
-	'userid'       => TYPE_UINT,
+	'userid'                    => TYPE_UINT,
+	'inline_discussion'         => TYPE_BOOL
+));
+
+// Whether we are inlining from the discussion view.  Used for aesthetics.
+$inline_discussion = $vbulletin->GPC['inline_discussion'];
+$inline_cookie = ($inline_discussion ? 'vbulletin_inlinegdiscussion' : 'vbulletin_inlinegmessage');
+$messagelist = ($inline_discussion ? 'gdiscussionlist' : 'gmessagelist');
+
+$vbulletin->input->clean_array_gpc('p', array(
+	$messagelist               => TYPE_ARRAY_KEYS_INT
 ));
 
 $vbulletin->input->clean_array_gpc('c', array(
-	'vbulletin_inlinegmessage' => TYPE_STR,
+	$inline_cookie => TYPE_STR,
 ));
 
-if (!empty($vbulletin->GPC['vbulletin_inlinegmessage']))
+if (!empty($vbulletin->GPC["$inline_cookie"]))
 {
-	$gmessagelist = explode('-', $vbulletin->GPC['vbulletin_inlinegmessage']);
+	$gmessagelist = explode('-', $vbulletin->GPC["$inline_cookie"]);
 	$gmessagelist = $vbulletin->input->clean($gmessagelist, TYPE_ARRAY_UINT);
 
-	$vbulletin->GPC['gmessagelist'] = array_unique(array_merge($gmessagelist, $vbulletin->GPC['gmessagelist']));
+	$vbulletin->GPC['gmessagelist'] = array_unique(array_merge($gmessagelist, $vbulletin->GPC["$messagelist"]));
 }
 
 if (!$vbulletin->userinfo['userid'])
@@ -104,12 +119,12 @@ switch ($_POST['do'])
 
 		if (empty($vbulletin->GPC['gmessagelist']))
 		{
-			standard_error(fetch_error('you_did_not_select_any_valid_messages'));
+			standard_error(fetch_error(($inline_discussion ? 'you_did_not_select_any_valid_discussions' : 'you_did_not_select_any_valid_messages')));
 		}
 
 		if (count($vbulletin->GPC['gmessagelist']) > $itemlimit)
 		{
-			standard_error(fetch_error('you_are_limited_to_working_with_x_messages', $itemlimit));
+			standard_error(fetch_error(($inline_discussion ? 'you_are_limited_to_working_with_x_discussions' : 'you_are_limited_to_working_with_x_messages'), $itemlimit));
 		}
 
 		if ($vbulletin->GPC['userid'])
@@ -117,7 +132,7 @@ switch ($_POST['do'])
 			$userinfo = fetch_userinfo($vbulletin->GPC['userid'], 1);
 		}
 
-		$messageids = implode(', ', $vbulletin->GPC['gmessagelist']);
+		$messageids = $vbulletin->GPC['gmessagelist'];
 		break;
 
 	case 'doinlinedelete':
@@ -138,17 +153,19 @@ switch ($_POST['do'])
 // set forceredirect for IIS
 $forceredirect = (strpos($_SERVER['SERVER_SOFTWARE'], 'Microsoft-IIS') !== false);
 
-$messagelist = $messagearray = $userlist = array();
+$messagelist = $messagearray = $discussionarray = $userlist = $discussionlist = $grouplist = $ownerlist = array();
 
 ($hook = vBulletinHook::fetch_hook('group_inlinemod_start')) ? eval($hook) : false;
 
+// #######################################################################
 if ($_POST['do'] == 'clearmessage')
 {
-	setcookie('vbulletin_inlinegmessage', '', TIMENOW - 3600, '/');
+	setcookie($inline_cookie, '', TIMENOW - 3600, '/');
 
 	eval(print_standard_redirect('redirect_inline_messagelist_cleared', true, $forceredirect));
 }
 
+// #######################################################################
 if ($_POST['do'] == 'inlineapprove' OR $_POST['do'] == 'inlineunapprove')
 {
 	$insertrecords = array();
@@ -156,53 +173,97 @@ if ($_POST['do'] == 'inlineapprove' OR $_POST['do'] == 'inlineunapprove')
 	$approve = $_POST['do'] == 'inlineapprove' ? true : false;
 
 	// Validate records
-	$messages = $db->query_read_slave("
-		SELECT gm.gmid, gm.state, gm.groupid, gm.dateline, gm.postuserid, gm.postusername
-		FROM " . TABLE_PREFIX . "groupmessage AS gm
-		WHERE gmid IN ($messageids)
-		 AND gm.state IN (" . ($approve ? "'moderation'" : "'visible', 'deleted'") . ")
-	");
-	while ($message = $db->fetch_array($messages))
+	$messages = ($inline_discussion ? ($approve ? verify_discussions($messageids, false, true, false)
+												: verify_discussions($messageids, true, false, true))
+									: ($approve ? verify_messages($messageids, false, true, false)
+												: verify_messages($messageids, true, false, true)));
+
+	if ($messages)
 	{
-		$group = fetch_socialgroupinfo($message['groupid']);
-		// Check permissions.....
-		if ($message['state'] == 'deleted' AND !fetch_socialgroup_modperm('canundeletegroupmessages', $group))
+		while ($messages AND ($message = $db->fetch_array($messages)))
 		{
-			standard_error(fetch_error('you_do_not_have_permission_to_manage_deleted_messages'));
-		}
-		else if (!fetch_socialgroup_modperm('canmoderategroupmessages', $group))
-		{
-			standard_error(fetch_error('you_do_not_have_permission_to_moderate_messages'));
-		}
+			$discussion = fetch_socialdiscussioninfo($message['discussionid']);
+			$group = fetch_socialgroupinfo($discussion['groupid']);
+			$discussion['is_group_owner'] = $message['is_group_owner'] = ($group['creatoruserid'] == $vbulletin->userinfo['userid']);
 
-		$message['group_name'] = $group['name'];
+			// whether the message is a discussion
+			$is_discussion = ($message['gmid'] == $discussion['firstpostid']);
 
-		$messagearray["$message[gmid]"] = $message;
-		$grouplist["$message[groupid]"] = true;
+			// if moderating from discussions there should not be any non discussion messages
+			if ($inline_discussion AND !$is_discussion)
+			{
+				continue;
+			}
 
-		if (!$approve)
-		{
-			$insertrecords[] = "($message[gmid], 'groupmessage', " . TIMENOW . ")";
+			// check permissions
+			if ($is_discussion)
+			{
+				if (!fetch_socialgroup_modperm('canmoderatediscussions', $group))
+				{
+					standard_error(fetch_error('you_do_not_have_permission_to_moderate_discussions'));
+				}
+				else if ($message['state'] == 'deleted' AND !fetch_socialgroup_modperm('canundeletediscussions', $group))
+				{
+					standard_error(fetch_error('you_do_not_have_permission_to_manage_deleted_discussions'));
+				}
+			}
+			else
+			{
+				if (!fetch_socialgroup_modperm('canmoderategroupmessages', $group))
+				{
+					standard_error(fetch_error('you_do_not_have_permission_to_moderate_messages'));
+				}
+				else if ($message['state'] == 'deleted' AND !fetch_socialgroup_modperm('canundeletegroupmessages', $group))
+				{
+					standard_error(fetch_error('you_do_not_have_permission_to_manage_deleted_messages'));
+				}
+			}
+
+			if ($is_discussion)
+			{
+				$discussion['group_name'] = $group['name'];
+				$discussion['is_group_owner'] = $group['is_owner'];
+				$discussionarray["$message[gmid]"] = $discussion;
+			}
+			else
+			{
+				$message['group_name'] = $group['name'];
+				$message['discussion_name'] = $discussion['title'];
+				$message['is_group_owner'] = $group['is_owner'];
+				$messagearray["$message[gmid]"] = $message;
+			}
+
+			$discussionlist["$message[discussionid]"] = true;
+			$grouplist["$discussion[groupid]"] = true;
+			$ownerlist["$group[creatoruserid]"] = true;
+
+			if (!$approve)
+			{
+				$type = ($is_discussion) ? 'groupdiscussion' : 'groupmessage';
+				$insertrecords[] = "($message[gmid], '$type', " . TIMENOW . ")";
+			}
 		}
 	}
 
-	if (empty($messagearray))
+	if (empty($messagearray) AND empty($discussionarray))
 	{
 		standard_error(fetch_error('you_did_not_select_any_valid_messages'));
 	}
+
+	$itemkeys = array_merge(array_keys($messagearray), array_keys($discussionarray));
 
 	// Set message state
 	$db->query_write("
 		UPDATE " . TABLE_PREFIX . "groupmessage
 		SET state = '" . ($approve ? 'visible' : 'moderation') . "'
-		WHERE gmid IN (" . implode(',', array_keys($messagearray)) . ")
+		WHERE gmid IN (" . implode(',', $itemkeys) . ")
 	");
 
 	if ($approve)
 	{
 		$db->query_write("
 			DELETE FROM " . TABLE_PREFIX . "moderation
-			WHERE primaryid IN(" . implode(',', array_keys($messagearray)) . ")
+			WHERE primaryid IN(" . implode(',', $itemkeys) . ")
 				AND type = 'groupmessage'
 		");
 	}
@@ -218,89 +279,165 @@ if ($_POST['do'] == 'inlineapprove' OR $_POST['do'] == 'inlineunapprove')
 		$db->query_write("
 			DELETE FROM " . TABLE_PREFIX . "deletionlog
 			WHERE type = 'groupmessage' AND
-				primaryid IN(" . implode(',', array_keys($messagearray)) . ")
+				primaryid IN(" . implode(',', $itemkeys) . ")
 		");
 	}
 
-	foreach($grouplist AS $groupid => $foo)
+	// build discussion counters seperately from groups so we don't rebuild groups for every discussion
+	foreach (array_keys($discussionlist) AS $discussionid)
+	{
+		build_discussion_counters($discussionid);
+	}
+
+	// group counters are only built from current discussion counters
+	foreach (array_keys($grouplist) AS $groupid)
 	{
 		build_group_counters($groupid);
 	}
 
-	foreach ($messagearray AS $message)
+	// update owner moderation count
+	foreach (array_keys($ownerlist) AS $owner)
 	{
-		log_moderator_action($message,
-			($approve ? 'gm_by_x_for_y_approved' : 'gm_by_x_for_y_unapproved'),
-			array($message['postusername'], $message['group_name'])
-		);
+		update_owner_pending_gm_count($owner);
 	}
 
-	setcookie('vbulletin_inlinegmessage', '', TIMENOW - 3600, '/');
+	foreach ($messagearray AS $message)
+	{
+		if (!$message['is_group_owner'])
+		{
+			log_moderator_action($message,
+				($approve ? 'gm_by_x_in_y_for_z_approved' : 'gm_by_x_in_y_for_z_unapproved'),
+				array($message['postusername'], $message['discussion_name'], $message['group_name'])
+			);
+		}
+	}
+
+	foreach ($discussionarray AS $discussion)
+	{
+		if (!$discussion['is_group_owner'])
+		{
+			log_moderator_action($message,
+				($approve ? 'discussion_by_x_for_y_approved' : 'discussion_by_x_for_y_unapproved'),
+				array($discussion['postusername'], $discussion['group_name'])
+			);
+		}
+	}
+
+	setcookie($inline_cookie, '', TIMENOW - 3600, '/');
 
 	($hook = vBulletinHook::fetch_hook('group_inlinemod_approveunapprove')) ? eval($hook) : false;
 
-	if ($approve)
+	if ($inline_discussion)
 	{
-		eval(print_standard_redirect('redirect_inline_approvedmessages', true, $forceredirect));
-	}
-	else
-	{
-		eval(print_standard_redirect('redirect_inline_unapprovedmessages', true, $forceredirect));
-	}
-}
-
-if ($_POST['do'] == 'inlinedelete')
-{
-	$show['removemessagets'] = false;
-	$show['deletemessages'] = false;
-	$show['deleteoption'] = false;
-	$checked = array('delete' => 'checked="checked"');
-
-	// Validate Messages
-	$messages = $db->query_read_slave("
-		SELECT gm.gmid, gm.state, gm.groupid, gm.dateline, gm.postuserid
-		FROM " . TABLE_PREFIX . "groupmessage AS gm
-		WHERE gmid IN ($messageids)
-	");
-	while ($message = $db->fetch_array($messages))
-	{
-		$group = fetch_socialgroupinfo($message['groupid']);
-		$canmoderatemessages = fetch_socialgroup_modperm('canmoderategroupmessages', $group);
-		$candeletemessages = (fetch_socialgroup_modperm('candeletegroupmessages', $group) OR ($message['state'] == 'visible' AND $message['postuserid'] == $vbulletin->userinfo['userid'] AND $vbulletin->userinfo['permissions']['socialgrouppermissions'] & $vbulletin->bf_ugp_socialgrouppermissions['canmanagemessages']));
-		$canremovemessages = fetch_socialgroup_modperm('canremovegroupmessages', $group);
-
-		if ($message['state'] == 'moderation' AND !$canmoderatemessages)
+		if ($approve)
 		{
-			standard_error(fetch_error('you_do_not_have_permission_to_manage_moderated_messages'));
-		}
-		else if ($message['state'] == 'deleted' AND !$candeletemessages)
-		{
-			standard_error(fetch_error('you_do_not_have_permission_to_manage_deleted_messages'));
+			eval(print_standard_redirect('redirect_inline_approveddiscussions', true, $forceredirect));
 		}
 		else
 		{
-			$show['deletemessages'] = $candeletemessages;
-			if ($canremovemessages)
+			eval(print_standard_redirect('redirect_inline_unapproveddiscussions', true, $forceredirect));
+		}
+	}
+	else
+	{
+		if ($approve)
+		{
+			eval(print_standard_redirect('redirect_inline_approvedmessages', true, $forceredirect));
+		}
+		else
+		{
+			eval(print_standard_redirect('redirect_inline_unapprovedmessages', true, $forceredirect));
+		}
+	}
+}
+
+// #######################################################################
+if ($_POST['do'] == 'inlinedelete')
+{
+	$checked = array('delete' => 'checked="checked"');
+
+	// Validate Messages
+	$messages = ($inline_discussion ? verify_discussions($messageids, true, true, true)
+									: verify_messages($messageids, true, true, true));
+
+	$canremovemessages = $candeletemessages = false;
+
+	if ($messages)
+	{
+		// Find which delete options are available to the user
+		while ($messages AND ($message = $db->fetch_array($messages)))
+		{
+			$discussion = fetch_socialdiscussioninfo($message['discussionid']);
+			$group = fetch_socialgroupinfo($discussion['groupid']);
+
+			if ($inline_discussion AND ($message['gmid'] != $discussion['firstpostid']))
 			{
-				$show['removemessages'] = true;
-				if (!$candeletemessages)
+				// if inlining discussions, don't need to validate messages that are not first posts
+				continue;
+			}
+
+			// check if message is first post of a discussion
+			if (($message['gmid'] == $discussion['firstpostid']))
+			{
+				if ($message['state'] == 'moderation' AND !fetch_socialgroup_modperm('canmoderatediscussions', $group))
 				{
-					$checked = array('remove' => 'checked="checked"');
+					standard_error(fetch_error('you_do_not_have_permission_to_manage_moderated_discussions'));
+				}
+				else if ($message['state'] == 'deleted' AND !fetch_socialgroup_modperm('canundeletediscussions', $group))
+				{
+					standard_error(fetch_error('you_do_not_have_permission_to_manage_deleted_discussions'));
+				}
+
+				$canremovemessage = fetch_socialgroup_modperm('canremovediscussions', $group);
+				$canremovemessages = ($canremovemessages OR $canremovemessage);
+				$candeletemessage = (fetch_socialgroup_modperm('candeletediscussions', $group) OR ($message['state'] == 'visible' AND $message['postuserid'] == $vbulletin->userinfo['userid'] AND (fetch_socialgroup_perm('canmanagediscussions') OR (fetch_socialgroup_perm('canmanagemessages') AND $discussion['visible'] <= 1))));
+				$candeletemessages = ($candeletemessages OR $candeletemessage);
+
+				if (!$candeletemessage AND !$canremovemessage)
+				{
+					standard_error(fetch_error('you_do_not_have_permission_to_delete_selected_discussions'));
+				}
+
+				$discussion_selected = true;
+				$discussionarray["$message[discussionid]"] = true;
+			}
+			else
+			{
+				if ($message['state'] == 'moderation' AND !fetch_socialgroup_modperm('canmoderategroupmessages', $group))
+				{
+					standard_error(fetch_error('you_do_not_have_permission_to_manage_moderated_messages'));
+				}
+				else if ($message['state'] == 'deleted' AND !fetch_socialgroup_modperm('canundeletegroupmessages', $group))
+				{
+					standard_error(fetch_error('you_do_not_have_permission_to_manage_deleted_messages'));
+				}
+
+				// accumulate applicable delete options for all messages
+				$canremovemessage = fetch_socialgroup_modperm('canremovegroupmessages', $group);
+				$canremovemessages = ($canremovemessages OR $canremovemessage);
+				$candeletemessage = (fetch_socialgroup_modperm('candeletegroupmessages', $group) OR ($message['state'] == 'visible' AND $message['postuserid'] == $vbulletin->userinfo['userid'] AND fetch_socialgroup_perm('canmanagemessages')));
+				$candeletemessages = ($candeletemessages OR $candeletemessage);
+
+				if (!$candeletemessage AND !$canremovemessage)
+				{
+					standard_error(fetch_error('you_do_not_have_permission_to_delete_selected_messages'));
 				}
 			}
 
-			if (!$candeletemessages AND !$canremovemessages)
-			{
-				standard_error(fetch_error('you_do_not_have_permission_to_delete_messages'));
-			}
-			else if ($candeletemessages AND $canremovemessages)
-			{
-				$show['deleteoption'] = true;
-			}
+			$messagearray["$message[gmid]"] = $message;
+			$discussionlist["$message[discussionid]"] = true;
+			$grouplist["$discussion[groupid]"] = true;
 		}
+	}
 
-		$messagearray["$message[gmid]"] = $message;
-		$grouplist["$message[groupid]"] = true;
+	// Check appropriate default
+	if (!$candeletemessages)
+	{
+		$checked['remove'] = 'checked="checked"';
+	}
+	else
+	{
+		$checked['delete'] = 'checked="checked"';
 	}
 
 	if (empty($messagearray))
@@ -309,23 +446,40 @@ if ($_POST['do'] == 'inlinedelete')
 	}
 
 	$messagecount = count($messagearray);
+	$discussioncount = count($discussionlist);
 	$groupcount = count($grouplist);
 
-	$url =& $vbulletin->url;
+	// implode messageids to pass in form
+	$messageids = implode(',', $messageids);
 
-	$navbits = array('' => $vbphrase['delete_messages']);
+	// after delete, redirect to group if current discussion will be deleted
+	if (!$inline_discussion AND $discussion_selected)
+	{
+		$vbulletin->input->clean_array_gpc('r', array(
+			'discussionid'              => TYPE_UINT,
+			'groupid'                     => TYPE_UINT
+		));
+
+		if (isset($discussionarray[$vbulletin->GPC['discussionid']]))
+		{
+			$vbulletin->url = 'group.php?' . $vbulletin->session->vars['sessionurl'] . "groupid=" . $vbulletin->GPC['groupid'];
+		}
+	}
+
+	$url = $vbulletin->url;
+
+	$navbits = array('' => ($inline_discussion ? $vbphrase['delete_discussions'] : $vbphrase['delete_messages']));
 	$navbits = construct_navbits($navbits);
 	eval('$navbar = "' . fetch_template('navbar') . '";');
 
 	($hook = vBulletinHook::fetch_hook('group_inlinemod_delete')) ? eval($hook) : false;
 
 	eval('print_output("' . fetch_template('socialgroups_deletemessages') . '");');
-
 }
 
+// #######################################################################
 if ($_POST['do'] == 'doinlinedelete')
 {
-
 	$vbulletin->input->clean_array_gpc('p', array(
 		'deletetype'   => TYPE_UINT, // 1 - Soft Deletion, 2 - Physically Remove
 		'deletereason' => TYPE_NOHTMLCOND,
@@ -334,46 +488,117 @@ if ($_POST['do'] == 'doinlinedelete')
 	$physicaldel = ($vbulletin->GPC['deletetype'] == 2) ? true : false;
 
 	// Validate Messages
-	$messages = $db->query_read_slave("
-		SELECT gm.gmid, gm.state, gm.groupid, gm.dateline, gm.postuserid, gm.postusername
-		FROM " . TABLE_PREFIX . "groupmessage AS gm
-		WHERE gmid IN (" . implode(',', $messageids) . ")
-	");
-	while ($message = $db->fetch_array($messages))
+	$messages = ($inline_discussion ? verify_discussions($messageids, true, true, true)
+									: verify_messages($messageids, true, true, true));
+
+	if ($messages)
 	{
-		$group = fetch_socialgroupinfo($message['groupid']);
+		while ($message = $db->fetch_array($messages))
+		{
+			$discussion = fetch_socialdiscussioninfo($message['discussionid']);
+			$group = fetch_socialgroupinfo($discussion['groupid']);
+			$discussion['is_group_owner'] = $message['is_group_owner'] = $group['is_owner'];
 
-		$canmoderatemessages = fetch_socialgroup_modperm('canmoderategroupmessages', $group);
-		$candeletemessages = (fetch_socialgroup_modperm('candeletegroupmessages', $group) OR ($message['state'] == 'visible' AND $message['postuserid'] == $vbulletin->userinfo['userid'] AND $vbulletin->userinfo['permissions']['socialgrouppermissions'] & $vbulletin->bf_ugp_socialgrouppermissions['canmanagemessages']));
-		$canremovemessages = can_moderate(0, 'canremovegroupmessages');
-
-		if ($message['state'] == 'moderation' AND !$canmoderatemessages)
-		{
-			standard_error(fetch_error('you_do_not_have_permission_to_manage_moderated_messages'));
-		}
-		else if ($message['state'] == 'deleted' AND !$candeletemessages)
-		{
-			standard_error(fetch_error('you_do_not_have_permission_to_manage_deleted_messages'));
-		}
-		else
-		{
-			if (($physicaldel AND !$canremovemessages) OR (!$physicaldel AND !$candeletemessages))
+			// don't delete message if it's part of a discussion being hard deleted
+			if (isset($discussionarray["$discussion[discussionid]"]))
 			{
-				standard_error(fetch_error('you_do_not_have_permission_to_delete_messages'));
+				continue;
 			}
+
+			// if moderating discussions don't delete messages that are not first posts
+			if ($inline_discussion AND $message['gmid'] != $discussion['firstpostid'])
+			{
+				continue;
+			}
+
+			if (($message['gmid'] == $discussion['firstpostid']))
+			{
+				if ($message['state'] == 'moderation')
+				{
+					if (!fetch_socialgroup_modperm('canmoderatediscussions', $group))
+					{
+						standard_error(fetch_error('you_do_not_have_permission_to_manage_moderated_discussions'));
+					}
+				}
+
+				if ($physicaldel)
+				{
+					if (!can_moderate(0, 'canremovediscussions'))
+					{
+						standard_error(fetch_error('you_do_not_have_permission_to_hard_delete_discussions'));
+					}
+
+					$discussion['group_name'] = $group['name'];
+					$discussionarray["$discussion[discussionid]"] = $discussion;
+					$grouplist["$discussion[groupid]"] = true;
+					continue;
+				}
+				else
+				{
+					$candeletemessage = (
+						fetch_socialgroup_modperm('candeletediscussions', $group)
+						OR (
+							$message['state'] == 'visible'
+							AND $message['postuserid'] == $vbulletin->userinfo['userid']
+							AND fetch_socialgroup_perm('canmanagemessages')
+						)
+					);
+
+					if (!$candeletemessage)
+					{
+						standard_error(fetch_error('you_do_not_have_permission_to_soft_delete_discussions'));
+					}
+				}
+			}
+			else
+			{
+				if ($message['state'] == 'moderation' AND !fetch_socialgroup_modperm('canmoderategroupmessages', $group))
+				{
+					standard_error(fetch_error('you_do_not_have_permission_to_manage_moderated_messages'));
+				}
+
+				if ($physicaldel AND !can_moderate(0, 'canremovegroupmessages'))
+				{
+					standard_error(fetch_error('you_do_not_have_permission_to_hard_delete_messages'));
+				}
+
+				// check user has permission to delete the message
+				$candeletemessage = (fetch_socialgroup_modperm('candeletegroupmessages', $group) OR ($message['state'] == 'visible' AND $message['postuserid'] == $vbulletin->userinfo['userid'] AND fetch_socialgroup_perm('canmanagemessages')));
+
+				if (!$candeletemessage)
+				{
+					standard_error(fetch_error('you_do_not_have_permission_to_soft_delete_messages'));
+				}
+			}
+
+			$message['group_name'] = $group['name'];
+			$message['discussion_name'] = $discussion['title'];
+
+			$messagearray["$message[gmid]"] = $message;
+			$discussionlist["$message[discussionid]"] = true;
+			$grouplist["$discussion[groupid]"] = true;
+			$ownerlist["$group[creatoruserid]"] = true;
 		}
-
-		$message['group_name'] = $group['name'];
-
-		$messagearray["$message[gmid]"] = $message;
-		$grouplist["$message[groupid]"] = true;
 	}
 
-	if (empty($messagearray))
+	// Skip messages that are in discussions that will be hard deleted
+	if (sizeof($discussionarray))
+	{
+		foreach($messagearray as $gmid => $message)
+		{
+			if (isset($discussionarray["$message[discussion]"]))
+			{
+				unset($messagearray["$gmid"]);
+			}
+		}
+	}
+
+	if (empty($messagearray) AND empty($discussionarray))
 	{
 		standard_error(fetch_error('you_did_not_select_any_valid_messages'));
 	}
 
+	// Delete messages
 	foreach($messagearray AS $gmid => $message)
 	{
 		$dataman =& datamanager_init('GroupMessage', $vbulletin, ERRTYPE_SILENT);
@@ -385,46 +610,111 @@ if ($_POST['do'] == 'doinlinedelete')
 		unset($dataman);
 	}
 
-	foreach($grouplist AS $groupid => $foo)
+	// Delete discussions
+	foreach($discussionarray AS $discussionid => $discussion)
+	{
+		$dataman =& datamanager_init('Discussion', $vbulletin, ERRTYPE_SILENT);
+		$dataman->set_existing($discussion);
+		$dataman->set_info('hard_delete', $physicaldel);
+		$dataman->set_info('reason', $vbulletin->GPC['deletereason']);
+		$dataman->set_info('skip_build_counters', true);
+		$dataman->delete();
+		unset($dataman);
+	}
+
+	// build discussion counters seperately from groups so we don't rebuild groups for every discussion
+	foreach(array_keys($discussionlist) AS $discussionid)
+	{
+		if (!isset($discussionarray["$discussionid"]))
+		{
+			build_discussion_counters($discussionid);
+		}
+	}
+
+	// group counters are only built from current discussion counters
+	foreach(array_keys($grouplist) AS $groupid)
 	{
 		build_group_counters($groupid);
 	}
 
+	// update owner moderation count
+	foreach (array_keys($ownerlist) AS $owner)
+	{
+		update_owner_pending_gm_count($owner);
+	}
+
+	foreach($discussionarray AS $discussion)
+	{
+		if (!$discussion['is_group_owner'])
+		{
+			log_moderator_action($discussion,
+				($physicaldel ? 'discussion_by_x_for_y_removed' : 'discussion_by_x_for_y_soft_deleted'),
+				array($discussion['postusername'], $discussion['group_name'])
+			);
+		}
+	}
+
 	foreach ($messagearray AS $message)
 	{
-		log_moderator_action($message,
-			($physicaldel ? 'gm_by_x_for_y_removed' : 'gm_by_x_for_y_soft_deleted'),
-			array($message['postusername'], $message['group_name'])
-		);
+		if (!$message['is_group_owner'])
+		{
+			log_moderator_action($message,
+				($physicaldel ? 'gm_by_x_in_y_for_z_removed' : 'gm_by_x_in_y_for_z_soft_deleted'),
+				array($message['postusername'], $message['discussion_name'], $message['group_name'])
+			);
+		}
 	}
 
 	// empty cookie
-	setcookie('vbulletin_inlinegmessage', '', TIMENOW - 3600, '/');
+	setcookie($inline_cookie, '', TIMENOW - 3600, '/');
 
 	($hook = vBulletinHook::fetch_hook('group_inlinemod_dodelete')) ? eval($hook) : false;
 
-	eval(print_standard_redirect('redirect_inline_deletedmessages', true, $forceredirect));
+	$redirect_message = ($inline_discussion ? 'redirect_inline_deleteddiscussions' : 'redirect_inline_deletedmessages');
+	eval(print_standard_redirect($redirect_message, true, $forceredirect));
 }
 
+// #######################################################################
 if ($_POST['do'] == 'inlineundelete')
 {
-	if (!can_moderate(0, 'candeletegroupmessages'))
-	{
-		standard_error(fetch_error('you_do_not_have_permission_to_manage_deleted_messages'));
-	}
 	// Validate Messages
-	$messages = $db->query_read_slave("
-		SELECT gm.gmid, gm.state, gm.groupid, gm.dateline, gm.postuserid, gm.postusername,
-			socialgroup.name AS group_name
-		FROM " . TABLE_PREFIX . "groupmessage AS gm
-		LEFT JOIN " . TABLE_PREFIX . "socialgroup AS socialgroup ON (socialgroup.groupid = gm.groupid)
-		WHERE gmid IN ($messageids)
-			AND state = 'deleted'
-	");
-	while ($message = $db->fetch_array($messages))
+	$messages = ($inline_discussion ? verify_discussions($messageids, false, false, true)
+									: verify_messages($messageids, false, false, true));
+
+	if ($messages)
 	{
-		$messagearray["$message[gmid]"] = $message;
-		$grouplist["$message[groupid]"] = true;
+		while ($message = $db->fetch_array($messages))
+		{
+			$discussion = fetch_socialdiscussioninfo($message['discussionid']);
+			$group = fetch_socialgroupinfo($discussion['groupid']);
+			$message['is_group_owner'] = ($group['creatoruserid'] == $vbulletin->userinfo['userid']);
+
+			if ($message['gmid'] == $discussion['firstpostid'])
+			{
+				if (!fetch_socialgroup_modperm('canundeletediscussions'))
+				{
+					standard_error(fetch_error('you_do_not_have_permission_to_manage_deleted_discussions'));
+				}
+
+				$message['firstpost'] = true;
+			}
+			else
+			{
+				if (!fetch_socialgroup_modperm('canundeletegroupmessages', $group))
+				{
+					standard_error(fetch_error('you_do_not_have_permission_to_manage_deleted_messages'));
+				}
+
+				$message['firstpost'] = false;
+			}
+
+			$message['group_name'] = $group['name'];
+			$message['discussion_name'] = $discussion['title'];
+
+			$messagearray["$message[gmid]"] = $message;
+			$discussionlist["$discussion[discussionid]"] = true;
+			$grouplist["$group[groupid]"] = true;
+		}
 	}
 
 	if (empty($messagearray))
@@ -437,35 +727,60 @@ if ($_POST['do'] == 'inlineundelete')
 		WHERE type = 'groupmessage' AND
 			primaryid IN(" . implode(',', array_keys($messagearray)) . ")
 	");
+
 	$db->query_write("
 		UPDATE " . TABLE_PREFIX . "groupmessage
 		SET state = 'visible'
 		WHERE gmid IN(" . implode(',', array_keys($messagearray)) . ")
 	");
 
-	foreach($grouplist AS $groupid => $foo)
+	foreach(array_keys($discussionlist) AS $discussionid)
+	{
+		build_discussion_counters($discussionid);
+	}
+
+	foreach(array_keys($grouplist) AS $groupid)
 	{
 		build_group_counters($groupid);
 	}
 
 	foreach ($messagearray AS $message)
 	{
-		log_moderator_action($message, 'gm_by_x_for_y_undeleted',
-			array($message['postusername'], $message['group_name'])
-		);
+		if (!$message['is_group_owner'])
+		{
+			if ($message['firstpost'])
+			{
+				log_moderator_action($message, 'discussion_by_x_for_y_undeleted',
+					array($message['postusername'], $message['group_name'])
+				);
+			}
+			else
+			{
+				log_moderator_action($message, 'gm_by_x_in_y_for_z_undeleted',
+					array($message['postusername'], $message['discussion_name'], $message['group_name'])
+				);
+			}
+		}
 	}
 
 	// empty cookie
-	setcookie('vbulletin_inlinegmessage', '', TIMENOW - 3600, '/');
+	setcookie($inline_cookie, '', TIMENOW - 3600, '/');
 
 	($hook = vBulletinHook::fetch_hook('group_inlinemod_undelete')) ? eval($hook) : false;
 
-	eval(print_standard_redirect('redirect_inline_undeletedmessages', true, $forceredirect));
+	if ($inline_discussion)
+	{
+		eval(print_standard_redirect('redirect_inline_undeleteddiscussions', true, $forceredirect));
+	}
+	else
+	{
+		eval(print_standard_redirect('redirect_inline_undeletedmessages', true, $forceredirect));
+	}
 }
 
 /*======================================================================*\
 || ####################################################################
-|| # Downloaded: 16:21, Sat Apr 6th 2013
-|| # SVN: $Revision: 26399 $
+|| # Downloaded: 20:50, Sun Aug 11th 2013
+|| # SVN: $Revision: 39862 $
 || ####################################################################
 \*======================================================================*/

@@ -1,9 +1,9 @@
 <?php
 /*======================================================================*\
 || #################################################################### ||
-|| # vBulletin 3.7.2 Patch Level 2 - Licence Number VBF2470E4F
+|| # vBulletin 3.8.7 Patch Level 3 - Licence Number VBC2DDE4FB
 || # ---------------------------------------------------------------- # ||
-|| # Copyright ©2000-2013 Jelsoft Enterprises Ltd. All Rights Reserved. ||
+|| # Copyright ©2000-2013 vBulletin Solutions, Inc. All Rights Reserved. ||
 || # This file may not be redistributed in whole or significant part. # ||
 || # ---------------- VBULLETIN IS NOT FREE SOFTWARE ---------------- # ||
 || # http://www.vbulletin.com | http://www.vbulletin.com/license.html # ||
@@ -11,10 +11,10 @@
 \*======================================================================*/
 
 // ######################## SET PHP ENVIRONMENT ###########################
-error_reporting(E_ALL & ~E_NOTICE);
+error_reporting(E_ALL & ~E_NOTICE & ~8192);
 
 // ##################### DEFINE IMPORTANT CONSTANTS #######################
-define('CVS_REVISION', '$RCSfile$ - $Revision: 26706 $');
+define('CVS_REVISION', '$RCSfile$ - $Revision: 39862 $');
 
 // #################### PRE-CACHE TEMPLATES AND DATA ######################
 $phrasegroups = array('cpuser', 'forum', 'timezone', 'user', 'cprofilefield', 'subscription', 'banning', 'profilefield');
@@ -117,7 +117,7 @@ if ($_REQUEST['do'] == 'find')
 		SELECT
 		user.userid, reputation, username, usergroupid, birthday_search, email,
 		parentemail,(options & " . $vbulletin->bf_misc_useroptions['coppauser'] . ") AS coppauser, homepage, icq, aim, yahoo, msn, skype, signature,
-		usertitle, joindate, lastpost, posts, ipaddress, lastactivity, userfield.*
+		usertitle, joindate, lastpost, posts, ipaddress, lastactivity, userfield.*, infractions, ipoints, warnings
 		FROM " . TABLE_PREFIX . "user AS user
 		LEFT JOIN " . TABLE_PREFIX . "userfield AS userfield ON(userfield.userid = user.userid)
 		LEFT JOIN " . TABLE_PREFIX . "usertextfield AS usertextfield ON(usertextfield.userid = user.userid)
@@ -186,7 +186,21 @@ if ($_REQUEST['do'] == 'remove')
 		'userid' => TYPE_INT
 	));
 
-	print_delete_confirmation('user', $vbulletin->GPC['userid'], 'user', 'kill', 'user', '', $vbphrase['all_posts_will_be_set_to_guest']);
+	$extratext = $vbphrase['all_posts_will_be_set_to_guest'];
+
+	// find out if the user has social groups
+	$hasgroups = $vbulletin->db->query_first("
+		SELECT COUNT('groupid') AS total
+		FROM " . TABLE_PREFIX . "socialgroup
+		WHERE creatoruserid = " . $vbulletin->GPC['userid']
+	);
+
+	if ($hasgroups['total'])
+	{
+		$extratext .= "<br /><br />" . construct_phrase($vbphrase[delete_user_transfer_social_groups], $hasgroups['total']) . " <input type=\"checkbox\" name=\"transfer_groups\" value=\"1\" />";
+	}
+
+	print_delete_confirmation('user', $vbulletin->GPC['userid'], 'user', 'kill', 'user', '', $extratext);
 	echo '<p align="center">' . construct_phrase($vbphrase['if_you_want_to_prune_user_posts_first'], "thread.php?" . $vbulletin->session->vars['sessionurl'] . "do=pruneuser&amp;f=-1&amp;u=" . $vbulletin->GPC['userid'] . "&amp;confirm=1") . '</p>';
 }
 
@@ -194,8 +208,10 @@ if ($_REQUEST['do'] == 'remove')
 if ($_POST['do'] == 'kill')
 {
 	$vbulletin->input->clean_array_gpc('p', array(
-		'userid' => TYPE_INT
+		'userid' => TYPE_INT,
+		'transfer_groups' => TYPE_BOOL
 	));
+
 	// check user is not set in the $undeletable users string
 	if (is_unalterable_user($vbulletin->GPC['userid']))
 	{
@@ -207,6 +223,52 @@ if ($_POST['do'] == 'kill')
 		if (!$info)
 		{
 			print_stop_message('invalid_user_specified');
+		}
+
+		if ($vbulletin->GPC['transfer_groups'])
+		{
+			// fetch groupmember info for groups that the deleted user has ownership of
+			$sgmember_query = $vbulletin->db->query("
+				SELECT socialgroup.groupid AS sgroupid, sgmember.*
+				FROM " . TABLE_PREFIX . "socialgroup AS socialgroup
+				LEFT JOIN " . TABLE_PREFIX . "socialgroupmember AS sgmember
+				ON sgmember.groupid = socialgroup.groupid
+				AND sgmember.userid = " . $vbulletin->userinfo['userid'] . "
+				WHERE creatoruserid = " . $vbulletin->GPC['userid'] . "
+			");
+
+			if ($vbulletin->db->num_rows($sgmember_query))
+			{
+				while ($sgmember = $vbulletin->db->fetch_array($sgmember_query))
+				{
+					// ensure the current user is a full member of the group
+					if ($sgmember['type'] != 'member')
+					{
+						$socialgroupmemberdm =& datamanager_init('SocialGroupMember', $vbulletin);
+
+						if ($sgmember['userid'])
+						{
+							$socialgroupmemberdm->set_existing($sgmember);
+						}
+
+						$socialgroupmemberdm->set('userid', $vbulletin->userinfo['userid']);
+						$socialgroupmemberdm->set('groupid', $sgmember['sgroupid']);
+						$socialgroupmemberdm->set('dateline', TIMENOW);
+						$socialgroupmemberdm->set('type', 'member');
+
+						$socialgroupmemberdm->save();
+					}
+				}
+				$vbulletin->db->free_result($sgmember_query);
+
+				// transfer all of the groups to the current user
+				$vbulletin->db->query_write("
+					UPDATE " . TABLE_PREFIX . "socialgroup
+					SET creatoruserid = " . $vbulletin->userinfo['userid'] . ",
+						transferowner = 0
+					WHERE creatoruserid = " . $vbulletin->GPC['userid'] . "
+				");
+			}
 		}
 
 		$userdm =& datamanager_init('User', $vbulletin, ERRTYPE_CP);
@@ -233,7 +295,6 @@ if ($_REQUEST['do'] == 'edit' OR $_REQUEST['do'] == 'add')
 
 	if ($vbulletin->GPC['userid'])
 	{
-
 		$user = $db->query_first("
 			SELECT user.*, avatar.avatarpath, customavatar.dateline AS avatardateline, customavatar.width AS avatarwidth, customavatar.height AS avatarheight,
 			NOT ISNULL(customavatar.userid) AS hascustomavatar, usertextfield.signature,
@@ -316,6 +377,8 @@ if ($_REQUEST['do'] == 'edit' OR $_REQUEST['do'] == 'add')
 				=> $vbphrase['delete_all_users_private_messages'],
 			"usertools.php?" . $vbulletin->session->vars['sessionurl'] . "do=removesentpms&amp;u=" . $vbulletin->GPC['userid']
 				=> $vbphrase['delete_private_messages_sent_by_user'],
+			"usertools.php?" . $vbulletin->session->vars['sessionurl'] . "do=removesentvms&amp;u=" . $vbulletin->GPC['userid']
+				=> $vbphrase['delete_visitor_messages_sent_by_user'],
 			"usertools.php?" . $vbulletin->session->vars['sessionurl'] . "do=removesubs&amp;u=" . $vbulletin->GPC['userid']
 				=> $vbphrase['delete_subscriptions'],
 			"usertools.php?" . $vbulletin->session->vars['sessionurl'] . "do=doips&amp;u=" . $vbulletin->GPC['userid'] . "&amp;hash=" . CP_SESSIONHASH
@@ -324,7 +387,7 @@ if ($_REQUEST['do'] == 'edit' OR $_REQUEST['do'] == 'add')
 				=> $vbphrase['view_profile'],
 			"../search.php?" . $vbulletin->session->vars['sessionurl'] . "do=finduser&amp;u=" . $vbulletin->GPC['userid']
 				=> $vbphrase['find_posts_by_user'],
-			"admininfraction.php?" . $vbulletin->session->vars['sessionurl'] . "do=dolist&amp;startstamp=1&amp;endstamp= " . TIMENOW . "&amp;infractionlevelid=-1&amp;u= " . $vbulletin->GPC['userid']
+			"admininfraction.php?" . $vbulletin->session->vars['sessionurl'] . "do=dolist&amp;startstamp=1&amp;endstamp= " . TIMENOW . "&amp;infractionlevelid=-1&amp;u=" . $vbulletin->GPC['userid']
 				=> $vbphrase['view_infractions'],
 			'../' . $vbulletin->config['Misc']['modcpdir'] . '/banning.php?' . $vbulletin->session->vars['sessionurl'] . "do=banuser&amp;u=" . $vbulletin->GPC['userid']
 				=> $vbphrase['ban_user'],
@@ -419,6 +482,7 @@ if ($_REQUEST['do'] == 'edit' OR $_REQUEST['do'] == 'add')
 			'receivepmbuddies'          => 0,
 			'emailonpm'                 => $vbulletin->bf_misc_regoptions['emailonpm'] & $vbulletin->options['defaultregoptions'] ? 1 : 0,
 			'pmpopup'                   => $vbulletin->bf_misc_regoptions['pmpopup'] & $vbulletin->options['defaultregoptions'] ? 1 : 0,
+			'pmdefaultsavecopy'			=> $vbulletin->bf_misc_regoptions['pmdefaultsavecopy'] & $vbulletin->options['defaultregoptions'] ? 1 : 0,
 			'vm_enable'                 => $vbulletin->bf_misc_regoptions['vm_enable'] & $vbulletin->options['defaultregoptions'] ? 1 : 0,
 			'vm_contactonly'            => $vbulletin->bf_misc_regoptions['vm_contactonly'] & $vbulletin->options['defaultregoptions'] ? 1 : 0,
 			'showvcard'                 => $vbulletin->bf_misc_regoptions['vcard'] & $vbulletin->options['defaultregoptions'] ? 1 : 0,
@@ -455,6 +519,7 @@ if ($_REQUEST['do'] == 'edit' OR $_REQUEST['do'] == 'add')
 			$threaddisplaymode = 3;
 		}
 	}
+	$user['threadedmode'] = $threaddisplaymode;
 
 	// make array for daysprune menu
 	$pruneoptions = array(
@@ -577,7 +642,7 @@ if ($_REQUEST['do'] == 'edit' OR $_REQUEST['do'] == 'add')
 	print_table_header($vbphrase['image_options']);
 	if ($user['avatarid'])
 	{
-		$avatarurl = iif(substr($user['avatarpath'], 0, 7) != 'http://' AND substr($user['avatarpath'], 0, 1) != '/', '../') . $user['avatarpath'];
+		$avatarurl = resolve_cp_image_url($user['avatarpath']);
 	}
 	else
 	{
@@ -585,7 +650,7 @@ if ($_REQUEST['do'] == 'edit' OR $_REQUEST['do'] == 'add')
 		{
 			if ($vbulletin->options['usefileavatar'])
 			{
-				$avatarurl = iif(substr($vbulletin->options['avatarurl'] , 0, 7) == 'http://', '', '../') . $vbulletin->options['avatarurl'] . "/avatar$user[userid]_$user[avatarrevision].gif";
+				$avatarurl = resolve_cp_image_url($vbulletin->options['avatarurl'] . "/avatar$user[userid]_$user[avatarrevision].gif");
 			}
 			else
 			{
@@ -605,7 +670,7 @@ if ($_REQUEST['do'] == 'edit' OR $_REQUEST['do'] == 'add')
 	{
 		if ($vbulletin->options['usefileavatar'])
 		{
-			$profilepicurl = iif(substr($vbulletin->options['profilepicurl'] , 0, 7) == 'http://', '', '../') . $vbulletin->options['profilepicurl'] . "/profilepic$user[userid]_$user[profilepicrevision].gif";
+			$profilepicurl = resolve_cp_image_url($vbulletin->options['profilepicurl'] . "/profilepic$user[userid]_$user[profilepicrevision].gif");
 		}
 		else
 		{
@@ -625,7 +690,7 @@ if ($_REQUEST['do'] == 'edit' OR $_REQUEST['do'] == 'add')
 	{
 		if ($vbulletin->options['usefileavatar'])
 		{
-			$sigpicurl = iif(substr($vbulletin->options['sigpicurl'] , 0, 7) == 'http://', '', '../') . $vbulletin->options['sigpicurl'] . "/sigpic$user[userid]_$user[sigpicrevision].gif";
+			$sigpicurl = resolve_cp_image_url($vbulletin->options['sigpicurl'] . "/sigpic$user[userid]_$user[sigpicrevision].gif");
 		}
 		else
 		{
@@ -685,7 +750,7 @@ if ($_REQUEST['do'] == 'edit' OR $_REQUEST['do'] == 'add')
 			print_description_row(construct_phrase($vbphrase['fields_from_form_x'], $forms["$profilefield[form]"]), false, 2, 'optiontitle');
 			$currentform = $profilefield['form'];
 		}
-		print_profilefield_row('userfield', $profilefield, $userfield);
+		print_profilefield_row('userfield', $profilefield, $userfield, false);
 		construct_hidden_code('userfield[field' . $profilefield['profilefieldid'] . '_set]', 1);
 	}
 
@@ -822,6 +887,7 @@ if ($_REQUEST['do'] == 'edit' OR $_REQUEST['do'] == 'add')
 	print_yes_no_row($vbphrase['pm_from_contacts_only'], 'options[receivepmbuddies]', $user['receivepmbuddies']);
 	print_yes_no_row($vbphrase['send_notification_email_when_a_private_message_is_received'], 'options[emailonpm]', $user['emailonpm']);
 	print_yes_no_row($vbphrase['pop_up_notification_box_when_a_private_message_is_received'], 'user[pmpopup]', $user['pmpopup']);
+	print_yes_no_row(construct_phrase($vbphrase['save_pm_copy_default'], '../private.php?folderid=-1'), 'options[pmdefaultsavecopy]', $user['pmdefaultsavecopy']);
 	print_yes_no_row($vbphrase['enable_visitor_messaging'], 'options[vm_enable]', $user['vm_enable']);
 	print_yes_no_row($vbphrase['limit_vm_to_contacts_only'], 'options[vm_contactonly]', $user['vm_contactonly']);
 	print_yes_no_row($vbphrase['display_signatures'], 'options[showsignatures]', $user['showsignatures']);
@@ -844,7 +910,7 @@ if ($_REQUEST['do'] == 'edit' OR $_REQUEST['do'] == 'add')
 		3 => "$vbphrase[linear] - $vbphrase[newest_first]",
 		2 => $vbphrase['hybrid'],
 		1 => $vbphrase['threaded']
-	), $threaddisplaymode, 'smallfont');
+	), $user['threadedmode'], 'smallfont');
 
 	print_radio_row($vbphrase['message_editor_interface'], 'user[showvbcode]', array(
 		0 => $vbphrase['do_not_show_editor_toolbar'],
@@ -927,16 +993,6 @@ if ($_POST['do'] == 'update')
 		$userdata->set_existing($userinfo);
 	}
 
-	// password
-	if (!empty($vbulletin->GPC['password']))
-	{
-		$userdata->set('password', $vbulletin->GPC['password']);
-	}
-	else if (!$vbulletin->GPC['userid'])
-	{
-		print_stop_message('invalid_password_specified');
-	}
-
 	$olduser = @unserialize(verify_client_string($vbulletin->GPC['olduser']));
 
 	// user options
@@ -971,6 +1027,16 @@ if ($_POST['do'] == 'update')
 		{
 			$userdata->set($key, $val);
 		}
+	}
+
+	// password
+	if (!empty($vbulletin->GPC['password']))
+	{
+		$userdata->set('password', $vbulletin->GPC['password']);
+	}
+	else if (!$vbulletin->GPC['userid'])
+	{
+		print_stop_message('invalid_password_specified');
 	}
 
 	if (empty($vbulletin->GPC['user']['membergroupids']))
@@ -1015,7 +1081,13 @@ if ($_POST['do'] == 'update')
 	}
 	else
 	{
-		define('CP_REDIRECT', "user.php?do=modify&amp;u=$userid" . ($userdata->insertedadmin ? '&insertedadmin=1' : ''));
+		$handled = false;
+		($hook = vBulletinHook::fetch_hook('useradmin_update_choose')) ? eval($hook) : false;
+
+		if (!$handled)
+		{
+			define('CP_REDIRECT', "user.php?do=modify&amp;u=$userid" . ($userdata->insertedadmin ? '&insertedadmin=1' : ''));
+		}
 	}
 
 	print_stop_message('saved_user_x_successfully', $user['username']);
@@ -1112,6 +1184,7 @@ if ($_POST['do'] == 'updateaccess')
 
 	foreach ($vbulletin->GPC['accessupdate'] AS $forumid => $val)
 	{
+		$forumid = intval($forumid);
 		if ($val >= 0)
 		{
 			$insert_mask_sql[] = '(' . $vbulletin->GPC['userid'] . ", $forumid, $val)";
@@ -1958,6 +2031,7 @@ if ($_POST['do'] == 'dopruneusers')
 		$userids = array();
 		foreach ($vbulletin->GPC['users'] AS $key => $val)
 		{
+			$key = intval($key);
 			if ($val == 1 AND $key != $vbulletin->userinfo['userid'])
 			{
 				$userids[] = $key;
@@ -1971,15 +2045,17 @@ if ($_POST['do'] == 'dopruneusers')
 			echo "<p>" . $vbphrase['deleting_subscriptions'] . "\n";
 			vbflush();
 			$db->query_write("DELETE FROM " . TABLE_PREFIX . "subscribeforum WHERE userid IN($userids)");
-			echo $vbphrase['okay'] . '</p><p>' . $vbphrase['deleting_subscriptions'] . "\n";
-			vbflush();
 			$db->query_write("DELETE FROM " . TABLE_PREFIX . "subscribethread WHERE userid IN($userids)");
+			$db->query_write("DELETE FROM " . TABLE_PREFIX . "subscriptionlog WHERE userid IN($userids)");
+
 			echo $vbphrase['okay'] . '</p><p>' . $vbphrase['deleting_events'] . "\n";
 			vbflush();
 			$db->query_write("DELETE FROM " . TABLE_PREFIX . "event WHERE userid IN($userids)");
+
 			echo $vbphrase['okay'] . '</p><p>' . $vbphrase['deleting_event_reminders'] . "\n";
 			vbflush();
 			$db->query_write("DELETE FROM " . TABLE_PREFIX . "subscribeevent WHERE userid IN($userids)");
+
 			echo $vbphrase['okay'] . '</p><p>' . $vbphrase['deleting_custom_avatars'] . "\n";
 			vbflush();
 			$db->query_write("DELETE FROM " . TABLE_PREFIX . "customavatar WHERE userid IN($userids)");
@@ -2175,6 +2251,7 @@ if ($_REQUEST['do'] == 'pruneusers')
 			$sqlconds
 			GROUP BY user.userid $orderby
 		");
+
 		if ($numusers = $db->num_rows($users))
 		{
 			?>
@@ -2221,7 +2298,7 @@ if ($_REQUEST['do'] == 'pruneusers')
 			{
 				$cell = array();
 				$cell[] = $user['userid'];
-				$cell[] = "<a href=\"user.php?" . $vbulletin->session->vars['sessionurl'] . "do=edit&u=$user[userid]\" target=\"_blank\">$user[username]</a><br /><span class=\"smallfont\">$user[title]" . iif($user['moderatorid'], ', Moderator', '') . "</span>";
+				$cell[] = "<a href=\"user.php?" . $vbulletin->session->vars['sessionurl'] . "do=edit&u=$user[userid]\" target=\"_blank\">$user[username]</a><br /><span class=\"smallfont\">$user[title]" . ($user['moderatorid'] ? ", " . $vbphrase['moderator'] : "" ) . "</span>";
 				$cell[] = "<a href=\"mailto:$user[email]\">$user[email]</a>";
 				$cell[] = vb_number_format($user['posts']);
 				$cell[] = vbdate($vbulletin->options['dateformat'], $user['lastactivity']);
@@ -2405,8 +2482,8 @@ print_cp_footer();
 
 /*======================================================================*\
 || ####################################################################
-|| # Downloaded: 16:21, Sat Apr 6th 2013
-|| # CVS: $RCSfile$ - $Revision: 26706 $
+|| # Downloaded: 20:50, Sun Aug 11th 2013
+|| # CVS: $RCSfile$ - $Revision: 39862 $
 || ####################################################################
 \*======================================================================*/
 ?>

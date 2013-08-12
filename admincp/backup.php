@@ -1,9 +1,9 @@
 <?php
 /*======================================================================*\
 || #################################################################### ||
-|| # vBulletin 3.7.2 Patch Level 2 - Licence Number VBF2470E4F
+|| # vBulletin 3.8.7 Patch Level 3 - Licence Number VBC2DDE4FB
 || # ---------------------------------------------------------------- # ||
-|| # Copyright ©2000-2013 Jelsoft Enterprises Ltd. All Rights Reserved. ||
+|| # Copyright ©2000-2013 vBulletin Solutions, Inc. All Rights Reserved. ||
 || # This file may not be redistributed in whole or significant part. # ||
 || # ---------------- VBULLETIN IS NOT FREE SOFTWARE ---------------- # ||
 || # http://www.vbulletin.com | http://www.vbulletin.com/license.html # ||
@@ -11,14 +11,14 @@
 \*======================================================================*/
 
 // ######################## SET PHP ENVIRONMENT ###########################
-error_reporting(E_ALL & ~E_NOTICE);
+error_reporting(E_ALL & ~E_NOTICE & ~8192);
 if ($_REQUEST['do'] == 'csvtable' OR $_REQUEST['do'] == 'sqltable')
 {
 	define('NOHEADER', 1);
 }
 
 // ##################### DEFINE IMPORTANT CONSTANTS #######################
-define('CVS_REVISION', '$RCSfile$ - $Revision: 15976 $');
+define('CVS_REVISION', '$RCSfile$ - $Revision: 39862 $');
 define('NOZIP', 1);
 
 // #################### PRE-CACHE TEMPLATES AND DATA ######################
@@ -138,7 +138,7 @@ if ($_REQUEST['do'] == 'choose')
 	print_form_header('backup', 'sqlfile');
 	print_table_header($vbphrase['backup_database_to_a_file_on_the_server']);
 	print_description_row($vbphrase['backup_file_warning']);
-	print_input_row($vbphrase['path_and_file_to_save_backup_to'], 'filename', './forumbackup-' . vbdate(str_replace(array('\\', '/', ' '), '', $vbulletin->options['dateformat']), TIMENOW) . '-' . substr(md5('VBF2470E4F' . TIMENOW), 0, 5) . '.sql', 0, 60);
+	print_input_row($vbphrase['path_and_file_to_save_backup_to'], 'filename', './forumbackup-' . vbdate(str_replace(array('\\', '/', ' '), '', $vbulletin->options['dateformat']), TIMENOW) . '-' . substr(md5('VBC2DDE4FB' . TIMENOW), 0, 5) . '.sql', 0, 60);
 	print_submit_row($vbphrase['save']);
 
 	print_form_header('backup', 'csvtable');
@@ -206,8 +206,8 @@ print_cp_footer();
 
 /*======================================================================*\
 || ####################################################################
-|| # Downloaded: 16:21, Sat Apr 6th 2013
-|| # CVS: $RCSfile$ - $Revision: 15976 $
+|| # Downloaded: 20:50, Sun Aug 11th 2013
+|| # CVS: $RCSfile$ - $Revision: 39862 $
 || ####################################################################
 \*======================================================================*/
 ?>

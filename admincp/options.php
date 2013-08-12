@@ -1,9 +1,9 @@
 <?php
 /*======================================================================*\
 || #################################################################### ||
-|| # vBulletin 3.7.2 Patch Level 2 - Licence Number VBF2470E4F
+|| # vBulletin 3.8.7 Patch Level 3 - Licence Number VBC2DDE4FB
 || # ---------------------------------------------------------------- # ||
-|| # Copyright ©2000-2013 Jelsoft Enterprises Ltd. All Rights Reserved. ||
+|| # Copyright ©2000-2013 vBulletin Solutions, Inc. All Rights Reserved. ||
 || # This file may not be redistributed in whole or significant part. # ||
 || # ---------------- VBULLETIN IS NOT FREE SOFTWARE ---------------- # ||
 || # http://www.vbulletin.com | http://www.vbulletin.com/license.html # ||
@@ -11,10 +11,10 @@
 \*======================================================================*/
 
 // ######################## SET PHP ENVIRONMENT ###########################
-error_reporting(E_ALL & ~E_NOTICE);
+error_reporting(E_ALL & ~E_NOTICE & ~8192);
 
 // ##################### DEFINE IMPORTANT CONSTANTS #######################
-define('CVS_REVISION', '$RCSfile$ - $Revision: 26425 $');
+define('CVS_REVISION', '$RCSfile$ - $Revision: 39862 $');
 
 // #################### PRE-CACHE TEMPLATES AND DATA ######################
 $phrasegroups = array(
@@ -975,7 +975,7 @@ if ($_POST['do'] == 'dooptions')
 	{
 		save_settings($vbulletin->GPC['setting']);
 
-		define('CP_REDIRECT', 'options.php?do=options&amp;dogroup=' . $vbulletin->GPC['dogroup'] . '&amp;advanced= ' . $vbulletin->GPC['advanced']);
+		define('CP_REDIRECT', 'options.php?do=options&amp;dogroup=' . $vbulletin->GPC['dogroup'] . '&amp;advanced=' . $vbulletin->GPC['advanced']);
 		print_stop_message('saved_settings_successfully');
 	}
 	else
@@ -1147,7 +1147,7 @@ if ($_REQUEST['do'] == 'searchtype')
 {
 	require_once(DIR . '/includes/class_dbalter.php');
 
-	$db_alter =& new vB_Database_Alter_MySQL($db);
+	$db_alter = new vB_Database_Alter_MySQL($db);
 	$db_alter->fetch_table_info('post');
 	$convertpost = iif($db_alter->fetch_table_type() != 'MYISAM', true, false);
 
@@ -1182,7 +1182,7 @@ if ($_POST['do'] == 'dosearchtype')
 
 	require_once(DIR . '/includes/class_dbalter.php');
 
-	$db_alter =& new vB_Database_Alter_MySQL($db);
+	$db_alter = new vB_Database_Alter_MySQL($db);
 	if ($vbulletin->options['fulltextsearch'])
 	{
 		if ($vbulletin->GPC['deleteindex'])
@@ -1270,8 +1270,8 @@ print_cp_footer();
 
 /*======================================================================*\
 || ####################################################################
-|| # Downloaded: 16:21, Sat Apr 6th 2013
-|| # CVS: $RCSfile$ - $Revision: 26425 $
+|| # Downloaded: 20:50, Sun Aug 11th 2013
+|| # CVS: $RCSfile$ - $Revision: 39862 $
 || ####################################################################
 \*======================================================================*/
 ?>

@@ -1,9 +1,9 @@
 <?php
 /*======================================================================*\
 || #################################################################### ||
-|| # vBulletin 3.7.2 Patch Level 2 - Licence Number VBF2470E4F
+|| # vBulletin 3.8.7 Patch Level 3 - Licence Number VBC2DDE4FB
 || # ---------------------------------------------------------------- # ||
-|| # Copyright ©2000-2013 Jelsoft Enterprises Ltd. All Rights Reserved. ||
+|| # Copyright ©2000-2013 vBulletin Solutions, Inc. All Rights Reserved. ||
 || # This file may not be redistributed in whole or significant part. # ||
 || # ---------------- VBULLETIN IS NOT FREE SOFTWARE ---------------- # ||
 || # http://www.vbulletin.com | http://www.vbulletin.com/license.html # ||
@@ -11,7 +11,7 @@
 \*======================================================================*/
 
 // ####################### SET PHP ENVIRONMENT ###########################
-error_reporting(E_ALL & ~E_NOTICE);
+error_reporting(E_ALL & ~E_NOTICE & ~8192);
 
 // #################### DEFINE IMPORTANT CONSTANTS #######################
 define('THIS_SCRIPT', 'converse');
@@ -115,7 +115,7 @@ if (
 	(
 		!$userinfo['vm_enable']
 			AND
-		!can_moderate()
+		!can_moderate(0,'canmoderatevisitormessages')
 	)
 		OR
 	(
@@ -123,7 +123,7 @@ if (
 			AND
 		!$userinfo['bbuser_iscontact_of_user']
 			AND
-		!can_moderate()
+		!can_moderate(0,'canmoderatevisitormessages')
 	)
 )
 {
@@ -135,7 +135,7 @@ if (
 		!$userinfo2['vm_enable']
 			AND
 		(
-			!can_moderate()
+			!can_moderate(0,'canmoderatevisitormessages')
 				OR
 			$viewself
 		)
@@ -146,11 +146,17 @@ if (
 			AND
 		!$userinfo2['bbuser_iscontact_of_user']
 			AND
-		!can_moderate()
+		!can_moderate(0,'canmoderatevisitormessages')
 		 AND
 		!$viewself
 	)
 )
+{
+	print_no_permission();
+}
+
+require_once(DIR . '/includes/functions_user.php');
+if (!can_view_profile_section($userinfo['userid'], 'visitor_messaging') OR !can_view_profile_section($userinfo2['userid'], 'visitor_messaging'))
 {
 	print_no_permission();
 }
@@ -165,7 +171,7 @@ if (fetch_visitor_message_perm('canmoderatevisitormessages', $userinfo2))
 {
 	$state2[] = 'moderation';
 }
-if (can_moderate() OR ($viewself AND $vbulletin->userinfo['permissions']['visitormessagepermissions'] & $vbulletin->bf_ugp_visitormessagepermissions['canmanageownprofile']))
+if (can_moderate(0,'canmoderatevisitormessages') OR ($viewself AND $vbulletin->userinfo['permissions']['visitormessagepermissions'] & $vbulletin->bf_ugp_visitormessagepermissions['canmanageownprofile']))
 {
 	$state2[] = 'deleted';
 	$deljoinsql2 = "LEFT JOIN " . TABLE_PREFIX . "deletionlog AS deletionlog ON (visitormessage.vmid = deletionlog.primaryid AND deletionlog.type = 'visitormessage')";
@@ -184,7 +190,7 @@ if ($viewself OR fetch_visitor_message_perm('canmoderatevisitormessages', $useri
 {
 	$state1[] = 'moderation';
 }
-if (can_moderate())
+if (can_moderate(0,'canmoderatevisitormessages'))
 {
 	$state1[] = 'deleted';
 	$delsql1 = ",deletionlog.userid AS del_userid, deletionlog.username AS del_username, deletionlog.reason AS del_reason";
@@ -246,7 +252,7 @@ do
 		SELECT
 			visitormessage.*, visitormessage.dateline AS pmdateline, user.*, visitormessage.ipaddress AS messageipaddress, visitormessage.userid AS profileuserid
 			$delsql1
-			" . ($vbulletin->options['avatarenabled'] ? ",avatar.avatarpath, NOT ISNULL(customavatar.userid) AS hascustomavatar, customavatar.dateline AS avatardateline,customavatar.width AS avwidth,customavatar.height AS avheight" : "") . "
+			" . ($vbulletin->options['avatarenabled'] ? ",avatar.avatarpath, NOT ISNULL(customavatar.userid) AS hascustomavatar, customavatar.dateline AS avatardateline,customavatar.width AS avwidth,customavatar.height AS avheight, customavatar.width_thumb AS avwidth_thumb, customavatar.height_thumb AS avheight_thumb, filedata_thumb, NOT ISNULL(customavatar.userid) AS hascustom" : "") . "
 			$hook_query_fields1
 		FROM " . TABLE_PREFIX . "visitormessage AS visitormessage
 		LEFT JOIN " . TABLE_PREFIX . "user AS user ON (visitormessage.postuserid = user.userid)
@@ -261,7 +267,7 @@ do
 		SELECT
 			visitormessage.*, visitormessage.dateline AS pmdateline, user.*, visitormessage.ipaddress AS messageipaddress, visitormessage.userid AS profileuserid
 			" . ($deljoinsql2 ? ",deletionlog.userid AS del_userid, deletionlog.username AS del_username, deletionlog.reason AS del_reason" : "") . "
-			" . ($vbulletin->options['avatarenabled'] ? ",avatar.avatarpath, NOT ISNULL(customavatar.userid) AS hascustomavatar, customavatar.dateline AS avatardateline,customavatar.width AS avwidth,customavatar.height AS avheight" : "") . "
+			" . ($vbulletin->options['avatarenabled'] ? ",avatar.avatarpath, NOT ISNULL(customavatar.userid) AS hascustomavatar, customavatar.dateline AS avatardateline,customavatar.width AS avwidth,customavatar.height AS avheight, customavatar.width_thumb AS avwidth_thumb, customavatar.height_thumb AS avheight_thumb, filedata_thumb, NOT ISNULL(customavatar.userid) AS hascustom" : "") . "
 			$hook_query_fields2
 		FROM " . TABLE_PREFIX . "visitormessage AS visitormessage
 		LEFT JOIN " . TABLE_PREFIX . "user AS user ON (visitormessage.postuserid = user.userid)
@@ -290,8 +296,8 @@ $block_data = array(
 );
 $prepared = array('vm_total' => $messagetotal);
 
-$bbcode =& new vB_BbCodeParser($vbulletin, fetch_tag_list());
-$factory =& new vB_Visitor_MessageFactory($vbulletin, $bbcode, $userinfo2);
+$bbcode = new vB_BbCodeParser($vbulletin, fetch_tag_list());
+$factory = new vB_Visitor_MessageFactory($vbulletin, $bbcode, $userinfo2);
 
 $show['conversepage'] = true;
 
@@ -325,7 +331,7 @@ if (!empty($read_ids))
 {
 	$db->query_write("UPDATE " . TABLE_PREFIX . "visitormessage SET messageread = 1 WHERE vmid IN (" . implode(',', $read_ids) . ")");
 
-	build_visitor_message_counters($vbulletin->userifo['userid']);
+	build_visitor_message_counters($vbulletin->userinfo['userid']);
 }
 
 $dummydata = array();
@@ -336,14 +342,29 @@ $show['inlinemod'] = ($show['delete'] OR $show['undelete'] OR $show['approve']);
 
 // Only allow AJAX QC on the first page
 $show['quickcomment'] = (
-	$userinfo['permissions']['genericpermissions'] & $vbulletin->bf_ugp_genericpermissions['canviewmembers']
-	AND $vbulletin->options['socnet'] & $vbulletin->bf_misc_socnet['enable_visitor_messaging']
+	$vbulletin->userinfo['userid']
 	AND $viewself
-	AND $vbulletin->userinfo['permissions']['visitormessagepermissions'] & $vbulletin->bf_ugp_visitormessagepermissions['canmessageothersprofile']
+	AND $vbulletin->options['socnet'] & $vbulletin->bf_misc_socnet['enable_visitor_messaging']
+	AND $userinfo['vm_enable']
+	AND $userinfo['permissions']['genericpermissions'] & $vbulletin->bf_ugp_genericpermissions['canviewmembers']
+	AND (
+		!$userinfo['vm_contactonly']
+		OR $userinfo['userid'] == $vbulletin->userinfo['userid']
+		OR $userinfo['bbuser_iscontact_of_user']
+		OR can_moderate(0,'canmoderatevisitormessages')
+	)
+	AND ((
+			$userinfo['userid'] == $vbulletin->userinfo['userid']
+			AND $vbulletin->userinfo['permissions']['visitormessagepermissions'] & $vbulletin->bf_ugp_visitormessagepermissions['canmessageownprofile']
+		)
+		OR (
+			$userinfo['userid'] != $vbulletin->userinfo['userid']
+			AND $vbulletin->userinfo['permissions']['visitormessagepermissions'] & $vbulletin->bf_ugp_visitormessagepermissions['canmessageothersprofile']
+		)
+	)
 );
 $show['post_visitor_message'] = $show['quickcomment'];
 
-//var_dump($viewself);
 $show['allow_ajax_qc'] = ($pagenumber == 1 AND $messagetotal) ? 1 : 0;
 $pagenavbits = array(
 	"u=$userinfo[userid]",
@@ -398,7 +419,7 @@ eval('print_output("' . fetch_template('converse') . '");');
 
 /*======================================================================*\
 || ####################################################################
-|| # Downloaded: 16:21, Sat Apr 6th 2013
+|| # Downloaded: 20:50, Sun Aug 11th 2013
 || # CVS: $RCSfile$ - $Revision: 16016 $
 || ####################################################################
 \*======================================================================*/

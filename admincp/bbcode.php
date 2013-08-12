@@ -1,9 +1,9 @@
 <?php
 /*======================================================================*\
 || #################################################################### ||
-|| # vBulletin 3.7.2 Patch Level 2 - Licence Number VBF2470E4F
+|| # vBulletin 3.8.7 Patch Level 3 - Licence Number VBC2DDE4FB
 || # ---------------------------------------------------------------- # ||
-|| # Copyright ©2000-2013 Jelsoft Enterprises Ltd. All Rights Reserved. ||
+|| # Copyright ©2000-2013 vBulletin Solutions, Inc. All Rights Reserved. ||
 || # This file may not be redistributed in whole or significant part. # ||
 || # ---------------- VBULLETIN IS NOT FREE SOFTWARE ---------------- # ||
 || # http://www.vbulletin.com | http://www.vbulletin.com/license.html # ||
@@ -11,10 +11,10 @@
 \*======================================================================*/
 
 // ######################## SET PHP ENVIRONMENT ###########################
-error_reporting(E_ALL & ~E_NOTICE);
+error_reporting(E_ALL & ~E_NOTICE & ~8192);
 
 // ##################### DEFINE IMPORTANT CONSTANTS #######################
-define('CVS_REVISION', '$RCSfile$ - $Revision: 26626 $');
+define('CVS_REVISION', '$RCSfile$ - $Revision: 39862 $');
 
 // #################### PRE-CACHE TEMPLATES AND DATA ######################
 $phrasegroups = array('bbcode');
@@ -72,6 +72,7 @@ if ($_REQUEST['do'] == 'add')
 	print_yes_no_row($vbphrase['disable_bbcode_in_bbcode'], 'options[stop_parse]', 0);
 	print_yes_no_row($vbphrase['disable_smilies_in_bbcode'], 'options[disable_smilies]', 0);
 	print_yes_no_row($vbphrase['disable_wordwrap_in_bbcode'], 'options[disable_wordwrap]', 0);
+	print_yes_no_row($vbphrase['disable_urlconversion_in_bbcode'], 'options[disable_urlconversion]', 0);
 	print_submit_row($vbphrase['save']);
 
 	print_form_header('', '');
@@ -181,6 +182,7 @@ if ($_REQUEST['do'] == 'edit')
 	print_yes_no_row($vbphrase['disable_bbcode_in_bbcode'], 'options[stop_parse]', (intval($_bbcode['options']) & $vbulletin->bf_misc['bbcodeoptions']['stop_parse']) ? 1 : 0 );
 	print_yes_no_row($vbphrase['disable_smilies_in_bbcode'], 'options[disable_smilies]', (intval($_bbcode['options']) & $vbulletin->bf_misc['bbcodeoptions']['disable_smilies']) ? 1 : 0);
 	print_yes_no_row($vbphrase['disable_wordwrap_in_bbcode'], 'options[disable_wordwrap]', (intval($_bbcode['options']) & $vbulletin->bf_misc['bbcodeoptions']['disable_wordwrap']) ? 1 : 0);
+	print_yes_no_row($vbphrase['disable_urlconversion_in_bbcode'], 'options[disable_urlconversion]', (intval($_bbcode['options']) & $vbulletin->bf_misc['bbcodeoptions']['disable_urlconversion']) ? 1 : 0);
 	print_submit_row($vbphrase['save']);
 
 	print_form_header('', '');
@@ -287,7 +289,7 @@ if ($_POST['do'] == 'test')
 		'text' => TYPE_STR
 	));
 
-	$parser =& new vB_BbCodeParser($vbulletin, fetch_tag_list());
+	$parser = new vB_BbCodeParser($vbulletin, fetch_tag_list());
 	$parsed_code = $parser->do_parse($vbulletin->GPC['text'], false, false, true, false, true);
 
 	print_form_header('bbcode', 'test');
@@ -311,7 +313,7 @@ if ($_REQUEST['do'] == 'previewbbcode')
 
 	if ($bbcode = $vbulletin->db->query_first("SELECT * FROM " . TABLE_PREFIX . "bbcode WHERE bbcodeid = " . $vbulletin->GPC['bbcodeid']))
 	{
-		$parser =& new vB_BbCodeParser($vbulletin, fetch_tag_list());
+		$parser = new vB_BbCodeParser($vbulletin, fetch_tag_list());
 		$parsed_code = $parser->do_parse($bbcode['bbcodeexample'], false, false, true, false, true);
 
 		echo $parsed_code;
@@ -321,7 +323,7 @@ if ($_REQUEST['do'] == 'previewbbcode')
 // ####################################### MODIFY #####################################
 if ($_REQUEST['do'] == 'modify')
 {
-	$parser =& new vB_BbCodeParser($vbulletin, fetch_tag_list());
+	$parser = new vB_BbCodeParser($vbulletin, fetch_tag_list());
 
 	$bbcodes = $db->query_read("SELECT * FROM " . TABLE_PREFIX . "bbcode");
 
@@ -378,8 +380,8 @@ print_cp_footer();
 
 /*======================================================================*\
 || ####################################################################
-|| # Downloaded: 16:21, Sat Apr 6th 2013
-|| # CVS: $RCSfile$ - $Revision: 26626 $
+|| # Downloaded: 20:50, Sun Aug 11th 2013
+|| # CVS: $RCSfile$ - $Revision: 39862 $
 || ####################################################################
 \*======================================================================*/
 ?>

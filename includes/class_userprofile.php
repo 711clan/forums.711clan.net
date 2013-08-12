@@ -1,9 +1,9 @@
 <?php
 /*======================================================================*\
 || #################################################################### ||
-|| # vBulletin 3.7.2 Patch Level 2 - Licence Number VBF2470E4F
+|| # vBulletin 3.8.7 Patch Level 3 - Licence Number VBC2DDE4FB
 || # ---------------------------------------------------------------- # ||
-|| # Copyright ©2000-2013 Jelsoft Enterprises Ltd. All Rights Reserved. ||
+|| # Copyright ©2000-2013 vBulletin Solutions, Inc. All Rights Reserved. ||
 || # This file may not be redistributed in whole or significant part. # ||
 || # ---------------- VBULLETIN IS NOT FREE SOFTWARE ---------------- # ||
 || # http://www.vbulletin.com | http://www.vbulletin.com/license.html # ||
@@ -367,7 +367,16 @@ class vB_UserProfile
 	*/
 	function prepare_lastactivity()
 	{
-		if (!$this->userinfo['invisible'] OR ($this->registry->userinfo['permissions']['genericpermissions'] & $this->registry->bf_ugp_genericpermissions['canseehidden']) OR $this->userinfo['userid'] == $this->registry->userinfo['userid'])
+		if (
+			$this->userinfo['lastactivity']
+			AND (
+				!$this->userinfo['invisible']
+				OR
+				($this->registry->userinfo['permissions']['genericpermissions'] & $this->registry->bf_ugp_genericpermissions['canseehidden'])
+				OR
+				$this->userinfo['userid'] == $this->registry->userinfo['userid']
+			)
+		)
 		{
 			$this->prepared['lastactivitydate'] = vbdate($this->registry->options['dateformat'], $this->userinfo['lastactivity'], true);
 			$this->prepared['lastactivitytime'] = vbdate($this->registry->options['timeformat'], $this->userinfo['lastactivity'], true);
@@ -392,7 +401,7 @@ class vB_UserProfile
 		if ($this->registry->options['profilelastpost'] AND $this->userinfo['lastpost'] AND !in_coventry($this->userinfo['userid']))
 		{
 			if ($this->userinfo['lastpostid'] AND $getlastpost = $this->registry->db->query_first_slave("
-				SELECT thread.title, thread.threadid, thread.forumid, post.postid, post.dateline
+				SELECT thread.title, thread.threadid, thread.forumid, thread.postuserid, post.postid, post.dateline
 				FROM " . TABLE_PREFIX . "post AS post
 				INNER JOIN " . TABLE_PREFIX . "thread AS thread USING (threadid)
 				WHERE post.postid = " . $this->userinfo['lastpostid'] . "
@@ -400,20 +409,13 @@ class vB_UserProfile
 					AND thread.visible = 1
 			"))
 			{
-				$getperms = fetch_permissions($getlastpost['forumid']);
-				if ($getperms & $this->registry->bf_ugp_forumpermissions['canview'])
-				{
-					$this->prepared['lastposttitle'] = $getlastpost['title'];
-					$this->prepared['lastposturl'] = 'showthread.php?' . $this->registry->session->vars['sessionurl'] . "p=$getlastpost[postid]#post$getlastpost[postid]";
-					$this->prepared['lastpostdate'] = vbdate($this->registry->options['dateformat'], $getlastpost['dateline'], true);
-					$this->prepared['lastposttime'] = vbdate($this->registry->options['timeformat'], $getlastpost['dateline']);
-				}
+				$this->setup_lastpost_internal($getlastpost);
 			}
 
 			if ($this->prepared['lastposttitle'] === '')
 			{
 				$getlastposts = $this->registry->db->query_read_slave("
-					SELECT thread.title, thread.threadid, thread.forumid, post.postid, post.dateline
+					SELECT thread.title, thread.threadid, thread.forumid, thread.postuserid, post.postid, post.dateline
 					FROM " . TABLE_PREFIX . "post AS post
 					INNER JOIN " . TABLE_PREFIX . "thread AS thread USING (threadid)
 					WHERE thread.visible = 1
@@ -424,14 +426,8 @@ class vB_UserProfile
 				");
 				while ($getlastpost = $this->registry->db->fetch_array($getlastposts))
 				{
-					$getperms = fetch_permissions($getlastpost['forumid']);
-					if ($getperms & $this->registry->bf_ugp_forumpermissions['canview'])
+					if ($this->setup_lastpost_internal($getlastpost))
 					{
-						$this->prepared['lastposttitle'] = $getlastpost['title'];
-						$this->prepared['lastposturl'] = 'showthread.php?' . $this->registry->session->vars['sessionurl'] . "p=$getlastpost[postid]#post$getlastpost[postid]";
-						$this->prepared['lastpostdate'] = vbdate($this->registry->options['dateformat'], $getlastpost['dateline'], true);
-						$this->prepared['lastposttime'] = vbdate($this->registry->options['timeformat'], $getlastpost['dateline']);
-
 						break;
 					}
 				}
@@ -439,6 +435,39 @@ class vB_UserProfile
 		}
 
 		$this->prepared['lastpost'] = true;
+	}
+
+	/**
+	* Internal function to check the permissions on the last post data
+	* and set the fields as necessary.
+	*
+	* @param	array	Array of last post information
+	*
+	* @return	boolean	True if last post data prepared
+	*/
+	function setup_lastpost_internal($getlastpost)
+	{
+		$forumperms = fetch_permissions($getlastpost['forumid']);
+
+		if (!($forumperms & $this->registry->bf_ugp_forumpermissions['canview']) OR !($forumperms & $this->registry->bf_ugp_forumpermissions['canviewthreads']))
+		{
+			return false;
+		}
+		else if (!($forumperms & $this->registry->bf_ugp_forumpermissions['canviewothers']) AND ($getlastpost['postuserid'] != $this->registry->userinfo['userid'] OR !$this->registry->userinfo['userid']))
+		{
+			return false;
+		}
+		else if (!verify_forum_password($getlastpost['forumid'], $this->registry->forumcache["$getlastpost[forumid]"]['password'], false))
+		{
+			return false;
+		}
+
+		$this->prepared['lastposttitle'] = $getlastpost['title'];
+		$this->prepared['lastposturl'] = 'showthread.php?' . $this->registry->session->vars['sessionurl'] . "p=$getlastpost[postid]#post$getlastpost[postid]";
+		$this->prepared['lastpostdate'] = vbdate($this->registry->options['dateformat'], $getlastpost['dateline'], true);
+		$this->prepared['lastposttime'] = vbdate($this->registry->options['timeformat'], $getlastpost['dateline']);
+
+		return true;
 	}
 
 	/**
@@ -580,7 +609,7 @@ class vB_UserProfile
 			(
 				!$this->userinfo['vm_contactonly']
 					OR
-				can_moderate()
+				can_moderate(0,'canmoderatevisitormessages')
 					OR
 				$this->userinfo['userid'] == $this->registry->userinfo['userid']
 					OR
@@ -591,7 +620,7 @@ class vB_UserProfile
 				$this->userinfo['vm_enable']
 					OR
 				(
-					can_moderate()
+					can_moderate(0,'canmoderatevisitormessages')
 						AND
 					$this->registry->userinfo['userid'] != $this->userinfo['userid']
 				)
@@ -605,7 +634,7 @@ class vB_UserProfile
 			{
 				$state[] = 'moderation';
 			}
-			if (can_moderate() OR ($this->registry->userinfo['userid'] == $this->userinfo['userid'] AND $this->registry->userinfo['permissions']['visitormessagepermissions'] & $this->registry->bf_ugp_visitormessagepermissions['canmanageownprofile']))
+			if (can_moderate(0,'canmoderatevisitormessages') OR ($this->registry->userinfo['userid'] == $this->userinfo['userid'] AND $this->registry->userinfo['permissions']['visitormessagepermissions'] & $this->registry->bf_ugp_visitormessagepermissions['canmanageownprofile']))
 			{
 				$state[] = 'deleted';
 				$deljoinsql = "LEFT JOIN " . TABLE_PREFIX . "deletionlog AS deletionlog ON (visitormessage.vmid = deletionlog.primaryid AND deletionlog.type = 'visitormessage')";
@@ -719,13 +748,14 @@ class vB_UserProfile
 				AND $this->registry->options['enableemail']
 				AND $this->registry->options['displayemails']
 				AND $this->registry->userinfo['permissions']['genericpermissions'] & $this->registry->bf_ugp_genericpermissions['canemailmember']
+				AND $this->registry->userinfo['userid']
 			);
 
 			$show['pm'] = (
 				$this->registry->options['enablepms']
 				AND $this->registry->userinfo['permissions']['pmquota']
 	 			AND $this->registry->userinfo['userid']
-				AND ($this->registry->userinfo['permissions']['adminpermissions'] & $this->registry->bf_ugp_adminpermissions['cancontrolpanel']
+				AND ($this->registry->userinfo['permissions']['pmpermissions'] & $this->registry->bf_ugp_pmpermissions['canignorequota']
 	 				OR ($this->userinfo['receivepm']
 		 				AND $this->prepared['userperms']['pmquota']
 		 				AND (!$this->userinfo['receivepmbuddies']
@@ -749,7 +779,7 @@ class vB_UserProfile
 					!$this->userinfo['vm_contactonly']
 					OR $this->userinfo['userid'] == $this->registry->userinfo['userid']
 					OR $this->userinfo['bbuser_iscontact_of_user']
-					OR can_moderate()
+					OR can_moderate(0,'canmoderatevisitormessages')
 				)
 				AND ((
 						$this->userinfo['userid'] == $this->registry->userinfo['userid']
@@ -907,8 +937,8 @@ class vB_UserProfile
 
 /*======================================================================*\
 || ####################################################################
-|| # Downloaded: 16:21, Sat Apr 6th 2013
-|| # CVS: $RCSfile$ - $Revision: 26586 $
+|| # Downloaded: 20:50, Sun Aug 11th 2013
+|| # CVS: $RCSfile$ - $Revision: 39862 $
 || ####################################################################
 \*======================================================================*/
 ?>

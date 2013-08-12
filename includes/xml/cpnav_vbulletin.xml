@@ -224,6 +224,11 @@
 			<link>thread.php?do=tags</link>
 		</navoption>
 
+		<navoption displayorder="70">
+			<phrase>prune_post_edit_history</phrase>
+			<link>thread.php?do=pruneedit</link>
+		</navoption>
+
 	</navgroup>
 
 	<navgroup phrase="thread_prefixes" permissions="canadminforums" displayorder="85">
@@ -233,10 +238,16 @@
 			<link>prefix.php</link>
 		</navoption>
 
-		<navoption displayorder="10">
+		<navoption displayorder="20">
 			<phrase>add_new_prefix_set</phrase>
 			<link>prefix.php?do=addset</link>
 		</navoption>
+
+		<navoption displayorder="30">
+			<phrase>duplicate_permissions</phrase>
+			<link>prefix.php?do=duplicate</link>
+		</navoption>
+
 
 	</navgroup>
 
@@ -364,6 +375,11 @@
 			<phrase>generate_mailing_list</phrase>
 			<link>email.php?do=genlist</link>
 		</navoption>
+		
+                <navoption displayorder="115">
+                        <phrase>check_vulnerable_passwords</phrase> 
+                        <link>passwordcheck.php</link> 
+		</navoption>
 
 		<navoption displayorder="120">
 			<phrase>access_masks</phrase>
@@ -404,9 +420,28 @@
 			<link>adminpermissions.php?do=modify</link>
 		</navoption>
 
-		<navoption displayorder="70">
-			<phrase>prune_social_groups</phrase>
-			<link>socialgroups.php</link>
+	</navgroup>
+
+	<navgroup phrase="social_groups" permissions="canadminthreads" displayorder="121">
+
+		<navoption displayorder="10">
+			<phrase>search_social_groups</phrase>
+			<link>socialgroups.php?do=search</link>
+		</navoption>
+
+		<navoption displayorder="20">
+			<phrase>social_group_categories</phrase>
+			<link>socialgroups.php?do=categories</link>
+		</navoption>
+
+		<navoption displayorder="30">
+			<phrase>add_new_social_group_category</phrase>
+			<link>socialgroups.php?do=editcategory</link>
+		</navoption>
+
+		<navoption displayorder="40">
+			<phrase>social_group_icon_storage_type</phrase>
+			<link>socialgroup_icon.php</link>
 		</navoption>
 
 	</navgroup>
@@ -744,7 +779,7 @@
 			<phrase>update_counters</phrase>
 			<link>misc.php?do=chooser</link>
 		</navoption>
-
+		
 		<navoption displayorder="40">
 			<phrase>diagnostics</phrase>
 			<link>diagnostic.php?do=list</link>

@@ -1,9 +1,9 @@
 <?php
 /*======================================================================*\
 || #################################################################### ||
-|| # vBulletin 3.7.2 Patch Level 2 - Licence Number VBF2470E4F
+|| # vBulletin 3.8.7 Patch Level 3 - Licence Number VBC2DDE4FB
 || # ---------------------------------------------------------------- # ||
-|| # Copyright ©2000-2013 Jelsoft Enterprises Ltd. All Rights Reserved. ||
+|| # Copyright ©2000-2013 vBulletin Solutions, Inc. All Rights Reserved. ||
 || # This file may not be redistributed in whole or significant part. # ||
 || # ---------------- VBULLETIN IS NOT FREE SOFTWARE ---------------- # ||
 || # http://www.vbulletin.com | http://www.vbulletin.com/license.html # ||
@@ -11,7 +11,7 @@
 \*======================================================================*/
 
 // ####################### SET PHP ENVIRONMENT ###########################
-error_reporting(E_ALL & ~E_NOTICE);
+error_reporting(E_ALL & ~E_NOTICE & ~8192);
 
 // #################### DEFINE IMPORTANT CONSTANTS #######################
 define('THIS_SCRIPT', 'index');
@@ -30,8 +30,6 @@ $specialtemplates = array(
 	'iconcache',
 	'eventcache',
 	'mailqueue',
-	'blogstats',
-	'blogcategorycache',
 );
 
 // pre-cache templates used by all actions
@@ -138,6 +136,9 @@ if ($vbulletin->options['showbirthdays'])
 		case $birthdaystore['day2']:
 			$birthdaysarray = $birthdaystore['users2'];
 			break;
+
+		default:
+			$birthdaysarray = array();
 	}
 	// memory saving
 	unset($birthdaystore);
@@ -184,6 +185,7 @@ if ($vbulletin->options['showevents'])
 	unset($eventstore['date']);
 	$events = array();
 	$eventcount = 0;
+	$holiday_calendarid = 0;
 
 	foreach ($eventstore AS $eventid => $eventinfo)
 	{
@@ -213,6 +215,33 @@ if ($vbulletin->options['showevents'])
 
 		if ($vbulletin->userinfo['calendarpermissions']["$eventinfo[calendarid]"] & $vbulletin->bf_ugp_calendarpermissions['canviewcalendar'] OR ($eventinfo['holidayid'] AND $vbulletin->options['showholidays']))
 		{
+			if ($eventinfo['holidayid'] AND $vbulletin->options['showholidays'])
+			{
+				if (!$holiday_calendarid)
+				{
+					$holiday_calendarid = -1; // stop this loop from running again in the future
+					if (is_array($eventinfo['holiday_calendarids']))
+					{
+						foreach ($eventinfo['holiday_calendarids'] AS $potential_holiday_calendarid)
+						{
+							if ($vbulletin->userinfo['calendarpermissions']["$potential_holiday_calendarid"] & $vbulletin->bf_ugp_calendarpermissions['canviewcalendar'])
+							{
+								$holiday_calendarid = $potential_holiday_calendarid;
+								break;
+							}
+						}
+					}
+				}
+
+				if ($holiday_calendarid < 0)
+				{
+					continue;
+				}
+
+				$eventstore["$eventid"]['calendarid'] = $holiday_calendarid;
+				$eventinfo['calendarid'] = $holiday_calendarid;
+			}
+
 			if ($eventinfo['userid'] == $vbulletin->userinfo['userid'] OR $vbulletin->userinfo['calendarpermissions']["$eventinfo[calendarid]"] & $vbulletin->bf_ugp_calendarpermissions['canviewothersevent'] OR ($eventinfo['holidayid'] AND $vbulletin->options['showholidays']))
 			{
 				if (!$eventinfo['recurring'] AND !$vbulletin->options['showeventtype'] AND !$eventinfo['singleday'] AND cache_event_info($eventinfo, $todaydate['mon'], $todaydate['mday'], $todaydate['year']))
@@ -252,7 +281,8 @@ if ($vbulletin->options['showevents'])
 						}
 
 						$iterations++;
-						$gettime += 86400;
+						//$gettime += 86400;
+						$gettime = strtotime('+1 day', $gettime);
 					}
 				}
 			}
@@ -329,7 +359,8 @@ if ($vbulletin->options['showevents'])
 					unset($day);
 					foreach($value AS $key => $dateline)
 					{
-						if (($dateline - 86400) == $pastevent AND !$eventinfo['holidayid'])
+						//if (($dateline - 86400) == $pastevent AND !$eventinfo['holidayid'])
+						if ((strtotime('-1 day', $dateline)) == $pastevent AND !$eventinfo['holidayid'])
 						{
 							$pastevent = $dateline;
 							$pastcount++;
@@ -359,7 +390,7 @@ if ($vbulletin->options['showevents'])
 
 				if ($eventinfo['holidayid'])
 				{
-					$callink = '<a href="calendar.php?' . $vbulletin->session->vars['sessionurl'] . "do=getinfo&amp;day=$day\">" . $vbphrase['holiday' . $eventinfo['holidayid'] . '_title'] . "</a>";
+					$callink = '<a href="calendar.php?' . $vbulletin->session->vars['sessionurl'] . "do=getinfo&amp;day=$day&amp;c=$eventinfo[calendarid]\">" . $vbphrase['holiday' . $eventinfo['holidayid'] . '_title'] . "</a>";
 				}
 				else
 				{
@@ -376,7 +407,7 @@ if ($vbulletin->options['showevents'])
 					$eventinfo = $eventstore["$eventid"];
 					if ($eventinfo['holidayid'])
 					{
-						$daysevents .= $comma . '<a href="calendar.php?' . $vbulletin->session->vars['sessionurl'] . "do=getinfo&amp;day=$day\">" . $vbphrase['holiday' . $eventinfo['holidayid'] . '_title'] . "</a>";
+						$daysevents .= $comma . '<a href="calendar.php?' . $vbulletin->session->vars['sessionurl'] . "do=getinfo&amp;day=$day&amp;c=$eventinfo[calendarid]\">" . $vbphrase['holiday' . $eventinfo['holidayid'] . '_title'] . "</a>";
 					}
 					else
 					{
@@ -415,8 +446,8 @@ if (($vbulletin->options['displayloggedin'] == 1 OR $vbulletin->options['display
 	$forumusers = $db->query_read_slave("
 		SELECT
 			user.username, (user.options & " . $vbulletin->bf_misc_useroptions['invisible'] . ") AS invisible, user.usergroupid,
-			session.userid, session.inforum, session.lastactivity,
-			IF(displaygroupid=0, user.usergroupid, displaygroupid) AS displaygroupid, infractiongroupid
+			session.userid, session.inforum, session.lastactivity, session.badlocation,
+ 			IF(user.displaygroupid=0, user.usergroupid, user.displaygroupid) AS displaygroupid, infractiongroupid
 			$hook_query_fields
 		FROM " . TABLE_PREFIX . "session AS session
 		LEFT JOIN " . TABLE_PREFIX . "user AS user ON(user.userid = session.userid)
@@ -457,7 +488,10 @@ if (($vbulletin->options['displayloggedin'] == 1 OR $vbulletin->options['display
 		if (!$userid)
 		{	// Guest
 			$numberguest++;
-			$inforum["$loggedin[inforum]"]++;
+			if (!$loggedin['badlocation'])
+			{
+				$inforum["$loggedin[inforum]"]++;
+			}
 		}
 		else if (empty($userinfos["$userid"]) OR ($userinfos["$userid"]['lastactivity'] < $loggedin['lastactivity']))
 		{
@@ -473,7 +507,7 @@ if (($vbulletin->options['displayloggedin'] == 1 OR $vbulletin->options['display
 	foreach ($userinfos AS $userid => $loggedin)
 	{
 		$numberregistered++;
-		if ($userid != $vbulletin->userinfo['userid'])
+		if ($userid != $vbulletin->userinfo['userid'] AND !$loggedin['badlocation'])
 		{
 			$inforum["$loggedin[inforum]"]++;
 		}
@@ -566,8 +600,8 @@ eval('print_output("' . fetch_template('FORUMHOME') . '");');
 
 /*======================================================================*\
 || ####################################################################
-|| # Downloaded: 16:21, Sat Apr 6th 2013
-|| # CVS: $RCSfile$ - $Revision: 26941 $
+|| # Downloaded: 20:50, Sun Aug 11th 2013
+|| # CVS: $RCSfile$ - $Revision: 39862 $
 || ####################################################################
 \*======================================================================*/
 ?>

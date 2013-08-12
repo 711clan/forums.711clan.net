@@ -1,9 +1,9 @@
 <?php
 /*======================================================================*\
 || #################################################################### ||
-|| # vBulletin 3.7.2 Patch Level 2 - Licence Number VBF2470E4F
+|| # vBulletin 3.8.7 Patch Level 3 - Licence Number VBC2DDE4FB
 || # ---------------------------------------------------------------- # ||
-|| # Copyright ©2000-2013 Jelsoft Enterprises Ltd. All Rights Reserved. ||
+|| # Copyright ©2000-2013 vBulletin Solutions, Inc. All Rights Reserved. ||
 || # This file may not be redistributed in whole or significant part. # ||
 || # ---------------- VBULLETIN IS NOT FREE SOFTWARE ---------------- # ||
 || # http://www.vbulletin.com | http://www.vbulletin.com/license.html # ||
@@ -111,6 +111,7 @@ function construct_online_bit($userinfo, $doall = 0)
 		$forumid = $wol_thread["$wol_post[$postid]"]['forumid'];
 	}
 	$threadtitle = fetch_censored_text($wol_thread["$threadid"]['title']);
+	$threadprefix = ($wol_thread["$threadid"]['prefixid'] ? $vbphrase['prefix_' . $wol_thread["$threadid"]['prefixid'] . '_title_rich'] . ' ' : '');
 	$canview = $vbulletin->userinfo['forumpermissions']["$forumid"] & $vbulletin->bf_ugp_forumpermissions['canview'];
 	$canviewothers = $vbulletin->userinfo['forumpermissions']["$forumid"] & $vbulletin->bf_ugp_forumpermissions['canviewothers'];
 	$canviewthreads = $vbulletin->userinfo['forumpermissions']["$forumid"] & $vbulletin->bf_ugp_forumpermissions['canviewthreads'];
@@ -196,7 +197,7 @@ function construct_online_bit($userinfo, $doall = 0)
 			$userinfo['action'] = $vbphrase['viewing_post_history'];
 			if ($seetitle)
 			{
-				$userinfo['where'] = '<a href="showthread.php?' . $vbulletin->session->vars['sessionurl'] . "p=$postid#post$postid\" title=\"$threadpreview\">$threadtitle</a>";
+				$userinfo['where'] = $threadprefix . '<a href="showthread.php?' . $vbulletin->session->vars['sessionurl'] . "p=$postid#post$postid\" title=\"$threadpreview\">$threadtitle</a>";
 			}
 			break;
 
@@ -260,23 +261,25 @@ function construct_online_bit($userinfo, $doall = 0)
 				$userinfo['where'] = '<a href="group.php?' . $vbulletin->session->vars['sessionurl'] . "do=view&amp;groupid=$groupid\">$groupname</a>";
 			}
 			break;
+		case 'socialgroups_subscriptions':
+			$userinfo['action'] = $vbphrase['viewing_social_group_subscriptions'];
+			break;
 
 		case 'group_inlinemod':
 			$userinfo['action'] = '<b><i>' . $vbphrase['moderating'] . '</i></b>';
 			break;
-
 		case 'showthread':
 			$userinfo['action'] = $vbphrase['viewing_thread'];
 			if ($seetitle)
 			{
-				$userinfo['where'] = '<a href="showthread.php?' . $vbulletin->session->vars['sessionurl'] . "t=$threadid\" title=\"$threadpreview\">$threadtitle</a>";
+				$userinfo['where'] = $threadprefix . '<a href="showthread.php?' . $vbulletin->session->vars['sessionurl'] . "t=$threadid\" title=\"$threadpreview\">$threadtitle</a>";
 			}
 			break;
 		case 'showpost':
 			$userinfo['action'] = $vbphrase['viewing_thread'];
 			if ($seetitle)
 			{
-				$userinfo['where'] = '<a href="showthread.php?' . $vbulletin->session->vars['sessionurl'] . "p=$postid#post$postid\" title=\"$threadpreview\">$threadtitle</a>";
+				$userinfo['where'] = $threadprefix . '<a href="showthread.php?' . $vbulletin->session->vars['sessionurl'] . "p=$postid#post$postid\" title=\"$threadpreview\">$threadtitle</a>";
 			}
 			break;
 		case 'forumdisplay':
@@ -301,7 +304,7 @@ function construct_online_bit($userinfo, $doall = 0)
 			$userinfo['action'] = $vbphrase['replying_to_thread'];
 			if ($seetitle)
 			{
-				$userinfo['where'] = '<a href="showthread.php?' . $vbulletin->session->vars['sessionurl'] . "t=$threadid\" title=\"$threadpreview\">$threadtitle</a>";
+				$userinfo['where'] = $threadprefix . '<a href="showthread.php?' . $vbulletin->session->vars['sessionurl'] . "t=$threadid\" title=\"$threadpreview\">$threadtitle</a>";
 			}
 			break;
 		case 'attachments':
@@ -318,7 +321,7 @@ function construct_online_bit($userinfo, $doall = 0)
 			$userinfo['action'] = $vbphrase['viewing_attachment'];
 			if ($seetitle)
 			{
-				$userinfo['where'] = '<a href="showthread.php?' . $vbulletin->session->vars['sessionurl'] . "p=$postid#post$postid\" title=\"$threadpreview\">$threadtitle</a>";
+				$userinfo['where'] = $threadprefix . '<a href="showthread.php?' . $vbulletin->session->vars['sessionurl'] . "p=$postid#post$postid\" title=\"$threadpreview\">$threadtitle</a>";
 			}
 			break;
 		case 'index':
@@ -397,7 +400,7 @@ function construct_online_bit($userinfo, $doall = 0)
 			if ($seetitle)
 			{
 				$userinfo['action'] = $vbphrase['viewing_who_posted'];
-				$userinfo['where'] = '<a href="showthread.php?' . $vbulletin->session->vars['sessionurl'] . "t=$threadid\" title=\"$threadpreview\">$threadtitle</a>";
+				$userinfo['where'] = $threadprefix . '<a href="showthread.php?' . $vbulletin->session->vars['sessionurl'] . "t=$threadid\" title=\"$threadpreview\">$threadtitle</a>";
 			}
 			else
 			{
@@ -408,7 +411,7 @@ function construct_online_bit($userinfo, $doall = 0)
 			if ($seetitle)
 			{
 				$userinfo['action'] = $vbphrase['viewing_attachment_list'];
-				$userinfo['where'] = '<a href="showthread.php?' . $vbulletin->session->vars['sessionurl'] . "t=$threadid\" title=\"$threadpreview\">$threadtitle</a>";
+				$userinfo['where'] = $threadprefix . '<a href="showthread.php?' . $vbulletin->session->vars['sessionurl'] . "t=$threadid\" title=\"$threadpreview\">$threadtitle</a>";
 			}
 			else
 			{
@@ -431,7 +434,7 @@ function construct_online_bit($userinfo, $doall = 0)
 			$userinfo['action'] = $vbphrase['viewing_archives'];
 			if ($seetitle)
 			{
-				$userinfo['where'] = "<a href=\"archive/index.php/t-$threadid.html\" title=\"$threadpreview\">$threadtitle</a>";
+				$userinfo['where'] = $threadprefix . "<a href=\"archive/index.php/t-$threadid.html\" title=\"$threadpreview\">$threadtitle</a>";
 			}
 			else if ($seeforum)
 			{
@@ -491,7 +494,7 @@ function construct_online_bit($userinfo, $doall = 0)
 			$userinfo['action'] = $vbphrase['subscribing_to_thread'];
 			if ($seetitle)
 			{
-				$userinfo['where'] = '<a href="showthread.php?' . $vbulletin->session->vars['sessionurl'] . "t=$threadid\" title=\"$threadpreview\">$threadtitle</a>";
+				$userinfo['where'] = $threadprefix . '<a href="showthread.php?' . $vbulletin->session->vars['sessionurl'] . "t=$threadid\" title=\"$threadpreview\">$threadtitle</a>";
 			}
 			break;
 		case 'remsubthread':
@@ -525,7 +528,7 @@ function construct_online_bit($userinfo, $doall = 0)
 			$userinfo['action'] = '<b><i>' . $vbphrase['moderating'] . '</i></b>';
 			if (can_moderate())
 			{
-				$userinfo['where'] = '<a href="showthread.php?' . $vbulletin->session->vars['sessionurl'] . "t=$threadid\" title=\"$threadpreview\">$threadtitle</a>";
+				$userinfo['where'] = $threadprefix . '<a href="showthread.php?' . $vbulletin->session->vars['sessionurl'] . "t=$threadid\" title=\"$threadpreview\">$threadtitle</a>";
 				switch ($userinfo['values']['do'])
 				{
 					case 'open':
@@ -607,7 +610,7 @@ function construct_online_bit($userinfo, $doall = 0)
 			$userinfo['action'] = '<b><i>' . $vbphrase['moderating'] . '</b></i>';
 			if (can_moderate($forumid) AND $threadtitle AND $canview AND ($canviewothers OR $postuserid == $vbulletin->userinfo['userid']))
 			{
-				$userinfo['where'] = '<a href="showthread.php?' . $vbulletin->session->vars['sessionurl'] . "t=$threadid\" title=\"$threadpreview\">$threadtitle</a>";
+				$userinfo['where'] = $threadprefix . '<a href="showthread.php?' . $vbulletin->session->vars['sessionurl'] . "t=$threadid\" title=\"$threadpreview\">$threadtitle</a>";
 				switch ($userinfo['values']['do'])
 				{
 					case 'editthread':
@@ -633,7 +636,7 @@ function construct_online_bit($userinfo, $doall = 0)
 								$userinfo['action'] = '<i>' . $vbphrase['moving_thread_with_redirect_to_forum'] . '</i>';
 								break;
 						}
-						$userinfo['where'] = '<a href="showthread.php?' . $vbulletin->session->vars['sessionurl'] . "t=$threadid\" title=\"$threadpreview\">$threadtitle</a><br />" .
+						$userinfo['where'] = $threadprefix . '<a href="showthread.php?' . $vbulletin->session->vars['sessionurl'] . "t=$threadid\" title=\"$threadpreview\">$threadtitle</a><br />" .
 										'<a href="forumdisplay.php?' . $vbulletin->session->vars['sessionurl'] . "f=$forumid\">$forumtitle</a>";
 						break;
 					case 'deletethread':
@@ -719,14 +722,14 @@ function construct_online_bit($userinfo, $doall = 0)
 			$userinfo['action'] = $vbphrase['modifying_post'];
 			if ($vbulletin->userinfo['permissions']['wolpermissions'] & $vbulletin->bf_ugp_wolpermissions['canwhosonlinefull'] AND $seetitle)
 			{
-				$userinfo['where'] = '<a href="showthread.php?' . $vbulletin->session->vars['sessionurl'] . "p=$postid#post$postid\" title=\"$threadpreview\">$threadtitle</a>";
+				$userinfo['where'] = $threadprefix . '<a href="showthread.php?' . $vbulletin->session->vars['sessionurl'] . "p=$postid#post$postid\" title=\"$threadpreview\">$threadtitle</a>";
 			}
 			break;
 		case 'sendto':
 			$userinfo['action'] = $vbphrase['sending_thread_to_friend'];
 			if ($seetitle)
 			{
-				$userinfo['where'] = '<a href="printthread.php?' . $vbulletin->session->vars['sessionurl'] . "t=$threadid\" title=\"$threadpreview\">$threadtitle</a>";
+				$userinfo['where'] = $threadprefix . '<a href="printthread.php?' . $vbulletin->session->vars['sessionurl'] . "t=$threadid\" title=\"$threadpreview\">$threadtitle</a>";
 			}
 			break;
 		case 'contactus':
@@ -770,7 +773,7 @@ function construct_online_bit($userinfo, $doall = 0)
 		case 'report':
 			if ($vbulletin->userinfo['permissions']['wolpermissions'] & $vbulletin->bf_ugp_wolpermissions['canwhosonlinefull'] AND $seetitle)
 			{
-				$userinfo['where'] = '<a href="showthread.php?' . $vbulletin->session->vars['sessionurl'] . "p=$postid#post$postid\" title=\"$threadpreview\">$threadtitle</a>";
+				$userinfo['where'] = $threadprefix . '<a href="showthread.php?' . $vbulletin->session->vars['sessionurl'] . "p=$postid#post$postid\" title=\"$threadpreview\">$threadtitle</a>";
 			}
 			$userinfo['action'] = $vbphrase['reporting_post'];
 			break;
@@ -778,7 +781,7 @@ function construct_online_bit($userinfo, $doall = 0)
 			$userinfo['action'] = $vbphrase['viewing_printable_version'];
 			if ($seetitle)
 			{
-				$userinfo['where'] = '<a href="printthread.php?' . $vbulletin->session->vars['sessionurl'] . "t=$threadid\" title=\"$threadpreview\">$threadtitle</a>";
+				$userinfo['where'] = $threadprefix . '<a href="printthread.php?' . $vbulletin->session->vars['sessionurl'] . "t=$threadid\" title=\"$threadpreview\">$threadtitle</a>";
 			}
 			break;
 		case 'calendarweek':
@@ -865,7 +868,7 @@ function construct_online_bit($userinfo, $doall = 0)
 			$userinfo['action'] = $vbphrase['giving_reputation'];
 			if ($vbulletin->userinfo['permissions']['wolpermissions'] & $vbulletin->bf_ugp_wolpermissions['canwhosonlinefull'] AND $seetitle)
 			{
-				$userinfo['where'] = '<a href="showthread.php?' . $vbulletin->session->vars['sessionurl'] . "t=$threadid\" title=\"$threadpreview\">$threadtitle</a>";
+				$userinfo['where'] = $threadprefix . '<a href="showthread.php?' . $vbulletin->session->vars['sessionurl'] . "t=$threadid\" title=\"$threadpreview\">$threadtitle</a>";
 			}
 			break;
 		case 'joinrequests':
@@ -879,7 +882,7 @@ function construct_online_bit($userinfo, $doall = 0)
 			$userinfo['action'] = $vbphrase['rating_thread'];
 			if ($seetitle)
 			{
-				$userinfo['where'] = '<a href="showthread.php?' . $vbulletin->session->vars['sessionurl'] . "t=$threadid\" title=\"$threadpreview\">$threadtitle</a>";
+				$userinfo['where'] = $threadprefix . '<a href="showthread.php?' . $vbulletin->session->vars['sessionurl'] . "t=$threadid\" title=\"$threadpreview\">$threadtitle</a>";
 			}
 			break;
 		case 'infractionreport':
@@ -892,7 +895,7 @@ function construct_online_bit($userinfo, $doall = 0)
 				}
 				else if ($seetitle)
 				{
-					$userinfo['where'] = '<a href="showthread.php?' . $vbulletin->session->vars['sessionurl'] . "p=$postid#post$postid\" title=\"$threadpreview\">$threadtitle</a>";
+					$userinfo['where'] = $threadprefix . '<a href="showthread.php?' . $vbulletin->session->vars['sessionurl'] . "p=$postid#post$postid\" title=\"$threadpreview\">$threadtitle</a>";
 				}
 			}
 			else
@@ -949,7 +952,7 @@ function construct_online_bit($userinfo, $doall = 0)
 			}
 			break;
 		case 'modcp_deletedvms':
-			if (can_moderate())
+			if (can_moderate(0,'canmoderatevisitormessages'))
 			{
 				$userinfo['action'] = $vbphrase['viewing_deleted_visitor_messages'];
 			}
@@ -959,7 +962,7 @@ function construct_online_bit($userinfo, $doall = 0)
 			}
 			break;
 		case 'modcp_deletedgms':
-			if (can_moderate())
+			if (can_moderate(0, 'canmoderategroupmessages'))
 			{
 				$userinfo['action'] = $vbphrase['viewing_deleted_social_group_messages'];
 			}
@@ -969,7 +972,7 @@ function construct_online_bit($userinfo, $doall = 0)
 			}
 			break;
 		case 'modcp_deletedpcs':
-			if (can_moderate())
+			if (can_moderate(0, 'canmoderatepicturecomments'))
 			{
 				$userinfo['action'] = $vbphrase['viewing_deleted_picture_comments'];
 			}
@@ -1294,7 +1297,7 @@ function process_online_location($userinfo, $doall = 0)
 		$loc = preg_replace('/&s=/', '', $loc);
 	}
 
-	if (strtoupper(substr(PHP_OS, 0, 3) == 'WIN'))
+	if (strtoupper(substr(PHP_OS, 0, 3)) == 'WIN')
 	{
 		$filename = strtolower(strtok($loc, '?'));
 	}
@@ -1935,6 +1938,10 @@ function process_online_location($userinfo, $doall = 0)
 		}
 		break;
 
+	case 'groupsubscription.php':
+		$userinfo['activity'] = 'socialgroups_subscriptions';
+		break;
+
 	case 'reputation.php':
 		$userinfo['activity'] = 'reputation';
 		break;
@@ -2191,9 +2198,12 @@ function convert_ids_to_titles()
 	if ($albumids)
 	{
 		$albums = $vbulletin->db->query_read_slave("
-			SELECT title, albumid, state, userid
-			FROM " . TABLE_PREFIX . "album
-			WHERE albumid IN (0$albumids)
+			SELECT album.title, album.albumid, album.state, album.userid
+			FROM " . TABLE_PREFIX . "album AS album
+			LEFT JOIN " . TABLE_PREFIX . "profileblockprivacy AS profileblockprivacy ON
+				(profileblockprivacy.userid = album.userid AND profileblockprivacy.blockid = 'albums')
+			WHERE album.albumid IN (0$albumids)
+				AND (profileblockprivacy.requirement = 0 OR profileblockprivacy.requirement IS NULL)
 		");
 
 		while ($album = $vbulletin->db->fetch_array($albums))
@@ -2205,7 +2215,7 @@ function convert_ids_to_titles()
 	if ($threadids)
 	{
 		$threadresults = $vbulletin->db->query_read_slave("
-			SELECT thread.title, thread.threadid, thread.forumid, thread.postuserid, thread.visible
+			SELECT thread.title, thread.prefixid, thread.threadid, thread.forumid, thread.postuserid, thread.visible
 			" . iif($vbulletin->options['threadpreview'] > 0, ",post.pagetext AS preview") . "
 			" . iif($vbulletin->options['threadsubscribed'] AND $vbulletin->userinfo['userid'], ", NOT ISNULL(subscribethread.subscribethreadid) AS issubscribed") . "
 			FROM " . TABLE_PREFIX . "thread AS thread
@@ -2216,6 +2226,7 @@ function convert_ids_to_titles()
 		while ($threadresult = $vbulletin->db->fetch_array($threadresults))
 		{
 			$wol_thread["$threadresult[threadid]"]['title'] = $threadresult['title'];
+			$wol_thread["$threadresult[threadid]"]['prefixid'] = $threadresult['prefixid'];
 			$wol_thread["$threadresult[threadid]"]['forumid'] = $threadresult['forumid'];
 			$wol_thread["$threadresult[threadid]"]['postuserid'] = $threadresult['postuserid'];
 			$wol_thread["$threadresult[threadid]"]['isdeleted'] = ($threadresult['visible'] == 2) ? true : false;
@@ -2356,7 +2367,7 @@ function convert_ids_to_titles()
 	if ($userids AND ($vbulletin->userinfo['permissions']['wolpermissions'] & $vbulletin->bf_ugp_wolpermissions['canwhosonlinefull']))
 	{
 		$userresults = $vbulletin->db->query_read_slave("
-			SELECT userid, username, IF(displaygroupid=0, user.usergroupid, displaygroupid) AS displaygroupid
+			SELECT userid, username, IF(user.displaygroupid=0, user.usergroupid, user.displaygroupid) AS displaygroupid
 			FROM " . TABLE_PREFIX . "user AS user
 			WHERE userid IN (0$userids)
 		");
@@ -2395,8 +2406,8 @@ function sanitize_perpage($perpage, $max, $default = 25)
 
 /*======================================================================*\
 || ####################################################################
-|| # Downloaded: 16:21, Sat Apr 6th 2013
-|| # CVS: $RCSfile$ - $Revision: 26377 $
+|| # Downloaded: 20:50, Sun Aug 11th 2013
+|| # CVS: $RCSfile$ - $Revision: 39862 $
 || ####################################################################
 \*======================================================================*/
 ?>

@@ -1,9 +1,9 @@
 <?php
 /*======================================================================*\
 || #################################################################### ||
-|| # vBulletin 3.7.2 Patch Level 2 - Licence Number VBF2470E4F
+|| # vBulletin 3.8.7 Patch Level 3 - Licence Number VBC2DDE4FB
 || # ---------------------------------------------------------------- # ||
-|| # Copyright ©2000-2013 Jelsoft Enterprises Ltd. All Rights Reserved. ||
+|| # Copyright ©2000-2013 vBulletin Solutions, Inc. All Rights Reserved. ||
 || # This file may not be redistributed in whole or significant part. # ||
 || # ---------------- VBULLETIN IS NOT FREE SOFTWARE ---------------- # ||
 || # http://www.vbulletin.com | http://www.vbulletin.com/license.html # ||
@@ -11,10 +11,10 @@
 \*======================================================================*/
 
 // ######################## SET PHP ENVIRONMENT ###########################
-error_reporting(E_ALL & ~E_NOTICE);
+error_reporting(E_ALL & ~E_NOTICE & ~8192);
 
 // ##################### DEFINE IMPORTANT CONSTANTS #######################
-define('CVS_REVISION', '$RCSfile$ - $Revision: 26870 $');
+define('CVS_REVISION', '$RCSfile$ - $Revision: 39862 $');
 
 // #################### PRE-CACHE TEMPLATES AND DATA ######################
 $phrasegroups = array('cphome');
@@ -166,7 +166,7 @@ if ($_REQUEST['do'] == 'head')
 	?>
 	<table border="0" width="100%" height="100%">
 	<tr align="center" valign="top">
-		<td style="text-align:<?php echo $stylevar['left']; ?>"><a href="http://www.vbulletin.com/" target="_blank"><b><?php echo $vbphrase['admin_control_panel']; ?></b> (vBulletin <?php echo ADMIN_VERSION_VBULLETIN . print_form_middle('VBF2470E4F'); ?>)<?php echo iif(is_demo_mode(), ' <b>DEMO MODE</b>'); ?></a></td>
+		<td style="text-align:<?php echo $stylevar['left']; ?>"><a href="http://www.vbulletin.com/" target="_blank"><b><?php echo $vbphrase['admin_control_panel']; ?></b> (vBulletin <?php echo ADMIN_VERSION_VBULLETIN . print_form_middle('VBC2DDE4FB'); ?>)<?php echo iif(is_demo_mode(), ' <b>DEMO MODE</b>'); ?></a></td>
 		<td><a href="http://members.vbulletin.com/" id="head_version_link" target="_blank">&nbsp;</a></td>
 		<td style="white-space:nowrap; text-align:<?php echo $stylevar['right']; ?>; font-weight:bold">
 			<a href="../<?php echo $vbulletin->options['forumhome']; ?>.php<?php echo $vbulletin->session->vars['sessionurl_q']; ?>" target="_blank"><?php echo $vbphrase['forum_home_page']; ?></a>
@@ -175,7 +175,7 @@ if ($_REQUEST['do'] == 'head')
 		</td>
 	</tr>
 	</table>
-	<script type="text/javascript" src="<?php echo $versionhost; ?>/version.js?v=<?php echo SIMPLE_VERSION; ?>&amp;id=VBF2470E4F"></script>
+	<script type="text/javascript" src="<?php echo $versionhost; ?>/version.js?v=<?php echo SIMPLE_VERSION; ?>&amp;id=VBC2DDE4FB"></script>
 	<script type="text/javascript">
 	<!--
 	fetch_object('head_version_link').innerHTML = construct_phrase('<?php echo $vbphrase['latest_version_available_x']; ?>', ((typeof(vb_version) == 'undefined' || vb_version == '') ? '<?php echo $vbphrase['n_a']; ?>' : vb_version));
@@ -302,7 +302,7 @@ if ($_REQUEST['do'] == 'nav')
 	print_cp_header();
 
 	echo "\n<div>";
-	?><img src="../cpstyles/<?php echo $vbulletin->options['cpstylefolder']; ?>/cp_logo.gif" title="<?php echo $vbphrase['admin_control_panel']; ?>" alt="" border="0" hspace="4" <?php $df = print_form_middle("VBF2470E4F"); ?> vspace="4" /><?php
+	?><img src="../cpstyles/<?php echo $vbulletin->options['cpstylefolder']; ?>/cp_logo.gif" title="<?php echo $vbphrase['admin_control_panel']; ?>" alt="" border="0" hspace="4" <?php $df = print_form_middle("VBC2DDE4FB"); ?> vspace="4" /><?php
 	echo "</div>\n\n" . iif(is_demo_mode(), "<div align=\"center\"><b>DEMO MODE</b></div>\n\n") . "<div style=\"width:168px; padding: 4px\">\n";
 
 	// cache nav prefs
@@ -700,7 +700,15 @@ if ($vbulletin->options['adminquickstats'])
 	}
 
 	// An index exists on dateline for thread marking so we can run this on each page load.
-	$newthreads = $db->query_first("SELECT COUNT(*) AS count FROM " . TABLE_PREFIX . "thread WHERE dateline >= $starttime");
+	$newthreads = $db->query_first("
+		SELECT COUNT(*) AS count
+		FROM " . TABLE_PREFIX . "thread
+		WHERE visible IN (0,1,2)
+			AND sticky IN (0,1)
+			AND open <> 10
+			AND dateline >= $starttime
+	");
+
 	if ($vbulletin->acpstats['datasize'] == -1)
 	{
 		$vbulletin->acpstats['datasize'] = $vbphrase['n_a'];
@@ -898,7 +906,7 @@ print_table_footer();
 
 print_form_header('index', 'notes');
 print_table_header($vbphrase['administrator_notes'], 1);
-print_description_row("<textarea name=\"notes\" style=\"width: 90%\" rows=\"9\">" . $vbulletin->userinfo['notes'] . "</textarea>", false, 1, '', 'center');
+print_description_row("<textarea name=\"notes\" style=\"width: 90%\" rows=\"9\" tabindex=\"1\">" . $vbulletin->userinfo['notes'] . "</textarea>", false, 1, '', 'center');
 print_submit_row($vbphrase['save'], 0, 1);
 
 ($hook = vBulletinHook::fetch_hook('admin_index_main2')) ? eval($hook) : false;
@@ -923,15 +931,16 @@ if (intval($vbulletin->maxloggedin['maxonline']) <= ($guests + $members))
 	build_datastore('maxloggedin', serialize($vbulletin->maxloggedin), 1);
 }
 
+$is_windows = (strtoupper(substr(PHP_OS, 0, 3)) == 'WIN');
 $loadavg = array();
 
-if (PHP_OS == 'Linux' AND $stats = @exec('uptime 2>&1') AND trim($stats) != '' AND preg_match('#: ([\d.,]+),?\s+([\d.,]+),?\s+([\d.,]+)$#', $stats, $regs))
+if (!$is_windows AND function_exists('exec') AND $stats = @exec('uptime 2>&1') AND trim($stats) != '' AND preg_match('#: ([\d.,]+),?\s+([\d.,]+),?\s+([\d.,]+)$#', $stats, $regs))
 {
 	$loadavg[0] = vb_number_format($regs[1], 2);
 	$loadavg[1] = vb_number_format($regs[2], 2);
 	$loadavg[2] = vb_number_format($regs[3], 2);
 }
-else if (PHP_OS == 'Linux' AND @file_exists('/proc/loadavg') AND $stats = @file_get_contents('/proc/loadavg') AND trim($stats) != '')
+else if (!$is_windows AND @file_exists('/proc/loadavg') AND $stats = @file_get_contents('/proc/loadavg') AND trim($stats) != '')
 {
 	$loadavg = explode(' ', $stats);
 	$loadavg[0] = vb_number_format($loadavg[0], 2);
@@ -1076,7 +1085,7 @@ var local_extension = '.php';
 //-->
 </script>
 <script type="text/javascript" src="<?php echo $versionhost; ?>/versioncheck.js"></script>
-<script type="text/javascript" src="<?php echo $versionhost; ?>/version.js?v=<?php echo SIMPLE_VERSION; ?>&amp;id=VBF2470E4F"></script>
+<script type="text/javascript" src="<?php echo $versionhost; ?>/version.js?v=<?php echo SIMPLE_VERSION; ?>&amp;id=VBC2DDE4FB"></script>
 <script type="text/javascript" src="../clientscript/vbulletin_cphome_scripts.js"></script>
 <?php
 
@@ -1230,8 +1239,8 @@ if ($_POST['do'] == 'handlemessage')
 
 /*======================================================================*\
 || ####################################################################
-|| # Downloaded: 16:21, Sat Apr 6th 2013
-|| # CVS: $RCSfile$ - $Revision: 26870 $
+|| # Downloaded: 20:50, Sun Aug 11th 2013
+|| # CVS: $RCSfile$ - $Revision: 39862 $
 || ####################################################################
 \*======================================================================*/
 ?>

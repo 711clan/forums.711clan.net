@@ -1,9 +1,9 @@
 <?php
 /*======================================================================*\
 || #################################################################### ||
-|| # vBulletin 3.7.2 Patch Level 2 - Licence Number VBF2470E4F
+|| # vBulletin 3.8.7 Patch Level 3 - Licence Number VBC2DDE4FB
 || # ---------------------------------------------------------------- # ||
-|| # Copyright ©2000-2013 Jelsoft Enterprises Ltd. All Rights Reserved. ||
+|| # Copyright ©2000-2013 vBulletin Solutions, Inc. All Rights Reserved. ||
 || # This file may not be redistributed in whole or significant part. # ||
 || # ---------------- VBULLETIN IS NOT FREE SOFTWARE ---------------- # ||
 || # http://www.vbulletin.com | http://www.vbulletin.com/license.html # ||
@@ -11,7 +11,7 @@
 \*======================================================================*/
 
 // ####################### SET PHP ENVIRONMENT ###########################
-error_reporting(E_ALL & ~E_NOTICE);
+error_reporting(E_ALL & ~E_NOTICE & ~8192);
 
 // #################### DEFINE IMPORTANT CONSTANTS #######################
 define('NOSHUTDOWNFUNC', 1);
@@ -52,13 +52,13 @@ $actiontemplates = array();
 // ######################### REQUIRE BACK-END ############################
 if ($_REQUEST['type'] == 'dberror') // do not require back-end
 {
-	header('Content-type: image/gif');
+	header('Content-type: image/jpeg');
 	readfile('./includes/database_error_image.jpg');
 	exit;
 }
 else if ($_REQUEST['type'] == 'ieprompt')
 {
-	header('Content-type: image/gif');
+	header('Content-type: image/jpeg');
 	readfile('./includes/ieprompt.jpg');
 	exit;
 }
@@ -79,13 +79,14 @@ else
 $vbulletin->input->clean_array_gpc('r', array(
 	'type'   => TYPE_STR,
 	'userid' => TYPE_UINT,
+	'groupid' => TYPE_UINT
 ));
 
 // #######################################################################
 // ######################## START MAIN SCRIPT ############################
 // #######################################################################
 
-if ($vbulletin->GPC['userid'] == 0)
+if ($vbulletin->GPC['userid'] == 0 AND $vbulletin->GPC['groupid'] == 0)
 {
 	$vbulletin->GPC['type'] = 'hv';
 }
@@ -146,7 +147,7 @@ if ($vbulletin->GPC['type'] == 'hv')
 	$db->close();
 	$image->print_image_from_string($imageinfo['answer'], $moveabout);
 }
-else
+else if ($vbulletin->GPC['userid'])
 {
 	$vbulletin->input->clean_array_gpc('r', array(
 		'dateline' => TYPE_UINT,
@@ -157,8 +158,22 @@ else
 	{
 		$table = 'customprofilepic';
 
+		$can_view_profile_pic = ($vbulletin->options['profilepicenabled']
+			AND ($vbulletin->userinfo['permissions']['genericpermissions'] & $vbulletin->bf_ugp_genericpermissions['canseeprofilepic']
+				OR $vbulletin->userinfo['userid'] == $vbulletin->GPC['userid']
+			)
+		);
+		if ($can_view_profile_pic)
+		{
+			require_once(DIR . '/includes/functions_user.php');
+			if (!can_view_profile_section($vbulletin->GPC['userid'], 'profile_picture'))
+			{
+				$can_view_profile_pic = false;
+			}
+		}
+
 		// No permissions to see profile pics
-		if (!$vbulletin->options['profilepicenabled'] OR (!($vbulletin->userinfo['permissions']['genericpermissions'] & $vbulletin->bf_ugp_genericpermissions['canseeprofilepic']) AND $vbulletin->userinfo['userid'] != $vbulletin->GPC['userid']))
+		if (!$can_view_profile_pic)
 		{
 			exec_shut_down();	// Update location with 'No permission to view profile picture'
 			header('Content-type: image/gif');
@@ -221,11 +236,58 @@ else
 		readfile(DIR . '/' . $vbulletin->options['cleargifurl']);
 	}
 }
+else if ($vbulletin->GPC['groupid'])
+{
+	$vbulletin->input->clean_array_gpc('r', array(
+		'dateline' => TYPE_UINT,
+	));
+
+	$filedata = (($vbulletin->GPC['type'] == 'groupthumb') ? 'thumbnail_filedata' : 'filedata');
+	if ($imageinfo = $db->query_first_slave("
+			SELECT $filedata AS filedata, dateline, extension
+			FROM " . TABLE_PREFIX . "socialgroupicon
+			WHERE groupid = " . $vbulletin->GPC['groupid'] . "
+			HAVING filedata <> ''
+		"))
+	{
+		($hook = vBulletinHook::fetch_hook('image_exists')) ? eval($hook) : false;
+
+		header('Cache-control: max-age=31536000');
+		header('Expires: ' . gmdate('D, d M Y H:i:s', (TIMENOW + 31536000)) . ' GMT');
+		header('Content-disposition: inline; filename=' . $imageinfo['filename']);
+		header('Content-transfer-encoding: binary');
+		header('Content-Length: ' . strlen($imageinfo['filedata']));
+		header('Last-Modified: ' . gmdate('D, d M Y H:i:s', $imageinfo['dateline']) . ' GMT');
+		header('ETag: "' . $imageinfo['dateline'] . '-' . $vbulletin->GPC['groupid'] . '"');
+		$extension = trim($imageinfo['extension']);
+		if ($extension == 'jpg' OR $extension == 'jpeg')
+		{
+			header('Content-type: image/jpeg');
+		}
+		else if ($extension == 'png')
+		{
+			header('Content-type: image/png');
+		}
+		else
+		{
+			header('Content-type: image/gif');
+		}
+		$db->close();
+		echo $imageinfo['filedata'];
+	}
+	else
+	{
+		($hook = vBulletinHook::fetch_hook('image_missing')) ? eval($hook) : false;
+
+		header('Content-type: image/gif');
+		readfile(DIR . '/' . $vbulletin->options['cleargifurl']);
+	}
+}
 
 /*======================================================================*\
 || ####################################################################
-|| # Downloaded: 16:21, Sat Apr 6th 2013
-|| # CVS: $RCSfile$ - $Revision: 26399 $
+|| # Downloaded: 20:50, Sun Aug 11th 2013
+|| # CVS: $RCSfile$ - $Revision: 39862 $
 || ####################################################################
 \*======================================================================*/
 ?>

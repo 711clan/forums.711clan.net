@@ -1,9 +1,9 @@
 <?php
 /*======================================================================*\
 || #################################################################### ||
-|| # vBulletin 3.7.2 Patch Level 2 - Licence Number VBF2470E4F
+|| # vBulletin 3.8.7 Patch Level 3 - Licence Number VBC2DDE4FB
 || # ---------------------------------------------------------------- # ||
-|| # Copyright ©2000-2013 Jelsoft Enterprises Ltd. All Rights Reserved. ||
+|| # Copyright ©2000-2013 vBulletin Solutions, Inc. All Rights Reserved. ||
 || # This file may not be redistributed in whole or significant part. # ||
 || # ---------------- VBULLETIN IS NOT FREE SOFTWARE ---------------- # ||
 || # http://www.vbulletin.com | http://www.vbulletin.com/license.html # ||
@@ -45,7 +45,7 @@ function verify_visitormessage($vmid, $alert = true, $perm_check = true)
 		if ($messageinfo['state'] == 'deleted')
 		{
 			$can_view_deleted = (
-				can_moderate()
+				can_moderate(0,'canmoderatevisitormessages')
 				OR ($messageinfo['userid'] == $vbulletin->userinfo['userid']
 					AND $vbulletin->userinfo['permissions']['visitormessagepermissions'] & $vbulletin->bf_ugp_visitormessagepermissions['canmanageownprofile']
 				)
@@ -130,7 +130,7 @@ function fetch_visitor_message_perm($perm, &$userinfo, $message = array())
 
 	if ($message['state'] == 'deleted')
 	{
-		$can_view_deleted = (can_moderate()
+		$can_view_deleted = (can_moderate(0, 'canmoderatevisitormessages')
 			OR ($vbulletin->userinfo['userid'] == $userinfo['userid']
 				AND $vbulletin->userinfo['permissions']['visitormessagepermissions'] & $vbulletin->bf_ugp_visitormessagepermissions['canmanageownprofile']
 			)
@@ -345,7 +345,7 @@ function fetch_vm_ajax_query($userinfo, $vmid, $type = 'wall', $userinfo2 = null
 			$state[] = 'moderation';
 		}
 
-		if (can_moderate() OR ($vbulletin->userinfo['userid'] == $userinfo['userid'] AND $vbulletin->userinfo['permissions']['visitormessagepermissions'] & $vbulletin->bf_ugp_visitormessagepermissions['canmanageownprofile']))
+		if (can_moderate(0, 'canmoderatevisitormessages') OR ($vbulletin->userinfo['userid'] == $userinfo['userid'] AND $vbulletin->userinfo['permissions']['visitormessagepermissions'] & $vbulletin->bf_ugp_visitormessagepermissions['canmanageownprofile']))
 		{
 			$state[] = 'deleted';
 			$deljoinsql = "LEFT JOIN " . TABLE_PREFIX . "deletionlog AS deletionlog ON (visitormessage.vmid = deletionlog.primaryid AND deletionlog.type = 'visitormessage')";
@@ -364,6 +364,21 @@ function fetch_vm_ajax_query($userinfo, $vmid, $type = 'wall', $userinfo2 = null
 			$state_or[] = "(visitormessage.postuserid = " . $vbulletin->userinfo['userid'] . " AND state = 'moderation')";
 		}
 
+		if ($type == 'edit')
+		{
+			$whereclause = "WHERE visitormessage.vmid = $vmid";
+		}
+		else
+		{
+			$whereclause = "
+				WHERE visitormessage.userid = $userinfo[userid]
+				AND (" . implode(" OR ", $state_or) . ")
+				AND " . (($lastviewed = $vbulletin->GPC['lastcomment']) ?
+					"(visitormessage.dateline > $lastviewed OR visitormessage.vmid = $vmid)" :
+					"visitormessage.vmid = $vmid"
+					);
+		}
+
 		$sql = "
 			SELECT
 				visitormessage.*, user.*, visitormessage.ipaddress AS messageipaddress, visitormessage.userid AS profileuserid
@@ -377,12 +392,7 @@ function fetch_vm_ajax_query($userinfo, $vmid, $type = 'wall', $userinfo2 = null
 			" . ($vbulletin->options['avatarenabled'] ? "LEFT JOIN " . TABLE_PREFIX . "avatar AS avatar ON(avatar.avatarid = user.avatarid) LEFT JOIN " . TABLE_PREFIX . "customavatar AS customavatar ON(customavatar.userid = user.userid)" : "") . "
 			$deljoinsql
 			$hook_query_joins
-			WHERE visitormessage.userid = $userinfo[userid]
-				AND (" . implode(" OR ", $state_or) . ")
-				AND " . (($lastviewed = $vbulletin->GPC['lastcomment']) ?
-					"(visitormessage.dateline > $lastviewed OR visitormessage.vmid = $vmid)" :
-					"visitormessage.vmid = $vmid"
-					) . "
+			$whereclause
 				$hook_query_where
 			ORDER BY visitormessage.dateline ASC
 		";
@@ -395,7 +405,7 @@ function fetch_vm_ajax_query($userinfo, $vmid, $type = 'wall', $userinfo2 = null
 		{
 			$state1[] = 'moderation';
 		}
-		if (can_moderate())
+		if (can_moderate(0, 'canmoderatevisitormessages'))
 		{
 			$state1[] = 'deleted';
 			$delsql1 = ",deletionlog.userid AS del_userid, deletionlog.username AS del_username, deletionlog.reason AS del_reason";
@@ -416,7 +426,7 @@ function fetch_vm_ajax_query($userinfo, $vmid, $type = 'wall', $userinfo2 = null
 		{
 			$state2[] = 'moderation';
 		}
-		if (can_moderate() OR ($viewself AND $vbulletin->userinfo['permissions']['visitormessagepermissions'] & $vbulletin->bf_ugp_visitormessagepermissions['canmanageownprofile']))
+		if (can_moderate(0, 'canmoderatevisitormessages') OR ($viewself AND $vbulletin->userinfo['permissions']['visitormessagepermissions'] & $vbulletin->bf_ugp_visitormessagepermissions['canmanageownprofile']))
 		{
 			$state2[] = 'deleted';
 			$deljoinsql2 = "LEFT JOIN " . TABLE_PREFIX . "deletionlog AS deletionlog ON (visitormessage.vmid = deletionlog.primaryid AND deletionlog.type = 'visitormessage')";
@@ -470,8 +480,8 @@ function fetch_vm_ajax_query($userinfo, $vmid, $type = 'wall', $userinfo2 = null
 
 /*======================================================================*\
 || ####################################################################
-|| # Downloaded: 16:21, Sat Apr 6th 2013
-|| # SVN: $Revision: 26588 $
+|| # Downloaded: 20:50, Sun Aug 11th 2013
+|| # SVN: $Revision: 39862 $
 || ####################################################################
 \*======================================================================*/
 ?>

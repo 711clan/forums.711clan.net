@@ -1,9 +1,9 @@
 <?php
 /*======================================================================*\
 || #################################################################### ||
-|| # vBulletin 3.7.2 Patch Level 2 - Licence Number VBF2470E4F
+|| # vBulletin 3.8.7 Patch Level 3 - Licence Number VBC2DDE4FB
 || # ---------------------------------------------------------------- # ||
-|| # Copyright ©2000-2013 Jelsoft Enterprises Ltd. All Rights Reserved. ||
+|| # Copyright ©2000-2013 vBulletin Solutions, Inc. All Rights Reserved. ||
 || # This file may not be redistributed in whole or significant part. # ||
 || # ---------------- VBULLETIN IS NOT FREE SOFTWARE ---------------- # ||
 || # http://www.vbulletin.com | http://www.vbulletin.com/license.html # ||
@@ -19,8 +19,8 @@ if (!isset($GLOBALS['vbulletin']->db))
 * Abstracted class that handles POST data from $_FILES
 *
 * @package	vBulletin
-* @version	$Revision: 26941 $
-* @date		$Date: 2008-06-12 12:05:56 -0500 (Thu, 12 Jun 2008) $
+* @version	$Revision: 39862 $
+* @date		$Date: 2010-10-18 18:16:44 -0700 (Mon, 18 Oct 2010) $
 */
 class vB_Upload_Abstract
 {
@@ -229,6 +229,7 @@ class vB_Upload_Abstract
 					require_once(DIR . '/includes/class_vurl.php');
 					$vurl = new vB_vURL($this->registry);
 					$vurl->set_option(VURL_URL, $upload);
+					$vurl->set_option(VURL_FOLLOWLOCATION, 1);
 					$vurl->set_option(VURL_HEADER, true);
 					$vurl->set_option(VURL_MAXSIZE, $this->maxuploadsize);
 					$vurl->set_option(VURL_RETURNTRANSFER, true);
@@ -288,7 +289,7 @@ class vB_Upload_Abstract
 			}
 			else if (file_exists($result['body_file']))
 			{
-				if (rename($result['body_file'], $this->upload['location']))
+				if (@rename($result['body_file'], $this->upload['location']) OR (copy($result['body_file'], $this->upload['location']) AND unlink($result['body_file'])))
 				{
 					$mask = 0777 & ~umask();
 					@chmod($this->upload['location'], $mask);
@@ -400,15 +401,22 @@ class vB_Upload_Abstract
 		require_once(DIR . '/includes/class_vurl.php');
 		$vurl = new vB_vURL($this->registry);
 		$vurl->set_option(VURL_URL, $url);
+		$vurl->set_option(VURL_FOLLOWLOCATION, 1);
 		$vurl->set_option(VURL_HEADER, 1);
 		$vurl->set_option(VURL_NOBODY, 1);
 		$vurl->set_option(VURL_USERAGENT, 'vBulletin via PHP');
 		$vurl->set_option(VURL_CUSTOMREQUEST, 'HEAD');
 		$vurl->set_option(VURL_RETURNTRANSFER, 1);
 		$vurl->set_option(VURL_CLOSECONNECTION, 1);
-		if ($result = $vurl->exec2() AND $length = intval($result['content-length']))
+		$result = $vurl->exec2();
+		if ($result AND $length = intval($result['content-length']))
 		{
 			return $length;
+		}
+		else if ($result['http-response']['statuscode'] == "200")
+		{
+			// We have an HTTP 200 OK, but no content-length, return -1 and let VURL handle the max fetch size
+			return -1;
 		}
 		else
 		{
@@ -791,6 +799,9 @@ class vB_Upload_Attachment extends vB_Upload_Abstract
 		if ($this->registry->options['attachtotalspace'])
 		{
 			$attachdata = $this->registry->db->query_first_slave("SELECT SUM(filesize) AS sum FROM " . TABLE_PREFIX . "attachment");
+
+			($hook = vBulletinHook::fetch_hook('upload_attachsum_total')) ? eval($hook) : false;
+
 			if (($attachdata['sum'] + $this->upload['filesize']) > $this->registry->options['attachtotalspace'])
 			{
 				$overage = vb_number_format($attachdata['sum'] + $this->upload['filesize'] - $this->registry->options['attachtotalspace'], 1, true);
@@ -829,6 +840,9 @@ class vB_Upload_Attachment extends vB_Upload_Abstract
 				WHERE attachment.userid = " . $this->userinfo['userid'] . "
 					AND	((thread.forumid IN (0$forumids) AND post.visible <> 2 AND thread.visible <> 2) OR attachment.postid = 0)
 			");
+
+			($hook = vBulletinHook::fetch_hook('upload_attachsum_user')) ? eval($hook) : false;
+
 			if (($attachdata['sum'] + $this->upload['filesize']) > $this->userinfo['permissions']['attachlimit'])
 			{
 				$overage = vb_number_format($attachdata['sum'] + $this->upload['filesize'] - $this->userinfo['permissions']['attachlimit'], 1, true);
@@ -1012,7 +1026,7 @@ class vB_Upload_Userpic extends vB_Upload_Abstract
 					return false;
 				}
 
-				if ($this->allowanimation === false AND $this->imginfo[2] == 'GIF' AND $this->imginfo['scenes'] > 1)
+				if ($this->allowanimation === false AND $this->imginfo[2] == 'GIF' AND $this->imginfo['animated'])
 				{
 					$this->set_error('upload_invalid_animatedgif');
 					return false;
@@ -1172,7 +1186,7 @@ class vB_Upload_AlbumPicture extends vB_Upload_Abstract
 					return false;
 				}
 
-				if ($this->allowanimation === false AND $this->imginfo[2] == 'GIF' AND $this->imginfo['scenes'] > 1)
+				if ($this->allowanimation === false AND $this->imginfo[2] == 'GIF' AND $this->imginfo['animated'])
 				{
 					$this->set_error('upload_invalid_animatedgif');
 					return false;
@@ -1451,10 +1465,269 @@ class vB_Upload_Image extends vB_Upload_Abstract
 	}
 }
 
+
+/**
+* Upload class for Social Group Icons.
+*
+* @package	vBulletin
+* @version	$Revision: 39862 $
+* @date		$Date: 2010-10-18 18:16:44 -0700 (Mon, 18 Oct 2010) $
+*/
+class vB_Upload_SocialGroupIcon extends vB_Upload_Abstract
+{
+	/**
+	 * GroupInfo for the group the icon is being updated for
+	 *
+	 * @access protected
+	 *
+	 * @var array mixed
+	 */
+	var $groupinfo;
+
+	// #######################################################################
+
+	function vB_Upload_SocialGroupIcon(&$registry)
+	{
+		parent::vB_Upload_Abstract($registry);
+	}
+
+	/**
+	* Sets the group info
+	*
+	* @access public
+	*
+	* @param array mixed $groupinfo			The groupinfo for the group
+	*/
+	function set_group_info($groupinfo)
+	{
+		$this->groupinfo = $groupinfo;
+	}
+
+
+	/**
+	* Gets the set max upload size
+	*
+	* @access protected
+	*
+	* @param unknown_type $extension
+	* @return unknown
+	*/
+	function fetch_max_uploadsize($extension)
+	{
+		return $this->maxuploadsize;
+	}
+
+
+	/**
+	* Checks if the extension is valid
+	*
+	* @access protected
+	*
+	* @param unknown_type $extension
+	* @return unknown
+	*/
+	function is_valid_extension($extension)
+	{
+		return !empty($this->image->info_extensions["{$this->upload['extension']}"]);
+	}
+
+
+	/**
+	 * The core method.  Handles the uploaded file.
+	 *
+	 * @access public
+	 *
+	 * @param string $uploadurl					Optional URL to fetch the file from
+	 * @return boolean							Success
+	 */
+	function process_upload($uploadurl = '')
+	{
+		if ($uploadurl == '' OR $uploadurl == 'http://www.')
+		{
+			$uploadstuff =& $this->registry->GPC['upload'];
+		}
+		else
+		{
+			if (is_uploaded_file($this->registry->GPC['upload']['tmp_name']))
+			{
+				$uploadstuff =& $this->registry->GPC['upload'];
+			}
+			else
+			{
+				$uploadstuff =& $uploadurl;
+			}
+		}
+
+		if ($this->accept_upload($uploadstuff))
+		{
+			if ($this->imginfo = $this->image->fetch_image_info($this->upload['location']))
+			{
+				if ($this->image->is_valid_thumbnail_extension(file_extension($this->upload['filename'])))
+				{
+					if (!$this->imginfo[2])
+					{
+						$this->set_error('upload_invalid_image');
+						return false;
+					}
+
+					if ($this->image->fetch_imagetype_from_extension($this->upload['extension']) != $this->imginfo[2])
+					{
+						$this->set_error('upload_invalid_image_extension', $this->imginfo[2]);
+						return false;
+					}
+				}
+				else
+				{
+					$this->set_error('upload_invalid_image');
+					return false;
+				}
+
+				if (!$this->allowanimation AND $this->imginfo[2] == 'GIF' AND $this->imginfo['animated'])
+				{
+					$this->set_error('upload_invalid_animatedgif');
+					return false;
+				}
+
+				if (($this->imginfo[0] > FIXED_SIZE_GROUP_ICON_WIDTH) OR ($this->imginfo[1] > FIXED_SIZE_GROUP_ICON_HEIGHT) OR $this->image->fetch_must_convert($this->imginfo[2]))
+				{
+					// shrink-a-dink a big fat image or an invalid image for browser display (PSD, BMP, etc)
+					$this->upload['resized'] = $this->image->fetch_thumbnail($this->upload['filename'], $this->upload['location'], FIXED_SIZE_GROUP_ICON_WIDTH, FIXED_SIZE_GROUP_ICON_HEIGHT, $this->registry->options['thumbquality'], false, false, false, false);
+					if (empty($this->upload['resized']['filedata']))
+					{
+						$this->set_error('upload_exceeds_dimensions', $this->maxwidth, $this->maxheight, $this->imginfo[0], $this->imginfo[1]);
+						return false;
+					}
+					$jpegconvert = true;
+				}
+			}
+			else
+			{
+				if ($this->registry->userinfo['permissions']['adminpermissions'] & $this->registry->bf_ugp_adminpermissions['cancontrolpanel'])
+				{
+					$this->set_error('upload_imageinfo_failed_x', htmlspecialchars_uni($this->image->fetch_error()));
+				}
+				else
+				{
+					$this->set_error('upload_invalid_file');
+				}
+				return false;
+			}
+
+			if ($this->maxuploadsize > 0 AND !$this->fetch_best_resize($jpegconvert))
+			{
+				return false;
+			}
+
+			if (!empty($this->upload['resized']))
+			{
+				if (!empty($this->upload['resized']['filedata']))
+				{
+					$this->upload['filestuff'] =& $this->upload['resized']['filedata'];
+					$this->upload['filesize'] =& $this->upload['resized']['filesize'];
+					$this->imginfo[0] =& $this->upload['resized']['width'];
+					$this->imginfo[1] =& $this->upload['resized']['height'];
+				}
+				else
+				{
+					$this->set_error('upload_exceeds_dimensions', FIXED_SIZE_GROUP_ICON_WIDTH, FIXED_SIZE_GROUP_ICON_HEIGHT, $this->imginfo[0], $this->imginfo[1]);
+					return false;
+				}
+			}
+			else if (!($this->upload['filestuff'] = @file_get_contents($this->upload['location'])))
+			{
+				$this->set_error('upload_file_failed');
+				return false;
+			}
+
+			$this->build_thumbnail();
+
+			@unlink($this->upload['location']);
+
+			return $this->save_upload();
+		}
+		else
+		{
+			return false;
+		}
+	}
+
+
+	/**
+	* Builds a resized version of the image data
+	*
+	* @access protected
+	*/
+	function build_thumbnail()
+	{
+		$this->upload['thumbnail_filedata'] = $this->image->fetch_thumbnail(
+			$this->upload['filename'],
+			$this->upload['location'],
+			FIXED_SIZE_GROUP_THUMB_WIDTH,
+			FIXED_SIZE_GROUP_THUMB_HEIGHT,
+			$this->registry->options['thumbquality'],
+			false,
+			false,
+			false,
+			true,
+			$this->upload['resized']['width'],
+			$this->upload['resized']['height'],
+			$this->upload['resized']['filesize']
+		);
+	}
+
+
+	/**
+	* Saves the image data with the supploed DataManager
+	*
+	* @access protected
+	*
+	* @return boolean							Success
+	*/
+	function save_upload()
+	{
+		$ext_pos = strrpos($this->upload['filename'], '.');
+
+		$this->data->setr_info('group', $this->groupinfo);
+		$this->data->set('groupid', $this->groupinfo['groupid']);
+		$this->data->set('userid', $this->userinfo['userid']);
+		$this->data->set('dateline', TIMENOW);
+		$this->data->set('width', $this->imginfo[0]);
+		$this->data->set('height', $this->imginfo[1]);
+		$this->data->set('extension', substr($this->upload['filename'], $ext_pos + 1));
+		$this->data->setr('filedata', $this->upload['filestuff']);
+		$this->data->setr('thumbnail_filedata', $this->upload['thumbnail']['filedata']);
+		$this->data->set('thumbnail_width', $this->upload['thumbnail']['width']);
+		$this->data->set('thumbnail_height', $this->upload['thumbnail']['height']);
+
+		if (!($result = $this->data->save()))
+		{
+			if (empty($this->data->errors[0]) OR !($this->registry->userinfo['permissions']['adminpermissions'] & $this->registry->bf_ugp_adminpermissions['cancontrolpanel']))
+			{
+				$this->set_error('upload_file_failed');
+			}
+			else
+			{
+				$this->error =& $this->data->errors[0];
+			}
+		}
+		else
+		{
+			if ($this->registry->options['sg_enablesocialgroupicons'])
+			{
+				fetch_socialgroup_newest_groups(true);
+			}
+		}
+
+		unset($this->upload);
+
+		return $result;
+	}
+}
+
 /*======================================================================*\
 || ####################################################################
-|| # Downloaded: 16:21, Sat Apr 6th 2013
-|| # CVS: $RCSfile: class_upload.php,v $ - $Revision: 26941 $
+|| # Downloaded: 20:50, Sun Aug 11th 2013
+|| # CVS: $RCSfile: class_upload.php,v $ - $Revision: 39862 $
 || ####################################################################
 \*======================================================================*/
 ?>

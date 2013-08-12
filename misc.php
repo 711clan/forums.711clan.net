@@ -1,9 +1,9 @@
 <?php
 /*======================================================================*\
 || #################################################################### ||
-|| # vBulletin 3.7.2 Patch Level 2 - Licence Number VBF2470E4F
+|| # vBulletin 3.8.7 Patch Level 3 - Licence Number VBC2DDE4FB
 || # ---------------------------------------------------------------- # ||
-|| # Copyright ©2000-2013 Jelsoft Enterprises Ltd. All Rights Reserved. ||
+|| # Copyright ©2000-2013 vBulletin Solutions, Inc. All Rights Reserved. ||
 || # This file may not be redistributed in whole or significant part. # ||
 || # ---------------- VBULLETIN IS NOT FREE SOFTWARE ---------------- # ||
 || # http://www.vbulletin.com | http://www.vbulletin.com/license.html # ||
@@ -11,7 +11,7 @@
 \*======================================================================*/
 
 // ####################### SET PHP ENVIRONMENT ###########################
-error_reporting(E_ALL & ~E_NOTICE);
+error_reporting(E_ALL & ~E_NOTICE & ~8192);
 
 // #################### DEFINE IMPORTANT CONSTANTS #######################
 define('THIS_SCRIPT', 'misc');
@@ -23,7 +23,7 @@ if (in_array($_GET['do'], array('whoposted', 'buddylist', 'getsmilies')))
 
 // ################### PRE-CACHE TEMPLATES AND DATA ######################
 // get special phrase groups
-$phrasegroups = array('fronthelp');
+$phrasegroups = array('fronthelp', 'register');
 
 // get special data templates from the datastore
 $specialtemplates = array();
@@ -71,6 +71,9 @@ $actiontemplates = array(
 		'help_smilies',
 		'help_smilies_smilie',
 		'help_smilies_category',
+	),
+	'showrules' => array(
+		'help_rules',
 	)
 );
 $actiontemplates['none'] =& $actiontemplates['showsmilies'];
@@ -457,7 +460,7 @@ if ($_REQUEST['do'] == 'bbcode')
 
 	$specialbbcode[] = array();
 
-	$bbcode_parser =& new vB_BbCodeParser($vbulletin, fetch_tag_list());
+	$bbcode_parser = new vB_BbCodeParser($vbulletin, fetch_tag_list());
 
 	$bbcodes = $db->query_read_slave("SELECT * FROM " . TABLE_PREFIX . "bbcode ORDER BY bbcodetag, twoparams");
 	while ($bbcode = $db->fetch_array($bbcodes))
@@ -529,6 +532,7 @@ if ($_REQUEST['do'] == 'bbcode')
 if ($_REQUEST['do'] == 'getsmilies')
 {
 	$editorid = $vbulletin->input->clean_gpc('r', 'editorid', TYPE_NOHTML);
+	$editorid = preg_replace('#[^a-z0-9_]#i', '', $editorid);
 
 	($hook = vBulletinHook::fetch_hook('misc_smiliespopup_start')) ? eval($hook) : false;
 
@@ -566,7 +570,7 @@ if ($_REQUEST['do'] == 'getsmilies')
 			($hook = vBulletinHook::fetch_hook('misc_smiliespopup_smilie')) ? eval($hook) : false;
 
 			$smilie['js'] = addslashes_js($smilie['text']);
-			$smiliehtml = "<img src=\"$smilie[path]\" id=\"smilie_$smilie[smilieid]\" alt=\"" . htmlspecialchars_uni($smilie['text']) . "\" title=\"$smilie[title]\" />";
+			$smiliehtml = "<img src=\"$smilie[path]\" id=\"smilie_$smilie[smilieid]\" alt=\"" . htmlspecialchars_uni($smilie['text']) . "\" title=\"" . htmlspecialchars_uni($smilie['title']) . "\" />";
 			eval('$bits[] = "' . fetch_template('smiliepopup_smilie') . '";');
 			if (sizeof($bits) == 2)
 			{
@@ -615,6 +619,17 @@ if ($_REQUEST['do'] == 'page' AND $vbulletin->GPC['template'] != '')
 	eval('print_output("' . fetch_template('custom_' . $template_name) . '");');
 }
 
+// ############################### start show rules ###############################
+if ($_REQUEST['do'] == 'showrules')
+{
+	$navbits = construct_navbits(array(
+		'' => $vbphrase['forum_rules']
+	));
+
+	eval('$navbar = "' . fetch_template('navbar') . '";');
+	eval('print_output("' . fetch_template('help_rules') . '");');
+}
+
 $_REQUEST['do'] = 'showsmilies';
 
 // ############################### start show smilies ###############################
@@ -633,6 +648,8 @@ if ($_REQUEST['do'] == 'showsmilies')
 
 	while ($smilie = $db->fetch_array($smilies))
 	{
+		$smilie['title'] = htmlspecialchars_uni($smilie['title']);
+
 		if ($smilie['category'] != $lastcat)
 		{
 			($hook = vBulletinHook::fetch_hook('misc_smilieslist_category')) ? eval($hook) : false;
@@ -661,8 +678,8 @@ if ($_REQUEST['do'] == 'showsmilies')
 
 /*======================================================================*\
 || ####################################################################
-|| # Downloaded: 16:21, Sat Apr 6th 2013
-|| # CVS: $RCSfile$ - $Revision: 26399 $
+|| # Downloaded: 20:50, Sun Aug 11th 2013
+|| # CVS: $RCSfile$ - $Revision: 39862 $
 || ####################################################################
 \*======================================================================*/
 ?>

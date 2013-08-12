@@ -1,9 +1,9 @@
 <?php
 /*======================================================================*\
 || #################################################################### ||
-|| # vBulletin 3.7.2 Patch Level 2 - Licence Number VBF2470E4F
+|| # vBulletin 3.8.7 Patch Level 3 - Licence Number VBC2DDE4FB
 || # ---------------------------------------------------------------- # ||
-|| # Copyright ©2000-2013 Jelsoft Enterprises Ltd. All Rights Reserved. ||
+|| # Copyright ©2000-2013 vBulletin Solutions, Inc. All Rights Reserved. ||
 || # This file may not be redistributed in whole or significant part. # ||
 || # ---------------- VBULLETIN IS NOT FREE SOFTWARE ---------------- # ||
 || # http://www.vbulletin.com | http://www.vbulletin.com/license.html # ||
@@ -16,10 +16,10 @@
 */
 
 // ######################## SET PHP ENVIRONMENT ###########################
-error_reporting(E_ALL & ~E_NOTICE);
+error_reporting(E_ALL & ~E_NOTICE & ~8192);
 
 // ##################### DEFINE IMPORTANT CONSTANTS #######################
-define('CVS_REVISION', '$RCSfile$ - $Revision: 26700 $');
+define('CVS_REVISION', '$RCSfile$ - $Revision: 39862 $');
 
 // #################### PRE-CACHE TEMPLATES AND DATA ######################
 $phrasegroups = array('notice');
@@ -48,14 +48,14 @@ function build_notice_datastore()
 	$notice_cache = array();
 
 	$notices_result = $vbulletin->db->query_read("
-		SELECT noticeid, persistent
+		SELECT noticeid, persistent, dismissible
 		FROM " . TABLE_PREFIX . "notice
 		WHERE active = 1
 		ORDER BY displayorder, title
 	");
 	while ($notice = $vbulletin->db->fetch_array($notices_result))
 	{
-		$notice_cache["$notice[noticeid]"] = array('persistent' => $notice['persistent']);
+		$notice_cache["$notice[noticeid]"] = array('persistent' => $notice['persistent'], 'dismissible' => $notice['dismissible']);
 	}
 	$vbulletin->db->free_result($notices_result);
 
@@ -110,6 +110,11 @@ if ($_POST['do'] == 'remove')
 		DELETE FROM " . TABLE_PREFIX . "noticecriteria
 		WHERE noticeid = " . $vbulletin->GPC['noticeid']
 	);
+	// delete dismisses
+	$db->query_write("
+		DELETE FROM " . TABLE_PREFIX . "noticedismissed
+		WHERE noticeid = " . $vbulletin->GPC['noticeid']
+	);
 	// delete notice
 	$db->query_write("
 		DELETE FROM " . TABLE_PREFIX . "notice
@@ -118,7 +123,7 @@ if ($_POST['do'] == 'remove')
 	// delete phrases
 	$db->query_write("
 		DELETE FROM " . TABLE_PREFIX . "phrase
-		WHERE varname IN('notice_" . $vbulletin->GPC['noticeid'] . "_title', 'notice_" . $vbulletin->GPC['noticeid'] . "_html')
+		WHERE varname = 'notice_" . $vbulletin->GPC['noticeid'] . "_html'
 	");
 
 	// update the datastore notice cache
@@ -154,6 +159,7 @@ if ($_POST['do'] == 'update')
 		'displayorder' => TYPE_UINT,
 		'active' => TYPE_BOOL,
 		'persistent' => TYPE_BOOL,
+		'dismissible' => TYPE_BOOL,
 		'criteria' => TYPE_ARRAY
 	));
 
@@ -188,7 +194,8 @@ if ($_POST['do'] == 'update')
 				title = '" . $db->escape_string($vbulletin->GPC['title']) . "',
 				displayorder = " . $vbulletin->GPC['displayorder'] . ",
 				active = " . $vbulletin->GPC['active'] . ",
-				persistent = " . $vbulletin->GPC['persistent'] . "
+				persistent = " . $vbulletin->GPC['persistent'] . ",
+				dismissible = " . $vbulletin->GPC['dismissible'] . "
 			WHERE noticeid = " . $noticeid
 		);
 
@@ -197,6 +204,15 @@ if ($_POST['do'] == 'update')
 			DELETE FROM " . TABLE_PREFIX . "noticecriteria
 			WHERE noticeid = " . $noticeid
 		);
+
+		if (!$vbulletin->GPC['dismissible'])
+		{
+			// removing old dismissals
+			$db->query_write("
+				DELETE FROM " . TABLE_PREFIX . "noticedismissed
+				WHERE noticeid = " . $noticeid
+			);
+		}
 	}
 	// we are adding a new notice
 	else
@@ -204,12 +220,14 @@ if ($_POST['do'] == 'update')
 		// insert notice record
 		$db->query_write("
 			INSERT INTO " . TABLE_PREFIX . "notice
-				(title, displayorder, persistent, active)
+				(title, displayorder, persistent, active, dismissible)
 			VALUES (" .
 				"'" . $db->escape_string($vbulletin->GPC['title']) . "', " .
 				$vbulletin->GPC['displayorder'] . ", " .
 				$vbulletin->GPC['persistent'] . ", " .
-				$vbulletin->GPC['active'] . ")
+				$vbulletin->GPC['active'] . ", " .
+				$vbulletin->GPC['dismissible'] . "
+			)
 		");
 
 		$noticeid = $db->insert_id();
@@ -243,15 +261,6 @@ if ($_POST['do'] == 'update')
 		REPLACE INTO " . TABLE_PREFIX . "phrase
 			(languageid, varname, text, product, fieldname, username, dateline, version)
 		VALUES (
-			0,
-			'notice_{$noticeid}_title',
-			'" . $db->escape_string($vbulletin->GPC['title']) . "',
-			'vbulletin',
-			'global',
-			'" . $db->escape_string($vbulletin->userinfo['username']) . "',
-			" . TIMENOW . ",
-			'" . $db->escape_string($vbulletin->options['templateversion']) . "'
-		), (
 			0,
 			'notice_{$noticeid}_html',
 			'" . $db->escape_string($vbulletin->GPC['html']) . "',
@@ -307,7 +316,8 @@ if ($_REQUEST['do'] == 'edit' OR $_REQUEST['do'] == 'add')
 	$notice = array(
 		'displayorder' => $max_displayorder + 10,
 		'active' => true,
-		'persistent' => true
+		'persistent' => true,
+		'dismissible' => true
 	);
 
 	$table_title = $vbphrase['add_new_notice'];
@@ -322,7 +332,7 @@ if ($_REQUEST['do'] == 'edit' OR $_REQUEST['do'] == 'add')
 		$phrases_result = $db->query_read("
 			SELECT phraseid, varname, text
 			FROM " . TABLE_PREFIX . "phrase
-			WHERE varname IN('notice_{$notice[noticeid]}_title', 'notice_{$notice[noticeid]}_html')
+			WHERE varname = 'notice_{$notice[noticeid]}_html'
 			AND languageid = 0
 		");
 		while ($phrase = $db->fetch_array($phrases_result))
@@ -442,13 +452,24 @@ if ($_REQUEST['do'] == 'edit' OR $_REQUEST['do'] == 'add')
 		),
 		'is_date' => array(
 			'<input type="text" name="criteria[is_date][condition1]" size="10" class="bginput" tabindex="1" value="' .
-				(empty($criteria_cache['is_date']) ? vbdate('d-m-Y') : $criteria_cache['is_date']['condition1']) .
-			'" />'
+				(empty($criteria_cache['is_date']['condition1']) ? vbdate('d-m-Y', TIMENOW, false, false) : $criteria_cache['is_date']['condition1']) .
+			'" />',
+			'<select name="criteria[is_date][condition2]" tabindex="1">
+				<option value="0"' . (empty($criteria_cache['is_date']['condition2']) ? ' selected="selected"' : '') . '>' . $vbphrase['user_timezone'] . '</option>
+				<option value="1"' . ($criteria_cache['is_date']['condition2'] == 1 ? ' selected="selected"' : '') . '>' . $vbphrase['utc_universal_time'] . '</option>
+			</select>'
 		),
-		'notice_x_not_displayed' => array(
-			'<select name="criteria[notice_x_not_displayed][condition1]" tabindex="1">' .
-				construct_select_options($notice_name_cache, $criteria_cache['notice_x_not_displayed']['condition1']) .
-			'</select>'
+		'is_time' => array(
+			'<input type="text" name="criteria[is_time][condition1]" size="5" class="bginput" tabindex="1" value="' .
+				(empty($criteria_cache['is_time']['condition1']) ? vbdate('H:i', TIMENOW, false, false) : $criteria_cache['is_time']['condition1']) .
+			'" />',
+			'<input type="text" name="criteria[is_time][condition2]" size="5" class="bginput" tabindex="1" value="' .
+				(empty($criteria_cache['is_time']['condition2']) ? (intval(vbdate('H', TIMENOW, false, false)) + 1) . vbdate(':i', TIMENOW, false, false) : $criteria_cache['is_time']['condition2']) .
+			'" />',
+			'<select name="criteria[is_time][condition3]" tabindex="1">
+				<option value="0"' . (empty($criteria_cache['is_time']['condition3']) ? ' selected="selected"' : '') . '>' . $vbphrase['user_timezone'] . '</option>
+				<option value="1"' . ($criteria_cache['is_time']['condition3'] == 1 ? ' selected="selected"' : '') . '>' . $vbphrase['utc_universal_time'] . '</option>
+			</select>'
 		),
 		/*
 		* These are flagged for a future version
@@ -459,6 +480,15 @@ if ($_REQUEST['do'] == 'edit' OR $_REQUEST['do'] == 'add')
 		*/
 	);
 
+	if (!empty($notice_name_cache))
+	{
+		$criteria_options['notice_x_not_displayed'] = array(
+			'<select name="criteria[notice_x_not_displayed][condition1]" tabindex="1">' .
+				construct_select_options($notice_name_cache, $criteria_cache['notice_x_not_displayed']['condition1']) .
+			'</select>'
+		);
+	}
+
 	// hook to allow third-party additions of criteria
 	($hook = vBulletinHook::fetch_hook('notices_list_criteria')) ? eval($hook) : false;
 
@@ -467,12 +497,13 @@ if ($_REQUEST['do'] == 'edit' OR $_REQUEST['do'] == 'add')
 	construct_hidden_code('noticeid', $vbulletin->GPC['noticeid']);
 	print_table_header($table_title);
 
-	print_input_row($vbphrase['title'] . '<dfn>' . $vbphrase['notice_title_description'] . '</dfn>' . ($vbulletin->GPC['noticeid'] ? '<div class="smallfont" style="margin-top:6px"><a href="phrase.php?do=edit&amp;fieldname=global&amp;phraseid=' . $notice['title_phraseid'] . '" target="translate">' . $vbphrase['translations'] . '</a></div>' : ''), 'title', $notice['title'], 0, 60);
+	print_input_row($vbphrase['title'] . '<dfn>' . $vbphrase['notice_title_description'] . '</dfn>', 'title', $notice['title'], 0, 60);
 	print_textarea_row($vbphrase['notice_html'] . '<dfn>' . $vbphrase['notice_html_description'] . '</dfn>' . ($vbulletin->GPC['noticeid'] ? '<div class="smallfont" style="margin-top:6px"><a href="phrase.php?do=edit&amp;fieldname=global&amp;phraseid=' . $notice['html_phraseid'] . '" target="translate">' . $vbphrase['translations'] . '</a></div>' : ''), 'html', $notice['html'], 8, 60, true, false);
 
 	print_input_row($vbphrase['display_order'], 'displayorder', $notice['displayorder'], 0, 10);
 	print_yes_no_row($vbphrase['active'], 'active', $notice['active']);
 	print_yes_no_row($vbphrase['persistent'] . '<dfn>' . $vbphrase['persistent_description'] . '</dfn>', 'persistent', $notice['persistent']);
+	print_yes_no_row($vbphrase['dismissible'], 'dismissible', $notice['dismissible']);
 	print_description_row('<strong>' . $vbphrase['display_notice_if_elipsis'] . '</strong>', false, 2, 'tcat', '', 'criteria');
 
 	if ($display_active_criteria_first)
@@ -619,6 +650,7 @@ if ($_POST['do'] == 'quickupdate')
 	$vbulletin->input->clean_array_gpc('p', array(
 		'active'            => TYPE_ARRAY_BOOL,
 		'persistent'        => TYPE_ARRAY_BOOL,
+		'dismissible'		=> TYPE_ARRAY_BOOL,
 		'displayorder'      => TYPE_ARRAY_UINT,
 		'displayorderswap'  => TYPE_CONVERT_KEYS
 	));
@@ -629,20 +661,28 @@ if ($_POST['do'] == 'quickupdate')
 	$update_ids = '0';
 	$update_active = '';
 	$update_persistent = '';
+	$update_dismissible = '';
 	$update_displayorder = '';
 	$notices_dispord = array();
+	$notices_undismiss = '0';
 
-	$notices_result = $db->query_read("SELECT noticeid, displayorder, active, persistent FROM " . TABLE_PREFIX . "notice");
+	$notices_result = $db->query_read("SELECT noticeid, displayorder, active, persistent, dismissible FROM " . TABLE_PREFIX . "notice");
 	while ($notice = $db->fetch_array($notices_result))
 	{
 		$notices_dispord["$notice[noticeid]"] = $notice['displayorder'];
 
-		if (intval($notice['active']) != $vbulletin->GPC['active']["$notice[noticeid]"] OR $notice['displayorder'] != $vbulletin->GPC['displayorder']["$notice[noticeid]"] OR $notice['persistent'] != $vbulletin->GPC['persistent']["$notice[noticeid]"])
+		if (intval($notice['active']) != $vbulletin->GPC['active']["$notice[noticeid]"] OR $notice['displayorder'] != $vbulletin->GPC['displayorder']["$notice[noticeid]"] OR $notice['persistent'] != $vbulletin->GPC['persistent']["$notice[noticeid]"] OR $notice['dismissible'] != $vbulletin->GPC['dismissible']["$notice[noticeid]"])
 		{
 			$update_ids .= ",$notice[noticeid]";
 			$update_active .= " WHEN $notice[noticeid] THEN " . intval($vbulletin->GPC['active']["$notice[noticeid]"]);
 			$update_persistent .= " WHEN $notice[noticeid] THEN " . intval($vbulletin->GPC['persistent']["$notice[noticeid]"]);
+			$update_dismissible .= " WHEN $notice[noticeid] THEN " . intval($vbulletin->GPC['dismissible']["$notice[noticeid]"]);
 			$update_displayorder .= " WHEN $notice[noticeid] THEN " . $vbulletin->GPC['displayorder']["$notice[noticeid]"];
+
+			if (!$vbulletin->GPC['dismissible']["$notice[noticeid]"])
+			{
+				$notices_undismiss .= ",$notice[noticeid]";
+			}
 		}
 	}
 	$db->free_result($notices_result);
@@ -654,10 +694,21 @@ if ($_POST['do'] == 'quickupdate')
 			$update_active ELSE active END,
 			persistent = CASE noticeid
 			$update_persistent ELSE persistent END,
+			dismissible = CASE noticeid
+			$update_dismissible ELSE dismissible END,
 			displayorder = CASE noticeid
 			$update_displayorder ELSE displayorder END
 			WHERE noticeid IN($update_ids)
 		");
+
+		if (strlen($notices_undismiss) > 1)
+		{
+			// removing old dismissals
+			$db->query_write("
+				DELETE FROM " . TABLE_PREFIX . "noticedismissed
+				WHERE noticeid IN($notices_undismiss)
+			");
+		}
 
 		// tell the datastore to update
 		$changes = true;
@@ -742,7 +793,8 @@ if ($_REQUEST['do'] == 'modify')
 				'<a href="notice.php?' . $vbulletin->session->vars['sessionurl'] . 'do=edit&amp;noticeid=' . $notice['noticeid'] . '" title="' . $vbphrase['edit_notice'] . '">' . $notice['title'] . '</a>',
 				'<div style="white-space:nowrap">' .
 				'<label class="smallfont"><input type="checkbox" name="active[' . $notice['noticeid'] . ']" value="1"' . ($notice['active'] ? ' checked="checked"' : '') . ' />' . $vbphrase['active'] . '</label> ' .
-				'<label class="smallfont"><input type="checkbox" name="persistent[' . $notice['noticeid'] . ']" value="1"' . ($notice['persistent'] ? ' checked="checked"' : '') . ' />' . $vbphrase['persistent'] . '</label> &nbsp; ' .
+				'<label class="smallfont"><input type="checkbox" name="persistent[' . $notice['noticeid'] . ']" value="1"' . ($notice['persistent'] ? ' checked="checked"' : '') . ' />' . $vbphrase['persistent'] . '</label> ' .
+				'<label class="smallfont"><input type="checkbox" name="dismissible[' . $notice['noticeid'] . ']" value="1"' . ($notice['dismissible'] ? ' checked="checked"' : '') . ' />' . $vbphrase['dismissible'] . '</label> &nbsp; ' .
 				'<input type="image" src="../cpstyles/' . $vbulletin->options['cpstylefolder'] . '/move_down.gif" name="displayorderswap[' . $notice['noticeid'] . ',higher]" />' .
 				'<input type="text" name="displayorder[' . $notice['noticeid'] . ']" value="' . $notice['displayorder'] . '" class="bginput" size="4" title="' . $vbphrase['display_order'] . '" style="text-align:' . $stylevar['right'] . '" />' .
 				'<input type="image" src="../cpstyles/' . $vbulletin->options['cpstylefolder'] . '/move_up.gif" name="displayorderswap[' . $notice['noticeid'] . ',lower]" />' .
@@ -784,8 +836,8 @@ print_cp_footer();
 
 /*======================================================================*\
 || ####################################################################
-|| # Downloaded: 16:21, Sat Apr 6th 2013
-|| # CVS: $RCSfile$ - $Revision: 26700 $
+|| # Downloaded: 20:50, Sun Aug 11th 2013
+|| # CVS: $RCSfile$ - $Revision: 39862 $
 || ####################################################################
 \*======================================================================*/
 ?>

@@ -1,9 +1,9 @@
 <?php
 /*======================================================================*\
 || #################################################################### ||
-|| # vBulletin 3.7.2 Patch Level 2 - Licence Number VBF2470E4F
+|| # vBulletin 3.8.7 Patch Level 3 - Licence Number VBC2DDE4FB
 || # ---------------------------------------------------------------- # ||
-|| # Copyright ©2000-2013 Jelsoft Enterprises Ltd. All Rights Reserved. ||
+|| # Copyright ©2000-2013 vBulletin Solutions, Inc. All Rights Reserved. ||
 || # This file may not be redistributed in whole or significant part. # ||
 || # ---------------- VBULLETIN IS NOT FREE SOFTWARE ---------------- # ||
 || # http://www.vbulletin.com | http://www.vbulletin.com/license.html # ||
@@ -11,7 +11,7 @@
 \*======================================================================*/
 
 // ####################### SET PHP ENVIRONMENT ###########################
-error_reporting(E_ALL & ~E_NOTICE);
+error_reporting(E_ALL & ~E_NOTICE & ~8192);
 
 // #################### DEFINE IMPORTANT CONSTANTS #######################
 if ($_REQUEST['do'] == 'inlinemerge' OR $_POST['do'] == 'doinlinemerge')
@@ -45,6 +45,12 @@ require_once(DIR . '/includes/functions_log_error.php');
 // #######################################################################
 // ######################## START MAIN SCRIPT ############################
 // #######################################################################
+
+if (($current_memory_limit = ini_size_to_bytes(@ini_get('memory_limit'))) < 128 * 1024 * 1024 AND $current_memory_limit > 0)
+{
+	@ini_set('memory_limit', 128 * 1024 * 1024);
+}
+@set_time_limit(0);
 
 $itemlimit = 200;
 
@@ -218,12 +224,15 @@ if ($_POST['do'] == 'inlineapprove' OR $_POST['do'] == 'inlineunapprove')
 		");
 	}
 
-	foreach ($messagearray AS $message)
+	if (can_moderate(0, 'canmoderatevisitormessages'))
 	{
-		log_moderator_action($message,
-			($approve ? 'vm_by_x_for_y_approved' : 'vm_by_x_for_y_unapproved'),
-			array($message['postusername'], $message['profile_username'])
-		);
+		foreach ($messagearray AS $message)
+		{
+			log_moderator_action($message,
+				($approve ? 'vm_by_x_for_y_approved' : 'vm_by_x_for_y_unapproved'),
+				array($message['postusername'], $message['profile_username'])
+			);
+		}
 	}
 
 	foreach (array_keys($userlist) AS $userid)
@@ -390,12 +399,15 @@ if ($_POST['do'] == 'doinlinedelete')
 		build_visitor_message_counters($userid);
 	}
 
-	foreach ($messagearray AS $message)
+	if (can_moderate(0, 'candeletevisitormessages'))
 	{
-		log_moderator_action($message,
-			($physicaldel ? 'vm_by_x_for_y_removed' : 'vm_by_x_for_y_soft_deleted'),
-			array($message['postusername'], $message['profile_username'])
-		);
+		foreach ($messagearray AS $message)
+		{
+			log_moderator_action($message,
+				($physicaldel ? 'vm_by_x_for_y_removed' : 'vm_by_x_for_y_soft_deleted'),
+				array($message['postusername'], $message['profile_username'])
+			);
+		}
 	}
 
 	// empty cookie
@@ -450,11 +462,14 @@ if ($_POST['do'] == 'inlineundelete')
 		build_visitor_message_counters($userid);
 	}
 
-	foreach ($messagearray AS $message)
+	if (can_moderate(0, 'candeletevisitormessages'))
 	{
-		log_moderator_action($message, 'vm_by_x_for_y_undeleted',
-			array($message['postusername'], $message['profile_username'])
-		);
+		foreach ($messagearray AS $message)
+		{
+			log_moderator_action($message, 'vm_by_x_for_y_undeleted',
+				array($message['postusername'], $message['profile_username'])
+			);
+		}
 	}
 
 	// empty cookie
@@ -467,7 +482,7 @@ if ($_POST['do'] == 'inlineundelete')
 
 /*======================================================================*\
 || ####################################################################
-|| # Downloaded: 16:21, Sat Apr 6th 2013
-|| # SVN: $Revision: 26399 $
+|| # Downloaded: 20:50, Sun Aug 11th 2013
+|| # SVN: $Revision: 39862 $
 || ####################################################################
 \*======================================================================*/

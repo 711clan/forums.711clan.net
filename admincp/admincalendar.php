@@ -1,9 +1,9 @@
 <?php
 /*======================================================================*\
 || #################################################################### ||
-|| # vBulletin 3.7.2 Patch Level 2 - Licence Number VBF2470E4F
+|| # vBulletin 3.8.7 Patch Level 3 - Licence Number VBC2DDE4FB
 || # ---------------------------------------------------------------- # ||
-|| # Copyright ©2000-2013 Jelsoft Enterprises Ltd. All Rights Reserved. ||
+|| # Copyright ©2000-2013 vBulletin Solutions, Inc. All Rights Reserved. ||
 || # This file may not be redistributed in whole or significant part. # ||
 || # ---------------- VBULLETIN IS NOT FREE SOFTWARE ---------------- # ||
 || # http://www.vbulletin.com | http://www.vbulletin.com/license.html # ||
@@ -11,10 +11,10 @@
 \*======================================================================*/
 
 // ######################## SET PHP ENVIRONMENT ###########################
-error_reporting(E_ALL & ~E_NOTICE);
+error_reporting(E_ALL & ~E_NOTICE & ~8192);
 
 // ##################### DEFINE IMPORTANT CONSTANTS #######################
-define('CVS_REVISION', '$RCSfile$ - $Revision: 25644 $');
+define('CVS_REVISION', '$RCSfile$ - $Revision: 39862 $');
 
 // #################### PRE-CACHE TEMPLATES AND DATA ######################
 $phrasegroups = array('calendar', 'cppermission', 'holiday');
@@ -883,6 +883,14 @@ if($_POST['do'] == 'saveholiday')
 		print_stop_message('please_complete_required_fields');
 	}
 
+	$vbulletin->GPC['holidayinfo']['recurring'] = intval($vbulletin->GPC['holidayinfo']['recurring']);
+	$vbulletin->GPC['holidayinfo']['month1'] = intval($vbulletin->GPC['holidayinfo']['month1']);
+	$vbulletin->GPC['holidayinfo']['month2'] = intval($vbulletin->GPC['holidayinfo']['month2']);
+	$vbulletin->GPC['holidayinfo']['day1'] = intval($vbulletin->GPC['holidayinfo']['day1']);
+	$vbulletin->GPC['holidayinfo']['day2'] = intval($vbulletin->GPC['holidayinfo']['day2']);
+	$vbulletin->GPC['holidayinfo']['period'] = intval($vbulletin->GPC['holidayinfo']['period']);
+
+
 	if ($vbulletin->GPC['holidayinfo']['recurring'] == 6)
 	{
 		$vbulletin->GPC['holidayinfo']['recuroption'] = $vbulletin->GPC['month1'] . '|' . $vbulletin->GPC['day1'];
@@ -902,7 +910,7 @@ if($_POST['do'] == 'saveholiday')
 	$db->query_write("
 		UPDATE " . TABLE_PREFIX . "holiday
 		SET allowsmilies = " . $vbulletin->GPC['holidayinfo']['allowsmilies'] . ",
-		recuroption = '" . $vbulletin->GPC['holidayinfo']['recuroption'] . "',
+		recuroption = '" . $db->escape_string($vbulletin->GPC['holidayinfo']['recuroption']) . "',
 		recurring = " . $vbulletin->GPC['holidayinfo']['recurring'] . "
 		WHERE holidayid = " . $vbulletin->GPC['holidayid']
 	);
@@ -993,8 +1001,8 @@ print_cp_footer();
 
 /*======================================================================*\
 || ####################################################################
-|| # Downloaded: 16:21, Sat Apr 6th 2013
-|| # CVS: $RCSfile$ - $Revision: 25644 $
+|| # Downloaded: 20:50, Sun Aug 11th 2013
+|| # CVS: $RCSfile$ - $Revision: 39862 $
 || ####################################################################
 \*======================================================================*/
 ?>

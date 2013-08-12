@@ -1,9 +1,9 @@
 <?php
 /*======================================================================*\
 || #################################################################### ||
-|| # vBulletin 3.7.2 Patch Level 2 - Licence Number VBF2470E4F
+|| # vBulletin 3.8.7 Patch Level 3 - Licence Number VBC2DDE4FB
 || # ---------------------------------------------------------------- # ||
-|| # Copyright ©2000-2013 Jelsoft Enterprises Ltd. All Rights Reserved. ||
+|| # Copyright ©2000-2013 vBulletin Solutions, Inc. All Rights Reserved. ||
 || # This file may not be redistributed in whole or significant part. # ||
 || # ---------------- VBULLETIN IS NOT FREE SOFTWARE ---------------- # ||
 || # http://www.vbulletin.com | http://www.vbulletin.com/license.html # ||
@@ -11,7 +11,7 @@
 \*======================================================================*/
 
 // ####################### SET PHP ENVIRONMENT ###########################
-error_reporting(E_ALL & ~E_NOTICE);
+error_reporting(E_ALL & ~E_NOTICE & ~8192);
 
 // #################### DEFINE IMPORTANT CONSTANTS #######################
 define('THIS_SCRIPT', 'member');
@@ -70,6 +70,7 @@ $globaltemplates = array(
 	'memberinfo_block_visitormessaging',
 	'memberinfo_block_recentvisitors',
 	'memberinfo_block_statistics',
+	'memberinfo_block_profilepicture',
 	'memberinfo_css',
 	'memberinfo_infractionbit',
 	'memberinfo_profilefield',
@@ -77,6 +78,7 @@ $globaltemplates = array(
 	'memberinfo_visitormessage',
 	'memberinfo_small',
 	'memberinfo_socialgroupbit',
+	'memberinfo_socialgroupbit_text',
 	'memberinfo_tiny',
 	'memberinfo_visitorbit',
 	'memberinfo_albumbit',
@@ -87,6 +89,7 @@ $globaltemplates = array(
 	'memberinfo_visitormessage_global_ignored',
 	'memberinfo_usercss',
 	'showthread_quickreply',
+	'socialgroups_css'
 );
 
 
@@ -202,8 +205,9 @@ else if ($vbulletin->GPC['find'] == 'lastposter' AND $foruminfo['forumid'])
 	// check if there is a forum password and if so, ensure the user has it set
 	verify_forum_password($foruminfo['forumid'], $foruminfo['password']);
 
-	require_once(DIR . '/includes/functions_misc.php');
-	$forumslist = $forumid . ',' . fetch_child_forums($foruminfo['forumid']);
+	//require_once(DIR . '/includes/functions_misc.php');
+	//$forumslist = $forumid . ',' . fetch_child_forums($foruminfo['forumid']);
+	$forumslist = $forumid;
 
 	require_once(DIR . '/includes/functions_bigthree.php');
 	// this isn't including moderator checks, because the last post checks don't either
@@ -227,7 +231,7 @@ else if ($vbulletin->GPC['find'] == 'lastposter' AND $foruminfo['forumid'])
 			" . ($tachyjoin ? ', IF(tachythreadpost.lastpost > thread.lastpost, tachythreadpost.lastpost, thread.lastpost) AS lastpost' : '') . "
 		FROM " . TABLE_PREFIX . "thread AS thread
 		$tachyjoin
-		WHERE thread.forumid IN ($forumslist)
+		WHERE thread.forumid = $forumid
 			AND thread.visible = 1
 			AND thread.sticky IN (0,1)
 			AND thread.open <> 10
@@ -325,6 +329,8 @@ if ($_REQUEST['do'] == 'vcard' AND $show['vcard'])
 // display user info
 $userperms = cache_permissions($userinfo, false);
 
+$show['edit_profile'] = (($vbulletin->userinfo['permissions']['adminpermissions'] & $vbulletin->bf_ugp_adminpermissions['cancontrolpanel']) OR can_moderate(0, 'canviewprofile'));
+
 ($hook = vBulletinHook::fetch_hook('member_execute_start')) ? eval($hook) : false;
 
 require_once(DIR . '/includes/class_userprofile.php');
@@ -344,8 +350,8 @@ if ($vbulletin->GPC['vmid'] AND !$vbulletin->GPC['tab'])
 	$vbulletin->GPC['tab'] = 'visitor_messaging';
 }
 
-$profileobj =& new vB_UserProfile($vbulletin, $userinfo);
-$blockfactory =& new vB_ProfileBlockFactory($vbulletin, $profileobj);
+$profileobj = new vB_UserProfile($vbulletin, $userinfo);
+$blockfactory = new vB_ProfileBlockFactory($vbulletin, $profileobj);
 
 $prepared =& $profileobj->prepared;
 $blocks = array();
@@ -423,6 +429,9 @@ $blocklist = array(
 			'tab'        => $vbulletin->GPC['tab'],
 		),
 	),
+	'profile_picture' => array(
+		'class'  => 'ProfilePicture'
+	)
 );
 
 if (!empty($vbulletin->GPC['tab']) AND !empty($vbulletin->GPC['perpage']) AND isset($blocklist["{$vbulletin->GPC['tab']}"]))
@@ -464,8 +473,8 @@ else
 
 foreach ($blocklist AS $blockid => $blockinfo)
 {
-	$blockobj =& $blockfactory->fetch($blockinfo['class']);
-	$block_html = $blockobj->fetch($blockinfo['title'], $blockid, $blockinfo['options']);
+	$blockobj = $blockfactory->fetch($blockinfo['class']);
+	$block_html = $blockobj->fetch($blockinfo['title'], $blockid, $blockinfo['options'], $vbulletin->userinfo);
 
 	if (!empty($blockinfo['hook_location']))
 	{
@@ -507,8 +516,8 @@ eval('print_output("' . fetch_template($templatename) . '");');
 
 /*======================================================================*\
 || ####################################################################
-|| # Downloaded: 16:21, Sat Apr 6th 2013
-|| # CVS: $RCSfile$ - $Revision: 26904 $
+|| # Downloaded: 20:50, Sun Aug 11th 2013
+|| # CVS: $RCSfile$ - $Revision: 39862 $
 || ####################################################################
 \*======================================================================*/
 ?>

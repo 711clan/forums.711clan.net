@@ -1,9 +1,9 @@
 <?php
 /*======================================================================*\
 || #################################################################### ||
-|| # vBulletin Project Tools 3.7.2 Patch Level 2 - Licence Number VBF2470E4F
+|| # vBulletin Project Tools 3.8.7 Patch Level 3 - Licence Number VBC2DDE4FB
 || # ---------------------------------------------------------------- # ||
-|| # Copyright ©2000-2013 Jelsoft Enterprises Ltd. All Rights Reserved. ||
+|| # Copyright ©2000-2013 vBulletin Solutions, Inc. All Rights Reserved. ||
 || # This file may not be redistributed in whole or significant part. # ||
 || # ---------------- VBULLETIN IS NOT FREE SOFTWARE ---------------- # ||
 || # http://www.vbulletin.com | http://www.vbulletin.com/license.html # ||
@@ -84,6 +84,20 @@ class vB_SGSearch
 	var $search_result = null;
 
 	/**
+	 * Whether to get read details.
+	 *
+	 * @var bool
+	 */
+	var $check_read = true;
+
+	/**
+	 * Whether to get subscribed details
+	 *
+	 * @var bool
+	 */
+	var $check_subscribed = false;
+
+	/**
 	* Constructor.
 	*
 	* @param	vB_Registry
@@ -158,6 +172,18 @@ class vB_SGSearch
 			$this->sortorder_raw = $sortorder_raw;
 			$this->sort_criteria = $sort_criteria;
 		}
+	}
+
+	/**
+	 * Whether to check readmarking
+	 *
+	 * @access public
+	 *
+	 * @param	boolean
+	 */
+	function check_read($check)
+	{
+		$this->check_read = $check;
 	}
 
 	/**
@@ -250,11 +276,22 @@ class vB_SGSearch
 		{
 			$this->search_result = $db->query_read_slave("
 				SELECT socialgroup.*, socialgroup.dateline AS createdate, user.username AS creatorusername
-					" . ($this->registry->userinfo['userid'] ? ', socialgroupmember.type AS membertype': '') . "
+					" . ($this->registry->userinfo['userid'] ? ', socialgroupmember.type AS membertype': '') . ",
+					sgc.title AS categoryname, sgc.socialgroupcategoryid AS categoryid,
+					socialgroupicon.dateline AS icondateline, socialgroupicon.thumbnail_width AS iconthumb_width,
+					socialgroupicon.thumbnail_height AS iconthumb_height
+					" . ($this->check_read ? ', groupread.readtime AS readtime' : '') . "
+					" . (!empty($this->generator->joins['inner_subscribegroup']) ? ', subscribegroup.emailupdate' : '') . "
 					$criteria[columns]
 				FROM " . TABLE_PREFIX . "socialgroup AS socialgroup
 				" . $criteria['joins'] . "
-				LEFT JOIN " . TABLE_PREFIX . "user AS user ON (user.userid = socialgroup.creatoruserid)
+				LEFT JOIN " . TABLE_PREFIX . "socialgroupicon AS socialgroupicon ON socialgroupicon.groupid = socialgroup.groupid
+				LEFT JOIN " . TABLE_PREFIX . "user AS user ON (user.userid = socialgroup.creatoruserid)" .
+				 ($this->check_read ? "
+				 LEFT JOIN " . TABLE_PREFIX . "groupread AS groupread
+				  ON (groupread.groupid = socialgroup.groupid
+				      AND groupread.userid = " . intval($this->registry->userinfo['userid']) . ")" : '') . "
+				INNER JOIN " . TABLE_PREFIX . "socialgroupcategory AS sgc ON (sgc.socialgroupcategoryid = socialgroup.socialgroupcategoryid)
 				WHERE " . $criteria['where'] . "
 				ORDER BY " . $this->sort_criteria . "
 				" . $criteria['limit'] . "
@@ -304,22 +341,26 @@ class vB_SGSearchGenerator
 	* @var	array
 	*/
 	var $valid_fields = array(
-		'text'         => 'add_text',
-		'date_gteq'    => 'add_date_gteq',
-		'date_lteq'    => 'add_date_lteq',
-		'groupid'      => 'add_groupid',
-		'members_gteq' => 'add_members_gteq',
-		'members_lteq' => 'add_members_lteq',
-		'message_gteq' => 'add_messages_gteq',
-		'message_lteq' => 'add_messages_lteq',
-		'picture_gteq' => 'add_pictures_gteq',
-		'picture_lteq' => 'add_pictures_lteq',
-		'member'       => 'add_member',
-		'membertype'   => 'add_membertype',
-		'creator'      => 'add_creator',
-		'pending'      => 'add_pending',
-		'type'         => 'add_type',
-		'moderatedgms' => 'add_moderatedgms',
+		'text'            => 'add_text',
+	    'category'        => 'add_category',
+		'date_gteq'       => 'add_date_gteq',
+		'date_lteq'       => 'add_date_lteq',
+		'groupid'         => 'add_groupid',
+		'members_gteq'    => 'add_members_gteq',
+		'members_lteq'    => 'add_members_lteq',
+		'discussion_gteq' => 'add_discussion_gteq',
+		'discussion_lteq' => 'add_discussion_lteq',
+		'message_gteq'    => 'add_messages_gteq',
+		'message_lteq'    => 'add_messages_lteq',
+		'picture_gteq'    => 'add_pictures_gteq',
+		'picture_lteq'    => 'add_pictures_lteq',
+		'member'          => 'add_member',
+		'membertype'      => 'add_membertype',
+		'creator'         => 'add_creator',
+		'pending'         => 'add_pending',
+		'type'            => 'add_type',
+		'moderatedgms'    => 'add_moderatedgms',
+		'subscribed'      => 'add_subscribed'
 	);
 
 	/**
@@ -329,12 +370,14 @@ class vB_SGSearchGenerator
 	* @var	array
 	*/
 	var $valid_sort = array(
-		'members'  => 'socialgroup.members',
-		'created'  => 'socialgroup.dateline',
-		'name'     => 'socialgroup.name',
-		'pictures' => 'socialgroup.picturecount', // see constructor: this is modified
-		'messages' => 'socialgroup.visible',
-		'lastpost' => 'socialgroup.lastpost',
+		'members'     => 'socialgroup.members',
+		'created'     => 'socialgroup.dateline',
+		'name'        => 'socialgroup.name',
+		'category'    => 'sgc.title',
+		'pictures'    => 'socialgroup.picturecount', // see constructor: this is modified
+		'messages'    => 'socialgroup.visible',
+		'lastpost'    => 'socialgroup.lastpost',
+		'discussions' => 'socialgroup.discussions'
 	);
 
 	/**
@@ -602,6 +645,17 @@ class vB_SGSearchGenerator
 	}
 
 	/**
+	*  Enter description here...
+	*
+	* @param	string
+	* @param	integer|array
+	*/
+	function add_category($name, $value)
+	{
+		$this->where['socialgroupcategoryid'] = "socialgroup.socialgroupcategoryid = " . intval($value);
+	}
+
+	/**
 	* Adds group owner criteria
 	*
 	* @param	string
@@ -697,6 +751,31 @@ class vB_SGSearchGenerator
 	}
 
 	/**
+	* Adds criteria for subscribed groups
+	*
+	* @param	string
+	* @param	integer|array
+	*
+	* @return	boolean	True on success
+	*/
+	function add_subscribed($name, $value)
+	{
+		if (!$value AND isset($this->joins['inner_subscribegroup']))
+		{
+			unset($this->joins['inner_subscribegroup']);
+		}
+		else
+		{
+			$this->joins['inner_subscribegroup'] = trim("
+				INNER JOIN " . TABLE_PREFIX . "subscribegroup AS subscribegroup ON
+					(subscribegroup.userid = " . intval($value) . " AND subscribegroup.groupid = socialgroup.groupid)
+			");
+		}
+
+		return SG_SEARCHGEN_CRITERIA_ADDED;
+	}
+
+	/**
 	* Prepares the search text for use in a full-text query
 	*
 	* @param	string	Raw query text with AND, OR, and NOT
@@ -706,8 +785,10 @@ class vB_SGSearchGenerator
 	*/
 	function prepare_search_text($query_text, &$errors)
 	{
-		$old_ft_search = $this->registry->options['fulltextsearch'];
-		$this->registry->options['fulltextsearch'] = 1;
+		global $vbulletin;
+
+		$old_ft_search = $vbulletin->options['fulltextsearch'];
+		$vbulletin->options['fulltextsearch'] = 1;
 
 		// look for entire words that consist of "&#1234;". MySQL boolean
 		// search will tokenize them seperately. Wrap them in quotes if they're
@@ -806,7 +887,7 @@ class vB_SGSearchGenerator
 
 		}
 
-		$this->registry->options['fulltextsearch'] = $old_ft_search;
+		$vbulletin->options['fulltextsearch'] = $old_ft_search;
 
 		return trim($query_text);
 	}
@@ -894,6 +975,52 @@ class vB_SGSearchGenerator
 	}
 
 	/**
+	* Adds discussion count >= criteria
+	*
+	* @param	string
+	* @param	integer
+	*
+	* @return	boolean	True on success
+	*/
+	function add_discussion_gteq($name, $value)
+	{
+		$value = intval($value);
+		if ($value <= 0)
+		{
+			return SG_SEARCHGEN_CRITERIA_UNNECESSARY;
+		}
+
+		$this->where['discussion_gteq'] = trim("
+			socialgroup.discussions >= $value
+		");
+
+		return SG_SEARCHGEN_CRITERIA_ADDED;
+	}
+
+	/**
+	* Adds discussion count <= criteria
+	*
+	* @param	string
+	* @param	integer
+	*
+	* @return	boolean	True on success
+	*/
+	function add_discussion_lteq($name, $value)
+	{
+		$value = intval($value);
+		if ($value < 0)
+		{
+			return SG_SEARCHGEN_CRITERIA_UNNECESSARY;
+		}
+
+		$this->where['discussion_lteq'] = trim("
+			socialgroup.discussions <= $value
+		");
+
+		return SG_SEARCHGEN_CRITERIA_ADDED;
+	}
+
+	/**
 	* Adds message count >= criteria
 	*
 	* @param	string
@@ -933,7 +1060,7 @@ class vB_SGSearchGenerator
 		}
 
 		$this->where['messages_lteq'] = trim("
-			socialgroup.messages <= $value
+			socialgroup.visible <= $value
 		");
 
 		return SG_SEARCHGEN_CRITERIA_ADDED;
@@ -1067,8 +1194,8 @@ class vB_SGSearchGenerator
 
 /*======================================================================*\
 || ####################################################################
-|| # Downloaded: 16:21, Sat Apr 6th 2013
-|| # RCS: $Revision: 26482 $
+|| # Downloaded: 20:50, Sun Aug 11th 2013
+|| # RCS: $Revision: 39862 $
 || ####################################################################
 \*======================================================================*/
 ?>

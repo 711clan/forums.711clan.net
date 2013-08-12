@@ -1,9 +1,9 @@
 <?php
 /*======================================================================*\
 || #################################################################### ||
-|| # vBulletin 3.7.2 Patch Level 2 - Licence Number VBF2470E4F
+|| # vBulletin 3.8.7 Patch Level 3 - Licence Number VBC2DDE4FB
 || # ---------------------------------------------------------------- # ||
-|| # Copyright ©2000-2013 Jelsoft Enterprises Ltd. All Rights Reserved. ||
+|| # Copyright ©2000-2013 vBulletin Solutions, Inc. All Rights Reserved. ||
 || # This file may not be redistributed in whole or significant part. # ||
 || # ---------------- VBULLETIN IS NOT FREE SOFTWARE ---------------- # ||
 || # http://www.vbulletin.com | http://www.vbulletin.com/license.html # ||
@@ -14,8 +14,8 @@
 * Abstract class to do data save/delete operations for a particular data type (such as user, thread, post etc.)
 *
 * @package	vBulletin
-* @version	$Revision: 26843 $
-* @date		$Date: 2008-06-04 17:36:42 -0500 (Wed, 04 Jun 2008) $
+* @version	$Revision: 39862 $
+* @date		$Date: 2010-10-18 18:16:44 -0700 (Mon, 18 Oct 2010) $
 */
 class vB_DataManager
 {
@@ -876,8 +876,8 @@ class vB_DataManager
 
 		if ($return)
 		{
-			$this->post_save_each($doquery);
-			$this->post_save_once($doquery);
+			$this->post_save_each($doquery, $return);
+			$this->post_save_once($doquery, $return);
 		}
 
 		return $return;
@@ -1363,10 +1363,11 @@ class vB_DataManager
 	* Verifies that a hyperlink is valid
 	*
 	* @param	string	Hyperlink URL
+	* @param	boolean	Strict link (only HTTP/HTTPS); default false
 	*
 	* @return	boolean
 	*/
-	function verify_link(&$link)
+	function verify_link(&$link, $strict = false)
 	{
 		if (preg_match('#^www\.#si', $link))
 		{
@@ -1376,6 +1377,11 @@ class vB_DataManager
 		else if (!preg_match('#^[a-z0-9]+://#si', $link))
 		{
 			// link doesn't match the http://-style format in the beginning -- possible attempted exploit
+			return false;
+		}
+		else if ($strict && !preg_match('#^(http|https)://#si', $link))
+		{
+			// link that doesn't start with http:// or https:// should not be allowed in certain places (IE: profile homepage)
 			return false;
 		}
 		else
@@ -1543,8 +1549,8 @@ class vB_DataManager
 * Works on multiple records simultaneously. Updates will occur on all records matching set_condition().
 *
 * @package	vBulletin
-* @version	$Revision: 26843 $
-* @date		$Date: 2008-06-04 17:36:42 -0500 (Wed, 04 Jun 2008) $
+* @version	$Revision: 39862 $
+* @date		$Date: 2010-10-18 18:16:44 -0700 (Mon, 18 Oct 2010) $
 */
 class vB_DataManager_Multiple
 {
@@ -1673,6 +1679,7 @@ class vB_DataManager_Multiple
 
 			$this->primary_ids[] = $result[$this->primary_id];
 		}
+		$this->dbobject->free_result($results);
 
 		return sizeof($this->primary_ids);
 	}
@@ -1949,6 +1956,7 @@ class vB_DataManager_Multiple
 				$this->save(true, false);
 			}
 		}
+		$this->dbobject->free_result($records);
 
 		if ($this->children AND ($counter % $batch_size) != 0)
 		{
@@ -1966,8 +1974,8 @@ class vB_DataManager_Multiple
 
 /*======================================================================*\
 || ####################################################################
-|| # Downloaded: 16:21, Sat Apr 6th 2013
-|| # CVS: $RCSfile$ - $Revision: 26843 $
+|| # Downloaded: 20:50, Sun Aug 11th 2013
+|| # CVS: $RCSfile$ - $Revision: 39862 $
 || ####################################################################
 \*======================================================================*/
 ?>

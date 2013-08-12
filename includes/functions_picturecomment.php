@@ -1,9 +1,9 @@
 <?php
 /*======================================================================*\
 || #################################################################### ||
-|| # vBulletin 3.7.2 Patch Level 2 - Licence Number VBF2470E4F
+|| # vBulletin 3.8.7 Patch Level 3 - Licence Number VBC2DDE4FB
 || # ---------------------------------------------------------------- # ||
-|| # Copyright ©2000-2013 Jelsoft Enterprises Ltd. All Rights Reserved. ||
+|| # Copyright ©2000-2013 vBulletin Solutions, Inc. All Rights Reserved. ||
 || # This file may not be redistributed in whole or significant part. # ||
 || # ---------------- VBULLETIN IS NOT FREE SOFTWARE ---------------- # ||
 || # http://www.vbulletin.com | http://www.vbulletin.com/license.html # ||
@@ -50,7 +50,7 @@ function fetch_picturecommentbits($pictureinfo, &$messagestats, &$pagenumber, &$
 		$state_or[] = "(picturecomment.postuserid = " . $vbulletin->userinfo['userid'] . " AND state = 'moderation')";
 	}
 
-	if (can_moderate() OR ($vbulletin->userinfo['userid'] == $pictureinfo['userid'] AND $vbulletin->userinfo['permissions']['albumpermissions'] & $vbulletin->bf_ugp_albumpermissions['canmanagepiccomment']))
+	if (can_moderate(0, 'canmoderatepicturecomments') OR ($vbulletin->userinfo['userid'] == $pictureinfo['userid'] AND $vbulletin->userinfo['permissions']['albumpermissions'] & $vbulletin->bf_ugp_albumpermissions['canmanagepiccomment']))
 	{
 		$state[] = 'deleted';
 		$deljoinsql = "LEFT JOIN " . TABLE_PREFIX . "deletionlog AS deletionlog ON (picturecomment.commentid = deletionlog.primaryid AND deletionlog.type = 'picturecomment')";
@@ -358,7 +358,7 @@ function fetch_user_picture_message_perm($perm, $pictureinfo, $message = array()
 
 	if ($message['state'] == 'deleted')
 	{
-		$can_view_deleted = (can_moderate()
+		$can_view_deleted = (can_moderate(0, 'canmoderatepicturecomments')
 			OR ($vbulletin->userinfo['userid'] == $pictureinfo['userid']
 				AND $vbulletin->userinfo['permissions']['albumpermissions'] & $vbulletin->bf_ugp_albumpermissions['canmanagepiccomment']
 			)
@@ -459,8 +459,8 @@ function fetch_user_picture_message_perm($perm, $pictureinfo, $message = array()
 
 /*======================================================================*\
 || ####################################################################
-|| # Downloaded: 16:21, Sat Apr 6th 2013
-|| # CVS: $RCSfile$ - $Revision: 26603 $
+|| # Downloaded: 20:50, Sun Aug 11th 2013
+|| # CVS: $RCSfile$ - $Revision: 39862 $
 || ####################################################################
 \*======================================================================*/
 ?>

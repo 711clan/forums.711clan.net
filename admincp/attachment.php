@@ -1,9 +1,9 @@
 <?php
 /*======================================================================*\
 || #################################################################### ||
-|| # vBulletin 3.7.2 Patch Level 2 - Licence Number VBF2470E4F
+|| # vBulletin 3.8.7 Patch Level 3 - Licence Number VBC2DDE4FB
 || # ---------------------------------------------------------------- # ||
-|| # Copyright ©2000-2013 Jelsoft Enterprises Ltd. All Rights Reserved. ||
+|| # Copyright ©2000-2013 vBulletin Solutions, Inc. All Rights Reserved. ||
 || # This file may not be redistributed in whole or significant part. # ||
 || # ---------------- VBULLETIN IS NOT FREE SOFTWARE ---------------- # ||
 || # http://www.vbulletin.com | http://www.vbulletin.com/license.html # ||
@@ -11,11 +11,11 @@
 \*======================================================================*/
 
 // ######################## SET PHP ENVIRONMENT ###########################
-error_reporting(E_ALL & ~E_NOTICE);
+error_reporting(E_ALL & ~E_NOTICE & ~8192);
 @set_time_limit(0);
 
 // ##################### DEFINE IMPORTANT CONSTANTS #######################
-define('CVS_REVISION', '$RCSfile$ - $Revision: 26563 $');
+define('CVS_REVISION', '$RCSfile$ - $Revision: 39862 $');
 @ini_set('display_errors', 'On');
 
 // #################### PRE-CACHE TEMPLATES AND DATA ######################
@@ -116,7 +116,7 @@ if ($_REQUEST['do'] == 'switchtype')
 			// show a form to allow user to specify file path
 			print_form_header('attachment', 'doswitchtype');
 			construct_hidden_code('dowhat', $vbulletin->GPC['dowhat']);
-			print_table_header($vbphrase['move_attachments_to_a_different_directory']);
+			print_table_header($vbphrase['move_items_to_a_different_directory']);
 			print_description_row(construct_phrase($vbphrase['attachments_are_currently_being_stored_in_the_filesystem_at_x'], '<b>' . $vbulletin->options['attachpath'] . '</b>'));
 		}
 		else
@@ -900,7 +900,7 @@ if ($_POST['do'] == 'doedit')
 		require_once(DIR . '/includes/class_upload.php');
 		require_once(DIR . '/includes/class_image.php');
 
-		$upload =& new vB_Upload_Attachment($vbulletin);
+		$upload = new vB_Upload_Attachment($vbulletin);
 		$image =& vB_Image::fetch_library($vbulletin);
 
 		$upload->data =& $attachdata;
@@ -1301,24 +1301,33 @@ if ($_REQUEST['do'] == 'types')
 if ($_REQUEST['do'] == 'updatetype')
 {
 	$vbulletin->input->clean_array_gpc('r', array(
-		'extension' => TYPE_INT
+		'extension' => TYPE_STR
 	));
 
 	print_form_header('attachment', 'doupdatetype');
+
 	if ($vbulletin->GPC['extension'])
 	{ // This is an edit
 		$type = $db->query_first("
 			SELECT * FROM " . TABLE_PREFIX . "attachmenttype
-			WHERE extension = '" . $vbulletin->GPC['extension'] . "'
+			WHERE extension = '" . $db->escape_string($vbulletin->GPC['extension']) . "'
 		");
-		if ($type['mimetype'])
+		if ($type)
 		{
-			$type['mimetype'] = implode("\n", unserialize($type['mimetype']));
+			if ($type['mimetype'])
+			{
+				$type['mimetype'] = implode("\n", unserialize($type['mimetype']));
+			}
+			construct_hidden_code('extension', $type['extension']);
+			print_table_header(construct_phrase($vbphrase['x_y_id_z'], $vbphrase['attachment_type'], $type['extension'], $type['extension']));
 		}
-		construct_hidden_code('extension', $vbulletin->GPC['extension']);
-		print_table_header(construct_phrase($vbphrase['x_y_id_z'], $vbphrase['attachment_type'], $vbulletin->GPC['extension'], $vbulletin->GPC['extension']));
 	}
 	else
+	{
+		$type = null;
+	}
+
+	if (!$type)
 	{
 		$type = array('enabled' => 1);
 		print_table_header($vbphrase['add_new_extension']);
@@ -1456,8 +1465,8 @@ print_cp_footer();
 
 /*======================================================================*\
 || ####################################################################
-|| # Downloaded: 16:21, Sat Apr 6th 2013
-|| # CVS: $RCSfile$ - $Revision: 26563 $
+|| # Downloaded: 20:50, Sun Aug 11th 2013
+|| # CVS: $RCSfile$ - $Revision: 39862 $
 || ####################################################################
 \*======================================================================*/
 ?>

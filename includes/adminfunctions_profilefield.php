@@ -1,16 +1,16 @@
 <?php
 /*======================================================================*\
 || #################################################################### ||
-|| # vBulletin 3.7.2 Patch Level 2 - Licence Number VBF2470E4F
+|| # vBulletin 3.8.7 Patch Level 3 - Licence Number VBC2DDE4FB
 || # ---------------------------------------------------------------- # ||
-|| # Copyright ©2000-2013 Jelsoft Enterprises Ltd. All Rights Reserved. ||
+|| # Copyright ©2000-2013 vBulletin Solutions, Inc. All Rights Reserved. ||
 || # This file may not be redistributed in whole or significant part. # ||
 || # ---------------- VBULLETIN IS NOT FREE SOFTWARE ---------------- # ||
 || # http://www.vbulletin.com | http://www.vbulletin.com/license.html # ||
 || #################################################################### ||
 \*======================================================================*/
 
-error_reporting(E_ALL & ~E_NOTICE);
+error_reporting(E_ALL & ~E_NOTICE & ~8192);
 
 // ###################### Store Hidden fields in cache ###############
 function build_profilefield_cache()
@@ -129,7 +129,7 @@ function build_bitwise_swap($profilefieldid, $loc1, $loc2)
 
 // ###################### Start outputprofilefield #######################
 // Outputs a profilefield for creating & searching users
-function print_profilefield_row($basename, $profilefield, $userfield = '')
+function print_profilefield_row($basename, $profilefield, $userfield = '', $searching = true)
 {
 	global $vbphrase;
 
@@ -143,20 +143,33 @@ function print_profilefield_row($basename, $profilefield, $userfield = '')
 
 	if (!is_array($userfield))
 	{
+		$use_default = ($searching ? false : true);
 		$userfield = array($fieldname => '');
+	}
+	else
+	{
+		$use_default = false;
 	}
 
 	if ($profilefield['type'] == 'input')
 	{
-
-		print_input_row($profilefield['title'], $profilefieldname, $userfield["$fieldname"], 0);
-
+		print_input_row(
+			$profilefield['title'],
+			$profilefieldname,
+			($use_default ? $profilefield['data'] : $userfield["$fieldname"]),
+			0
+		);
 	}
 	else if ($profilefield['type'] == 'textarea')
 	{
-
-		print_textarea_row($profilefield['title'], $profilefieldname, $userfield["$fieldname"], $profilefield['height'], 40, 0);
-
+		print_textarea_row(
+			$profilefield['title'],
+			$profilefieldname,
+			($use_default ? $profilefield['data'] : $userfield["$fieldname"]),
+			$profilefield['height'],
+			40,
+			0
+		);
 	}
 	else if ($profilefield['type'] == 'select')
 	{
@@ -171,6 +184,12 @@ function print_profilefield_row($basename, $profilefield, $userfield = '')
 					$selected = 'selected="selected"';
 					$foundselect = 1;
 				}
+			}
+			else if ($use_default AND $profilefield['def'] == 1 AND $key == 1)
+			{
+				// select the first item after space when needed
+				$selected = 'selected="selected"';
+				$foundselect = 1;
 			}
 			else if ($key == 0)
 			{
@@ -197,8 +216,17 @@ function print_profilefield_row($basename, $profilefield, $userfield = '')
 		{
 			$selected = '';
 		}
+
+		if ($searching OR $profilefield['def'] != 2)
+		{
+			$blankoption = "			<option value=\"0\" $selected></option>";
+		}
+		else
+		{
+			$blankoption = "";
+		}
 		$output = "<select name=\"$profilefieldname\" tabindex=\"1\" class=\"bginput\">
-			<option value=\"0\" $selected></option>
+			$blankoption
 			$selectbits
 			</select>
 			$optionalfield";
@@ -215,12 +243,11 @@ function print_profilefield_row($basename, $profilefield, $userfield = '')
 		{
 			$key++;
 			$checked = '';
-			if (!$userfield["$fieldname"] AND $key == 1 AND $profilefield['def'] == 1)
+			if (!$userfield["$fieldname"] AND $key == 1 AND $profilefield['def'] == 1 AND $use_default)
 			{
 				$checked = 'checked="checked"';
 			}
 			else if (trim($val) == $userfield["$fieldname"])
-
 			{
 				$checked = 'checked="checked"';
 				$foundfield = 1;
@@ -323,20 +350,20 @@ function fetch_profilefield_sql_condition($profilefield, &$profile)
 	}
 	$bitwise = 0;
 	$sql = '';
-	if (empty($value))
+	if (empty($value) AND $optvalue === '')
 	{
-		return;
+		return '';
 	}
-	if ($profilefield['type'] == 'input' OR $profilefield['type'] == 'textarea')
+	if (($profilefield['type'] == 'input' OR $profilefield['type'] == 'textarea') AND $value !== '')
 	{
 		$condition = " AND $varname LIKE '%" . $vbulletin->db->escape_string_like(htmlspecialchars_uni(trim($value))) . '%\' ';
 	}
 	if ($profilefield['type'] == 'radio' OR $profilefield['type'] == 'select')
 	{
-		if ($value == 0 AND empty($$optionalvar))
+		if ($value == 0 AND $optvalue === '')
 		{ 	// The select field was left blank!
 			// and the optional field is also empty
-			return;
+			return '';
 		}
 		$data = unserialize($profilefield['data']);
 		foreach($data AS $key => $val)
@@ -367,8 +394,8 @@ function fetch_profilefield_sql_condition($profilefield, &$profile)
 
 /*======================================================================*\
 || ####################################################################
-|| # Downloaded: 16:21, Sat Apr 6th 2013
-|| # CVS: $RCSfile$ - $Revision: 14763 $
+|| # Downloaded: 20:50, Sun Aug 11th 2013
+|| # CVS: $RCSfile$ - $Revision: 39862 $
 || ####################################################################
 \*======================================================================*/
 ?>

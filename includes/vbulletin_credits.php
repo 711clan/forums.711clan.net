@@ -1,9 +1,9 @@
 <?php
 /*======================================================================*\
 || #################################################################### ||
-|| # vBulletin 3.7.2 Patch Level 2 - Licence Number VBF2470E4F
+|| # vBulletin 3.8.7 Patch Level 3 - Licence Number VBC2DDE4FB
 || # ---------------------------------------------------------------- # ||
-|| # Copyright ©2000-2013 Jelsoft Enterprises Ltd. All Rights Reserved. ||
+|| # Copyright ©2000-2013 vBulletin Solutions, Inc. All Rights Reserved. ||
 || # This file may not be redistributed in whole or significant part. # ||
 || # ---------------- VBULLETIN IS NOT FREE SOFTWARE ---------------- # ||
 || # http://www.vbulletin.com | http://www.vbulletin.com/license.html # ||
@@ -21,7 +21,7 @@ print_form_header('index', 'home');
 print_table_header($vbphrase['vbulletin_developers_and_contributors']);
 print_column_style_code(array('white-space: nowrap', ''));
 print_label_row('<b>' . $vbphrase['software_developed_by'] . '</b>', '
-	<a href="http://www.jelsoft.com/" target="vbulletin">Jelsoft Enterprises Limited</a>
+	<a href="http://www.vbulletin.com/" target="vbulletin">vBulletin Solutions, Inc.</a>
 ', '', 'top', NULL, false);
 print_label_row('<b>' . $vbphrase['product_manager'] . '</b>', '
 	<a href="http://www.vbulletin.com/forum/member.ph' . 'p?u=1034" target="vbulletin">Kier Darby</a>
@@ -36,7 +36,7 @@ print_label_row('<b>' . $vbphrase['software_development'] . '</b>', '
 	<a href="http://www.vbulletin.com/forum/member.ph' . 'p?u=1814" target="vbulletin">Scott MacVicar</a>,
 	<a href="http://www.vbulletin.com/forum/member.ph' . 'p?u=37" target="vbulletin">Mike Sullivan</a>,
 	<a href="http://www.vbulletin.com/forum/member.ph' . 'p?u=24628" target="vbulletin">Jerry Hutchings</a>,
-	<a href="http://www.vbulletin.com/forum/member.ph' . 'p?u=43043" target="vbulletin">Martin Meredith</a>
+	<a href="http://www.vbulletin.com/forum/member.ph' . 'p?u=218637" target="vbulletin">Darren Gordon</a>
 ', '', 'top', NULL, false);
 print_label_row('<b>' . $vbphrase['graphics_development'] . '</b>', '
 	<a href="http://www.vbulletin.com/forum/member.ph' . 'p?u=1034" target="vbulletin">Kier Darby</a>,
@@ -51,6 +51,7 @@ print_label_row('<b>' . $vbphrase['other_contributions_from'] . '</b>', '
 	<a href="http://www.vbulletin.com/forum/member.ph' . 'p?u=11606" target="vbulletin">Floris Fiedeldij Dop</a>,
 	<a href="http://www.vbulletin-germany.com/forum/member.ph' . 'p?u=2" target="vbulletin">Stephan \'pogo\' Pogodalla</a>,
 	<a href="http://www.vbulletin-germany.com/forum/member.ph' . 'p?u=274" target="vbulletin">Michael \'Mystics\' K&ouml;nig</a>,
+	<a href="http://www.vbulletin.com/forum/member.ph' . 'p?u=43043" target="vbulletin">Martin Meredith</a>,
 	<a href="http://www.vikjavev.com/hovudsida/umtestside.ph' . 'p" target="vbulletin">Torstein H&oslash;nsi</a>,
 	<a href="http://www.famfamfam.com/lab/icons/silk/" target="vbulletin">Mark James</a>
 ', '', 'top', NULL, false);
@@ -61,8 +62,8 @@ print_table_footer();
 
 /*======================================================================*\
 || ####################################################################
-|| # Downloaded: 16:21, Sat Apr 6th 2013
-|| # CVS: $RCSfile$ - $Revision: 25053 $
+|| # Downloaded: 20:50, Sun Aug 11th 2013
+|| # CVS: $RCSfile$ - $Revision: 39862 $
 || ####################################################################
 \*======================================================================*/
 ?>

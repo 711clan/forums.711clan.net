@@ -1,9 +1,9 @@
 <?php
 /*======================================================================*\
 || #################################################################### ||
-|| # vBulletin 3.7.2 Patch Level 2 - Licence Number VBF2470E4F
+|| # vBulletin 3.8.7 Patch Level 3 - Licence Number VBC2DDE4FB
 || # ---------------------------------------------------------------- # ||
-|| # Copyright ©2000-2013 Jelsoft Enterprises Ltd. All Rights Reserved. ||
+|| # Copyright 2000-2013 vBulletin Solutions, Inc. All Rights Reserved. ||
 || # This file may not be redistributed in whole or significant part. # ||
 || # ---------------- VBULLETIN IS NOT FREE SOFTWARE ---------------- # ||
 || # http://www.vbulletin.com | http://www.vbulletin.com/license.html # ||
@@ -30,8 +30,8 @@ define('BB_PARSER_TAG_OPENED', 3);
 * Stack based BB code parser.
 *
 * @package 		vBulletin
-* @version		$Revision: 26966 $
-* @date 		$Date: 2008-06-18 04:38:54 -0500 (Wed, 18 Jun 2008) $
+* @version		$Revision: 39862 $
+* @date 		$Date: 2010-10-18 18:16:44 -0700 (Mon, 18 Oct 2010) $
 *
 */
 class vB_BbCodeParser
@@ -98,6 +98,20 @@ class vB_BbCodeParser
 	* @var	bool
 	*/
 	var $unsetattach = false;
+
+	/**
+	 * Id of the forum the source string is in for permissions
+	 *
+	 * @var integer
+	 */
+	var $forumid = 0;
+
+	/**
+	 * Id of the outer container, if applicable
+	 *
+	 * @var mixed
+	 */
+	var $containerid = 0;
 
 	/**
 	* True if custom tags have been fetched
@@ -244,6 +258,8 @@ class vB_BbCodeParser
 	function parse($text, $forumid = 0, $allowsmilie = true, $isimgcheck = false, $parsedtext = '', $parsedhasimages = 3, $cachable = false)
 	{
 		global $calendarinfo;
+
+		$this->forumid = $forumid;
 
 		$donl2br = true;
 
@@ -409,8 +425,8 @@ class vB_BbCodeParser
 		}
 
 		// parse out nasty active scripting codes
-		static $global_find = array('/javascript:/si', '/about:/si', '/vbscript:/si', '/&(?![a-z0-9#]+;)/si');
-		static $global_replace = array('javascript<b></b>:', 'about<b></b>:', 'vbscript<b></b>:', '&amp;');
+		static $global_find = array('/(javascript):/si', '/(about):/si', '/(vbscript):/si', '/&(?![a-z0-9#]+;)/si');
+		static $global_replace = array('\\1<b></b>:', '\\1<b></b>:', '\\1<b></b>:', '&amp;');
 		$text = preg_replace($global_find, $global_replace, $text);
 
 		// run the censor
@@ -545,11 +561,11 @@ class vB_BbCodeParser
 				// if you change this HTML tag, make sure you change the smilie remover in code/php/html tag handlers!
 				if ($this->is_wysiwyg())
 				{
-					$replace = "<img src=\"$smilie[smiliepath]\" border=\"0\" alt=\"\" title=\"$smilie[title]\" smilieid=\"$smilie[smilieid]\" class=\"inlineimg\" />";
+					$replace = "<img src=\"$smilie[smiliepath]\" border=\"0\" alt=\"\" title=\"" . htmlspecialchars_uni($smilie['title']) . "\" smilieid=\"$smilie[smilieid]\" class=\"inlineimg\" />";
 				}
 				else
 				{
-					$replace = "<img src=\"$smilie[smiliepath]\" border=\"0\" alt=\"\" title=\"$smilie[title]\" class=\"inlineimg\" />";
+					$replace = "<img src=\"$smilie[smiliepath]\" border=\"0\" alt=\"\" title=\"" . htmlspecialchars_uni($smilie['title']) . "\" class=\"inlineimg\" />";
 				}
 
 				$sc["$find"] = $replace;
@@ -581,11 +597,11 @@ class vB_BbCodeParser
 				// if you change this HTML tag, make sure you change the smilie remover in code/php/html tag handlers!
 				if ($this->is_wysiwyg())
 				{
-					$replace = "<img src=\"$smilie[smiliepath]\" border=\"0\" alt=\"\" title=\"$smilie[title]\" smilieid=\"$smilie[smilieid]\" class=\"inlineimg\" />";
+					$replace = "<img src=\"$smilie[smiliepath]\" border=\"0\" alt=\"\" title=\"" . htmlspecialchars_uni($smilie['title']) . "\" smilieid=\"$smilie[smilieid]\" class=\"inlineimg\" />";
 				}
 				else
 				{
-					$replace = "<img src=\"$smilie[smiliepath]\" border=\"0\" alt=\"\" title=\"$smilie[title]\" class=\"inlineimg\" />";
+					$replace = "<img src=\"$smilie[smiliepath]\" border=\"0\" alt=\"\" title=\"" . htmlspecialchars_uni($smilie['title']) . "\" class=\"inlineimg\" />";
 				}
 
 				$sc["$find"] = $replace;
@@ -749,7 +765,8 @@ class vB_BbCodeParser
 					{
 						// no option, so the ] is the end of the tag
 						// check to see if this tag name is valid
-						$tag_name = strtolower(substr($text, $start_pos, $tag_close_pos - $start_pos));
+						$tag_name_orig = substr($text, $start_pos, $tag_close_pos - $start_pos);
+						$tag_name = strtolower($tag_name_orig);
 
 						// if this is a closing tag, we don't know whether we had an option
 						$has_option = $closing_tag ? null : false;
@@ -759,6 +776,7 @@ class vB_BbCodeParser
 							$output[] = array(
 								'type' => 'tag',
 								'name' => $tag_name,
+								'name_orig' => $tag_name_orig,
 								'option' => false,
 								'closing' => $closing_tag
 							);
@@ -776,7 +794,8 @@ class vB_BbCodeParser
 					else
 					{
 						// check to see if this tag name is valid
-						$tag_name = strtolower(substr($text, $start_pos, $tag_opt_start_pos - $start_pos));
+						$tag_name_orig = substr($text, $start_pos, $tag_opt_start_pos - $start_pos);
+						$tag_name = strtolower($tag_name_orig);
 
 						if (!$this->is_valid_tag($tag_name, true))
 						{
@@ -824,6 +843,7 @@ class vB_BbCodeParser
 							$output[] = array(
 								'type' => 'tag',
 								'name' => $tag_name,
+								'name_orig' => $tag_name_orig,
 								'option' => $tag_option,
 								'delimiter' => $delimiter,
 								'closing' => false
@@ -870,7 +890,7 @@ class vB_BbCodeParser
 				// opening a tag
 				if ($noparse !== null)
 				{
-					$output[] = array('type' => 'text', 'data' => '[' . $node['name'] . ($node['option'] !== false ? "=$node[delimiter]$node[option]$node[delimiter]" : '') . ']');
+					$output[] = array('type' => 'text', 'data' => '[' . $node['name_orig'] . ($node['option'] !== false ? "=$node[delimiter]$node[option]$node[delimiter]" : '') . ']');
 					continue;
 				}
 
@@ -892,7 +912,7 @@ class vB_BbCodeParser
 				if ($noparse !== null AND $node['name'] != 'noparse')
 				{
 					// closing a tag but we're in a noparse - treat as text
-					$output[] = array('type' => 'text', 'data' => '[/' . $node['name'] . ']');
+					$output[] = array('type' => 'text', 'data' => '[/' . $node['name_orig'] . ']');
 				}
 				else if (($key = $this->find_first_tag($node['name'], $stack)) !== false)
 				{
@@ -927,7 +947,7 @@ class vB_BbCodeParser
 						// this is bad nesting, so fix it by closing tags early
 						for ($i = 0; $i < $key; $i++)
 						{
-							$output[] = array('type' => 'tag', 'name' => $stack["$i"]['name'], 'closing' => true);
+							$output[] = array('type' => 'tag', 'name' => $stack["$i"]['name'], 'name_orig' => $stack["$i"]['name_orig'], 'closing' => true);
 							$max_key++;
 							$stack["$i"]['added_list'][] = $max_key;
 						}
@@ -954,7 +974,7 @@ class vB_BbCodeParser
 				else
 				{
 					// we tried to close a tag which wasn't open, to just make this text
-					$output[] = array('type' => 'text', 'data' => '[/' . $node['name'] . ']');
+					$output[] = array('type' => 'text', 'data' => '[/' . $node['name_orig'] . ']');
 				}
 			}
 		}
@@ -970,7 +990,7 @@ class vB_BbCodeParser
 			}
 			$output["$open[my_key]"] = array(
 				'type' => 'text',
-				'data' => '[' . $open['name'] . (!empty($open['option']) ? '=' . $open['delimiter'] . $open['option'] . $open['delimiter'] : '') . ']'
+				'data' => '[' . $open['name_orig'] . (!empty($open['option']) ? '=' . $open['delimiter'] . $open['option'] . $open['delimiter'] : '') . ']'
 			);
 		}
 
@@ -978,7 +998,7 @@ class vB_BbCodeParser
 		// automatically close any tags that remain open
 		foreach (array_reverse($stack) AS $open)
 		{
-			$output[] = array('type' => 'tag', name => $open['name'], 'closing' => true);
+			$output[] = array('type' => 'tag', 'name' => $open['name'], 'name_orig' => $open['name_orig'], 'closing' => true);
 		}
 		*/
 
@@ -1077,7 +1097,7 @@ class vB_BbCodeParser
 				}
 				else
 				{
-					$pending_text = '&#91;' . $node['name'] . ($node['option'] !== false ? "=$node[delimiter]$node[option]$node[delimiter]" : '') . '&#93;';
+					$pending_text = '&#91;' . $node['name_orig'] . ($node['option'] !== false ? "=$node[delimiter]$node[option]$node[delimiter]" : '') . '&#93;';
 				}
 			}
 			else
@@ -1131,9 +1151,9 @@ class vB_BbCodeParser
 							{
 								// oh, we didn't match our regex, just print the tag out raw
 								$pending_text =
-									'&#91;' . $open['name'] .
+									'&#91;' . $open['name_orig'] .
 									($open['option'] !== false ? "=$open[delimiter]$open[option]$open[delimiter]" : '') .
-									'&#93;' . $open['data'] . '&#91;/' . $node['name'] . '&#93;'
+									'&#93;' . $open['data'] . '&#91;/' . $node['name_orig'] . '&#93;'
 								;
 							}
 						}
@@ -1159,7 +1179,7 @@ class vB_BbCodeParser
 					else
 					{
 						// this tag appears to be invalid, so just print it out as text
-						$pending_text = '&#91;' . $open['name'] . ($open['option'] !== false ? "=$open[delimiter]$open[option]$open[delimiter]" : '') . '&#93;';
+						$pending_text = '&#91;' . $open['name_orig'] . ($open['option'] !== false ? "=$open[delimiter]$open[option]$open[delimiter]" : '') . '&#93;';
 					}
 
 					// pop the tag off the stack
@@ -1171,7 +1191,7 @@ class vB_BbCodeParser
 				else
 				{
 					// wasn't there - we tried to close a tag which wasn't open, so just output the text
-					$pending_text = '&#91;/' . $node['name'] . '&#93;';
+					$pending_text = '&#91;/' . $node['name_orig'] . '&#93;';
 				}
 			}
 
@@ -1190,7 +1210,7 @@ class vB_BbCodeParser
 		// check for tags that are stil open at the end and display them
 		foreach (array_reverse($this->stack) AS $open)
 		{
-			$output .= '[' . $open['name'];
+			$output .= '[' . $open['name_orig'];
 			if ($open['option'])
 			{
 				$output .= '=' . $open['delimiter'] . $open['option'] . $open['delimiter'];
@@ -1337,10 +1357,10 @@ class vB_BbCodeParser
 
 		if (!trim($link) OR $text == $rightlink)
 		{
-			$tmp = unhtmlspecialchars($rightlink);
+			$tmp = unhtmlspecialchars($text);
 			if (vbstrlen($tmp) > 55 AND $this->is_wysiwyg() == false)
 			{
-				$text = htmlspecialchars_uni(substr($tmp, 0, 36) . '...' . substr($tmp, -14));
+				$text = htmlspecialchars_uni(vbchop($tmp, 36) . '...' . substr($tmp, -14));
 			}
 		}
 
@@ -1804,7 +1824,7 @@ class vB_BbCodeParser
 			$tmp = unhtmlspecialchars($rightlink);
 			if (vbstrlen($tmp) > 55 AND $this->is_wysiwyg() == false)
 			{
-				$text = htmlspecialchars_uni(substr($tmp, 0, 36) . '...' . substr($tmp, -14));
+				$text = htmlspecialchars_uni(vbchop($tmp, 36) . '...' . substr($tmp, -14));
 			}
 			else
 			{
@@ -1831,6 +1851,9 @@ class vB_BbCodeParser
 
 		if (($has_img_code & BBCODE_HAS_ATTACH) AND preg_match_all('#\[attach(?:=(right|left))?\](\d+)\[/attach\]#i', $bbcode, $matches))
 		{
+			$forumperms = fetch_permissions($this->forumid);
+			$cangetattachment = ($forumperms & $this->registry->bf_ugp_forumpermissions['cangetattachment']);
+
 			foreach($matches[2] AS $key => $attachmentid)
 			{
 				$align = $matches[1]["$key"];
@@ -1860,6 +1883,8 @@ class vB_BbCodeParser
 					$attachment['extension'] = strtolower(file_extension($attachment['filename']));
 					$attachment['filesize'] = vb_number_format($attachment['filesize'], 1, true);
 
+					$lightbox_extensions = array('gif', 'jpg', 'jpeg', 'jpe', 'png', 'bmp');
+
 					switch($attachment['extension'])
 					{
 						case 'gif':
@@ -1873,10 +1898,20 @@ class vB_BbCodeParser
 						case 'psd':
 						case 'pdf':
 								if ($this->registry->options['attachthumbs'] AND $attachment['hasthumbnail'] AND $this->registry->userinfo['showimages'])
-								{	// Display a thumbnail
-									$replace[] = "<a href=\"{$this->registry->options['bburl']}/attachment.php?{$this->registry->session->vars['sessionurl']}attachmentid=\\1&amp;d=$attachment[dateline]\" rel=\"Lightbox\" id=\"attachment\\1\" $addtarget><img src=\"{$this->registry->options['bburl']}/attachment.php?{$this->registry->session->vars['sessionurl']}attachmentid=\\1&amp;thumb=1&amp;d=$attachment[thumbnail_dateline]\" class=\"thumbnail\" border=\"0\" alt=\""
-									. construct_phrase($vbphrase['image_larger_version_x_y_z'], $attachment['filename'], $attachment['counter'], $attachment['filesize'], $attachment['attachmentid'])
-									. "\" " . (!empty($align) ? " style=\"float: $align; margin: 2px\"" : 'style="margin: 2px"') . " /></a>";
+								{
+									// Display a thumbnail
+									if ($cangetattachment AND in_array($attachment['extension'], $lightbox_extensions))
+									{
+										$replace[] = "<a href=\"{$this->registry->options['bburl']}/attachment.php?{$this->registry->session->vars['sessionurl']}attachmentid=\\1&amp;d=$attachment[dateline]\" rel=\"Lightbox_" . $this->containerid . "\" id=\"attachment\\1\" $addtarget><img src=\"{$this->registry->options['bburl']}/attachment.php?{$this->registry->session->vars['sessionurl']}attachmentid=\\1&amp;thumb=1&amp;d=$attachment[thumbnail_dateline]\" class=\"thumbnail\" border=\"0\" alt=\""
+										. construct_phrase($vbphrase['image_larger_version_x_y_z'], $attachment['filename'], $attachment['counter'], $attachment['filesize'], $attachment['attachmentid'])
+										. "\" " . (!empty($align) ? " style=\"float: $align; margin: 2px\"" : 'style="margin: 2px"') . " /></a>";
+									}
+									else
+									{
+										$replace[] = "<a href=\"{$this->registry->options['bburl']}/attachment.php?{$this->registry->session->vars['sessionurl']}attachmentid=\\1&amp;d=$attachment[dateline]\" rel=\"nofollow\" $addtarget><img src=\"{$this->registry->options['bburl']}/attachment.php?{$this->registry->session->vars['sessionurl']}attachmentid=\\1&amp;thumb=1&amp;d=$attachment[thumbnail_dateline]\" class=\"thumbnail\" border=\"0\" alt=\""
+										. construct_phrase($vbphrase['image_larger_version_x_y_z'], $attachment['filename'], $attachment['counter'], $attachment['filesize'], $attachment['attachmentid'])
+										. "\" " . (!empty($align) ? " style=\"float: $align; margin: 2px\"" : 'style="margin: 2px"') . " /></a>";
+									}
 								}
 								else if ($this->registry->userinfo['showimages'] AND ($forceimage OR $this->registry->options['viewattachedimages']) AND !in_array($attachment['extension'], array('tiff', 'tif', 'psd', 'pdf')))
 								{	// Display the attachment with no link to bigger image
@@ -1886,11 +1921,15 @@ class vB_BbCodeParser
 								}
 								else
 								{	// Display a link
-									$replace[] = "<a href=\"{$this->registry->options['bburl']}/attachment.php?{$this->registry->session->vars['sessionurl']}attachmentid=\\1&amp;d=$attachment[dateline]\" $addtarget>$attachment[filename]</a>";
+									$replace[] = "<a href=\"{$this->registry->options['bburl']}/attachment.php?{$this->registry->session->vars['sessionurl']}attachmentid=\\1&amp;d=$attachment[dateline]\" $addtarget title=\""
+									. construct_phrase($vbphrase['image_x_y_z'], $attachment['filename'], $attachment['counter'], $attachment['filesize'])
+									. "\">$attachment[filename]</a>";
 								}
 							break;
 						default:
-							$replace[] = "<a href=\"{$this->registry->options['bburl']}/attachment.php?{$this->registry->session->vars['sessionurl']}attachmentid=\\1&amp;d=$attachment[dateline]\" $addtarget>$attachment[filename]</a>";
+							$replace[] = "<a href=\"{$this->registry->options['bburl']}/attachment.php?{$this->registry->session->vars['sessionurl']}attachmentid=\\1&amp;d=$attachment[dateline]\" $addtarget title=\""
+							. construct_phrase($vbphrase['image_x_y_z'], $attachment['filename'], $attachment['counter'], $attachment['filesize'])
+							. "\">$attachment[filename]</a>";
 					}
 				}
 				else
@@ -1899,7 +1938,9 @@ class vB_BbCodeParser
 					/** doesn't need to be added to the link, should just be added to the image
 					$addtarget .= !empty($align) ? " style=\"float: $align\" " : '';
 					*/
-					$replace[] = "<a href=\"{$this->registry->options['bburl']}/attachment.php?{$this->registry->session->vars['sessionurl']}attachmentid=\\1" . (!empty($attachment['dateline']) ? "&amp;d=$attachment[dateline]" : "") . "\" $addtarget>$vbphrase[attachment] \\1</a>";
+					$replace[] = "<a href=\"{$this->registry->options['bburl']}/attachment.php?{$this->registry->session->vars['sessionurl']}attachmentid=\\1" . (!empty($attachment['dateline']) ? "&amp;d=$attachment[dateline]" : "") . "\" $addtarget title=\""
+					. construct_phrase($vbphrase['image_x_y_z'], $attachment['filename'], $attachment['counter'], $attachment['filesize'])
+					. "\">$vbphrase[attachment] \\1</a>";
 				}
 
 				// remove attachment from array
@@ -2443,8 +2484,8 @@ function fetch_tag_list($prepend_path = '', $force_all = false)
 
 /*======================================================================*\
 || ####################################################################
-|| # Downloaded: 16:21, Sat Apr 6th 2013
-|| # CVS: $RCSfile$ - $Revision: 26966 $
+|| # Downloaded: 20:50, Sun Aug 11th 2013
+|| # CVS: $RCSfile$ - $Revision: 39862 $
 || ####################################################################
 \*======================================================================*/
 ?>

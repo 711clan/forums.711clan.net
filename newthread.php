@@ -1,9 +1,9 @@
 <?php
 /*======================================================================*\
 || #################################################################### ||
-|| # vBulletin 3.7.2 Patch Level 2 - Licence Number VBF2470E4F
+|| # vBulletin 3.8.7 Patch Level 3 - Licence Number VBC2DDE4FB
 || # ---------------------------------------------------------------- # ||
-|| # Copyright ©2000-2013 Jelsoft Enterprises Ltd. All Rights Reserved. ||
+|| # Copyright ©2000-2013 vBulletin Solutions, Inc. All Rights Reserved. ||
 || # This file may not be redistributed in whole or significant part. # ||
 || # ---------------- VBULLETIN IS NOT FREE SOFTWARE ---------------- # ||
 || # http://www.vbulletin.com | http://www.vbulletin.com/license.html # ||
@@ -11,7 +11,7 @@
 \*======================================================================*/
 
 // ####################### SET PHP ENVIRONMENT ###########################
-error_reporting(E_ALL & ~E_NOTICE);
+error_reporting(E_ALL & ~E_NOTICE & ~8192);
 
 // #################### DEFINE IMPORTANT CONSTANTS #######################
 define('GET_EDIT_TEMPLATES', true);
@@ -42,6 +42,8 @@ $globaltemplates = array(
 	'humanverify',
 	'optgroup',
 	'postbit_attachment',
+	'postbit_attachmentimage',
+	'postbit_attachmentthumbnail',
 );
 
 // pre-cache templates used by specific actions
@@ -162,12 +164,19 @@ if ($_POST['do'] == 'postthread')
 
 	$newpost['title'] =& $vbulletin->GPC['subject'];
 	$newpost['iconid'] =& $vbulletin->GPC['iconid'];
-	$newpost['prefixid'] =& $vbulletin->GPC['prefixid'];
+
+	require_once(DIR . '/includes/functions_prefix.php');
+
+	if (can_use_prefix($vbulletin->GPC['prefixid']))
+	{
+		$newpost['prefixid'] =& $vbulletin->GPC['prefixid'];
+	}
+
 	if ($show['tag_option'])
 	{
 		$newpost['taglist'] =& $vbulletin->GPC['taglist'];
 	}
-	$newpost['parseurl']        = ($foruminfo['allowbbcode'] AND $vbulletin->GPC['parseurl']);
+	$newpost['parseurl']        = (($vbulletin->options['allowedbbcodes'] & ALLOW_BBCODE_URL) AND $foruminfo['allowbbcode'] AND $vbulletin->GPC['parseurl']);
 	$newpost['signature']       =& $vbulletin->GPC['signature'];
 	$newpost['preview']         =& $vbulletin->GPC['preview'];
 	$newpost['disablesmilies']  =& $vbulletin->GPC['disablesmilies'];
@@ -413,7 +422,7 @@ if ($_REQUEST['do'] == 'newthread')
 		eval('$attachmentoption = "' . fetch_template('newpost_attachment') . '";');
 
 		$attach_editor['hash'] = $foruminfo['forumid'];
-		$attach_editor['url'] = "newattachment.php?$session[sessionurl]f=$foruminfo[forumid]&amp;poststarttime=$poststarttime&amp;posthash=$posthash";
+		$attach_editor['url'] = "newattachment.php?" . $vbulletin->session->vars['sessionurl'] . "f=$foruminfo[forumid]&amp;poststarttime=$poststarttime&amp;posthash=$posthash";
 	}
 	else
 	{
@@ -433,7 +442,7 @@ if ($_REQUEST['do'] == 'newthread')
 
 	// display prefixes
 	require_once(DIR . '/includes/functions_prefix.php');
-	$prefix_options = fetch_prefix_html($foruminfo['forumid'], $newpost['prefixid']);
+	$prefix_options = fetch_prefix_html($foruminfo['forumid'], $newpost['prefixid'], true);
 
 	// get username code
 	eval('$usernamecode = "' . fetch_template('newpost_usernamecode') . '";');
@@ -472,7 +481,7 @@ if ($_REQUEST['do'] == 'newthread')
 		$threadmanagement = '';
 	}
 
-	if ($vbulletin->options['hvcheck_post'] AND !$vbulletin->userinfo['userid'])
+	if (fetch_require_hvcheck('post'))
 	{
 		require_once(DIR . '/includes/class_humanverify.php');
 		$verification =& vB_HumanVerify::fetch_library($vbulletin);
@@ -514,7 +523,7 @@ if ($_REQUEST['do'] == 'newthread')
 
 	construct_forum_rules($foruminfo, $forumperms);
 
-	$show['parseurl'] = $foruminfo['allowbbcode'];
+	$show['parseurl'] = (($vbulletin->options['allowedbbcodes'] & ALLOW_BBCODE_URL) AND $foruminfo['allowbbcode']);
 	$show['misc_options'] = ($vbulletin->userinfo['signature'] != '' OR $show['parseurl'] OR !empty($disablesmiliesoption));
 	$show['additional_options'] = ($show['misc_options'] OR !empty($attachmentoption) OR $show['member'] OR $show['poll'] OR !empty($threadmanagement));
 
@@ -526,8 +535,8 @@ if ($_REQUEST['do'] == 'newthread')
 
 /*======================================================================*\
 || ####################################################################
-|| # Downloaded: 16:21, Sat Apr 6th 2013
-|| # CVS: $RCSfile$ - $Revision: 26689 $
+|| # Downloaded: 20:50, Sun Aug 11th 2013
+|| # CVS: $RCSfile$ - $Revision: 39862 $
 || ####################################################################
 \*======================================================================*/
 ?>

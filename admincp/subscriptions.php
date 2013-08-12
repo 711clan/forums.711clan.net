@@ -1,9 +1,9 @@
 <?php
 /*======================================================================*\
 || #################################################################### ||
-|| # vBulletin 3.7.2 Patch Level 2 - Licence Number VBF2470E4F
+|| # vBulletin 3.8.7 Patch Level 3 - Licence Number VBC2DDE4FB
 || # ---------------------------------------------------------------- # ||
-|| # Copyright ©2000-2013 Jelsoft Enterprises Ltd. All Rights Reserved. ||
+|| # Copyright ©2000-2013 vBulletin Solutions, Inc. All Rights Reserved. ||
 || # This file may not be redistributed in whole or significant part. # ||
 || # ---------------- VBULLETIN IS NOT FREE SOFTWARE ---------------- # ||
 || # http://www.vbulletin.com | http://www.vbulletin.com/license.html # ||
@@ -11,10 +11,10 @@
 \*======================================================================*/
 
 // ######################## SET PHP ENVIRONMENT ###########################
-error_reporting(E_ALL & ~E_NOTICE);
+error_reporting(E_ALL & ~E_NOTICE & ~8192);
 
 // ##################### DEFINE IMPORTANT CONSTANTS #######################
-define('CVS_REVISION', '$RCSfile$ - $Revision: 26882 $');
+define('CVS_REVISION', '$RCSfile$ - $Revision: 39862 $');
 
 // #################### PRE-CACHE TEMPLATES AND DATA ######################
 $phrasegroups = array('subscription', 'cpuser', 'stats');
@@ -181,7 +181,15 @@ if ($_REQUEST['do'] == 'add' OR $_REQUEST['do'] == 'edit')
 
 	//require_once(DIR . '/includes/functions_databuild.php');
 	//cache_forums();
-	$forums = explode(',', $sub['forums']);
+	if ($old_sub_masks = @unserialize($sub['forums']) AND is_array($old_sub_masks))
+	{
+		$forums = array_keys($old_sub_masks);
+	}
+	else
+	{
+		$forums = explode(',', $sub['forums']);
+	}
+
 	if (is_array($vbulletin->forumcache))
 	{
 		foreach ($vbulletin->forumcache AS $forumid => $forum)
@@ -328,7 +336,7 @@ if ($_POST['do'] == 'update')
 		{
 			if ($value == 1)
 			{
-				$aforums[] = $key;
+				$aforums[] = intval($key);
 			}
 		}
 	}
@@ -1769,8 +1777,8 @@ function toggle_subs()
 
 /*======================================================================*\
 || ####################################################################
-|| # Downloaded: 16:21, Sat Apr 6th 2013
-|| # CVS: $RCSfile$ - $Revision: 26882 $
+|| # Downloaded: 20:50, Sun Aug 11th 2013
+|| # CVS: $RCSfile$ - $Revision: 39862 $
 || ####################################################################
 \*======================================================================*/
 ?>

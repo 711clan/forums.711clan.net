@@ -1,9 +1,9 @@
 <?php
 /*======================================================================*\
 || #################################################################### ||
-|| # vBulletin 3.7.2 Patch Level 2 - Licence Number VBF2470E4F
+|| # vBulletin 3.8.7 Patch Level 3 - Licence Number VBC2DDE4FB
 || # ---------------------------------------------------------------- # ||
-|| # Copyright ©2000-2013 Jelsoft Enterprises Ltd. All Rights Reserved. ||
+|| # Copyright ©2000-2013 vBulletin Solutions, Inc. All Rights Reserved. ||
 || # This file may not be redistributed in whole or significant part. # ||
 || # ---------------- VBULLETIN IS NOT FREE SOFTWARE ---------------- # ||
 || # http://www.vbulletin.com | http://www.vbulletin.com/license.html # ||
@@ -11,7 +11,7 @@
 \*======================================================================*/
 
 // ####################### SET PHP ENVIRONMENT ###########################
-error_reporting(E_ALL & ~E_NOTICE);
+error_reporting(E_ALL & ~E_NOTICE & ~8192);
 
 // #################### DEFINE IMPORTANT CONSTANTS #######################
 define('THIS_SCRIPT', 'usercp');
@@ -61,6 +61,10 @@ $globaltemplates = array(
 	'usercp_pendingfriendbit',
 	'usercp_groupinvitebit',
 	'usercp_groupattentionbit',
+	'socialgroups_css',
+	'socialgroups_discussion',
+	'socialgroups_grouplist_bit',
+	'socialgroups_groupmodlist_bit'
 );
 
 // pre-cache templates used by specific actions
@@ -88,7 +92,7 @@ if (!$vbulletin->userinfo['userid'] OR !($permissions['forumpermissions'] & $vbu
 
 $show['reputation'] = false;
 
-if ($vbulletin->options['reputationenable'] AND ($vbulletin->userinfo['showreputation'] OR !($permissions['genericpermissions'] & $vbulletin->bf_ugp_genericpermissions['canhiderep'])))
+if ($vbulletin->options['reputationenable'])
 {
 	$vbulletin->options['showuserrates'] = intval($vbulletin->options['showuserrates']);
 	$vbulletin->options['showuserraters'] = $permissions['genericpermissions'] & $vbulletin->bf_ugp_genericpermissions['canseeownrep'];
@@ -119,7 +123,7 @@ if ($vbulletin->options['reputationenable'] AND ($vbulletin->userinfo['showreput
 	}
 
 	require_once(DIR . '/includes/class_bbcode.php');
-	$bbcode_parser =& new vB_BbCodeParser($vbulletin, fetch_tag_list());
+	$bbcode_parser = new vB_BbCodeParser($vbulletin, fetch_tag_list());
 
 	while ($reputation = $db->fetch_array($reputations))
 	{
@@ -247,7 +251,7 @@ if (
 		{
 			$visitormessage['formatteddate'] = vbdate($vbulletin->options['dateformat'], $visitormessage['dateline'], true);
 			$visitormessage['formattedtime'] = vbdate($vbulletin->options['timeformat'], $visitormessage['dateline'], true);
-			$visitormessage['summary'] = fetch_word_wrapped_string(fetch_censored_text(fetch_trimmed_title(strip_bbcode($visitormessage['pagetext'], true, true), 50)));
+			$visitormessage['summary'] = htmlspecialchars_uni(fetch_word_wrapped_string(fetch_censored_text(fetch_trimmed_title(strip_bbcode($visitormessage['pagetext'], true, true), 50))));
 
 			$username = $visitormessage["username"];
 			$userid = $visitormessage["userid"];
@@ -467,6 +471,8 @@ if ($show['forums'])
 		cache_moderators($vbulletin->userinfo['userid']);
 	}
 	fetch_last_post_array();
+
+	$show['collapsable_forums'] = true;
 	$forumbits = construct_forum_bit(-1, 0, 1);
 	eval('$forumbits .= "' . fetch_template('forumhome_markread_script') . '";');
 	if ($forumshown == 1)
@@ -631,8 +637,10 @@ if (!empty($threadids))
 
 	$getthreads = $db->query_read_slave("
 		SELECT $previewfield
-			thread.threadid, thread.title AS threadtitle, forumid, pollid, open, replycount, postusername, postuserid,
-			thread.prefixid, thread.taglist, thread.dateline, views, thread.iconid AS threadiconid, notes, thread.visible,
+			thread.threadid, thread.title AS threadtitle, thread.forumid, thread.pollid,
+			thread.open, thread.replycount, thread.postusername, thread.postuserid,
+			thread.prefixid, thread.taglist, thread.dateline, thread.views, thread.iconid AS threadiconid,
+			thread.notes, thread.visible,
 			$lastpost_info
 			" . ($vbulletin->options['threadmarking'] ? ", threadread.readtime AS threadread" : '') . "
 			$hook_query_fields
@@ -724,8 +732,121 @@ if (!empty($threadids))
 	}
 }
 
+// ############################## start subscribed to groups #################################
+
+$show['socialgroups'] = false;
+
+if (($vbulletin->options['socnet'] & $vbulletin->bf_misc_socnet['enable_groups'])
+	AND ($vbulletin->userinfo['permissions']['socialgrouppermissions'] & $vbulletin->bf_ugp_socialgrouppermissions['canviewgroups'])
+	AND $vbulletin->options['socnet_groups_msg_enabled']
+)
+{
+	require_once(DIR . '/includes/functions_socialgroup.php');
+	require_once(DIR . '/includes/class_socialgroup_search.php');
+
+	$socialgroupsearch = new vB_SGSearch($vbulletin);
+	$socialgroupsearch->add('subscribed', $vbulletin->userinfo['userid']);
+	$socialgroupsearch->set_sort('lastpost', 'ASC');
+	$socialgroupsearch->check_read($vbulletin->options['threadmarking']);
+
+ 	($hook = vBulletinHook::fetch_hook('group_list_filter')) ? eval($hook) : false;
+
+	if ($numsocialgroups = $socialgroupsearch->execute(true))
+	{
+		$groups = $socialgroupsearch->fetch_results();
+
+		$show['pictureinfo'] = ($vbulletin->options['socnet'] & $vbulletin->bf_misc_socnet['enable_albums'] AND $vbulletin->options['socnet_groups_albums_enabled']) ? true : false;
+
+		$lastpostalt = ($show['pictureinfo'] ? 'alt2' : 'alt1');
+
+		if (is_array($groups))
+		{
+			$grouplist = '';
+			foreach ($groups AS $group)
+			{
+				$group = prepare_socialgroup($group);
+
+				$show['pending_link'] = (fetch_socialgroup_modperm('caninvitemoderatemembers', $group) AND $group['moderatedmembers'] > 0);
+				$show['lastpostinfo'] = ($group['lastpost']);
+
+				($hook = vBulletinHook::fetch_hook('group_list_groupbit')) ? eval($hook) : false;
+
+				eval('$grouplist .= "' . fetch_template("socialgroups_groupmodlist_bit") . '";');
+			}
+		}
+
+		$show['socialgroups'] = true;
+	}
+
+	unset($socialgroupsearch);
+}
+
+// ############################ start new subscribed to discussions ##############################
+
+$show['discussions'] = false;
+
+if (($vbulletin->options['socnet'] & $vbulletin->bf_misc_socnet['enable_groups'])
+	AND ($vbulletin->userinfo['permissions']['socialgrouppermissions'] & $vbulletin->bf_ugp_socialgrouppermissions['canviewgroups'])
+	AND $vbulletin->options['socnet_groups_msg_enabled']
+)
+{
+	require_once(DIR . '/includes/class_groupmessage.php');
+
+	// Create message collection
+	$collection_factory = new vB_Group_Collection_Factory($vbulletin);
+	$collection = $collection_factory->create('discussion', false, $vbulletin->GPC['pagenumber'], false, false, true);
+
+	$collection->set_ignore_marking(false);
+	$collection->filter_show_unsubscribed(false);
+
+	// Check if the user is subscribed to any discussions
+	if ($collection->fetch_count())
+	{
+		if(!$vbulletin->input->clean_gpc('r', 'viewalldiscussions', TYPE_BOOL))
+		{
+			// only show unread
+			$collection->filter_show_read(false);
+		}
+
+		$numdiscussions = $collection->fetch_count();
+
+		// Show group name in messages
+		$show['group'] = true;
+
+		// Create bit factory
+		$bit_factory = new vB_Group_Bit_Factory($vbulletin, $itemtype);
+
+		// Build message bits for all items
+		$messagebits = '';
+		while ($item = $collection->fetch_item())
+		{
+			$group = fetch_socialgroupinfo($item['groupid']);
+
+			// add group name to message
+			$group['name'] = fetch_word_wrapped_string(fetch_censored_text($group['name']));
+
+			// add bit
+			$bit =& $bit_factory->create($item, $group);
+			$bit->show_moderation_tools(false);
+			$messagebits .= $bit->construct();
+		}
+
+		$show['discussions'] = true;
+
+		unset($bit, $bit_factory, $collection_factory, $collection);
+	}
+}
+
+if ($show['socialgroup'] OR $show['discussions'])
+{
+	// Include social groups css
+	eval('$headinclude .= "' . fetch_template('socialgroups_css') . '";');
+}
+
+// ##################################### start infractions #######################################
+
 require_once(DIR . '/includes/class_bbcode.php');
-$bbcode_parser =& new vB_BbCodeParser($vbulletin, fetch_tag_list());
+$bbcode_parser = new vB_BbCodeParser($vbulletin, fetch_tag_list());
 
 $infractions = $db->query_read_slave("
 	SELECT points, infraction.*, thread.title, thread.forumid, thread.postuserid, user.username,
@@ -806,6 +927,7 @@ while ($infraction = $db->fetch_array($infractions))
 }
 unset($bbcode_parser);
 
+
 require_once(DIR . '/includes/functions_misc.php');
 
 // check if user can be invisible and is invisible
@@ -835,8 +957,8 @@ eval('print_output("' . fetch_template('USERCP_SHELL') . '");');
 
 /*======================================================================*\
 || ####################################################################
-|| # Downloaded: 16:21, Sat Apr 6th 2013
-|| # CVS: $RCSfile$ - $Revision: 26399 $
+|| # Downloaded: 20:50, Sun Aug 11th 2013
+|| # CVS: $RCSfile$ - $Revision: 39862 $
 || ####################################################################
 \*======================================================================*/
 ?>

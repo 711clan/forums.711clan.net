@@ -4,7 +4,7 @@
 	<settinggroup name="version" displayorder="0" product="vbulletin">
 		<setting varname="templateversion" displayorder="1">
 			<datatype>free</datatype>
-			<defaultvalue>3.7.2</defaultvalue>
+			<defaultvalue>3.8.7</defaultvalue>
 		</setting>
 		<setting varname="subscriptionmethods" displayorder="10">
 			<datatype>boolean</datatype>
@@ -141,6 +141,22 @@ fs_directthumb|File System with Direct Thumbs</optioncode>
 		<setting varname="album_thumburl" displayorder="150">
 			<datatype>free</datatype>
 		</setting>
+		<setting varname="usefilegroupicon" displayorder="160">
+			<datatype>boolean</datatype>
+			<optioncode>yesno</optioncode>
+			<defaultvalue>0</defaultvalue>
+			<blacklist>1</blacklist>
+		</setting>
+		<setting varname="groupiconpath" displayorder="165">
+			<datatype>free</datatype>
+			<defaultvalue>./customgroupicons</defaultvalue>
+			<blacklist>1</blacklist>
+		</setting>
+		<setting varname="groupiconurl" displayorder="170">
+			<datatype>free</datatype>
+			<defaultvalue>customgroupicons</defaultvalue>
+			<blacklist>1</blacklist>
+		</setting>
 	</settinggroup>
 	<settinggroup name="onoff" displayorder="10" product="vbulletin">
 		<setting varname="bbactive" displayorder="10">
@@ -163,6 +179,15 @@ fs_directthumb|File System with Direct Thumbs</optioncode>
 		<setting varname="bburl" displayorder="20">
 			<datatype>free</datatype>
 			<defaultvalue>http://www.example.com/forums</defaultvalue>
+		</setting>
+		<setting varname="redirect_whitelist" displayorder="26">
+			<datatype>free</datatype>
+			<optioncode>textarea</optioncode>
+		</setting>
+		<setting varname="redirect_whitelist_disable" displayorder="27">
+			<datatype>boolean</datatype>
+			<optioncode>yesno</optioncode>
+			<defaultvalue>0</defaultvalue>
 		</setting>
 		<setting varname="hometitle" displayorder="30">
 			<datatype>free</datatype>
@@ -187,11 +212,22 @@ fs_directthumb|File System with Direct Thumbs</optioncode>
 			<defaultvalue>Site Feedback
 Registration Problem</defaultvalue>
 		</setting>
+		<setting varname="contactusother" displayorder="56">
+			<datatype>boolean</datatype>
+			<optioncode>yesno</optioncode>
+			<defaultvalue>1</defaultvalue>
+		</setting>
 		<setting varname="webmasteremail" displayorder="60">
 			<datatype>free</datatype>
 			<defaultvalue>webmaster@example.com</defaultvalue>
 		</setting>
+		<setting varname="contactusemail" displayorder="65">
+			<datatype>free</datatype>
+		</setting>
 		<setting varname="privacyurl" displayorder="70">
+			<datatype>free</datatype>
+		</setting>
+		<setting varname="tosurl" displayorder="75">
 			<datatype>free</datatype>
 		</setting>
 		<setting varname="copyrighttext" displayorder="80">
@@ -210,7 +246,7 @@ Registration Problem</defaultvalue>
 	<settinggroup name="general" displayorder="30" product="vbulletin">
 		<setting varname="keywords" displayorder="10">
 			<datatype>free</datatype>
-			<defaultvalue><![CDATA[vbulletin,jelsoft,forum,bbs,discussion,bulletin board]]></defaultvalue>
+			<defaultvalue><![CDATA[vbulletin,vBulletin Solutions,forum,bbs,discussion,bulletin board]]></defaultvalue>
 		</setting>
 		<setting varname="description" displayorder="20">
 			<datatype>free</datatype>
@@ -295,25 +331,10 @@ Magick|ImageMagick 6</optioncode>
 		</setting>
 	</settinggroup>
 	<settinggroup name="humanverification" displayorder="37" product="vbulletin">
-		<setting varname="hvcheck_registration" displayorder="35">
-			<datatype>boolean</datatype>
-			<optioncode>yesno</optioncode>
-			<defaultvalue>1</defaultvalue>
-		</setting>
-		<setting varname="hvcheck_post" displayorder="260">
-			<datatype>boolean</datatype>
-			<optioncode>yesno</optioncode>
-			<defaultvalue>1</defaultvalue>
-		</setting>
-		<setting varname="hvcheck_search" displayorder="270">
-			<datatype>boolean</datatype>
-			<optioncode>yesno</optioncode>
-			<defaultvalue>1</defaultvalue>
-		</setting>
-		<setting varname="hvcheck_contactus" displayorder="280">
-			<datatype>boolean</datatype>
-			<optioncode>yesno</optioncode>
-			<defaultvalue>1</defaultvalue>
+		<setting varname="hvcheck" displayorder="300">
+			<datatype>bitfield</datatype>
+			<optioncode>bitfield:misc|hvcheck</optioncode>
+			<defaultvalue>31</defaultvalue>
 		</setting>
 	</settinggroup>
 	<settinggroup name="datetime" displayorder="40" product="vbulletin">
@@ -447,8 +468,11 @@ $options = fetch_timezones_array();</optioncode>
 			<defaultvalue>1</defaultvalue>
 		</setting>
 		<setting varname="remoteyui" displayorder="270">
-			<datatype>boolean</datatype>
-			<optioncode>yesno</optioncode>
+			<datatype>integer</datatype>
+			<optioncode>select:piped
+0|none
+1|Yahoo!
+2|Google</optioncode>
 			<defaultvalue>0</defaultvalue>
 		</setting>
 	</settinggroup>
@@ -562,6 +586,11 @@ $options = fetch_style_title_options_array();</optioncode>
 			<datatype>boolean</datatype>
 			<optioncode>yesno</optioncode>
 		</setting>
+		<setting varname="usebulkheader" displayorder="95">
+			<datatype>boolean</datatype>
+			<optioncode>yesno</optioncode>
+			<defaultvalue>0</defaultvalue>
+		</setting>
 		<setting varname="use_smtp" displayorder="100">
 			<datatype>boolean</datatype>
 			<optioncode>yesno</optioncode>
@@ -580,9 +609,12 @@ $options = fetch_style_title_options_array();</optioncode>
 			<datatype>free</datatype>
 		</setting>
 		<setting varname="smtp_tls" displayorder="150">
-			<datatype>boolean</datatype>
-			<optioncode>yesno</optioncode>
-			<defaultvalue>0</defaultvalue>
+			<datatype>free</datatype>
+			<optioncode>select:piped
+none|none
+ssl|SSL
+tls|TLS</optioncode>
+			<defaultvalue>none</defaultvalue>
 		</setting>
 	</settinggroup>
 	<settinggroup name="register" displayorder="200" product="vbulletin">
@@ -676,6 +708,9 @@ $options = fetch_style_title_options_array();</optioncode>
 		<label for=\"cb_pmpopup\"><input type=\"checkbox\" name=\"setting[$setting[varname]][]\" value=\"" . $vbulletin->bf_misc_regoptions['pmpopup'] . "\" id=\"cb_pmpopup\" " . ($setting['value'] & $vbulletin->bf_misc_regoptions['pmpopup'] ? 'checked="checked"' : '') . " />$vbphrase[pop_up_notification_box_when_a_private_message_is_received]</label>
 	</div>
 	<div class=\"smallfont\">
+		<label for=\"cb_pmdefaultsavecopy\"><input type=\"checkbox\" name=\"setting[$setting[varname]][]\" value=\"" . $vbulletin->bf_misc_regoptions['pmdefaultsavecopy'] . "\" id=\"cb_pmdefaultsavecopy\" " . ($setting['value'] & $vbulletin->bf_misc_regoptions['pmdefaultsavecopy'] ? 'checked="checked"' : '') . " />" . construct_phrase($vbphrase['save_pm_copy_default'], "../private.php?folderid=-1") . "</label>
+	</div>
+	<div class=\"smallfont\">
 		<label for=\"cb_vm_enable\"><input type=\"checkbox\" name=\"setting[$setting[varname]][]\" value=\"" . $vbulletin->bf_misc_regoptions['vm_enable'] . "\" id=\"cb_vm_enable\" " . ($setting['value'] & $vbulletin->bf_misc_regoptions['vm_enable'] ? 'checked="checked"' : '') . " />$vbphrase[enable_visitor_messaging]</label>
 	</div>
 	<div class=\"smallfont\">
@@ -728,7 +763,7 @@ $options = fetch_style_title_options_array();</optioncode>
 		</select>
 	</div>
 </fieldset>]]></optioncode>
-			<defaultvalue>13075081</defaultvalue>
+			<defaultvalue>46629513</defaultvalue>
 		</setting>
 		<setting varname="usernamereusedelay" displayorder="140">
 			<datatype>integer</datatype>
@@ -809,6 +844,11 @@ $options = construct_forum_chooser_options(1);</optioncode>
 		<setting varname="profilelastpost" displayorder="60">
 			<datatype>boolean</datatype>
 			<optioncode>yesno</optioncode>
+		</setting>
+		<setting varname="profileprivacy" displayorder="90">
+			<datatype>boolean</datatype>
+			<optioncode>yesno</optioncode>
+			<defaultvalue>1</defaultvalue>
 		</setting>
 		<setting varname="softlinebreakchars" displayorder="110">
 			<datatype>integer</datatype>
@@ -895,6 +935,10 @@ gargantuan|20px</defaultvalue>
 			<datatype>integer</datatype>
 			<defaultvalue>60</defaultvalue>
 		</setting>
+		<setting varname="album_recentalbumdays" displayorder="63">
+			<datatype>number</datatype>
+			<defaultvalue>7</defaultvalue>
+		</setting>
 		<setting varname="pc_enabled" displayorder="65">
 			<datatype>boolean</datatype>
 			<optioncode>yesno</optioncode>
@@ -957,35 +1001,94 @@ gargantuan|20px</defaultvalue>
 			<optioncode>yesno</optioncode>
 			<defaultvalue>0</defaultvalue>
 		</setting>
-		<setting varname="sg_allow_owner_mod_queue" displayorder="30">
-			<datatype>boolean</datatype>
-			<optioncode>yesno</optioncode>
-			<defaultvalue>0</defaultvalue>
-		</setting>
 		<setting varname="socnet_groups_msg_enabled" displayorder="30">
 			<datatype>boolean</datatype>
 			<optioncode>yesno</optioncode>
 			<defaultvalue>1</defaultvalue>
 		</setting>
-		<setting varname="sg_allow_join_to_view" displayorder="40">
+		<setting varname="gm_maxchars" displayorder="40">
+			<datatype>integer</datatype>
+			<validationcode><![CDATA[return (intval($raw_data) >= 0);]]></validationcode>
+			<defaultvalue>1000</defaultvalue>
+		</setting>
+		<setting varname="sg_perpage" displayorder="50">
+			<datatype>posint</datatype>
+			<validationcode><![CDATA[return (intval($raw_data) > 0);]]></validationcode>
+			<defaultvalue>10</defaultvalue>
+		</setting>
+		<setting varname="sg_maxperpage" displayorder="60">
+			<datatype>posint</datatype>
+			<validationcode><![CDATA[return (intval($raw_data) > 0);]]></validationcode>
+			<defaultvalue>50</defaultvalue>
+		</setting>
+		<setting varname="gm_perpage" displayorder="70">
+			<datatype>posint</datatype>
+			<validationcode><![CDATA[return (intval($raw_data) > 0);]]></validationcode>
+			<defaultvalue>10</defaultvalue>
+		</setting>
+		<setting varname="gm_maxperpage" displayorder="80">
+			<datatype>posint</datatype>
+			<validationcode><![CDATA[return (intval($raw_data) > 0);]]></validationcode>
+			<defaultvalue>50</defaultvalue>
+		</setting>
+		<setting varname="sg_maxdescriptionchars" displayorder="85">
+			<datatype>posint</datatype>
+			<defaultvalue>1000</defaultvalue>
+		</setting>
+		<setting varname="sgd_maxperpage" displayorder="90">
+			<datatype>posint</datatype>
+			<validationcode><![CDATA[return (intval($raw_data) > 0);]]></validationcode>
+			<defaultvalue>50</defaultvalue>
+		</setting>
+		<setting varname="sgd_perpage" displayorder="90">
+			<datatype>posint</datatype>
+			<validationcode><![CDATA[return (intval($raw_data) > 0);]]></validationcode>
+			<defaultvalue>10</defaultvalue>
+		</setting>
+		<setting varname="sg_allow_join_to_view" displayorder="100">
 			<datatype>boolean</datatype>
 			<optioncode>yesno</optioncode>
 			<defaultvalue>0</defaultvalue>
 		</setting>
-		<setting varname="socnet_groups_albums_enabled" displayorder="40">
+		<setting varname="socnet_groups_albums_enabled" displayorder="110">
 			<datatype>boolean</datatype>
 			<optioncode>yesno</optioncode>
 			<defaultvalue>1</defaultvalue>
 		</setting>
-		<setting varname="sg_allowed_bbcode" displayorder="50">
+		<setting varname="sg_allow_owner_mod_queue" displayorder="120">
+			<datatype>boolean</datatype>
+			<optioncode>yesno</optioncode>
+			<defaultvalue>0</defaultvalue>
+		</setting>
+		<setting varname="sg_enable_owner_only_discussions" displayorder="130">
+			<datatype>free</datatype>
+			<optioncode>yesno</optioncode>
+			<defaultvalue>0</defaultvalue>
+		</setting>
+		<setting varname="sg_allowed_bbcode" displayorder="140">
 			<datatype>bitfield</datatype>
 			<optioncode>bitfield:nocache|allowedbbcodesfull</optioncode>
 			<defaultvalue>1091</defaultvalue>
 		</setting>
-		<setting varname="sg_allow_delete_empty_group" displayorder="60">
+		<setting varname="sg_allow_delete_empty_group" displayorder="160">
 			<datatype>integer</datatype>
 			<optioncode>yesno</optioncode>
 			<defaultvalue>1</defaultvalue>
+		</setting>
+		<setting varname="sg_enablesocialgroupicons" displayorder="190">
+			<datatype>boolean</datatype>
+			<optioncode>yesno</optioncode>
+			<defaultvalue>1</defaultvalue>
+		</setting>
+		<setting varname="sg_newgroups_count" displayorder="200">
+			<datatype>posint</datatype>
+			<validationcode><![CDATA[return (intval($raw_data) > 0);]]></validationcode>
+			<defaultvalue>15</defaultvalue>
+		</setting>
+		<setting varname="sg_category_cloud_size" displayorder="210">
+			<datatype>posint</datatype>
+			<validationcode><![CDATA[return (intval($raw_data) > 0);]]></validationcode>
+			<defaultvalue>40</defaultvalue>
 		</setting>
 	</settinggroup>
 	<settinggroup name="userpix" displayorder="220" product="vbulletin">
@@ -1118,7 +1221,8 @@ gargantuan|20px</defaultvalue>
 		</setting>
 		<setting varname="banemail" displayorder="30">
 			<datatype>free</datatype>
-			<optioncode><![CDATA[<textarea name=\"setting[banemail]\" rows=\"8\" cols=\"40\" dir=\"ltr\" class=\"bginput\" tabindex=\"1\" title=\"name=&quot;setting[banemail]&quot;\">" .  $vbulletin->banemail   . "</textarea>]]></optioncode>
+			<optioncode><![CDATA[<textarea name=\"setting[banemail]\" rows=\"8\" cols=\"40\" dir=\"ltr\" class=\"bginput\" tabindex=\"1\" title=\"name=&quot;setting[banemail]&quot;\" id=\"ta_banemail\">" .  $vbulletin->banemail   . "</textarea>
+<div class=\"smallfont\"><a href=\"#\" " . (is_browser('ie') ? 'style="zoom:1"' : '') . " onclick=\"return resize_textarea(1, 'ta_banemail')\">$vbphrase[increase_size]</a> <a href=\"#\" " . (is_browser('ie') ? 'style="zoom:1"' : '') . " onclick=\"return resize_textarea(-1, 'ta_banemail')\">$vbphrase[decrease_size]</a></div>]]></optioncode>
 		</setting>
 		<setting varname="aggressiveemailban" displayorder="31">
 			<datatype>boolean</datatype>
@@ -1454,6 +1558,10 @@ gargantuan|20px</defaultvalue>
 			<datatype>integer</datatype>
 			<defaultvalue>4</defaultvalue>
 		</setting>
+		<setting varname="maxsearchlength" displayorder="60">
+			<datatype>integer</datatype>
+			<defaultvalue>20</defaultvalue>
+		</setting>
 		<setting varname="similarthreadsearch" displayorder="100">
 			<datatype>boolean</datatype>
 			<optioncode>yesno</optioncode>
@@ -1477,10 +1585,6 @@ gargantuan|20px</defaultvalue>
 			<datatype>free</datatype>
 			<optioncode>textarea</optioncode>
 			<defaultvalue>vb vbb php sql</defaultvalue>
-		</setting>
-		<setting varname="maxsearchlength" displayorder="60">
-			<datatype>integer</datatype>
-			<defaultvalue>20</defaultvalue>
 		</setting>
 		<setting varname="allowwildcards" displayorder="70">
 			<datatype>boolean</datatype>
@@ -1854,12 +1958,17 @@ gargantuan|20px</defaultvalue>
 			<datatype>number</datatype>
 			<defaultvalue>60</defaultvalue>
 		</setting>
-		<setting varname="pmperpage" displayorder="51">
+		<setting varname="pmthrottleperiod" displayorder="51">
+			<datatype>integer</datatype>
+			<validationcode><![CDATA[return ($raw_data >= 0);]]></validationcode>
+			<defaultvalue>0</defaultvalue>
+		</setting>
+		<setting varname="pmperpage" displayorder="55">
 			<datatype>posint</datatype>
 			<validationcode><![CDATA[return (intval($raw_data) > 0);]]></validationcode>
 			<defaultvalue>50</defaultvalue>
 		</setting>
-		<setting varname="pmmaxperpage" displayorder="52">
+		<setting varname="pmmaxperpage" displayorder="56">
 			<datatype>posint</datatype>
 			<validationcode><![CDATA[return (intval($raw_data) > 0);]]></validationcode>
 			<defaultvalue>100</defaultvalue>
@@ -2033,12 +2142,24 @@ gargantuan|20px</defaultvalue>
 		</setting>
 	</settinggroup>
 	<settinggroup name="spam_management" displayorder="580" product="vbulletin">
+		<setting varname="vb_antispam_type" displayorder="5">
+			<datatype>integer</datatype>
+			<optioncode>select:piped
+0|disable_scanning
+1|Akismet
+2|Typepad AntiSpam Beta</optioncode>
+			<defaultvalue>0</defaultvalue>
+		</setting>
 		<setting varname="vb_antispam_key" displayorder="10">
 			<datatype>free</datatype>
 		</setting>
 		<setting varname="vb_antispam_posts" displayorder="20">
 			<datatype>integer</datatype>
 			<defaultvalue>0</defaultvalue>
+		</setting>
+		<setting varname="postlog_maxage" displayorder="30">
+			<datatype>integer</datatype>
+			<defaultvalue>7</defaultvalue>
 		</setting>
 	</settinggroup>
 </settinggroups>

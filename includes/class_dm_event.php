@@ -1,9 +1,9 @@
 <?php
 /*======================================================================*\
 || #################################################################### ||
-|| # vBulletin 3.7.2 Patch Level 2 - Licence Number VBF2470E4F
+|| # vBulletin 3.8.7 Patch Level 3 - Licence Number VBC2DDE4FB
 || # ---------------------------------------------------------------- # ||
-|| # Copyright ©2000-2013 Jelsoft Enterprises Ltd. All Rights Reserved. ||
+|| # Copyright ©2000-2013 vBulletin Solutions, Inc. All Rights Reserved. ||
 || # This file may not be redistributed in whole or significant part. # ||
 || # ---------------- VBULLETIN IS NOT FREE SOFTWARE ---------------- # ||
 || # http://www.vbulletin.com | http://www.vbulletin.com/license.html # ||
@@ -20,8 +20,8 @@ if (!class_exists('vB_DataManager'))
 *
 *
 * @package	vBulletin
-* @version	$Revision: 16294 $
-* @date		$Date: 2007-02-07 18:34:20 -0600 (Wed, 07 Feb 2007) $
+* @version	$Revision: 39862 $
+* @date		$Date: 2010-10-18 18:16:44 -0700 (Mon, 18 Oct 2010) $
 */
 class vB_DataManager_Event extends vB_DataManager
 {
@@ -379,8 +379,14 @@ class vB_DataManager_Event extends vB_DataManager
 					}
 				}
 
-				$from_hour = $from_hour - $this->fetch_field('utc');
-				$to_hour = $to_hour - $this->fetch_field('utc');
+				$min_offset = $this->fetch_field('utc') - intval($this->fetch_field('utc'));
+
+				$from_hour   -= intval($this->fetch_field('utc'));
+				$from_minute -= intval($min_offset * 60);
+
+				$to_hour   -= intval($this->fetch_field('utc'));
+				$to_minute -= intval($min_offset * 60);
+
 				$dateline_to = gmmktime($to_hour, $to_minute, 0, $this->info['todate']['month'], $this->info['todate']['day'], $this->info['todate']['year']);
 				$dateline_from = gmmktime($from_hour, $from_minute, 0, $this->info['fromdate']['month'], $this->info['fromdate']['day'], $this->info['fromdate']['year']);
 
@@ -584,8 +590,8 @@ class vB_DataManager_Event extends vB_DataManager
 
 /*======================================================================*\
 || ####################################################################
-|| # Downloaded: 16:21, Sat Apr 6th 2013
-|| # CVS: $RCSfile$ - $Revision: 16294 $
+|| # Downloaded: 20:50, Sun Aug 11th 2013
+|| # CVS: $RCSfile$ - $Revision: 39862 $
 || ####################################################################
 \*======================================================================*/
 ?>

@@ -1,8 +1,8 @@
 /*======================================================================*\
 || #################################################################### ||
-|| # vBulletin 3.7.2 Patch Level 2
+|| # vBulletin 3.8.7 Patch Level 3
 || # ---------------------------------------------------------------- # ||
-|| # All code in this file is ©2000-2013 Jelsoft Enterprises Ltd.     # ||
+|| # All code in this file is ©2000-2013 vBulletin Solutions, Inc.     # ||
 || # This file may not be redistributed in whole or significant part. # ||
 || # ---------------- VBULLETIN IS NOT FREE SOFTWARE ---------------- # ||
 || # http://www.vbulletin.com | http://www.vbulletin.com/license.html # ||
@@ -308,22 +308,60 @@ option.templategroup
 	color: #000000;
 }
 
-.diff-added
-{
-	background-color: #90f090;
-	color: #000000;
-}
-
-.diff-deleted
-{
-	background-color: #f09090;
-	color: #000000;
-}
-
 .diff-changed
 {
 	background-color: #f0f060;
 	color: #000000;
+}
+
+.diff-added, .diff-inline-added
+{
+	background-color: #B0F0B0;
+	color: #000000;
+	border: 0 solid #00FF00;
+}
+
+.diff-inline-added-start
+{
+	border-top-width: 1px;
+}
+
+.diff-inline-added-end
+{
+	border-bottom-width: 1px;
+}
+	
+.diff-deleted, .diff-inline-deleted
+{
+	background-color: #F0B0B0;
+	color: #000000;
+	border: 0 solid #EB5858;
+}
+
+.diff-inline-deleted-start
+{
+	border-top-width: 1px
+}
+
+.diff-inline-deleted-end
+{
+	border-bottom-width: 1px;
+}
+
+.diff-inline-break
+{
+	border: solid gray;
+	border-width:1px 0;	
+}
+
+.diff-linenumber
+{
+	color: #999988;
+	background-color: #EEEEDD;
+	border-bottom: 1px solid #999988;
+	border-right: 1px solid #CCCCCC;
+	vertical-align: top;
+	text-align: center;
 }
 
 /* ############################################################################# */
@@ -548,7 +586,7 @@ hr
 
 /*======================================================================*\
 || ####################################################################
-|| # Downloaded: 16:21, Sat Apr 6th 2013
-|| # CVS: $RCSfile$ - $Revision: 26593 $
+|| # Downloaded: 20:50, Sun Aug 11th 2013
+|| # CVS: $RCSfile$ - $Revision: 39862 $
 || ####################################################################
 \*======================================================================*/

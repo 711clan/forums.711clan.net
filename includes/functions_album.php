@@ -1,9 +1,9 @@
 <?php
 /*======================================================================*\
 || #################################################################### ||
-|| # vBulletin 3.7.2 Patch Level 2 - Licence Number VBF2470E4F
+|| # vBulletin 3.8.7 Patch Level 3 - Licence Number VBC2DDE4FB
 || # ---------------------------------------------------------------- # ||
-|| # Copyright ©2000-2013 Jelsoft Enterprises Ltd. All Rights Reserved. ||
+|| # Copyright ©2000-2013 vBulletin Solutions, Inc. All Rights Reserved. ||
 || # This file may not be redistributed in whole or significant part. # ||
 || # ---------------- VBULLETIN IS NOT FREE SOFTWARE ---------------- # ||
 || # http://www.vbulletin.com | http://www.vbulletin.com/license.html # ||
@@ -101,7 +101,7 @@ function prepare_pictureinfo_thumb($pictureinfo, $displaytypeinfo)
 	$pictureinfo['thumburl'] = ($pictureinfo['thumbnail_filesize'] ? fetch_picture_url($pictureinfo, $displaytypeinfo, true) : '');
 	$pictureinfo['dimensions'] = ($pictureinfo['thumbnail_width'] ? "width=\"$pictureinfo[thumbnail_width]\" height=\"$pictureinfo[thumbnail_height]\"" : '');
 	$pictureinfo['date'] = vbdate($vbulletin->options['dateformat'], $pictureinfo['dateline'], true);
-	$pictureinfo['time'] = vbdate($vbulletin->options['dateformat'], $pictureinfo['dateline']);
+	$pictureinfo['time'] = vbdate($vbulletin->options['timeformat'], $pictureinfo['dateline']);
 
 	($hook = vBulletinHook::fetch_hook('album_prepare_thumb')) ? eval($hook) : false;
 
@@ -156,14 +156,14 @@ function fetch_picture_location_info($navpictures_sql, $pictureid)
 			// have a previous pic
 			$output['prev_pictureid'] = $navpictures[$cur_pic_position - 1];
 			$output['prev_text'] = $vbphrase['previous_picture'];
-			$output['prev_text_short'] = $vbphrase['prev'];
+			$output['prev_text_short'] = $vbphrase['prev_picture_short'];
 		}
 		else
 		{
 			// go to end
 			$output['prev_pictureid'] = end($navpictures);
 			$output['prev_text'] = $vbphrase['last_picture'];
-			$output['prev_text_short'] = $vbphrase['last'];
+			$output['prev_text_short'] = $vbphrase['last_picture_short'];
 		}
 
 		if (isset($navpictures[$cur_pic_position + 1]))
@@ -171,14 +171,14 @@ function fetch_picture_location_info($navpictures_sql, $pictureid)
 			// have a next pic
 			$output['next_pictureid'] = $navpictures[$cur_pic_position + 1];
 			$output['next_text'] = $vbphrase['next_picture'];
-			$output['next_text_short'] = $vbphrase['next'];
+			$output['next_text_short'] = $vbphrase['next_picture_short'];
 		}
 		else
 		{
 			// go to beginning
 			$output['next_pictureid'] = $navpictures[0];
 			$output['next_text'] = $vbphrase['first_picture'];
-			$output['next_text_short'] = $vbphrase['first'];
+			$output['next_text_short'] = $vbphrase['first_picture_short'];
 		}
 	}
 
@@ -435,10 +435,91 @@ function fetch_picture_dm_name()
 	}
 }
 
+/**
+* Checks an album and adds it to the recently updated albums list
+* if it is generally viewable by other users.
+*
+* @param array mixed $userinfo					Info array of the album owner
+* @param array mixed $albuminfo					Info array of the album
+*/
+function exec_album_updated($userinfo, $albuminfo)
+{
+	global $vbulletin;
+
+	cache_permissions($userinfo);
+
+	if (4 == $userinfo['usergroupid'])
+	{
+		return;
+	}
+
+	if (!($userinfo['permissions']['albumpermissions'] & $vbulletin->bf_ugp_albumpermissions['canalbum']))
+	{
+		return;
+	}
+
+	if (!$albuminfo['albumid'])
+	{
+		return;
+	}
+
+	$vbulletin->db->query_write("
+		REPLACE INTO " . TABLE_PREFIX . "albumupdate
+			(albumid, dateline)
+		VALUES
+			(" . intval($albuminfo['albumid']) . ", " . TIMENOW . ")
+	");
+}
+
+/**
+ * Rebuilds Album Update cache
+ */
+function exec_rebuild_album_updates()
+{
+	global $vbulletin;
+
+	$vbulletin->db->query_write("TRUNCATE " . TABLE_PREFIX . "albumupdate");
+
+	if (!$vbulletin->options['album_recentalbumdays'])
+	{
+		return;
+	}
+
+	$results = $vbulletin->db->query_read("
+		SELECT album.albumid, album.userid, album.lastpicturedate, user.usergroupid, user.infractiongroupids, user.infractiongroupid
+		FROM " . TABLE_PREFIX . "album AS album
+		INNER JOIN " . TABLE_PREFIX . "user AS user ON (album.userid = user.userid)
+		WHERE lastpicturedate > " . (TIMENOW - $vbulletin->options['album_recentalbumdays'] * 86400) . "
+			AND state = 'public'
+			AND visible > 0
+	");
+
+	$recent_updates = array();
+	while ($result = $vbulletin->db->fetch_array($results))
+	{
+		cache_permissions($result, false);
+
+		if ((4 != $result['permissions']['usergroupid']) AND (4 != $result['infractiongroupid']) AND ($result['permissions']['albumpermissions'] & $vbulletin->bf_ugp_albumpermissions['canalbum']))
+		{
+			$recent_updates[] = "($result[albumid], $result[lastpicturedate])";
+		}
+	}
+	$vbulletin->db->free_result($results);
+
+	if (sizeof($recent_updates))
+	{
+		$vbulletin->db->query_write("
+			INSERT INTO " . TABLE_PREFIX . "albumupdate
+				(albumid, dateline)
+			VALUES
+				" . implode (',', $recent_updates) . "
+		");
+	}
+}
 /*======================================================================*\
 || ####################################################################
-|| # Downloaded: 16:21, Sat Apr 6th 2013
-|| # CVS: $RCSfile$ - $Revision: 26051 $
+|| # Downloaded: 20:50, Sun Aug 11th 2013
+|| # CVS: $RCSfile$ - $Revision: 39862 $
 || ####################################################################
 \*======================================================================*/
 ?>

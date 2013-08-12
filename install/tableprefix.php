@@ -1,9 +1,9 @@
 <?php
 /*======================================================================*\
 || #################################################################### ||
-|| # vBulletin 3.7.2 Patch Level 2 - Licence Number VBF2470E4F
+|| # vBulletin 3.8.7 Patch Level 3 - Licence Number VBC2DDE4FB
 || # ---------------------------------------------------------------- # ||
-|| # Copyright ©2000-2013 Jelsoft Enterprises Ltd. All Rights Reserved. ||
+|| # Copyright ©2000-2013 vBulletin Solutions, Inc. All Rights Reserved. ||
 || # This file may not be redistributed in whole or significant part. # ||
 || # ---------------- VBULLETIN IS NOT FREE SOFTWARE ---------------- # ||
 || # http://www.vbulletin.com | http://www.vbulletin.com/license.html # ||
@@ -11,9 +11,9 @@
 \*======================================================================*/
 
 // ######################## SET PHP ENVIRONMENT ###########################
-error_reporting(E_ALL & ~E_NOTICE);
+error_reporting(E_ALL & ~E_NOTICE & ~8192);
 ignore_user_abort(true);
-if (function_exists('set_time_limit') and get_cfg_var('safe_mode') == 0)
+if (function_exists('set_time_limit') and ini_get('safe_mode') == 0)
 {
 	@set_time_limit(1200);
 }
@@ -33,7 +33,7 @@ $phrasegroups = array('maintenance');
 $specialtemplates = array();
 
 // initialize the data registry
-$vbulletin =& new vB_Registry();
+$vbulletin = new vB_Registry();
 
 // parse the configuration ini file
 $vbulletin->fetch_config();
@@ -272,8 +272,8 @@ function fetch_renamed_table_name($table, $oldprefix, $newprefix, $dobold = fals
 
 /*======================================================================*\
 || ####################################################################
-|| # Downloaded: 16:21, Sat Apr 6th 2013
-|| # CVS: $RCSfile$ - $Revision: 15609 $
+|| # Downloaded: 20:50, Sun Aug 11th 2013
+|| # CVS: $RCSfile$ - $Revision: 39862 $
 || ####################################################################
 \*======================================================================*/
 ?>

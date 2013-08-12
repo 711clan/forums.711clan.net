@@ -1,9 +1,9 @@
 <?php
 /*======================================================================*\
 || #################################################################### ||
-|| # vBulletin 3.7.2 Patch Level 2 - Licence Number VBF2470E4F
+|| # vBulletin 3.8.7 Patch Level 3 - Licence Number VBC2DDE4FB
 || # ---------------------------------------------------------------- # ||
-|| # Copyright ©2000-2013 Jelsoft Enterprises Ltd. All Rights Reserved. ||
+|| # Copyright ©2000-2013 vBulletin Solutions, Inc. All Rights Reserved. ||
 || # This file may not be redistributed in whole or significant part. # ||
 || # ---------------- VBULLETIN IS NOT FREE SOFTWARE ---------------- # ||
 || # http://www.vbulletin.com | http://www.vbulletin.com/license.html # ||
@@ -302,6 +302,7 @@ function build_forum_counters($forumid, $censor = false)
 	$forumdm->set('lastthreadid', $lastthread['threadid'], true, false);
 	$forumdm->set('lasticonid',   ($lastthread['pollid'] ? -1 : $lastthread['iconid']), true, false);
 	$forumdm->set('lastprefixid', $lastthread['prefixid'], true, false);
+	$forumdm->set_info('disable_cache_rebuild', true);
 	$forumdm->save();
 	unset($forumdm);
 }
@@ -1148,7 +1149,7 @@ function delete_post($postid, $countposts = true, $threadid = 0, $physicaldel = 
 	{
 		$threadinfo = fetch_threadinfo($postinfo['threadid']);
 
-		if (!$physicaldel AND $post['visible'] == 2)
+		if (!$physicaldel AND $postinfo['visible'] == 2)
 		{	// post is already soft deleted
 			return;
 		}
@@ -1715,14 +1716,16 @@ function build_birthdays()
 
 	$serveroffset = date('Z', TIMENOW) / 3600;
 
-	$fromdate = getdate(TIMENOW + (-12 - $serveroffset) * 3600);
-	$storebirthdays['day1'] = date('Y-m-d', TIMENOW + (-12 - $serveroffset) * 3600 );
+	$fromdatestamp = TIMENOW + (-11 - $serveroffset) * 3600;
+	$fromdate = getdate($fromdatestamp);
+	$storebirthdays['day1'] = date('Y-m-d', $fromdatestamp);
 
-	$todate = getdate(TIMENOW + (12 - $serveroffset) * 3600);
-	$storebirthdays['day2'] = date('Y-m-d', TIMENOW + (12 - $serveroffset) * 3600);
+	$todatestamp = TIMENOW + (13 - $serveroffset) * 3600;
+	$todate = getdate($todatestamp);
+	$storebirthdays['day2'] = date('Y-m-d', $todatestamp);
 
-	$todayneggmt = date('m-d', TIMENOW + (-12 - $serveroffset) * 3600);
-	$todayposgmt = date('m-d', TIMENOW + (12 - $serveroffset) * 3600);
+	$todayneggmt = date('m-d', $fromdatestamp);
+	$todayposgmt = date('m-d', $todatestamp);
 
 	// Seems quicker to grab the ids rather than doing a JOIN
 	$usergroupids = 0;
@@ -2049,19 +2052,31 @@ function delete_post_cache_threads($threadarray)
 
 	$threadarray = array_map('intval', $threadarray);
 
-	// do not alias the tables in this query -- this deals with a MySQL 4 issue
-	$vbulletin->db->query_write("
-		DELETE " . TABLE_PREFIX . "postparsed
-		FROM " . TABLE_PREFIX . "post
-		INNER JOIN " . TABLE_PREFIX . "postparsed ON (" . TABLE_PREFIX . "post.postid = " . TABLE_PREFIX . "postparsed.postid)
-		WHERE " . TABLE_PREFIX . "post.threadid IN (" . implode(',', $threadarray) . ")
-	");
+	$posts = array();
+	$post_sql = $vbulletin->db->query_read("
+		SELECT post.postid
+		FROM " . TABLE_PREFIX . "post AS post
+		INNER JOIN " . TABLE_PREFIX . "postparsed AS postparsed ON (post.postid = postparsed.postid)
+		WHERE post.threadid IN (" . implode(',', $threadarray) . ")
+ 	");
+	while ($post = $vbulletin->db->fetch_array($post_sql))
+	{
+		$posts[] = $post['postid'];
+	}
+
+	if ($posts)
+	{
+		$vbulletin->db->query_write("
+			DELETE FROM " . TABLE_PREFIX . "postparsed
+			WHERE postid IN (" . implode(',', $posts) . ")
+		");
+	}
 }
 
 /*======================================================================*\
 || ####################################################################
-|| # Downloaded: 16:21, Sat Apr 6th 2013
-|| # CVS: $RCSfile$ - $Revision: 26724 $
+|| # Downloaded: 20:50, Sun Aug 11th 2013
+|| # CVS: $RCSfile$ - $Revision: 39862 $
 || ####################################################################
 \*======================================================================*/
 ?>

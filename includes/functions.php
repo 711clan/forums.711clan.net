@@ -1,9 +1,9 @@
 <?php
 /*======================================================================*\
 || #################################################################### ||
-|| # vBulletin 3.7.2 Patch Level 2 - Licence Number VBF2470E4F
+|| # vBulletin 3.8.7 Patch Level 3 - Licence Number VBC2DDE4FB
 || # ---------------------------------------------------------------- # ||
-|| # Copyright ©2000-2013 Jelsoft Enterprises Ltd. All Rights Reserved. ||
+|| # Copyright Â©2000-2013 vBulletin Solutions, Inc. All Rights Reserved. ||
 || # This file may not be redistributed in whole or significant part. # ||
 || # ---------------- VBULLETIN IS NOT FREE SOFTWARE ---------------- # ||
 || # http://www.vbulletin.com | http://www.vbulletin.com/license.html # ||
@@ -34,7 +34,7 @@ define('REQ_INCR', 3);
 /**
 * @ignore
 */
-define('COOKIE_SALT', 'VBF2470E4F');
+define('COOKIE_SALT', '5sksA8T1JCEtAVUCPAb6MyiK4ZVR6zkVIvd7mO');
 
 // #############################################################################
 /**
@@ -126,6 +126,9 @@ function &datamanager_init($classtype, &$registry, $errtype = ERRTYPE_STANDARD, 
 			case 'userpic_profilepic':
 			case 'userpic_sigpic':
 				$object = vB_DataManager_Userpic::fetch_library($registry, $errtype, $classtype);
+				break;
+			case('socialgroupicon'):
+				$object = vB_DataManager_SocialGroupIcon::fetch_library($registry, $errtype, $classtype);
 				break;
 			default:
 				$classname = 'vB_DataManager_' . $classtype;
@@ -237,12 +240,24 @@ function vbchop($string, $length)
 		return $string;
 	}
 
+	// Pretruncate the string to something shorter, so we don't run into memory problems with
+	// very very very long strings at the regular expression down below.
+	//
+	// UTF-32 allows 0x7FFFFFFF code space, meaning possibility of code point: &#2147483647;
+	// If we assume entire string we want to keep is in this butchered form, we need to keep
+	// 13 bytes per character we want to output. Strings actually encoded in UTF-32 takes 4
+	// bytes per character, so 13 is large enough to cover that without problem, too.
+	//
+	// ((Unlike the regex below, no memory problems here with very very very long comments.))
+	$pretruncate = 13 * $length;
+	$string = substr($string, 0, $pretruncate);
+
 	if (preg_match_all('/&(#[0-9]+|lt|gt|quot|amp);/', $string, $matches, PREG_OFFSET_CAPTURE))
 	{
 		// find all entities because we need to count them as 1 character
 		foreach ($matches[0] AS $match)
 		{
-			$entity_length = strlen($match[0]);
+			// $entity_length = strlen($match[0]); // do we really need this twice? (Line: 257)
 			$offset = $match[1];
 
 			// < since length starts at 1 but offset starts at 0
@@ -348,26 +363,68 @@ function vb_number_format($number, $decimals = 0, $bytesize = false, $decimalsep
 
 // #############################################################################
 /**
+* Generates a random password that is much stronger than what we currently use.
+*
+* @param	integer	Length of desired password
+*/
+function fetch_random_password($length = 8)
+{
+	$password_characters = 'ABCDEFGHJKLMNPQRSTUVWXYZabcdefghjkmnpqrstuvwxyz';
+	$total_password_characters = strlen($password_characters) - 1;
+
+	$digit = vbrand(0, $length - 1);
+
+	$newpassword = '';
+	for ($i = 0; $i < $length; $i++)
+	{
+		if ($i == $digit)
+		{
+			$newpassword .= chr(vbrand(48, 57));
+			continue;
+		}
+
+		$newpassword .= $password_characters{vbrand(0, $total_password_characters)};
+	}
+	return $newpassword;
+}
+
+// #############################################################################
+/**
+* vBulletin's hash fetcher, note this may change from a-f0-9 to a-z0-9 in future.
+*
+* @param	integer	Length of desired hash, limited to 40 characters at most
+*/
+function fetch_random_string($length = 32)
+{
+	$hash = sha1(TIMENOW . SESSION_HOST . microtime() . uniqid(mt_rand(), true) . @implode('', @fstat(@fopen( __FILE__, 'r'))));
+
+	return substr($hash, 0, $length);
+}
+
+// #############################################################################
+/**
 * vBulletin's own random number generator
 *
 * @param	integer	Minimum desired value
 * @param	integer	Maximum desired value
 * @param	mixed	Seed for the number generator (if not specified, a new seed will be generated)
 */
-function vbrand($min, $max, $seed = -1)
+function vbrand($min = 0, $max = 0, $seed = -1)
 {
-	if (!defined('RAND_SEEDED'))
+	mt_srand(crc32(microtime()));
+
+	if ($max AND $max <= mt_getrandmax())
 	{
-		if ($seed == -1)
-		{
-			$seed = (double) microtime() * 1000000;
-		}
-
-		mt_srand($seed);
-		define('RAND_SEEDED', true);
+		$number = mt_rand($min, $max);
 	}
+	else
+	{
+		$number = mt_rand();
+	}
+	// reseed so any calls outside this function don't get the second number
+	mt_srand();
 
-	return mt_rand($min, $max);
+	return $number;
 }
 
 // #############################################################################
@@ -525,12 +582,14 @@ function in_coventry($userid, $includeself = false)
 */
 function strip_blank_ascii($text, $replace)
 {
-	global $vbulletin;
+	global $vbulletin, $stylevar;
 	static $blanks = null;
 
 	if ($blanks === null AND trim($vbulletin->options['blankasciistrip']) != '')
 	{
 		$blanks = array();
+
+		$charset_unicode = (strtolower($stylevar['charset']) == 'utf-8');
 
 		$raw_blanks = preg_split('#\s+#', $vbulletin->options['blankasciistrip'], -1, PREG_SPLIT_NO_EMPTY);
 		foreach ($raw_blanks AS $code_point)
@@ -547,7 +606,7 @@ function strip_blank_ascii($text, $replace)
 				$force_unicode = false;
 			}
 
-			if ($code_point > 255 OR $force_unicode)
+			if ($code_point > 255 OR $force_unicode OR $charset_unicode)
 			{
 				// outside ASCII range or forced Unicode, so the chr function wouldn't work anyway
 				$blanks[] = '&#' . $code_point . ';';
@@ -580,6 +639,12 @@ function fetch_censored_text($text)
 {
 	global $vbulletin;
 	static $censorwords;
+
+	if (!$text)
+	{
+		// return $text rather than nothing, since this could be '' or 0
+		return $text;
+	}
 
 	if ($vbulletin->options['enablecensor'] AND !empty($vbulletin->options['censorwords']))
 	{
@@ -840,6 +905,11 @@ function vbmail_start()
 */
 function vbmail($toemail, $subject, $message, $notsubscription = false, $from = '', $uheaders = '', $username = '')
 {
+	if (empty($toemail))
+	{
+		return false;
+	}
+
 	if (defined('DISABLE_MAIL'))
 	{
 		// define this in config.php -- good for test boards,
@@ -879,8 +949,12 @@ function vbmail($toemail, $subject, $message, $notsubscription = false, $from = 
 		$mail =& new vB_Mail($vbulletin);
 	}
 
-	$mail->start($toemail, $subject, $message, $from, $uheaders, $username);
-	$mail->send();
+	if (!$mail->start($toemail, $subject, $message, $from, $uheaders, $username))
+	{
+		return false;
+	}
+
+	return $mail->send();
 }
 
 // #############################################################################
@@ -1126,6 +1200,9 @@ function fetch_foruminfo(&$forumid, $usecache = true)
 		$vbulletin->forumcache["$forumid"]["$optionname"] = (($vbulletin->forumcache["$forumid"]['options'] & $optionval) ? 1 : 0);
 	}
 
+	// depth == num of forums in parent list - 2 (itself, -1) == commas - 1
+	$vbulletin->forumcache["$forumid"]['depth'] = substr_count($vbulletin->forumcache["$forumid"]['parentlist'], ',') - 1;
+
 	($hook = vBulletinHook::fetch_hook('fetch_foruminfo')) ? eval($hook) : false;
 
 	return $vbulletin->forumcache["$forumid"];
@@ -1303,13 +1380,13 @@ function fetch_userinfo(&$userid, $option = 0, $languageid = 0)
 	$user = $vbulletin->db->query_first_slave("
 		SELECT " .
 			iif(($option & FETCH_USERINFO_ADMIN), ' administrator.*, ') . "
-			userfield.*, usertextfield.*, user.*, UNIX_TIMESTAMP(passworddate) AS passworddate,
-			IF(displaygroupid=0, user.usergroupid, displaygroupid) AS displaygroupid" .
+			userfield.*, usertextfield.*, user.*, UNIX_TIMESTAMP(passworddate) AS passworddate, user.languageid AS saved_languageid,
+			IF(user.displaygroupid=0, user.usergroupid, user.displaygroupid) AS displaygroupid" .
 			iif(($option & FETCH_USERINFO_AVATAR) AND $vbulletin->options['avatarenabled'], ', avatar.avatarpath, NOT ISNULL(customavatar.userid) AS hascustomavatar, customavatar.dateline AS avatardateline, customavatar.width AS avwidth, customavatar.height AS avheight, customavatar.height_thumb AS avheight_thumb, customavatar.width_thumb AS avwidth_thumb, customavatar.filedata_thumb').
 			iif(($option & FETCH_USERINFO_PROFILEPIC), ', customprofilepic.userid AS profilepic, customprofilepic.dateline AS profilepicdateline, customprofilepic.width AS ppwidth, customprofilepic.height AS ppheight') .
 			iif(($option & FETCH_USERINFO_SIGPIC), ', sigpic.userid AS sigpic, sigpic.dateline AS sigpicdateline, sigpic.width AS sigpicwidth, sigpic.height AS sigpicheight') .
 			(($option & FETCH_USERINFO_USERCSS) ? ', usercsscache.cachedcss, IF(usercsscache.cachedcss IS NULL, 0, 1) AS hascachedcss, usercsscache.buildpermissions AS cssbuildpermissions' : '') .
-			iif(!isset($vbphrase), fetch_language_fields_sql(), '') .
+			(isset($vbphrase) ? '' : fetch_language_fields_sql()) .
 			(($vbulletin->userinfo['userid'] AND ($option & FETCH_USERINFO_ISFRIEND)) ?
 				", IF(userlist1.friend = 'yes', 1, 0) AS isfriend, IF (userlist1.friend = 'pending' OR userlist1.friend = 'denied', 1, 0) AS ispendingfriend" .
 				", IF(userlist1.userid IS NOT NULL, 1, 0) AS u_iscontact_of_bbuser, IF (userlist2.friend = 'pending', 1, 0) AS requestedfriend" .
@@ -1560,6 +1637,34 @@ function verify_id($idname, &$id, $alert = true, $selall = false, $options = 0)
 			}
 			return ($selall ? $tempcache : $tempcache[$idname . 'id']);
 
+		case 'poll':
+			if ($selall)
+			{
+				$check = $vbulletin->db->query_first("
+					SELECT poll.*, thread.threadid
+					FROM " . TABLE_PREFIX . "poll AS poll
+					INNER JOIN " . TABLE_PREFIX . "thread AS thread ON (thread.pollid = poll.pollid AND thread.open <> 10)
+					WHERE poll.pollid = $id
+				");
+			}
+			else
+			{
+				$check = $vbulletin->db->query_first("
+					SELECT poll.pollid
+					FROM " . TABLE_PREFIX . "poll AS poll
+					WHERE poll.pollid = $id
+				");
+			}
+			if ($alert AND !$check)
+			{
+				eval(standard_error(fetch_error('invalidid', $vbphrase["$idname"], $vbulletin->options['contactuslink'])));
+			}
+			else
+			{
+				return ($selall ? $check : $check['pollid']);
+			}
+			break;
+
 		default:
 			if (!$check = $vbulletin->db->query_first("SELECT $selid FROM " . TABLE_PREFIX . "$idname WHERE $idname" . "id = $id"))
 			{
@@ -1705,6 +1810,10 @@ function strip_bbcode($message, $stripquotes = false, $fast_and_dirty = false, $
 	// a really quick and rather nasty way of removing vbcode
 	if ($fast_and_dirty)
 	{
+		// attach needs to be stripped first
+		$find[] = '#\[(attach)\](.+)\[/\\1\]#siU';
+		$replace[] = '';
+
 		// any old thing in square brackets
 		$find[] = '#\[.*/?\]#siU';
 		$replace[] = '';
@@ -2149,6 +2258,8 @@ function verify_client_string($string, $extra_entropy = '')
 */
 function verify_security_token($request_token, $user_token)
 {
+	global $vbulletin;
+
 	// This is for backwards compatability before tokens had TIMENOW prefixed
 	if (strpos($request_token, '-') === false)
 	{
@@ -2165,6 +2276,7 @@ function verify_security_token($request_token, $user_token)
 	// A token is only valid for 3 hours
 	if ($time <= TIMENOW - 10800)
 	{
+		$vbulletin->GPC['securitytoken'] = 'timeout';
 		return false;
 	}
 
@@ -2870,10 +2982,11 @@ function standard_error($error = '', $headinsert = '', $savebadlocation = true, 
 * @param	boolean	If false, use the name of redirect phrase as the phrase text itself
 * @param	boolean	Whether or not to force a redirect message to be shown
 * @param	integer	Language ID to fetch the phrase from (-1 uses the page-wide default)
+* @param	bool	Force bypass of domain whitelist check
 *
 * @return	string
 */
-function print_standard_redirect($redir_phrase, $doquery = true, $forceredirect = false, $languageid = -1)
+function print_standard_redirect($redir_phrase, $doquery = true, $forceredirect = false, $languageid = -1, $bypasswhitelist = false)
 {
 	if ($doquery)
 	{
@@ -2890,7 +3003,7 @@ function print_standard_redirect($redir_phrase, $doquery = true, $forceredirect 
 		$phrase = addslashes($redir_phrase);
 	}
 
-	return 'standard_redirect("' . $phrase . '", ' . intval($forceredirect) . ');';
+	return 'standard_redirect("' . $phrase . '", ' . intval($forceredirect) . ', ' . ($bypasswhitelist ? 'true' : 'false') . ');';
 }
 
 // #############################################################################
@@ -2902,8 +3015,9 @@ function print_standard_redirect($redir_phrase, $doquery = true, $forceredirect 
 *
 * @param	string	Redirect message
 * @param	string	URL to which to redirect the browser
+* @param	bool	Force bypass of domain whitelist check
 */
-function standard_redirect($message = '', $forceredirect = false)
+function standard_redirect($message = '', $forceredirect = false, $bypasswhitelist = false)
 {
 	global $header, $footer, $headinclude, $forumjump;
 	global $timezone, $vbulletin, $vbphrase, $stylevar, $pagestarttime;
@@ -2926,6 +3040,62 @@ function standard_redirect($message = '', $forceredirect = false)
 		$querytime = $vbulletin->db->time_total;
 		echo "\n<b>Page generated in $totaltime seconds with " . $vbulletin->db->querycount . " queries,\nspending $querytime doing MySQL queries and " . ($totaltime - $querytime) . " doing PHP things.\n\n<hr />Shutdown Queries:</b>" . (defined('NOSHUTDOWNFUNC') ? " <b>DISABLED</b>" : '') . "<hr />\n\n";
 		exit;
+	}
+
+	if ($vbulletin->url AND !$bypasswhitelist AND !$vbulletin->options['redirect_whitelist_disable'])
+	{
+		$foundurl = false;
+		if ($urlinfo = @parse_url($vbulletin->url))
+		{
+			if (!$urlinfo['scheme'])
+			{	// url is made full in exec_header_redirect which stops a url from being redirected to, say "www.php.net" (no http://)
+				$foundurl = true;
+			}
+			else
+			{
+				$whitelist = array();
+				if ($vbulletin->options['redirect_whitelist'])
+				{
+					$whitelist = explode("\n", trim($vbulletin->options['redirect_whitelist']));
+				}
+				// Add $bburl to the whitelist
+				$bburlinfo = @parse_url($vbulletin->options['bburl']);
+				$bburl = "{$bburlinfo['scheme']}://{$bburlinfo['host']}";
+				array_unshift($whitelist, $bburl);
+
+				if ($_SERVER['HTTP_HOST'] OR $_ENV['HTTP_HOST'])
+				{
+					$http_host = ($_SERVER['HTTP_HOST'] ? $_SERVER['HTTP_HOST'] : $_ENV['HTTP_HOST']);
+				}
+				else if ($_SERVER['SERVER_NAME'] OR $_ENV['SERVER_NAME'])
+				{
+					$http_host = ($_SERVER['SERVER_NAME'] ? $_SERVER['SERVER_NAME'] : $_ENV['SERVER_NAME']);
+				}
+				
+				// if the "realurl" of this request does not equal $bburl, add it as well..
+				$realurl = REQ_PROTOCOL . '://' . $http_host;
+				if (strtolower($bburl) != strtolower($realurl))
+				{
+					array_unshift($whitelist, $realurl);
+				}
+
+				$vburl = strtolower($vbulletin->url);
+				foreach ($whitelist AS $url)
+				{
+					$url = trim($url);
+					if ($vburl == strtolower($url) OR strpos($vburl, strtolower($url) . '/', 0) === 0)
+					{
+						$foundurl = true;
+						break;
+					}
+				}
+			}
+		}
+		
+		if (!$foundurl)
+		{
+			eval(standard_error(fetch_error('invalid_redirect_url_x', $vbulletin->url)));
+		}
 	}
 
 	if ($vbulletin->options['useheaderredirect'] AND !$forceredirect AND !headers_sent() AND !$vbulletin->GPC['postvars'])
@@ -3927,6 +4097,49 @@ function verify_forum_password($forumid, $password, $showerror = true)
 
 // #############################################################################
 /**
+* Returns whether or not the user requires a human verification test to complete the specified action
+*
+* @param string $action						The name of the action to check
+* @return boolean							Whether a hv check is required
+*/
+function fetch_require_hvcheck($action)
+{
+	global $vbulletin;
+
+	if (!$vbulletin->options['hv_type']
+		OR !($vbulletin->options['hvcheck'] & $vbulletin->bf_misc_hvcheck[$action]))
+	{
+		return false;
+	}
+
+	switch ($action)
+	{
+		case 'register':
+		{
+			$guestuser = array(
+				'userid'      => 0,
+				'usergroupid' => 0,
+			);
+			cache_permissions($guestuser);
+
+			return ($guestuser['permissions']['genericoptions'] & $vbulletin->bf_ugp_genericoptions['requirehvcheck']);
+		}
+
+		case 'lostpw':
+		{
+			if ($vbulletin->userinfo['permissions']['adminpermissions'] & $vbulletin->bf_ugp_adminpermissions['cancontrolpanel'])
+			{
+				return false;
+			}
+			break;
+		}
+	}
+
+	return ($vbulletin->userinfo['permissions']['genericoptions'] & $vbulletin->bf_ugp_genericoptions['requirehvcheck']);
+}
+
+// #############################################################################
+/**
 * Converts a bitfield into an array of 1 / 0 values based on the array describing the resulting fields
 *
 * @param	integer	(ref) Bitfield
@@ -4830,7 +5043,7 @@ function is_browser($browser, $version = 0)
 			# Mozilla/5.0 (iPod; U; CPU like Mac OS X; en) AppleWebKit/420.1 (KHTML, like Gecko) Version/3.0 Mobile/3A100a Safari/419.3
 		if (strpos($useragent, 'applewebkit') !== false)
 		{
-			preg_match('#applewebkit/(\d+)#', $useragent, $regs);
+			preg_match('#applewebkit/([0-9\.]+)#', $useragent, $regs);
 			$is['webkit'] = $regs[1];
 
 			if (strpos($useragent, 'safari') !== false)
@@ -4856,8 +5069,12 @@ function is_browser($browser, $version = 0)
 			# Mozilla/5.0 (X11; U; Linux 2.4.3-20mdk i586; en-US; rv:0.9.1) Gecko/20010611
 		if (strpos($useragent, 'gecko') !== false AND !$is['safari'] AND !$is['konqueror'])
 		{
-			preg_match('#gecko/(\d+)#', $useragent, $regs);
-			$is['mozilla'] = $regs[1];
+			// See bug #26926, this is for Gecko based products without a build
+			$is['mozilla'] = 20090105;
+			if (preg_match('#gecko/(\d+)#', $useragent, $regs))
+			{
+				$is['mozilla'] = $regs[1];
+			}
 
 			// detect firebird / firefox
 				# Mozilla/5.0 (Windows; U; WinNT4.0; en-US; rv:1.3a) Gecko/20021207 Phoenix/0.5
@@ -5015,9 +5232,13 @@ function fetch_stylevars(&$style, $userinfo)
 	}
 
 	// create the path to YUI depending on the version
-	if ($vbulletin->options['remoteyui'])
+	if ($vbulletin->options['remoteyui'] == 1)
 	{
 		$stylevar['yuipath'] = 'http://yui.yahooapis.com/' . YUI_VERSION . '/build';
+	}
+	else if ($vbulletin->options['remoteyui'] == 2)
+	{
+		$stylevar['yuipath'] = REQ_PROTOCOL . '://ajax.googleapis.com/ajax/libs/yui/' . YUI_VERSION . '/build';
 	}
 	else
 	{
@@ -5320,7 +5541,7 @@ function update_loadavg()
 		$vbulletin->loadcache = array();
 	}
 
-	if ($stats = @exec('uptime 2>&1') AND trim($stats) != '' AND preg_match('#: ([\d.,]+),?\s+([\d.,]+),?\s+([\d.,]+)$#', $stats, $regs))
+	if (function_exists('exec') AND $stats = @exec('uptime 2>&1') AND trim($stats) != '' AND preg_match('#: ([\d.,]+),?\s+([\d.,]+),?\s+([\d.,]+)$#', $stats, $regs))
 	{
 		$vbulletin->loadcache['loadavg'] = $regs[2];
 	}
@@ -5571,10 +5792,7 @@ function print_output($vartext, $sendheader = true)
 	}
 
 	// parse PHP include ##################
-	if (!is_demo_mode())
-	{
-		($hook = vBulletinHook::fetch_hook('global_complete')) ? eval($hook) : false;
-	}
+	($hook = vBulletinHook::fetch_hook('global_complete')) ? eval($hook) : false;
 
 	if ($vbulletin->options['gzipoutput'] AND !headers_sent())
 	{
@@ -5698,10 +5916,78 @@ function exec_shut_down()
 	// bye bye!
 }
 
+/**
+ * Spreads an array of values across the given number of stepped levels based on
+ * their standard deviation from the mean value.
+ *
+ * The function accepts an array of $id => $value and returns $id => $level.
+ *
+ * @param array $values							- Array of id => values
+ * @param integer $levels						- Number of levels to assign
+ */
+function fetch_standard_deviated_levels($values, $levels=5)
+{
+	if (!$count = sizeof($values))
+	{
+		return array();
+	}
+
+	$total = $summation = 0;
+	$results = array();
+
+	// calculate the total
+	foreach ($values AS $value)
+	{
+		$total += $value;
+	}
+
+	// calculate the mean
+	$mean = $total / $count;
+
+	// calculate the summation
+	foreach ($values AS $id => $value)
+	{
+		$summation += pow(($value - $mean), 2);
+	}
+
+	$sd = sqrt($summation / $count);
+
+	if ($sd)
+	{
+		$sdvalues = array();
+		$lowestsds = 0;
+		$highestsds = 0;
+
+		// find the max and min standard deviations
+		foreach ($values AS $id => $value)
+		{
+			$value = (($value - $mean) / $sd);
+			$values[$id] = $value;
+
+			$lowestsds = min($value, $lowestsds);
+			$highestsds = max($value, $highestsds);
+		}
+
+		foreach ($values AS $id => $value)
+		{
+			// normalize the std devs to 0 - 1, then map back to 1 - #levls
+			$values[$id] = round((($value - $lowestsds) / ($highestsds - $lowestsds)) * ($levels - 1)) + 1;
+		}
+	}
+	else
+	{
+		foreach ($values AS $id => $value)
+		{
+			$values[$id] = round($levels / 2);
+		}
+	}
+
+	return $values;
+}
 /*======================================================================*\
 || ####################################################################
-|| # Downloaded: 16:21, Sat Apr 6th 2013
-|| # CVS: $RCSfile$ - $Revision: 26979 $
+|| # Downloaded: 20:50, Sun Aug 11th 2013
+|| # CVS: $RCSfile$ - $Revision: 47679 $
 || ####################################################################
 \*======================================================================*/
 ?>

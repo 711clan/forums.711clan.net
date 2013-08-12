@@ -1,9 +1,9 @@
 <?php
 /*======================================================================*\
 || #################################################################### ||
-|| # vBulletin 3.7.2 Patch Level 2 - Licence Number VBF2470E4F
+|| # vBulletin 3.8.7 Patch Level 3 - Licence Number VBC2DDE4FB
 || # ---------------------------------------------------------------- # ||
-|| # Copyright ©2000-2013 Jelsoft Enterprises Ltd. All Rights Reserved. ||
+|| # Copyright ©2000-2013 vBulletin Solutions, Inc. All Rights Reserved. ||
 || # This file may not be redistributed in whole or significant part. # ||
 || # ---------------- VBULLETIN IS NOT FREE SOFTWARE ---------------- # ||
 || # http://www.vbulletin.com | http://www.vbulletin.com/license.html # ||
@@ -11,7 +11,7 @@
 \*======================================================================*/
 
 // ####################### SET PHP ENVIRONMENT ###########################
-error_reporting(E_ALL & ~E_NOTICE);
+error_reporting(E_ALL & ~E_NOTICE & ~8192);
 
 // #################### DEFINE IMPORTANT CONSTANTS #######################
 define('THIS_SCRIPT', 'ajax');
@@ -28,6 +28,10 @@ switch ($_POST['do'])
 	case 'saveuserfield':
 		$phrasegroups[] = 'cprofilefield';
 		$phrasegroups[] = 'user';
+		break;
+	case 'verifyusername':
+		$phrasegroups[] = 'register';
+		break;
 }
 
 // get special data templates from the datastore
@@ -49,6 +53,18 @@ $actiontemplates = array(
 		'userfield_select_multiple',
 		'userfield_textarea',
 		'userfield_textbox',
+	),
+	'quickedit' => array(
+		'editor_clientscript',
+		'editor_css',
+		'editor_jsoptions_font',
+		'editor_jsoptions_size',
+		'editor_smilie',
+		'editor_smiliebox',
+		'editor_smiliebox_row',
+		'editor_smiliebox_straggler',
+		'newpost_disablesmiliesoption',
+		'postbit_quickedit',
 	)
 );
 
@@ -595,6 +611,34 @@ if ($_POST['do'] == 'fetchuserfield')
 }
 
 // #############################################################################
+// dismisses a dismissible notice
+if ($_POST['do'] == 'dismissnotice')
+{
+	$vbulletin->input->clean_array_gpc('p', array(
+		'noticeid'	=> TYPE_UINT
+	));
+
+	if (!$vbulletin->userinfo['userid'])
+	{
+		print_no_permission();
+	}
+
+	$update_record = $db->query_write("
+		REPLACE INTO " . TABLE_PREFIX . "noticedismissed
+			(noticeid, userid)
+		VALUES
+			(" . $vbulletin->GPC['noticeid'] . ", " . $vbulletin->userinfo['userid'] .")
+	");
+
+	// output XML
+	$xml = new vB_AJAX_XML_Builder($vbulletin, 'text/xml');
+	$xml->add_group('response');
+		$xml->add_tag('dismissed', $vbulletin->GPC['noticeid']);
+	$xml->close_group();
+	$xml->print_xml();
+}
+
+// #############################################################################
 // save a profile field
 if ($_POST['do'] == 'saveuserfield')
 {
@@ -604,6 +648,11 @@ if ($_POST['do'] == 'saveuserfield')
 	));
 
 	if (!$vbulletin->userinfo['userid'])
+	{
+		print_no_permission();
+	}
+
+	if (!($vbulletin->userinfo['permissions']['genericpermissions'] & $vbulletin->bf_ugp_genericpermissions['canmodifyprofile']))
 	{
 		print_no_permission();
 	}
@@ -670,13 +719,56 @@ if ($_POST['do'] == 'saveuserfield')
 	$xml->print_xml();
 }
 
+// #############################################################################
+// verify username during registration
+
+if ($_POST['do'] == 'verifyusername')
+{
+	/**
+	* Checks username status, and return status for registration
+	* Values for the XML output includes:
+	* username: a direct copy of the original Username, for references needs
+	* status: valid / invalid username?
+	* response: string of error message from the datamanager
+	*/
+
+	$vbulletin->input->clean_gpc('p', 'username', TYPE_STR);
+	$vbulletin->GPC['username'] = convert_urlencoded_unicode($vbulletin->GPC['username']);
+
+	$userdata =& datamanager_init('User', $vbulletin, ERRTYPE_ARRAY);
+	$userdata->set('username', $vbulletin->GPC['username']);
+	if (!empty($userdata->errors))
+	{
+		$status = "invalid";
+		$message = "";
+		$image = $stylevar['imgdir_misc'] . "/cross.png";
+		foreach ($userdata->errors AS $index => $error)
+		{
+			$message .= "$error";
+		}
+	}
+	else
+	{
+		$status = "valid";
+		$image = $stylevar['imgdir_misc'] . "/tick.png";
+		$message = $vbphrase['username_is_valid'];
+	}
+
+	$xml = new vB_AJAX_XML_Builder($vbulletin, 'text/xml');
+	$xml->add_group('response');
+		$xml->add_tag('status', $status);
+		$xml->add_tag('image', $image);
+		$xml->add_tag('message', $message);
+	$xml->close_group();
+	$xml->print_xml();
+}
 
 ($hook = vBulletinHook::fetch_hook('ajax_complete')) ? eval($hook) : false;
 
 /*======================================================================*\
 || ####################################################################
-|| # Downloaded: 16:21, Sat Apr 6th 2013
-|| # CVS: $RCSfile$ - $Revision: 26606 $
+|| # Downloaded: 20:50, Sun Aug 11th 2013
+|| # CVS: $RCSfile$ - $Revision: 39862 $
 || ####################################################################
 \*======================================================================*/
 ?>

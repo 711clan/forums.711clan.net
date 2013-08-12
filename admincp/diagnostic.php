@@ -1,9 +1,9 @@
 <?php
 /*======================================================================*\
 || #################################################################### ||
-|| # vBulletin 3.7.2 Patch Level 2 - Licence Number VBF2470E4F
+|| # vBulletin 3.8.7 Patch Level 3 - Licence Number VBC2DDE4FB
 || # ---------------------------------------------------------------- # ||
-|| # Copyright ©2000-2013 Jelsoft Enterprises Ltd. All Rights Reserved. ||
+|| # Copyright ©2000-2013 vBulletin Solutions, Inc. All Rights Reserved. ||
 || # This file may not be redistributed in whole or significant part. # ||
 || # ---------------- VBULLETIN IS NOT FREE SOFTWARE ---------------- # ||
 || # http://www.vbulletin.com | http://www.vbulletin.com/license.html # ||
@@ -11,10 +11,10 @@
 \*======================================================================*/
 
 // ######################## SET PHP ENVIRONMENT ###########################
-error_reporting(E_ALL & ~E_NOTICE);
+error_reporting(E_ALL & ~E_NOTICE & ~8192);
 
 // ##################### DEFINE IMPORTANT CONSTANTS #######################
-define('CVS_REVISION', '$RCSfile$ - $Revision: 26026 $');
+define('CVS_REVISION', '$RCSfile$ - $Revision: 39862 $');
 define('NOZIP', 1);
 
 // #################### PRE-CACHE TEMPLATES AND DATA ######################
@@ -191,7 +191,20 @@ if ($_POST['do'] == 'domail')
 	if ($vbulletin->options['use_smtp'])
 	{
 		print_table_header($vbphrase['pertinent_smtp_settings']);
-		print_label_row('SMTP:', (!empty($vbulletin->options['smtp_tls']) ? 'tls://' : '') . $vbulletin->options['smtp_host'] . ':' . (!empty($vbulletin->options['smtp_port']) ? intval($vbulletin->options['smtp_port']) : 25));
+		$smtp_tls = '';
+		switch ($vbulletin->options['smtp_tls'])
+		{
+			case 'ssl':
+				$smtp_tls = 'ssl://';
+				break;
+			case 'tls':
+				$smtp_tls = 'tls://';
+				break;
+			default:
+				$smtp_tls = '';
+		}
+
+		print_label_row('SMTP:', $smtp_tls . $vbulletin->options['smtp_host'] . ':' . (!empty($vbulletin->options['smtp_port']) ? intval($vbulletin->options['smtp_port']) : 25));
 		print_label_row($vbphrase['smtp_username'], $vbulletin->options['smtp_user']);
 	}
 	else
@@ -224,11 +237,11 @@ if ($_POST['do'] == 'domail')
 
 	if ($vbulletin->options['use_smtp'])
 	{
-		$mail =& new vB_SmtpMail($vbulletin);
+		$mail = new vB_SmtpMail($vbulletin);
 	}
 	else
 	{
-		$mail =& new vB_Mail($vbulletin);
+		$mail = new vB_Mail($vbulletin);
 	}
 
 	$mail->set_debug(true);
@@ -364,7 +377,7 @@ if ($_POST['do'] == 'doversion')
 	if ($handle)
 	{
 		$md5_sums_array = array();
-		$md5_sum_versions = array('vbulletin' => '3.7.2 Patch Level 2');
+		$md5_sum_versions = array('vbulletin' => '3.8.7 Patch Level 3');
 		$file_software_assoc = array();
 		$scanned_md5_files = array();
 		$ignored_files = array('/includes/config.php', '/includes/config.php.new', '/install/install.php', '/includes/version_vbulletin.php');
@@ -684,8 +697,8 @@ print_cp_footer();
 
 /*======================================================================*\
 || ####################################################################
-|| # Downloaded: 16:21, Sat Apr 6th 2013
-|| # CVS: $RCSfile$ - $Revision: 26026 $
+|| # Downloaded: 20:50, Sun Aug 11th 2013
+|| # CVS: $RCSfile$ - $Revision: 39862 $
 || ####################################################################
 \*======================================================================*/
 ?>

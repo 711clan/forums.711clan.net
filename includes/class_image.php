@@ -1,9 +1,9 @@
 <?php
 /*======================================================================*\
 || #################################################################### ||
-|| # vBulletin 3.7.2 Patch Level 2 - Licence Number VBF2470E4F
+|| # vBulletin 3.8.7 Patch Level 3 - Licence Number VBC2DDE4FB
 || # ---------------------------------------------------------------- # ||
-|| # Copyright ©2000-2013 Jelsoft Enterprises Ltd. All Rights Reserved. ||
+|| # Copyright ©2000-2013 vBulletin Solutions, Inc. All Rights Reserved. ||
 || # This file may not be redistributed in whole or significant part. # ||
 || # ---------------- VBULLETIN IS NOT FREE SOFTWARE ---------------- # ||
 || # http://www.vbulletin.com | http://www.vbulletin.com/license.html # ||
@@ -69,8 +69,8 @@ if (($current_memory_limit = ini_size_to_bytes(@ini_get('memory_limit'))) < 128 
 * Abstracted image class
 *
 * @package 		vBulletin
-* @version		$Revision: 26949 $
-* @date 		$Date: 2008-06-16 04:54:51 -0500 (Mon, 16 Jun 2008) $
+* @version		$Revision: 39862 $
+* @date 		$Date: 2010-10-18 18:16:44 -0700 (Mon, 18 Oct 2010) $
 *
 */
 class vB_Image
@@ -116,8 +116,8 @@ class vB_Image
 * Abstracted image class
 *
 * @package 		vBulletin
-* @version		$Revision: 26949 $
-* @date 		$Date: 2008-06-16 04:54:51 -0500 (Mon, 16 Jun 2008) $
+* @version		$Revision: 39862 $
+* @date 		$Date: 2010-10-18 18:16:44 -0700 (Mon, 18 Oct 2010) $
 *
 */
 class vB_Image_Abstract
@@ -404,8 +404,8 @@ class vB_Image_Abstract
 * Image class for ImageMagick
 *
 * @package 		vBulletin
-* @version		$Revision: 26949 $
-* @date 		$Date: 2008-06-16 04:54:51 -0500 (Mon, 16 Jun 2008) $
+* @version		$Revision: 39862 $
+* @date 		$Date: 2010-10-18 18:16:44 -0700 (Mon, 18 Oct 2010) $
 *
 */
 class vB_Image_Magick extends vB_Image_Abstract
@@ -508,6 +508,8 @@ class vB_Image_Magick extends vB_Image_Abstract
 		{
 			$this->thumbcolor = $match[0];
 		}
+
+		$this->version = $this->fetch_version();
 	}
 
 	/**
@@ -546,12 +548,12 @@ class vB_Image_Magick extends vB_Image_Abstract
 		}
 
 		$imcommands = array(
-			'identify' => &$this->identifypath,
-			'convert'=> &$this->convertpath,
+			'identify' => $this->identifypath,
+			'convert'  => $this->convertpath,
 		);
 
 		$input = $imcommands["$command"] . ' ' . $args . ' 2>&1';
-		if (strtoupper(substr(PHP_OS, 0, 3) == 'WIN') AND PHP_VERSION < '5.3.0')
+		if (strtoupper(substr(PHP_OS, 0, 3)) == 'WIN' AND PHP_VERSION < '5.3.0')
 		{
 			$input = '"' . $input . '"';
 		}
@@ -608,6 +610,22 @@ class vB_Image_Magick extends vB_Image_Abstract
 
 	/**
 	* Private
+	* Fetch Imagemagick Version
+	*
+	* @return	mixed
+	*/
+	function fetch_version()
+	{
+		if ($result = $this->fetch_im_exec('convert', '-version', true) AND preg_match('#ImageMagick (\d+\.\d+\.\d+)#', $result[0], $matches))
+		{
+			return $matches[1];
+		}
+
+		return false;
+	}
+
+	/**
+	* Private
 	* Identify an image
 	*
 	* @param	string	$filename File to obtain image information from
@@ -639,32 +657,52 @@ class vB_Image_Magick extends vB_Image_Abstract
 			while (!empty($result) AND $last == '');
 
 			$temp = explode('###', $last);
-			if (count($temp) < 5)
+
+			if (count($temp) < 6)
 			{
 				return false;
 			}
-			$temp['bits'] = $temp[5];
-			switch($temp[4])
+
+			preg_match('#^(\d+)x(\d+)#', $temp[0], $matches);
+
+			$imageinfo = array(
+				2         => $temp[3],
+				'bits'    => $temp[6],
+				'scenes'  => $temp[4],
+				'animated' => ($temp[4] > 1),
+				'library' => 'IM',
+			);
+
+			if (version_compare($this->version, '6.2.6', '>='))
+			{
+				$imageinfo[0] = $matches[1];
+				$imageinfo[1] = $matches[2];
+			}
+			else	//IM v6.2.5 and lower don't support -laters optimize
+			{
+				$imageinfo[0] = $temp[1];
+				$imageinfo[1] = $temp[2];
+			}
+
+			switch($temp[5])
 			{
 				case 'PseudoClassGray':
 				case 'PseudoClassGrayMatte':
 				case 'PseudoClassRGB':
 				case 'PseudoClassRGBMatte':
-					$temp['channels'] = 1;
+					$imageinfo['channels'] = 1;
 					break;
 				case 'DirectClassRGB':
-					$temp['channels'] = 3;
+					$imageinfo['channels'] = 3;
 					break;
 				case 'DirectClassCMYK':
-					$temp['channels'] = 4;
+					$imageinfo['channels'] = 4;
 					break;
 				default:
-					$temp['channels'] = 1;
+					$imageinfo['channels'] = 1;
 			}
-			$temp['scenes'] = $temp[3];
-			$temp['library'] = 'IM';
-			unset($temp[3], $temp[4], $temp[5]);
-			return $temp;
+
+			return $imageinfo;
 		}
 		else
 		{
@@ -723,7 +761,7 @@ class vB_Image_Magick extends vB_Image_Abstract
 			$execute .= " \"$filename\"";
 		}
 
-		if ($imageinfo['scenes'] > 1)
+		if ($imageinfo['scenes'] > 1 AND version_compare($this->version, '6.2.6', '>='))
 		{
 			$execute .= ' -coalesce ';
 		}
@@ -752,9 +790,9 @@ class vB_Image_Magick extends vB_Image_Abstract
 				$execute .= " -thumbnail \"$size>\" ";
 			}
 		}
-		$execute .= ($sharpen) ? " -sharpen 0x1 " : '';
+		$execute .= ($sharpen AND $imageinfo[2] == 'JPEG') ? " -sharpen 0x1 " : '';
 
-		if ($imageinfo['scenes'] > 1)
+		if ($imageinfo['scenes'] > 1 AND version_compare($this->version, '6.2.6', '>='))
 		{
 			$execute .= ' -layers optimize ';
 		}
@@ -856,6 +894,10 @@ class vB_Image_Magick extends vB_Image_Abstract
 			{
 				$execute .= " -quality {$this->convertoptions['quality']} JPEG:";
 			}
+			else if ($imageinfo[2] == 'GIF')
+			{
+				$execute .= " -depth $imageinfo[bits] ";
+			}
 		}
 
 		$execute .= "\"$output\"";
@@ -887,7 +929,7 @@ class vB_Image_Magick extends vB_Image_Abstract
 			return false;
 		}
 
-		$this->identifyformat = '%w###%h###%m###%n###%r###%z';
+		$this->identifyformat = '%g###%w###%h###%m###%n###%r###%z###';
 		$this->imageinfo = $this->fetch_identify_info($filename);
 		return $this->imageinfo;
 	}
@@ -1209,8 +1251,8 @@ class vB_Image_Magick extends vB_Image_Abstract
 * Image class for GD Image Library
 *
 * @package 		vBulletin
-* @version		$Revision: 26949 $
-* @date 		$Date: 2008-06-16 04:54:51 -0500 (Mon, 16 Jun 2008) $
+* @version		$Revision: 39862 $
+* @date 		$Date: 2010-10-18 18:16:44 -0700 (Mon, 18 Oct 2010) $
 *
 */
 class vB_Image_GD extends vB_Image_Abstract
@@ -2099,13 +2141,17 @@ class vB_Image_GD extends vB_Image_Abstract
 				'bits'     => $imageinfo['bits'],
 				'scenes'   => 1,
 				'library'  => 'GD',
+				'animated' => false,
 			);
 
 			if ($this->imageinfo[2] == 'GIF')
 			{	// get scenes
 				$data = file_get_contents($filename);
 				// Look for a Global Color table char and the Image seperator character
+				// The scene count could be broken, see #26591
 				$this->imageinfo['scenes'] = count(preg_split('#\x00[\x00-\xFF]\x00\x2C#', $data)) - 1;
+
+				$this->imageinfo['animated']  = (strpos($data, 'NETSCAPE2.0') !== false);
 				unset($data);
 			}
 
@@ -2355,7 +2401,7 @@ class vB_Image_GD extends vB_Image_Abstract
 					imagefill($finalimage, 0, 0, $bgcolor);
 					@imagecopyresampled($finalimage, $image, $dest_x_start, $dest_y_start, 0, 0, $new_width, $new_height, $width, $height);
 					imagedestroy($image);
-					if ($sharpen AND PHP_VERSION != '4.3.2')
+					if ($sharpen AND PHP_VERSION != '4.3.2' AND $this->imageinfo[2] != 'GIF')
 					{
 						$this->unsharpmask($finalimage);
 					}
@@ -2435,8 +2481,8 @@ class vB_Image_GD extends vB_Image_Abstract
 
 /*======================================================================*\
 || ####################################################################
-|| # Downloaded: 16:21, Sat Apr 6th 2013
-|| # CVS: $RCSfile$ - $Revision: 26949 $
+|| # Downloaded: 20:50, Sun Aug 11th 2013
+|| # CVS: $RCSfile$ - $Revision: 39862 $
 || ####################################################################
 \*======================================================================*/
 ?>
