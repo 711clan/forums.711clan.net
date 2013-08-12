@@ -1,7 +1,7 @@
 <?php
 /*======================================================================*\
 || #################################################################### ||
-|| # vBulletin 3.7.2 Patch Level 2 - Licence Number VBF2470E4F
+|| # vBulletin 3.7.2 Patch Level 2 - Licence Number VBC2DDE4FB
 || # ---------------------------------------------------------------- # ||
 || # Copyright ©2000-2013 Jelsoft Enterprises Ltd. All Rights Reserved. ||
 || # This file may not be redistributed in whole or significant part. # ||
@@ -166,7 +166,7 @@ if ($_REQUEST['do'] == 'head')
 	?>
 	<table border="0" width="100%" height="100%">
 	<tr align="center" valign="top">
-		<td style="text-align:<?php echo $stylevar['left']; ?>"><a href="http://www.vbulletin.com/" target="_blank"><b><?php echo $vbphrase['admin_control_panel']; ?></b> (vBulletin <?php echo ADMIN_VERSION_VBULLETIN . print_form_middle('VBF2470E4F'); ?>)<?php echo iif(is_demo_mode(), ' <b>DEMO MODE</b>'); ?></a></td>
+		<td style="text-align:<?php echo $stylevar['left']; ?>"><a href="http://www.vbulletin.com/" target="_blank"><b><?php echo $vbphrase['admin_control_panel']; ?></b> (vBulletin <?php echo ADMIN_VERSION_VBULLETIN . print_form_middle('VBC2DDE4FB'); ?>)<?php echo iif(is_demo_mode(), ' <b>DEMO MODE</b>'); ?></a></td>
 		<td><a href="http://members.vbulletin.com/" id="head_version_link" target="_blank">&nbsp;</a></td>
 		<td style="white-space:nowrap; text-align:<?php echo $stylevar['right']; ?>; font-weight:bold">
 			<a href="../<?php echo $vbulletin->options['forumhome']; ?>.php<?php echo $vbulletin->session->vars['sessionurl_q']; ?>" target="_blank"><?php echo $vbphrase['forum_home_page']; ?></a>
@@ -175,7 +175,7 @@ if ($_REQUEST['do'] == 'head')
 		</td>
 	</tr>
 	</table>
-	<script type="text/javascript" src="<?php echo $versionhost; ?>/version.js?v=<?php echo SIMPLE_VERSION; ?>&amp;id=VBF2470E4F"></script>
+	<script type="text/javascript" src="<?php echo $versionhost; ?>/version.js?v=<?php echo SIMPLE_VERSION; ?>&amp;id=VBC2DDE4FB"></script>
 	<script type="text/javascript">
 	<!--
 	fetch_object('head_version_link').innerHTML = construct_phrase('<?php echo $vbphrase['latest_version_available_x']; ?>', ((typeof(vb_version) == 'undefined' || vb_version == '') ? '<?php echo $vbphrase['n_a']; ?>' : vb_version));
@@ -302,7 +302,7 @@ if ($_REQUEST['do'] == 'nav')
 	print_cp_header();
 
 	echo "\n<div>";
-	?><img src="../cpstyles/<?php echo $vbulletin->options['cpstylefolder']; ?>/cp_logo.gif" title="<?php echo $vbphrase['admin_control_panel']; ?>" alt="" border="0" hspace="4" <?php $df = print_form_middle("VBF2470E4F"); ?> vspace="4" /><?php
+	?><img src="../cpstyles/<?php echo $vbulletin->options['cpstylefolder']; ?>/cp_logo.gif" title="<?php echo $vbphrase['admin_control_panel']; ?>" alt="" border="0" hspace="4" <?php $df = print_form_middle("VBC2DDE4FB"); ?> vspace="4" /><?php
 	echo "</div>\n\n" . iif(is_demo_mode(), "<div align=\"center\"><b>DEMO MODE</b></div>\n\n") . "<div style=\"width:168px; padding: 4px\">\n";
 
 	// cache nav prefs
@@ -1076,7 +1076,7 @@ var local_extension = '.php';
 //-->
 </script>
 <script type="text/javascript" src="<?php echo $versionhost; ?>/versioncheck.js"></script>
-<script type="text/javascript" src="<?php echo $versionhost; ?>/version.js?v=<?php echo SIMPLE_VERSION; ?>&amp;id=VBF2470E4F"></script>
+<script type="text/javascript" src="<?php echo $versionhost; ?>/version.js?v=<?php echo SIMPLE_VERSION; ?>&amp;id=VBC2DDE4FB"></script>
 <script type="text/javascript" src="../clientscript/vbulletin_cphome_scripts.js"></script>
 <?php
 
@@ -1230,7 +1230,7 @@ if ($_POST['do'] == 'handlemessage')
 
 /*======================================================================*\
 || ####################################################################
-|| # Downloaded: 16:21, Sat Apr 6th 2013
+|| # Downloaded: 20:54, Sun Aug 11th 2013
 || # CVS: $RCSfile$ - $Revision: 26870 $
 || ####################################################################
 \*======================================================================*/

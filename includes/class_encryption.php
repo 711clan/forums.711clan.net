@@ -1,7 +1,7 @@
 <?php
 /*======================================================================*\
 || #################################################################### ||
-|| # vBulletin 3.7.2 Patch Level 2 - Licence Number VBF2470E4F
+|| # vBulletin 3.7.2 Patch Level 2 - Licence Number VBC2DDE4FB
 || # ---------------------------------------------------------------- # ||
 || # All PHP code in this file is ©2000-2013 Jelsoft Enterprises Ltd. # ||
 || # This file may not be redistributed in whole or significant part. # ||

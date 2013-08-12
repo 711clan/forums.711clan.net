@@ -1,7 +1,7 @@
 <?php
 /*======================================================================*\
 || #################################################################### ||
-|| # vBulletin 3.7.2 Patch Level 2 - Licence Number VBF2470E4F
+|| # vBulletin 3.7.2 Patch Level 2 - Licence Number VBC2DDE4FB
 || # ---------------------------------------------------------------- # ||
 || # Copyright ©2000-2013 Jelsoft Enterprises Ltd. All Rights Reserved. ||
 || # This file may not be redistributed in whole or significant part. # ||
@@ -323,7 +323,7 @@ if ($_POST['do'] == 'addmember')
 	}
 
 	// Human Verification
-	if (1==2&&$vbulletin->options['hvcheck_registration'])
+	if ($vbulletin->options['hvcheck_registration'])
 	{
 		require_once(DIR . '/includes/class_humanverify.php');
 		$verify =& vB_HumanVerify::fetch_library($vbulletin);
@@ -332,7 +332,6 @@ if ($_POST['do'] == 'addmember')
 			$userdata->error($verify->fetch_error());
 		}
 	}
-
 	// Set specified options
 	if (!empty($vbulletin->GPC['options']))
 	{
@@ -382,7 +381,7 @@ if ($_POST['do'] == 'addmember')
 	// register IP address
 	$userdata->set('ipaddress', IPADDRESS);
 
-	//($hook = vBulletinHook::fetch_hook('register_addmember_process')) ? eval($hook) : false;
+	($hook = vBulletinHook::fetch_hook('register_addmember_process')) ? eval($hook) : false;
 
 	$userdata->pre_save();
 
@@ -519,7 +518,7 @@ if ($_POST['do'] == 'addmember')
 				}
 			}
 
-			//($hook = vBulletinHook::fetch_hook('register_addmember_complete')) ? eval($hook) : false;
+			($hook = vBulletinHook::fetch_hook('register_addmember_complete')) ? eval($hook) : false;
 
 			if ($vbulletin->GPC['coppauser'])
 			{
@@ -1308,7 +1307,7 @@ if ($_REQUEST['do'] == 'killactivation')
 
 /*======================================================================*\
 || ####################################################################
-|| # Downloaded: 16:21, Sat Apr 6th 2013
+|| # Downloaded: 20:54, Sun Aug 11th 2013
 || # CVS: $RCSfile$ - $Revision: 26548 $
 || ####################################################################
 \*======================================================================*/

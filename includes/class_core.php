@@ -1,7 +1,7 @@
 <?php
 /*======================================================================*\
 || #################################################################### ||
-|| # vBulletin 3.7.2 Patch Level 2 - Licence Number VBF2470E4F
+|| # vBulletin 3.7.2 Patch Level 2 - Licence Number VBC2DDE4FB
 || # ---------------------------------------------------------------- # ||
 || # Copyright ©2000-2013 Jelsoft Enterprises Ltd. All Rights Reserved. ||
 || # This file may not be redistributed in whole or significant part. # ||
@@ -1003,7 +1003,7 @@ class vB_Database
 				log_vbulletin_error($message, 'database');
 			}
 
-			if (1==2 AND $technicalemail != '' AND !$vbulletin->options['disableerroremail'] AND verify_email_vbulletin_error($this->errno, 'database'))
+			if ($technicalemail != '' AND !$vbulletin->options['disableerroremail'] AND verify_email_vbulletin_error($this->errno, 'database'))
 			{
 				// If vBulletinHook is defined then we know that options are loaded, so we can then use vbmail
 				if (class_exists('vBulletinHook'))
@@ -2515,7 +2515,7 @@ class vB_Registry
 		$this->noheader = defined('NOHEADER') ? true : false;
 
 		// initialize the input handler
-		$this->input = new vB_Input_Cleaner($this);
+		$this->input =& new vB_Input_Cleaner($this);
 
 		// initialize the shutdown handler
 		$this->shutdown = vB_Shutdown::init();
@@ -3302,7 +3302,7 @@ function htmlspecialchars_uni($text, $entities = true)
 
 /*======================================================================*\
 || ####################################################################
-|| # Downloaded: 16:21, Sat Apr 6th 2013
+|| # Downloaded: 20:54, Sun Aug 11th 2013
 || # CVS: $RCSfile$ - $Revision: 27007 $
 || ####################################################################
 \*======================================================================*/
