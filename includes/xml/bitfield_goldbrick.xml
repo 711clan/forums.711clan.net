@@ -1,0 +1,28 @@
+<?xml version="1.0" encoding="ISO-8859-1"?>
+<bitfields product="goldbrick">
+	<bitfielddefs>
+		<group name="ugp">
+			<!-- Permissions -->
+			<group name="gb_permissions">
+				<bitfield name="canview" group="gb_permissions" phrase="gb_canview" install="1,2,3,4,5,6,7">1</bitfield>
+				<bitfield name="canuse" group="gb_permissions" phrase="gb_canuse" install="1,2,3,4,5,6,7">2</bitfield>
+				<bitfield name="candownload" group="gb_permissions" phrase="gb_candownload" install="1,2,3,4,5,6,7">4</bitfield>
+				<bitfield name="profile" group="gb_permissions" phrase="gb_profile" install="1,2,3,4,5,6,7">8</bitfield>
+				<bitfield name="canadmin" group="gb_permissions" phrase="gb_admin" install="1,2,3,4,5,6,7">16</bitfield>
+			</group>
+		</group>
+		<group name="misc"> 
+		            <group name="gb_forum_permission"> 
+		                <bitfield name="gb_enabled">1</bitfield>
+					</group> 
+					<group name="gb_allowed_ext">
+						<bitfield name="gb_flash">1</bitfield>
+						<bitfield name="gb_quick_time">2</bitfield>
+						<bitfield name="gb_divx">4</bitfield>
+						<bitfield name="gb_win_media">8</bitfield>
+						<bitfield name="gb_pdf">16</bitfield>
+						<bitfield name="gb_image">32</bitfield>
+					</group>
+		</group>
+	</bitfielddefs>
+</bitfields>

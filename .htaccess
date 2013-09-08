@@ -1,8 +1,40 @@
-ErrorDocument 404 /error/404.php
-ErrorDocument 500 /error/500.php
-
 #php_flag display_startup_errors on
 php_flag display_errors off
 #php_flag html_errors on
 php_flag log_errors on
 php_value error_log  /home/clan711site/logs_custom/php_error.log
+
+RewriteEngine on
+
+# If you are having problems or are using VirtualDocumentRoot, uncomment this line and set it to your vBulletin directory.
+RewriteBase /
+
+# If you are having problems with the rewrite from content/ to content.php, uncomment this line to turn MultiViews off.
+# Options -MultiViews
+
+RewriteCond %{REQUEST_FILENAME} -f [OR]
+RewriteCond %{REQUEST_FILENAME} -l [OR]
+RewriteCond %{REQUEST_FILENAME} -d
+
+RewriteRule ^.*$ - [NC,L]
+
+# Forum
+RewriteRule ^threads/.* showthread.php [QSA]
+RewriteRule ^forums/.* forumdisplay.php [QSA]
+RewriteRule ^members/.* member.php [QSA]
+RewriteRule ^blogs/.* blog.php [QSA]
+RewriteRule ^entries/.* entry.php [QSA]
+
+RewriteCond %{REQUEST_FILENAME} -f [OR]
+RewriteCond %{REQUEST_FILENAME} -l [OR]
+RewriteCond %{REQUEST_FILENAME} -d
+
+RewriteRule ^.*$ - [NC,L]
+
+# MVC
+RewriteRule ^(?:(.*?)(?:/|$))(.*|$)$ $1.php?r=$2 [QSA]
+
+# Check MVC result
+RewriteCond %{REQUEST_FILENAME} -f
+RewriteRule ^(.*)$ - [NC,L]
+RewriteRule ^(.*)$ - [R=404,L]

@@ -1,0 +1,52 @@
+<?xml version="1.0" encoding="ISO-8859-1"?>
+
+<hooks>
+
+	<hooktype type="dbtech_vbshout_main">
+		<hook>dbtech_vbshout_ajax_handler_start</hook>
+		<hook>dbtech_vbshout_ajax_handler_fetch</hook>
+		<hook>dbtech_vbshout_ajax_handler</hook>
+		<hook>dbtech_vbshout_archive_search_query</hook>
+		<hook>dbtech_vbshout_archive_loop</hook>
+		<hook>dbtech_vbshout_archive_complete</hook>
+		<hook>dbtech_vbshout_admin_cmdlogviewer_query_loop</hook>
+		<hook>dbtech_vbshout_instance</hook>
+		<hook>dbtech_vbshout_log_process</hook>
+		<hook>dbtech_vbshout_parsecommand_pm</hook>
+		<hook>dbtech_vbshout_parsecommand_2</hook>
+		<hook>dbtech_vbshout_command_1</hook>
+		<hook>dbtech_vbshout_command_2</hook>
+		<hook>dbtech_vbshout_command_complete</hook>
+		<hook>dbtech_vbshout_mod_index_navigation</hook>
+		<hook>dbtech_vbshout_modifyinstance</hook>
+		<hook>dbtech_vbshout_fetch_shouts_query</hook>
+		<hook>dbtech_vbshout_fetch_shouts_loop</hook>
+		<hook>dbtech_vbshout_shout_post_save_each</hook>
+		<hook>dbtech_vbshout_shout_post_save_once</hook>
+		<hook>dbtech_vbshout_shout_notification</hook>
+		<hook>dbtech_vbshout_shoutbox_start</hook>
+		<hook>dbtech_vbshout_shoutbox_editortools</hook>
+		<hook>dbtech_vbshout_updateinstance</hook>
+		<hook>dbtech_vbshout_shout_preinsert</hook>
+		<hook>dbtech_vbshout_handlereport</hook>
+		<hook>dbtech_vbshout_updatereport</hook>
+	</hooktype>
+	
+	<hookttype type="dbtech_vbshout_admin" admin="1">
+		<hook>dbtech_vbshout_admin_cmdlogviewer_query_loop</hook>
+		
+		<hook>dbtech_vbshout_chatroomdata_start</hook>
+		<hook>dbtech_vbshout_chatroomdata_predelete</hook>
+		<hook>dbtech_vbshout_chatroomdata_presave</hook>
+		<hook>dbtech_vbshout_chatroomdata_postsave</hook>
+		<hook>dbtech_vbshout_chatroomdata_delete</hook>	
+		
+		<hook>dbtech_vbshout_instancedata_start</hook>
+		<hook>dbtech_vbshout_instancedata_predelete</hook>
+		<hook>dbtech_vbshout_instancedata_presave</hook>
+		<hook>dbtech_vbshout_instancedata_postsave</hook>
+		<hook>dbtech_vbshout_instancedata_delete</hook>	
+		
+	</hookttype>
+	
+</hooks>

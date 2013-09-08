@@ -1,0 +1,91 @@
+<?xml version="1.0" encoding="ISO-8859-1"?>
+
+<bitfields product="dbtech_vbshout">
+	<bitfielddefs>
+		<group name="ugp">
+			<group name="dbtech_vbshoutpermissions">
+				<!--<bitfield name="isprotected"		group="dbtech_vbshout_general_permissions"	phrase="dbtech_vbshout_is_protected_group"	install="5,6,7"			>1</bitfield>-->
+				<bitfield name="ismanager"			group="dbtech_vbshout_general_permissions"	phrase="dbtech_vbshout_is_manager"			install="6"				>2</bitfield>
+			</group>
+		</group>
+		<group name="nocache">
+			<group name="dbtech_vbshout_editors">
+				<bitfield name="dbtech_vbshout_enable_clear"	>32</bitfield>
+				<bitfield name="dbtech_vbshout_enable_smilies"  >64</bitfield>
+				<bitfield name="dbtech_vbshout_enable_bold"		>1</bitfield>
+				<bitfield name="dbtech_vbshout_enable_italic"	>2</bitfield>
+				<bitfield name="dbtech_vbshout_enable_underline">4</bitfield>
+				<bitfield name="dbtech_vbshout_enable_font"		>16</bitfield>
+				<bitfield name="dbtech_vbshout_enable_color"	>8</bitfield>
+				<!-- the same bitfield values are shared by the Pro version, don't overlap -->
+			</group>
+
+			<group name="dbtech_vbshout_commands">
+				<bitfield name="dbtech_vbshout_prune_usage"		>1</bitfield>
+				<bitfield name="dbtech_vbshout_ban_usage"		>4</bitfield>				
+				<bitfield name="dbtech_vbshout_shout_editing"	>8</bitfield>				
+				<bitfield name="dbtech_vbshout_sticky_usage"  	>2</bitfield>
+				<bitfield name="dbtech_vbshout_reset_usage"  	>32</bitfield>
+			</group>
+
+			<group name="dbtech_vbshout_notices">
+				<bitfield name="dbtech_vbshout_thread_pings"	>1</bitfield>
+				<bitfield name="dbtech_vbshout_reply_pings"		>2</bitfield>				
+				<bitfield name="dbtech_vbshout_blogs"			>8</bitfield>				
+				<bitfield name="dbtech_vbshout_projecttools"	>16</bitfield>				
+			</group>
+			
+			<group name="dbtech_vbshoutpermissions">
+				<bitfield name="canviewshoutbox"				>4</bitfield>
+				<bitfield name="canviewarchive"					>8</bitfield>
+				<bitfield name="canshout"						>16</bitfield>
+				<bitfield name="caneditown"						>32</bitfield>
+				<bitfield name="caneditothers"					>64</bitfield>
+				<bitfield name="canprune"						>128</bitfield>
+				<bitfield name="cansticky"						>256</bitfield>
+				<bitfield name="canban"							>512</bitfield>
+				<bitfield name="cansearcharchive"				>2048</bitfield>				
+				<bitfield name="autoidle"						>4096</bitfield>
+				<bitfield name="cancreatechat"					>8192</bitfield>
+				<bitfield name="isprotected"					>16384</bitfield>
+				<bitfield name="canmodchat"						>32768</bitfield>
+				<!--<bitfield name="enablemenu"						>65536</bitfield>-->
+				<bitfield name="showaction"						>262144</bitfield>
+			</group>
+			
+			<group name="dbtech_vbshout_general_settings">
+				<bitfield name="dbtech_vbshout_disableshoutbox"	>524288</bitfield>
+				<bitfield name="dbtech_vbshout_enable_pms"		>128</bitfield>
+				<!--<bitfield name="dbtech_vbshout_enable_me"		>256</bitfield>-->
+				<bitfield name="dbtech_vbshout_enable_notifs"	>512</bitfield>
+				<bitfield name="dbtech_vbshout_enable_sysmsg"	>1024</bitfield>
+				<!-- Follow up with higher bit values than the Editor Settings below -->
+				<bitfield name="dbtech_vbshout_enable_override"	>8192</bitfield>				
+				<bitfield name="dbtech_vbshout_shoutsounds"		>16384</bitfield>				
+				<bitfield name="dbtech_vbshout_invitesounds"	>32768</bitfield>				
+				<bitfield name="dbtech_vbshout_pmsounds"		>65536</bitfield>				
+				<bitfield name="dbtech_vbshout_hidealtcolours"	>131072</bitfield>				
+				<bitfield name="dbtech_vbshout_hideavatars"		>262144</bitfield>
+			</group>
+
+			<group name="dbtech_vbshout_editor_settings">
+				<bitfield name="dbtech_vbshout_enable_detach"	>2048</bitfield>			
+				<bitfield name="dbtech_vbshout_enable_clear"	>32</bitfield>
+				<bitfield name="dbtech_vbshout_enable_smilies"  >64</bitfield>
+				<bitfield name="dbtech_vbshout_enable_bold"		>1</bitfield>
+				<bitfield name="dbtech_vbshout_enable_italic"	>2</bitfield>
+				<bitfield name="dbtech_vbshout_enable_underline">4</bitfield>
+				<bitfield name="dbtech_vbshout_enable_font"		>16</bitfield>
+				<bitfield name="dbtech_vbshout_enable_color"	>8</bitfield>
+				<bitfield name="dbtech_vbshout_enable_size"		>4096</bitfield>				
+			</group>			
+		</group>
+		
+		<group name="misc">
+			<group name="dbtech_vbshoutadminperms">
+				<bitfield name="canadminvbshout"				>1</bitfield>
+			</group>
+		</group>
+		
+	</bitfielddefs>
+</bitfields>

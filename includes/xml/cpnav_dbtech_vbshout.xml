@@ -1,0 +1,48 @@
+<?xml version="1.0" encoding="ISO-8859-1"?>
+<navgroups product="dbtech_vbshout">
+
+	<navgroup phrase="dbtech_vbshout" permissions="canadminvbshout" hr="true" displayorder="16">
+		
+		<navoption displayorder="10">
+			<phrase>dbtech_vbshout_instance_management</phrase>
+			<link>vbshout.php?do=instance</link>
+		</navoption>
+		
+		<navoption displayorder="20">
+			<phrase>dbtech_vbshout_chatroom_management</phrase>
+			<link>vbshout.php?do=chatroom</link>
+		</navoption>
+		
+		<navoption displayorder="30">
+			<phrase>dbtech_vbshout_view_banned_users</phrase>
+			<link>vbshout.php?do=banned</link>
+		</navoption>
+				
+		<navoption displayorder="40">
+			<phrase>dbtech_vbshout_command_log</phrase>
+			<link>vbshout.php?do=commandlog</link>
+		</navoption>
+		
+		<navoption displayorder="50">
+			<phrase>dbtech_vbshout_download_archive</phrase>
+			<link>vbshout.php?do=download</link>
+		</navoption>
+		
+		<navoption displayorder="8999">
+			<phrase>dbtech_vbshout_repair_cache</phrase>
+			<link>vbshout.php?do=repaircache</link>
+		</navoption>
+		
+		<navoption displayorder="9000">
+			<phrase>dbtech_vbshout_notifications</phrase>
+			<link>vbshout.php?do=notifications</link>
+		</navoption>
+		
+		<navoption displayorder="9001">
+			<phrase>dbtech_vbshout_settings</phrase>
+			<link>vbshout.php?do=options</link>
+		</navoption>
+		
+	</navgroup>
+	
+</navgroups>
