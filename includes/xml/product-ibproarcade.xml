@@ -1,0 +1,1008 @@
+<?xml version="1.0" encoding="ISO-8859-1"?>
+
+<product productid="ibproarcade" active="1">
+<title>ibProArcade for vBulletin</title>
+<description>ibProArcade - professional Arcade System for vBulletin</description>
+<version>2.7.1</version>
+<url><![CDATA[http://www.vbulletin.org/forum/forumdisplay.php?f=170]]></url>
+<versioncheckurl><![CDATA[http://www.vbulletin.org/forum/misc.php?do=productcheck&pid=ibproarcade]]></versioncheckurl>
+<dependencies>
+</dependencies>
+
+	<codes>
+		<code version="1.1.1">
+			<installcode><![CDATA[
+				$vbulletin->db->hide_errors();			
+				$vbulletin->db->query_write("CREATE TABLE IF NOT EXISTS " . TABLE_PREFIX . "games_settings (arcade_status tinyint(1) NOT NULL default '1', g_display_sort varchar(15) NOT NULL default '', g_display_order varchar(4) NOT NULL default '', scores_amount mediumint(8) NOT NULL default '10', next_day int(10) NOT NULL default '0', skin tinyint(1) NOT NULL default '0', use_cats tinyint(1) NOT NULL default '0', log tinyint(1) NOT NULL default '0', score_type char(3) NOT NULL default '', crown_type tinyint(1) NOT NULL default '0', show_new MEDIUMINT( 8 ) DEFAULT '0' NOT NULL, show_new_frame MEDIUMINT( 5 ) DEFAULT '0' NOT NULL, show_active TEXT NOT NULL, mod_notes TEXT NOT NULL, most_users_on MEDIUMINT( 8 ) DEFAULT '0' NOT NULL, auto_prune TINYINT( 1 ) DEFAULT '0' NOT NULL, auto_prune_time MEDIUMINT( 8 ) DEFAULT '0' NOT NULL, auto_prune_time2 MEDIUMINT( 7 ) DEFAULT '0' NOT NULL, banned_ips TEXT NOT NULL, games_pp MEDIUMINT( 8 ) DEFAULT '0' NOT NULL, allow_user_skin TINYINT( 1 ) DEFAULT 0 NOT NULL, user_choices TEXT NOT NULL, def_cat MEDIUMINT( 8 ) DEFAULT '1' NOT NULL, cats_per_tr MEDIUMINT( 8 ) DEFAULT '0' NOT NULL, show_crowns TINYINT( 1 ) DEFAULT '1' NOT NULL, show_t_won TINYINT( 1 ) DEFAULT '1' NOT NULL, score_sep VARCHAR( 1 ) DEFAULT '0' NOT NULL, dec_amount TINYINT( 2 ) DEFAULT '0' NOT NULL)");
+				$vbulletin->db->query_write("CREATE TABLE IF NOT EXISTS " . TABLE_PREFIX . "games_savedGames (gid int(11) NOT NULL default '0',uname varchar(40) NOT NULL default '',gameData text NOT NULL,savedate datetime NOT NULL default '0000-00-00 00:00:00')");
+				$vbulletin->db->query_write("CREATE TABLE IF NOT EXISTS " . TABLE_PREFIX . "games_league (mid bigint(20) NOT NULL default '0',gid bigint(20) NOT NULL default '0', position bigint(20) NOT NULL default '0', points bigint(20) NOT NULL default '0')");
+				$vbulletin->db->query_write("CREATE TABLE IF NOT EXISTS " . TABLE_PREFIX . "games_scores (s_id int(11) NOT NULL auto_increment, mid int(11) NOT NULL default '0',gid int(11) NOT NULL default '0', name text NOT NULL, score FLOAT(11) NOT NULL default '0', ip text NOT NULL, comment text NOT NULL, datescored int(10) NOT NULL, PRIMARY KEY (s_id))");
+				$vbulletin->db->query_write("CREATE TABLE IF NOT EXISTS " . TABLE_PREFIX . "games_list (gid int(11) NOT NULL auto_increment, gname varchar(40) NOT NULL default '', gwords text NOT NULL, gcount int(11) NOT NULL default '0', gtitle varchar(40) NOT NULL default '', bgcolor varchar(6) NOT NULL default '000', active tinyint(1) NOT NULL default '1', gwidth int(11) NOT NULL default '400', gheight int(11) NOT NULL default '400', position mediumint(8) NOT NULL default '1', gcat int(2) NOT NULL default '1', object text NOT NULL, gkeys text NOT NULL, added INT( 10 ) DEFAULT '0' NOT NULL, g_rating TINYINT( 1 ) DEFAULT '0' NOT NULL, g_raters TEXT NOT NULL, highscore_type VARCHAR ( 4 ) DEFAULT 'high' NOT NULL, UNIQUE KEY gid (gid))");
+				$vbulletin->db->query_write("CREATE TABLE IF NOT EXISTS " . TABLE_PREFIX . "games_cats (c_id mediumint(8) NOT NULL auto_increment, cat_name varchar(32) NOT NULL default '', active tinyint(1) NOT NULL default '1', show_all TINYINT( 1 ) DEFAULT '0' NOT NULL, pos TINYINT( 2 ) DEFAULT '1' NOT NULL, password VARCHAR( 32 ) NOT NULL, num_of_games MEDIUMINT( 8 ) DEFAULT '0' NOT NULL, PRIMARY KEY (c_id))");
+				$vbulletin->db->query_write("CREATE TABLE IF NOT EXISTS " . TABLE_PREFIX . "tournament_players (mid int(11) NOT NULL default '0', tid int(11) NOT NULL default '0', rung int(11) NOT NULL default '0', rungscore int(11) NOT NULL default '0', faceoff int(11) NOT NULL default '0', timeplayed int(10) NOT NULL default '0', timesplayed int(11) NOT NULL default '0')");
+				$vbulletin->db->query_write("CREATE TABLE IF NOT EXISTS " . TABLE_PREFIX . "tournaments (tid int(11) NOT NULL auto_increment, gid int(11) NOT NULL default '0', numplayers int(11) NOT NULL default '0', champion text NOT NULL, datestarted int(10) NOT NULL default '0', UNIQUE KEY tid (tid))");
+				$vbulletin->db->query_write("CREATE TABLE IF NOT EXISTS " . TABLE_PREFIX . "games_champs (champ_gid MEDIUMINT( 8 ) DEFAULT '0' NOT NULL , champ_gtitle VARCHAR( 40 ) NOT NULL , champ_mid MEDIUMINT( 8 ) DEFAULT '0' NOT NULL , champ_name VARCHAR( 32 ) NOT NULL , champ_date INT( 10 ) DEFAULT '0' NOT NULL , champ_score FLOAT( 11 ) DEFAULT '0' NOT NULL)");
+				$vbulletin->db->query_write("CREATE TABLE IF NOT EXISTS " . TABLE_PREFIX . "badwords (wid int(3) NOT NULL auto_increment, type varchar(250) NOT NULL default '', swop varchar(250) NOT NULL default '', m_exact tinyint(1) NOT NULL default '0', UNIQUE KEY wid (wid))");
+				$vbulletin->db->query_write("CREATE TABLE IF NOT EXISTS " . TABLE_PREFIX . "macro (macro_id smallint(3) NOT NULL auto_increment, macro_value varchar(200) default NULL, macro_replace text, can_remove tinyint(1) default '0', macro_set smallint(3) NOT NULL default '0', PRIMARY KEY  (macro_id), KEY macro_set (macro_set))");
+
+				$vbulletin->db->query_write("INSERT INTO " . TABLE_PREFIX . "games_settings (arcade_status, g_display_sort, g_display_order, scores_amount, next_day, skin, use_cats, log, score_type, crown_type, show_new, show_new_frame, show_active, mod_notes, most_users_on, auto_prune, auto_prune_time, auto_prune_time2, banned_ips, games_pp, allow_user_skin, user_choices, def_cat, cats_per_tr, show_crowns, show_t_won, score_sep, dec_amount) VALUES (1, 'gtitle', 'ASC', 10, 0, 0, 0, 0, 'top', 1, 0, 0, '', '', 0, 0, 0, 0, '', 40, 0, '5,10,15,20,25', 1, 0, 1, 1, '0', 0)");
+				$vbulletin->db->query_write("INSERT INTO " . TABLE_PREFIX . "games_cats (c_id, cat_name, active, show_all, pos, password, num_of_games) VALUES (1, 'Default', 1, 0, 1, '', 9)");
+
+				$vbulletin->db->query_write("ALTER TABLE " . TABLE_PREFIX . "session ADD in_game VARCHAR( 32 ) NOT NULL");
+				$vbulletin->db->query_write("ALTER TABLE " . TABLE_PREFIX . "user ADD arcade_ban tinyint(1) DEFAULT '0' NOT NULL");
+				$vbulletin->db->query_write("ALTER TABLE " . TABLE_PREFIX . "user ADD times_played int(11) DEFAULT '0' NOT NULL");
+				$vbulletin->db->query_write("ALTER TABLE " . TABLE_PREFIX . "user ADD is_arcade_mod TINYINT( 1 ) DEFAULT '0' NOT NULL");
+				$vbulletin->db->query_write("ALTER TABLE " . TABLE_PREFIX . "user ADD fav_games TEXT NOT NULL");
+				$vbulletin->db->query_write("ALTER TABLE " . TABLE_PREFIX . "user ADD user_sort VARCHAR( 15 ) DEFAULT '0' NOT NULL");
+				$vbulletin->db->query_write("ALTER TABLE " . TABLE_PREFIX . "user ADD user_order VARCHAR( 4 ) DEFAULT '0' NOT NULL");
+				$vbulletin->db->query_write("ALTER TABLE " . TABLE_PREFIX . "user ADD user_g_pp MEDIUMINT( 8 ) DEFAULT '0' NOT NULL");
+				$vbulletin->db->query_write("ALTER TABLE " . TABLE_PREFIX . "user ADD user_s_pp MEDIUMINT( 8 ) DEFAULT '0' NOT NULL");
+				$vbulletin->db->query_write("ALTER TABLE " . TABLE_PREFIX . "user ADD def_g_cat MEDIUMINT( 8 ) DEFAULT '0' NOT NULL");
+				$vbulletin->db->query_write("ALTER TABLE " . TABLE_PREFIX . "user ADD game_skin TINYINT( 1 ) DEFAULT '0' NOT NULL");
+				$vbulletin->db->query_write("ALTER TABLE " . TABLE_PREFIX . "user ADD arcade_mod_privs TEXT NOT NULL");
+				$vbulletin->db->query_write("ALTER TABLE " . TABLE_PREFIX . "user ADD arcade_pmactive tinyint(1) DEFAULT '1' NOT NULL");
+				$vbulletin->db->query_write("ALTER TABLE " . TABLE_PREFIX . "usergroup ADD arcade_access TINYINT( 1 ) DEFAULT '1' NOT NULL");
+				$vbulletin->db->query_write("ALTER TABLE " . TABLE_PREFIX . "usergroup ADD p_require MEDIUMINT( 8 ) DEFAULT '0' NOT NULL");
+				$vbulletin->db->query_write("ALTER TABLE " . TABLE_PREFIX . "usergroup ADD max_play MEDIUMINT( 8 ) DEFAULT '0' NOT NULL");
+				$vbulletin->db->query_write("ALTER TABLE " . TABLE_PREFIX . "usergroup ADD ppd_require MEDIUMINT( 8 ) DEFAULT '0' NOT NULL");
+				$vbulletin->db->query_write("ALTER TABLE " . TABLE_PREFIX . "usergroup ADD ibpa_cats MEDIUMTEXT NOT NULL");
+
+				$time=time();
+
+				$checkgame = $vbulletin->db->query_read("SELECT gname FROM " . TABLE_PREFIX . "games_list WHERE gname='asteroids'");
+				if (!$vbulletin->db->num_rows($checkgame))
+				{
+					$vbulletin->db->query_write("INSERT INTO " . TABLE_PREFIX . "games_list (gname, gwords, gcount, gtitle, bgcolor, active, gwidth, gheight, position, gcat, object, gkeys, added, highscore_type) VALUES ('asteroids', 'Kill some asteroids and flying saucers&#33;', 0, 'Asteroids', '000', 1, 500, 375, 1, 1, 'Shoot all of the asteroids.', 'Arrow keys move the ship.<br />\r\nSpace bar fires.', $time, 'high')");
+				}
+
+				$checkgame = $vbulletin->db->query_read("SELECT gname FROM " . TABLE_PREFIX . "games_list WHERE gname='invaders'");
+				if (!$vbulletin->db->num_rows($checkgame))
+				{
+					$vbulletin->db->query_write("INSERT INTO " . TABLE_PREFIX . "games_list (gname, gwords, gcount, gtitle, bgcolor, active, gwidth, gheight, position, gcat, object, gkeys, added, highscore_type) VALUES ('invaders', 'Kill the invading army of UFO&#39;s', 0, 'Space Invaders', '000', 1, 500, 410, 1, 1, 'To shoot all of the aliens.', 'Left and Right arrow keys to move.<br />\r\nSpace bar to shoot.', $time, 'high')");
+				}
+
+				$checkgame = $vbulletin->db->query_read("SELECT gname FROM " . TABLE_PREFIX . "games_list WHERE gname='pacman'");
+				if (!$vbulletin->db->num_rows($checkgame))
+				{
+					// ** removed -> COPYRIGHT **
+				}
+
+				$checkgame = $vbulletin->db->query_read("SELECT gname FROM " . TABLE_PREFIX . "games_list WHERE gname='tetris'");
+				if (!$vbulletin->db->num_rows($checkgame))
+				{
+					$vbulletin->db->query_write("INSERT INTO " . TABLE_PREFIX . "games_list (gname, gwords, gcount, gtitle, bgcolor, active, gwidth, gheight, position, gcat, object, gkeys, added, highscore_type) VALUES ('tetris', 'Build solid lines to clear and get points.  Clear 4 rows at the same time and you&#39;ve just Tetris&#39;d&#33;', 0, 'Tetris', 'FFF', 1, 382, 380, 1, 1, 'Form lines using the different shapes.', 'Up arrow changes the rotation of the piece.<br />\r\nLeft and Right arrows move it.<br>\r\nDown arrow brings it down faster.', $time, 'high')");
+				}
+
+				$checkgame = $vbulletin->db->query_read("SELECT gname FROM " . TABLE_PREFIX . "games_list WHERE gname='snake'");
+				if (!$vbulletin->db->num_rows($checkgame))
+				{
+					$vbulletin->db->query_write("INSERT INTO " . TABLE_PREFIX . "games_list (gname, gwords, gcount, gtitle, bgcolor, active, gwidth, gheight, position, gcat, object, gkeys, added, highscore_type) VALUES ('snake', 'Eat the apples and don&#39;t hit the walls.... or yourself.', 0, 'Snake', '000', 1, 360, 300, 1, 1, 'Eat all of the apples.', 'Arrow keys to move.', $time, 'high')");
+				}
+
+				$checkgame = $vbulletin->db->query_read("SELECT gname FROM " . TABLE_PREFIX . "games_list WHERE gname='simon'");
+				if (!$vbulletin->db->num_rows($checkgame))
+				{
+					$vbulletin->db->query_write("INSERT INTO " . TABLE_PREFIX . "games_list (gname, gwords, gcount, gtitle, bgcolor, active, gwidth, gheight, position, gcat, object, gkeys, added, highscore_type) VALUES ('simon', 'A true test of mental agility. Follow the pattern of lights and sounds for as long as you can remember them&#33;', 0, 'Simon', '000', 1, 500, 400, 1, 1, 'Follow the pattern.', 'Click the light pattern with the mouse.', $time, 'high')");
+				}
+
+				$checkgame = $vbulletin->db->query_read("SELECT gname FROM " . TABLE_PREFIX . "games_list WHERE gname='hexxagon'");
+				if (!$vbulletin->db->num_rows($checkgame))
+				{
+					$vbulletin->db->query_write("INSERT INTO " . TABLE_PREFIX . "games_list (gname, gwords, gcount, gtitle, bgcolor, active, gwidth, gheight, position, gcat, object, gkeys, added, highscore_type) VALUES ('hexxagon', 'Flip and multiply your pieces to take over the computer.', 0, 'Hexxagon', '000', 1, 380, 300, 1, 1, 'Take over as many enemy pieces as possible.', 'Click in quadrants around your piece to move or jump.', $time, 'high')");
+				}
+
+				$checkgame = $vbulletin->db->query_read("SELECT gname FROM " . TABLE_PREFIX . "games_list WHERE gname='breakout'");
+				if (!$vbulletin->db->num_rows($checkgame))
+				{
+					$vbulletin->db->query_write("INSERT INTO " . TABLE_PREFIX . "games_list (gname, gwords, gcount, gtitle, bgcolor, active, gwidth, gheight, position, gcat, object, gkeys, added, highscore_type) VALUES ('breakout', 'Use a ball and paddle to smash your way through a series of regenerating blocks.', 0, 'Breakout', '000', 1, 382, 380, 1, 1, 'Break all of the blocks.', 'Left and Right arrows move.<br />\r\n<center>or</center>\r\nMouse moves.', $time, 'high')");
+				}
+
+				$checkgame = $vbulletin->db->query_read("SELECT gname FROM " . TABLE_PREFIX . "games_list WHERE gname='moonlander'");
+				if (!$vbulletin->db->num_rows($checkgame))
+				{
+					$vbulletin->db->query_write("INSERT INTO " . TABLE_PREFIX . "games_list (gname, gwords, gcount, gtitle, bgcolor, active, gwidth, gheight, position, gcat, object, gkeys, added, highscore_type) VALUES ('moonlander', 'Navigate your spaceship onto the different landing pads for points.  Each round the gravity gets more intense.  Each pad is worth 100 points.', 0, 'Moon Lander', '000', 1, 500, 350, 1, 1, 'Land on as many pads as possible.', 'Up key thrusts upward.<br />\r\nLeft key thrusts rightward.<br />\r\nRight key thrusts leftward.', $time, 'high')");
+				}
+
+				$vbulletin->db->query_write("ALTER TABLE " . TABLE_PREFIX . "games_list ADD gtime int(11) NOT NULL default '0'");
+				$vbulletin->db->query_write("ALTER TABLE " . TABLE_PREFIX . "games_list ADD gtotalscore float NOT NULL default '0'");
+				$vbulletin->db->query_write("ALTER TABLE " . TABLE_PREFIX . "games_scores CHANGE score score float NOT NULL default '0'");
+				$vbulletin->db->query_write("ALTER TABLE " . TABLE_PREFIX . "games_scores ADD timespent int(11) NOT NULL default '0'");
+				$vbulletin->db->query_write("ALTER TABLE " . TABLE_PREFIX . "games_settings ADD number_format varchar(5) NOT NULL default '".$INFO[number_format]."'");
+				$vbulletin->db->query_write("ALTER TABLE " . TABLE_PREFIX . "games_settings ADD arcade_date varchar(20) NOT NULL default '".$INFO[clock_short]."'");
+				$vbulletin->db->query_write("ALTER TABLE " . TABLE_PREFIX . "games_settings ADD mostusers int(11) NOT NULL default '0'");
+				$vbulletin->db->query_write("ALTER TABLE " . TABLE_PREFIX . "games_settings ADD mostusersdate int(11) NOT NULL default '0'");
+				$vbulletin->db->query_write("ALTER TABLE " . TABLE_PREFIX . "games_settings ADD checkmost tinyint(1) NOT NULL default '1'");
+				$vbulletin->db->query_write("ALTER TABLE " . TABLE_PREFIX . "user ADD games_played int(11) NOT NULL default '0'");
+				$vbulletin->db->query_write("ALTER TABLE " . TABLE_PREFIX . "user ADD time_played int(11) NOT NULL default '0'");
+				$vbulletin->db->query_write("ALTER TABLE " . TABLE_PREFIX . "games_cats ADD description text NOT NULL");
+				$vbulletin->db->query_write("ALTER TABLE " . TABLE_PREFIX . "games_cats ADD skin int(11) NOT NULL default '0'");
+				$vbulletin->db->query_write("ALTER TABLE " . TABLE_PREFIX . "games_list ADD strict_cat tinyint(4) NOT NULL default '0'");
+				$vbulletin->db->query_write("ALTER TABLE " . TABLE_PREFIX . "games_settings ADD use_announce int(1) NOT NULL default '0'");
+				$vbulletin->db->query_write("ALTER TABLE " . TABLE_PREFIX . "games_settings ADD announcement text NOT NULL");
+				$vbulletin->db->query_write("ALTER TABLE " . TABLE_PREFIX . "games_settings ADD announcement_parsed text NOT NULL");
+				$vbulletin->db->query_write("ALTER TABLE " . TABLE_PREFIX . "user ADD arcade_points int(11) NOT NULL default '500', ADD arcade_spent int(11) NOT NULL default '0', ADD arcade_won int(11) NOT NULL default '0', ADD arcade_high int(11) NOT NULL default '0'");
+				$vbulletin->db->query_write("ALTER TABLE " . TABLE_PREFIX . "games_settings ADD use_inpoints tinyint(1) NOT NULL default '0', ADD show_popular tinyint(1) NOT NULL default '0'");
+				$vbulletin->db->query_write("ALTER TABLE " . TABLE_PREFIX . "games_league ADD cat int(11) NOT NULL default '0'");
+				$vbulletin->db->query_write("ALTER TABLE " . TABLE_PREFIX . "games_list ADD record_score tinyint(1) NOT NULL default '1'");
+				$vbulletin->db->query_write("ALTER TABLE " . TABLE_PREFIX . "games_settings ADD default_points int(11) NOT NULL default '0'");
+				$vbulletin->db->query_write("ALTER TABLE " . TABLE_PREFIX . "games_settings ADD post_conversion int(11) NOT NULL default '1000', ADD ladder_color varchar(10) NOT NULL default '000000'");
+				$vbulletin->db->query_write("ALTER TABLE " . TABLE_PREFIX . "games_list ADD tourney_use tinyint(1) NOT NULL default '1'");
+				$vbulletin->db->query_write("ALTER TABLE " . TABLE_PREFIX . "games_list ADD jackpot_won int(11) NOT NULL default '0'");
+				$vbulletin->db->query_write("ALTER TABLE " . TABLE_PREFIX . "games_list ADD jackpot_paid int(11) NOT NULL default '0'");
+				$vbulletin->db->query_write("ALTER TABLE " . TABLE_PREFIX . "games_settings ADD league_scores varchar(255) NOT NULL default '10,9,8,7,6,5,4,3,2,1,0'");
+				$vbulletin->db->query_write("ALTER TABLE " . TABLE_PREFIX . "games_settings ADD arcade_language varchar(5) NOT NULL default 'en'");
+				$vbulletin->db->query_write("ALTER TABLE " . TABLE_PREFIX . "games_list ADD decpoints tinyint(4) NOT NULL default '0'");
+				$vbulletin->db->query_write("ALTER TABLE " . TABLE_PREFIX . "games_list ADD license TEXT NOT NULL");
+				$vbulletin->db->query_write("ALTER TABLE " . TABLE_PREFIX . "games_settings ADD games_pr MEDIUMINT( 8 ) DEFAULT '4' NOT NULL");
+
+				$vbulletin->db->show_errors();]]></installcode>
+
+			<uninstallcode><![CDATA[
+				$vbulletin->db->hide_errors();
+
+				$vbulletin->db->query_write("DROP TABLE IF EXISTS " . TABLE_PREFIX . "games_savedGames");
+				$vbulletin->db->query_write("DROP TABLE IF EXISTS " . TABLE_PREFIX . "games_league");
+				$vbulletin->db->query_write("DROP TABLE IF EXISTS " . TABLE_PREFIX . "games_scores");
+				$vbulletin->db->query_write("DROP TABLE IF EXISTS " . TABLE_PREFIX . "games_list");
+				$vbulletin->db->query_write("DROP TABLE IF EXISTS " . TABLE_PREFIX . "games_settings");
+				$vbulletin->db->query_write("DROP TABLE IF EXISTS " . TABLE_PREFIX . "games_cats");
+				$vbulletin->db->query_write("DROP TABLE IF EXISTS " . TABLE_PREFIX . "tournament_players");
+				$vbulletin->db->query_write("DROP TABLE IF EXISTS " . TABLE_PREFIX . "tournaments");
+				$vbulletin->db->query_write("DROP TABLE IF EXISTS " . TABLE_PREFIX . "games_champs");
+				$vbulletin->db->query_write("DROP TABLE IF EXISTS " . TABLE_PREFIX . "badwords");
+				$vbulletin->db->query_write("DROP TABLE IF EXISTS " . TABLE_PREFIX . "macro");
+
+				$vbulletin->db->query_write("ALTER TABLE " . TABLE_PREFIX . "session DROP in_game");
+				$vbulletin->db->query_write("ALTER TABLE " . TABLE_PREFIX . "user DROP arcade_ban");
+				$vbulletin->db->query_write("ALTER TABLE " . TABLE_PREFIX . "user DROP times_played");
+				$vbulletin->db->query_write("ALTER TABLE " . TABLE_PREFIX . "user DROP is_arcade_mod");
+				$vbulletin->db->query_write("ALTER TABLE " . TABLE_PREFIX . "user DROP fav_games");
+				$vbulletin->db->query_write("ALTER TABLE " . TABLE_PREFIX . "user DROP user_sort");
+				$vbulletin->db->query_write("ALTER TABLE " . TABLE_PREFIX . "user DROP user_order");
+				$vbulletin->db->query_write("ALTER TABLE " . TABLE_PREFIX . "user DROP user_g_pp");
+				$vbulletin->db->query_write("ALTER TABLE " . TABLE_PREFIX . "user DROP user_s_pp");
+				$vbulletin->db->query_write("ALTER TABLE " . TABLE_PREFIX . "user DROP def_g_cat");
+				$vbulletin->db->query_write("ALTER TABLE " . TABLE_PREFIX . "user DROP game_skin");
+				$vbulletin->db->query_write("ALTER TABLE " . TABLE_PREFIX . "user DROP arcade_mod_privs");
+				$vbulletin->db->query_write("ALTER TABLE " . TABLE_PREFIX . "usergroup DROP arcade_access");
+				$vbulletin->db->query_write("ALTER TABLE " . TABLE_PREFIX . "usergroup DROP p_require");
+				$vbulletin->db->query_write("ALTER TABLE " . TABLE_PREFIX . "usergroup DROP max_play");
+				$vbulletin->db->query_write("ALTER TABLE " . TABLE_PREFIX . "usergroup DROP ppd_require");
+				$vbulletin->db->query_write("ALTER TABLE " . TABLE_PREFIX . "usergroup DROP ibpa_cats");
+				$vbulletin->db->query_write("ALTER TABLE " . TABLE_PREFIX . "user DROP games_played");
+				$vbulletin->db->query_write("ALTER TABLE " . TABLE_PREFIX . "user DROP time_played");
+				$vbulletin->db->query_write("ALTER TABLE " . TABLE_PREFIX . "user DROP arcade_points");
+				$vbulletin->db->query_write("ALTER TABLE " . TABLE_PREFIX . "user DROP arcade_spent");
+				$vbulletin->db->query_write("ALTER TABLE " . TABLE_PREFIX . "user DROP arcade_won");
+				$vbulletin->db->query_write("ALTER TABLE " . TABLE_PREFIX . "user DROP arcade_high");
+				$vbulletin->db->query_write("ALTER TABLE " . TABLE_PREFIX . "user DROP arcade_pmactive");
+
+				$vbulletin->db->show_errors();]]></uninstallcode>
+		</code>
+		<code version="2.5.4">
+			<installcode><![CDATA[
+				$vbulletin->db->hide_errors();			
+				$vbulletin->db->query_write("ALTER TABLE " . TABLE_PREFIX . "games_list ADD bestscore FLOAT");
+				$vbulletin->db->query_write("ALTER TABLE " . TABLE_PREFIX . "games_list ADD bestmid MEDIUMINT( 8 ) DEFAULT '0'");
+				$vbulletin->db->show_errors();]]></installcode>
+			<uninstallcode><![CDATA[]]></uninstallcode>
+		</code>
+		<code version="2.5.5">
+			<installcode><![CDATA[
+				$vbulletin->db->hide_errors();			
+				$vbulletin->db->query_write("CREATE TABLE  IF NOT EXISTS " . TABLE_PREFIX . "tournament_players_statut (tid INT( 11 ) DEFAULT '0' NOT NULL, mid INT( 11 ) DEFAULT '0' NOT NULL, statut TINYINT( 1 ) DEFAULT '0' NOT NULL)");
+				$vbulletin->db->query_write("ALTER TABLE " . TABLE_PREFIX . "games_settings ADD notification text NOT NULL");
+				$vbulletin->db->query_write("ALTER TABLE " . TABLE_PREFIX . "games_list ADD `cost` decimal(30,5) NOT NULL DEFAULT '0.00000'");
+				$vbulletin->db->query_write("ALTER TABLE " . TABLE_PREFIX . "games_list ADD `jackpot` decimal(30,5) NOT NULL DEFAULT '0.00000'");
+				$vbulletin->db->query_write("ALTER TABLE " . TABLE_PREFIX . "games_list ADD `jackpot_type` decimal(30,5) NOT NULL DEFAULT '-1'");
+				$vbulletin->db->query_write("ALTER TABLE " . TABLE_PREFIX . "tournaments ADD `nbtries` TINYINT( 1 ) DEFAULT '3' NOT NULL");
+				$vbulletin->db->query_write("ALTER TABLE " . TABLE_PREFIX . "tournaments ADD `url_discut` VARCHAR(250) NOT NULL");
+				$vbulletin->db->query_write("ALTER TABLE " . TABLE_PREFIX . "tournaments ADD `demare` TINYINT( 1 ) DEFAULT '0' NOT NULL");
+				$vbulletin->db->query_write("ALTER TABLE " . TABLE_PREFIX . "tournaments ADD `creat` VARCHAR(30) NOT NULL");
+				$vbulletin->db->query_write("ALTER TABLE " . TABLE_PREFIX . "tournaments ADD `plibre` TINYINT( 1 ) DEFAULT '0' NOT NULL");
+				$vbulletin->db->query_write("ALTER TABLE " . TABLE_PREFIX . "tournaments ADD `cost` decimal(30,5) NOT NULL DEFAULT '0.00000'");
+				$vbulletin->db->query_write("ALTER TABLE " . TABLE_PREFIX . "tournament_players CHANGE `rungscore` `rungscore` FLOAT DEFAULT '0' NOT NULL");
+				$vbulletin->db->query_write("ALTER TABLE " . TABLE_PREFIX . "usergroup ADD tourney tinyint(1) NOT NULL default '1'");
+				$vbulletin->db->query_write("ALTER TABLE " . TABLE_PREFIX . "user ADD create_tourney tinyint(1) NOT NULL default '1'");
+				$vbulletin->db->query_write("ALTER TABLE " . TABLE_PREFIX . "games_settings ADD `ladder_qual_color` VARCHAR(10) DEFAULT 'A0FEA0' NOT NULL");
+				$vbulletin->db->query_write("ALTER TABLE " . TABLE_PREFIX . "games_settings ADD `ladder_disqual_color` VARCHAR(10) DEFAULT 'C22424' NOT NULL");
+				$vbulletin->db->query_write("ALTER TABLE " . TABLE_PREFIX . "games_settings ADD `ladder_elim_color` VARCHAR(10) DEFAULT '787878' NOT NULL");
+				$vbulletin->db->query_write("TRUNCATE TABLE " . TABLE_PREFIX . "tournaments");
+				$vbulletin->db->query_write("TRUNCATE TABLE " . TABLE_PREFIX . "tournament_players");
+				$vbulletin->db->show_errors();]]></installcode>
+			<uninstallcode><![CDATA[
+				$vbulletin->db->hide_errors();
+				$vbulletin->db->query_write("DROP TABLE IF EXISTS " . TABLE_PREFIX . "tournament_players_statut");
+				$vbulletin->db->query_write("ALTER TABLE " . TABLE_PREFIX . "usergroup DROP tourney");
+				$vbulletin->db->query_write("ALTER TABLE " . TABLE_PREFIX . "user DROP create_tourney");
+				$vbulletin->db->show_errors();]]></uninstallcode>
+		</code>
+		<code version="2.5.6">
+			<installcode><![CDATA[
+				$vbulletin->db->hide_errors();
+				$vbulletin->db->query_write("ALTER TABLE " . TABLE_PREFIX . "games_settings ADD `ladder_empty_color` VARCHAR(10) DEFAULT 'FFFFFF' NOT NULL");
+				$vbulletin->db->query_write("ALTER TABLE " . TABLE_PREFIX . "games_league ADD `lid` BIGINT( 20 ) NOT NULL AUTO_INCREMENT PRIMARY KEY");
+				$vbulletin->db->query_write("ALTER TABLE " . TABLE_PREFIX . "tournament_players CHANGE rungscore rungscore FLOAT NOT NULL");
+
+				// rebuild League
+				$settingquery = $vbulletin->db->query_read("SELECT league_scores FROM " . TABLE_PREFIX . "games_settings");
+				$arcade = $vbulletin->db->fetch_array($settingquery);
+				$arcade['league_scores'] = explode("," , $arcade['league_scores'] );
+
+				$vbulletin->db->query("DELETE FROM " . TABLE_PREFIX . "games_league");
+
+				$game_query = $vbulletin->db->query_read("SELECT * FROM " . TABLE_PREFIX . "games_list WHERE active=1");
+				while ($ginfo = $vbulletin->db->fetch_array($game_query))
+				{
+					$ordering = ($ginfo['highscore_type'] == "high") ? "DESC" : "ASC";
+					$ctr = 1;
+					$this_query = $vbulletin->db->query_read("SELECT mid FROM " . TABLE_PREFIX . "games_scores WHERE gid='".$ginfo['gid']."' ORDER BY score ".$ordering.", datescored ASC LIMIT 0,10");
+					if ($vbulletin->db->num_rows($this_query))
+					{
+						while($lboard = $vbulletin->db->fetch_array($this_query))
+						{
+							switch($ctr)
+							{
+								case 1: $points = $arcade['league_scores'][0];
+								break;
+								case 2: $points = $arcade['league_scores'][1];
+								break;
+								case 3: $points = $arcade['league_scores'][2];
+								break;
+								case 4: $points = $arcade['league_scores'][3];
+								break;
+								case 5: $points = $arcade['league_scores'][4];
+								break;
+								case 6: $points = $arcade['league_scores'][5];
+								break;
+								case 7: $points = $arcade['league_scores'][6];
+								break;
+								case 8: $points = $arcade['league_scores'][7];
+								break;
+								case 9: $points = $arcade['league_scores'][8];
+								break;
+								case 10: $points = $arcade['league_scores'][9];
+								break;
+								default: $points = $arcade['league_scores'][10];
+							}
+
+							if ($points > 0)
+							{
+								extract($ginfo);
+								$lid = $lboard['mid'];
+								$vbulletin->db->query_write("INSERT INTO " . TABLE_PREFIX . "games_league (mid, gid, position, points, cat) VALUES ($lid, $gid, $ctr, $points, $gcat)");
+							}
+				
+							$ctr++;
+						}
+					}
+				}
+				$vbulletin->db->show_errors();]]></installcode>
+			<uninstallcode></uninstallcode>
+		</code>
+		<code version="2.5.7">
+			<installcode><![CDATA[
+				$vbulletin->db->hide_errors();
+				$vbulletin->db->query_write("CREATE TABLE  IF NOT EXISTS " . TABLE_PREFIX . "games_session (sessid int(10) NOT NULL auto_increment, gameid int(11) NOT NULL default '0', gname varchar(30) NOT NULL default '', gtitle varchar(255) NOT NULL default '', randchar1 varchar(30) NOT NULL default '0', randchar2 varchar(30) NOT NULL default '0', start int(10) NOT NULL default '0', mid mediumint(8) NOT NULL default '0', mname varchar(255) NOT NULL default '', timediff int(11) NOT NULL default '0', sessd tinyint(1) NOT NULL default '0', PRIMARY KEY (sessid))");
+				$vbulletin->db->query_write("ALTER TABLE " . TABLE_PREFIX . "games_settings ADD `games_new` MEDIUMINT( 8 ) DEFAULT '15' NOT NULL");
+				$vbulletin->db->query_write("ALTER TABLE " . TABLE_PREFIX . "games_settings ADD `games_popular` MEDIUMINT( 8 ) DEFAULT '15' NOT NULL");
+				$vbulletin->db->query_write("ALTER TABLE " . TABLE_PREFIX . "games_settings ADD `tourney_limit1` MEDIUMINT( 8 ) DEFAULT '3' NOT NULL");
+				$vbulletin->db->query_write("ALTER TABLE " . TABLE_PREFIX . "games_settings ADD `tourney_limit2` MEDIUMINT( 8 ) DEFAULT '7' NOT NULL");
+				$vbulletin->db->query_write("ALTER TABLE " . TABLE_PREFIX . "games_settings ADD `msgsys_hscore` TINYINT( 1 ) DEFAULT '1' NOT NULL");
+				$vbulletin->db->query_write("ALTER TABLE " . TABLE_PREFIX . "games_settings ADD `msgsys_hscore_text` text NOT NULL");
+				$vbulletin->db->query_write("ALTER TABLE " . TABLE_PREFIX . "games_settings ADD `msgsys_tstart` TINYINT( 1 ) DEFAULT '1' NOT NULL");
+				$vbulletin->db->query_write("ALTER TABLE " . TABLE_PREFIX . "games_settings ADD `msgsys_tstart_text` text NOT NULL");
+				$vbulletin->db->query_write("ALTER TABLE " . TABLE_PREFIX . "games_settings ADD `msgsys_tadvance` TINYINT( 1 ) DEFAULT '1' NOT NULL");
+				$vbulletin->db->query_write("ALTER TABLE " . TABLE_PREFIX . "games_settings ADD `msgsys_tadvance_text` text NOT NULL");
+				$vbulletin->db->query_write("ALTER TABLE " . TABLE_PREFIX . "games_settings ADD `msgsys_telim` TINYINT( 1 ) DEFAULT '1' NOT NULL");
+				$vbulletin->db->query_write("ALTER TABLE " . TABLE_PREFIX . "games_settings ADD `msgsys_telim_text` text NOT NULL");
+				$vbulletin->db->query_write("ALTER TABLE " . TABLE_PREFIX . "games_settings ADD `msgsys_twin` TINYINT( 1 ) DEFAULT '1' NOT NULL");
+				$vbulletin->db->query_write("ALTER TABLE " . TABLE_PREFIX . "games_settings ADD `msgsys_twin_text` text NOT NULL");
+				$vbulletin->db->query_write("ALTER TABLE " . TABLE_PREFIX . "games_settings ADD `msgsys_tremind_text` text NOT NULL");
+				$vbulletin->db->query_write("ALTER TABLE " . TABLE_PREFIX . "games_settings ADD `msgsys_tdisqual_text` text NOT NULL");
+				$vbulletin->db->query_write("ALTER TABLE " . TABLE_PREFIX . "games_list ADD `game_type` tinyint(1) NOT NULL DEFAULT '0'");
+				$vbulletin->db->query_write("ALTER TABLE " . TABLE_PREFIX . "games_list ADD `filesize` MEDIUMINT(8) NOT NULL");
+				$vbulletin->db->query_write("ALTER TABLE " . TABLE_PREFIX . "tournament_players ADD `notified` TINYINT( 1 ) DEFAULT '0' NOT NULL");
+				$vbulletin->db->query_write("ALTER TABLE " . TABLE_PREFIX . "user ADD arcade_sess_gid MEDIUMINT(8) NOT NULL");
+				$vbulletin->db->query_write("ALTER TABLE " . TABLE_PREFIX . "user ADD arcade_sess_start INT(11) NOT NULL");
+				$vbulletin->db->query_write("ALTER TABLE " . TABLE_PREFIX . "user ADD arcade_gtype INT(11) NOT NULL");
+				$vbulletin->db->query_write("ALTER TABLE " . TABLE_PREFIX . "user ADD arcade_session MEDIUMINT(8) NOT NULL");
+
+				// set all old and running tournaments to notified
+				$vbulletin->db->query_write("UPDATE ".TABLE_PREFIX."tournament_players SET notified=1");
+
+				// fill default texts
+				$vbulletin->db->query_write("UPDATE " . TABLE_PREFIX . "games_settings SET msgsys_hscore_text='Hello %NAME%,\n\nyour highscore in the game [b]%GAME%[/b] was beaten by [b][i]%CHAMP%[/i][/b]\n\n%LINKGAME|Click here% to play [i]%GAME%[/i] and claim back the highscore, or %LINKHIGH|click here% to see the highscores.'");
+				$vbulletin->db->query_write("UPDATE " . TABLE_PREFIX . "games_settings SET msgsys_tstart_text='Hello %NAME%,\n\nthe [b]%GAME%[/b]-Tournament just started.\n\n%LINK|Click here% to view the Tournament and make your match.'");
+				$vbulletin->db->query_write("UPDATE " . TABLE_PREFIX . "games_settings SET msgsys_tadvance_text='Hello %NAME%,\n\ncongratulations, you have beaten [i]%OTHER%[/i] in the %GAME%-Tournament, so you advance to the next round.\n\n%LINK|Click here% to view the Tournament.'");
+				$vbulletin->db->query_write("UPDATE " . TABLE_PREFIX . "games_settings SET msgsys_telim_text='Hello %NAME%,\n\nyou have been beaten in [b]%GAME%[/b]-Tournament by [i]%OTHER%[/i]\n\n%LINK|Click here% to view the Tournament.'");
+				$vbulletin->db->query_write("UPDATE " . TABLE_PREFIX . "games_settings SET msgsys_twin_text='Hello %NAME%,\n\nCONGRATULATIONS, you are the winner of the [b]%GAME%[/b]-Tournament !\n\n%LINK|Click here% to view the final standings.'");
+				$vbulletin->db->query_write("UPDATE " . TABLE_PREFIX . "games_settings SET msgsys_tremind_text='Hello %NAME%,\n\nplease remember to make your game in the [b]%GAME%-Tournament[/b]\n\n%LINK|Click here% to view this tournament.'");
+				$vbulletin->db->query_write("UPDATE " . TABLE_PREFIX . "games_settings SET msgsys_tdisqual_text='Hello %NAME%,\n\nafter not playing for %LIMIT% days in the [b]%GAME%[/b]-Tournament you got disqualified.\n\n%LINK|Click here% to view the tournament.'");
+
+				// improving DB-performance
+				$vbulletin->db->query_write("ALTER TABLE " . TABLE_PREFIX . "games_cats ADD KEY (active)");
+				$vbulletin->db->query_write("ALTER TABLE " . TABLE_PREFIX . "games_champs ADD KEY (champ_gid)");
+				$vbulletin->db->query_write("ALTER TABLE " . TABLE_PREFIX . "games_list ADD KEY (gtitle)");
+				$vbulletin->db->query_write("ALTER TABLE " . TABLE_PREFIX . "games_list ADD KEY (gcat)");
+				$vbulletin->db->query_write("ALTER TABLE " . TABLE_PREFIX . "games_list ADD KEY (added)");
+				$vbulletin->db->query_write("ALTER TABLE " . TABLE_PREFIX . "games_list ADD KEY (gcount)");
+				$vbulletin->db->query_write("ALTER TABLE " . TABLE_PREFIX . "games_scores ADD KEY (mid)");
+				$vbulletin->db->query_write("ALTER TABLE " . TABLE_PREFIX . "games_scores ADD KEY (gid)");
+				$vbulletin->db->query_write("ALTER TABLE " . TABLE_PREFIX . "games_scores ADD KEY (score)");
+				$vbulletin->db->query_write("ALTER TABLE " . TABLE_PREFIX . "games_scores ADD KEY (timespent)");
+				$vbulletin->db->query_write("ALTER TABLE " . TABLE_PREFIX . "games_league ADD KEY (gid)");
+				$vbulletin->db->query_write("ALTER TABLE " . TABLE_PREFIX . "games_league ADD KEY (mid)");
+				$vbulletin->db->query_write("ALTER TABLE " . TABLE_PREFIX . "games_session ADD KEY (mid)");
+				$vbulletin->db->query_write("ALTER TABLE " . TABLE_PREFIX . "games_session ADD KEY (gameid)");
+				$vbulletin->db->query_write("ALTER TABLE " . TABLE_PREFIX . "tournaments ADD KEY (gid)");
+				$vbulletin->db->query_write("ALTER TABLE " . TABLE_PREFIX . "tournament_players ADD KEY (mid)");
+				$vbulletin->db->query_write("ALTER TABLE " . TABLE_PREFIX . "tournament_players ADD KEY (tid)");
+				$vbulletin->db->query_write("ALTER TABLE " . TABLE_PREFIX . "tournament_players ADD KEY (rung)");
+				$vbulletin->db->query_write("ALTER TABLE " . TABLE_PREFIX . "tournament_players_statut ADD KEY (tid)");
+				$vbulletin->db->query_write("ALTER TABLE " . TABLE_PREFIX . "tournament_players_statut ADD KEY (mid)");
+
+				$vbulletin->db->show_errors();
+				$rebuild['phrases'] = true;]]></installcode>
+			<uninstallcode><![CDATA[
+				$vbulletin->db->hide_errors();
+				$vbulletin->db->query_write("DROP TABLE IF EXISTS " . TABLE_PREFIX . "games_session");
+				$vbulletin->db->query_write("ALTER TABLE " . TABLE_PREFIX . "user DROP arcade_sess_gid");
+				$vbulletin->db->query_write("ALTER TABLE " . TABLE_PREFIX . "user DROP arcade_sess_start");
+				$vbulletin->db->query_write("ALTER TABLE " . TABLE_PREFIX . "user DROP arcade_gtype");
+				$vbulletin->db->query_write("ALTER TABLE " . TABLE_PREFIX . "user DROP arcade_session");
+				$vbulletin->db->show_errors();]]></uninstallcode>
+		</code>
+		<code version="2.5.8">
+			<installcode><![CDATA[]]></installcode>
+			<uninstallcode><![CDATA[]]></uninstallcode>
+		</code>
+		<code version="2.5.9">
+			<installcode><![CDATA[]]></installcode>
+			<uninstallcode><![CDATA[]]></uninstallcode>
+		</code>
+		<code version="2.6.0">
+			<installcode><![CDATA[
+				$vbulletin->db->hide_errors();
+				$vbulletin->db->query_write("ALTER TABLE " . TABLE_PREFIX . "games_session ADD randgid VARCHAR(30) NOT NULL DEFAULT '0'");
+				$vbulletin->db->query_write("ALTER TABLE " . TABLE_PREFIX . "games_session ADD randgid2 VARCHAR(30) NOT NULL DEFAULT '0'");
+				$vbulletin->db->show_errors();]]></installcode>
+			<uninstallcode><![CDATA[]]></uninstallcode>
+		</code>
+		<code version="2.6.1">
+			<installcode><![CDATA[]]></installcode>
+			<uninstallcode><![CDATA[]]></uninstallcode>
+		</code>
+		<code version="2.6.2">
+			<installcode><![CDATA[
+				$vbulletin->db->hide_errors();
+				$vbulletin->db->query_write("ALTER TABLE " . TABLE_PREFIX . "session MODIFY in_game VARCHAR(32) DEFAULT '0' NOT NULL");
+				$vbulletin->db->query_write("ALTER TABLE " . TABLE_PREFIX . "games_champs ADD champ_time int(11) NOT NULL default '0'");
+				$vbulletin->db->query_write("ALTER TABLE " . TABLE_PREFIX . "games_list ADD besttime int(11) NOT NULL default '0'");
+				$vbulletin->db->query_write("ALTER TABLE " . TABLE_PREFIX . "games_session ADD PNscore FLOAT NOT NULL DEFAULT '0'");
+
+				// update champions
+				$game_query = $vbulletin->db->query_read("SELECT * FROM " . TABLE_PREFIX . "games_list");
+				while ($ginfo = $vbulletin->db->fetch_array($game_query))
+				{
+					$ordering = ($ginfo['highscore_type'] == "high") ? "DESC" : "ASC";
+
+					$score_query = $vbulletin->db->query_read("	SELECT score, timespent, mid, name, datescored
+											FROM " . TABLE_PREFIX . "games_scores
+											WHERE gid=".$ginfo['gid']." ORDER BY score ".$ordering.", timespent ASC LIMIT 1");
+					if ($vbulletin->db->num_rows($score_query) > 0)
+					{
+						$highscore = $vbulletin->db->fetch_array($score_query);
+
+						$champ_query = $vbulletin->db->query_read("SELECT champ_score FROM " . TABLE_PREFIX . "games_champs WHERE champ_gid=".$ginfo['gid']);
+						$champscore = $vbulletin->db->fetch_array($champ_query);
+
+						if ( (($champscore['champ_score'] > $highscore['score']) && ($ordering=="ASC")) || (($champscore['champ_score'] < $highscore['score']) && ($ordering=="DESC")) || ($champscore['champ_score'] == $highscore['score']) )
+						{
+							// current highscore is better (high/low) than champ OR is same, then use fastest time
+							$vbulletin->db->query_write("UPDATE " . TABLE_PREFIX . "games_champs SET 	champ_mid   = '".$highscore['mid']."',
+																	champ_name  = '".$highscore['name']."',
+																	champ_date  = '".$highscore['datescored']."',
+																	champ_score = '".$highscore['score']."',
+																	champ_time  = '".$highscore['timespent']."'
+																	WHERE champ_gid=".$ginfo['gid']);
+						}
+					}
+				}
+
+				// clean all saved score-comments of possible HTML-code
+				$search = array('@<script[^>]*?>.*?</script>@si',	// Strip out javascript
+						'@<style[^>]*?>.*?</style>@siU',	// Strip style tags properly
+						'@<[\/\!]*?[^<>]*?>@si',		// Strip out HTML tags
+						'@<![\s\S]*?--[ \t\n\r]*>@'		// Strip multi-line comments including CDATA
+						);
+
+				$comment_query = $vbulletin->db->query_read("SELECT comment, s_id FROM " . TABLE_PREFIX . "games_scores WHERE comment<>''");
+				while ($comment = $vbulletin->db->fetch_array($comment_query))
+				{
+					$text = strip_tags(preg_replace($search, '', $comment['comment']));
+					$id = $comment['s_id'];
+					$vbulletin->db->query_write("UPDATE " . TABLE_PREFIX . "games_scores SET comment='".$text."' WHERE s_id='".$id."'");
+				}
+				$search = "";
+
+				$vbulletin->db->show_errors();]]></installcode>
+			<uninstallcode><![CDATA[]]></uninstallcode>
+		</code>
+		<code version="2.6.3">
+			<installcode><![CDATA[]]></installcode>
+			<uninstallcode><![CDATA[]]></uninstallcode>
+		</code>
+		<code version="2.6.4">
+			<installcode><![CDATA[]]></installcode>
+			<uninstallcode><![CDATA[]]></uninstallcode>
+		</code>
+		<code version="2.6.5">
+			<installcode><![CDATA[]]></installcode>
+			<uninstallcode><![CDATA[]]></uninstallcode>
+		</code>
+		<code version="2.6.6">
+			<installcode><![CDATA[
+				$vbulletin->db->hide_errors();
+
+				// pacman needs to be removed due to copyright (remover v3.0 *LOL*)
+				$findquery = $vbulletin->db->query_read("SELECT gid FROM ".TABLE_PREFIX."games_list WHERE gname='pacman'");
+				$find = $vbulletin->db->fetch_array($findquery);
+				$gid = intval($find['gid']);
+
+				if ($gid > 0)
+				{
+					$looktourney = $vbulletin->db->query("SELECT tid FROM ".TABLE_PREFIX."tournaments WHERE gid=".$gid);
+					while ($tourney = $vbulletin->db->fetch_array($looktourney))
+					{
+						$tid=$tourney[tid];
+						$vbulletin->db->query("DELETE FROM ".TABLE_PREFIX."tournament_players WHERE tid=".$tid);
+						$vbulletin->db->query("DELETE FROM ".TABLE_PREFIX."tournament_players_statut WHERE tid=".$tid);
+						$vbulletin->db->query("DELETE FROM ".TABLE_PREFIX."tournaments WHERE tid=".$tid);
+					}
+
+			            	$vbulletin->db->query("DELETE FROM ".TABLE_PREFIX."games_scores WHERE gid=".$gid);
+					$vbulletin->db->query("DELETE FROM ".TABLE_PREFIX."games_league WHERE gid=".$gid);
+			     		$vbulletin->db->query("DELETE FROM ".TABLE_PREFIX."games_list WHERE gid=".$gid);
+				}
+
+				// rebuild League
+				$settingquery = $vbulletin->db->query_read("SELECT league_scores FROM " . TABLE_PREFIX . "games_settings");
+				$arcade = $vbulletin->db->fetch_array($settingquery);
+				$arcade['league_scores'] = explode("," , $arcade['league_scores'] );
+
+				$vbulletin->db->query("DELETE FROM " . TABLE_PREFIX . "games_league");
+
+				$game_query = $vbulletin->db->query_read("SELECT * FROM " . TABLE_PREFIX . "games_list WHERE active=1");
+				while ($ginfo = $vbulletin->db->fetch_array($game_query))
+				{
+					$ordering = ($ginfo['highscore_type'] == "high") ? "DESC" : "ASC";
+					$ctr = 1;
+					$this_query = $vbulletin->db->query_read("SELECT mid FROM " . TABLE_PREFIX . "games_scores WHERE gid='".$ginfo['gid']."' ORDER BY score ".$ordering.", datescored ASC LIMIT 0,10");
+					if ($vbulletin->db->num_rows($this_query))
+					{
+						while($lboard = $vbulletin->db->fetch_array($this_query))
+						{
+							switch($ctr)
+							{
+								case 1: $points = $arcade['league_scores'][0];
+								break;
+								case 2: $points = $arcade['league_scores'][1];
+								break;
+								case 3: $points = $arcade['league_scores'][2];
+								break;
+								case 4: $points = $arcade['league_scores'][3];
+								break;
+								case 5: $points = $arcade['league_scores'][4];
+								break;
+								case 6: $points = $arcade['league_scores'][5];
+								break;
+								case 7: $points = $arcade['league_scores'][6];
+								break;
+								case 8: $points = $arcade['league_scores'][7];
+								break;
+								case 9: $points = $arcade['league_scores'][8];
+								break;
+								case 10: $points = $arcade['league_scores'][9];
+								break;
+								default: $points = $arcade['league_scores'][10];
+							}
+
+							if ($points > 0)
+							{
+								extract($ginfo);
+								$lid = $lboard['mid'];
+								$vbulletin->db->query_write("INSERT INTO " . TABLE_PREFIX . "games_league (mid, gid, position, points, cat) VALUES ($lid, $gid, $ctr, $points, $gcat)");
+							}
+				
+							$ctr++;
+						}
+					}
+				}
+
+				$vbulletin->db->show_errors();]]></installcode>
+			<uninstallcode><![CDATA[]]></uninstallcode>
+		</code>
+		<code version="2.6.7">
+			<installcode><![CDATA[
+				$vbulletin->db->hide_errors();
+				$vbulletin->db->query_write("ALTER TABLE " . TABLE_PREFIX . "games_settings ADD scoretimeout tinyint NOT NULL DEFAULT '3'");
+				$vbulletin->db->show_errors();]]></installcode>
+			<uninstallcode><![CDATA[]]></uninstallcode>
+		</code>
+		<code version="2.6.8">
+			<installcode><![CDATA[
+				$vbulletin->db->hide_errors();
+				$vbulletin->db->query_write("ALTER TABLE " . TABLE_PREFIX . "games_champs MODIFY champ_mid INT(10) DEFAULT '0' NOT NULL");
+				$vbulletin->db->query_write("ALTER TABLE " . TABLE_PREFIX . "games_list MODIFY bestmid INT(10) DEFAULT '0' NOT NULL");
+				$vbulletin->db->query_write("ALTER TABLE " . TABLE_PREFIX . "games_session MODIFY mid INT(10) DEFAULT '0' NOT NULL");
+				$vbulletin->db->query_write("ALTER TABLE " . TABLE_PREFIX . "games_settings ADD htmltitle TEXT NOT NULL");
+				$vbulletin->db->show_errors();]]></installcode>
+			<uninstallcode><![CDATA[]]></uninstallcode>
+		</code>
+		<code version="2.6.9">
+			<installcode><![CDATA[]]></installcode>
+			<uninstallcode><![CDATA[]]></uninstallcode>
+		</code>
+		<code version="2.7.0">
+			<installcode><![CDATA[]]></installcode>
+			<uninstallcode><![CDATA[]]></uninstallcode>
+		</code>
+		<code version="2.7.1">
+			<installcode><![CDATA[]]></installcode>
+			<uninstallcode><![CDATA[]]></uninstallcode>
+		</code>
+		<code version="2.7.2">
+			<installcode><![CDATA[]]></installcode>
+			<uninstallcode><![CDATA[]]></uninstallcode>
+		</code>
+	</codes>
+	
+// ### Start of templates Installation ###
+<templates>
+
+<template name="ARCADE" templatetype="template" date="1231087492" username="MrZeropage" version="2.7.2"><![CDATA[
+$stylevar[htmldoctype]
+<html dir="$stylevar[textdirection]" lang="$stylevar[languagecode]">
+<head>
+<!-- no cache headers -->
+<meta http-equiv="Pragma" content="no-cache" />
+<meta http-equiv="Expires" content="-1" />
+<meta http-equiv="Cache-Control" content="no-cache" />
+<!-- end no cache headers -->
+$headinclude
+<title>$ibprotitle</title>
+</head>
+<body>
+$header
+$navbar
+<if condition="!$bbuserinfo[userid]">
+$arcadeheader
+<!-- small space -->
+<span class="smallfont"><br /> 
+</span></if>
+$maincontent
+</div>
+$footer
+</body>
+</html>
+]]></template>
+
+<template name="ARCADE_vB4" templatetype="template" date="1259441846" username="MrZeropage" version="2.7.1"><![CDATA[
+{vb:stylevar htmldoctype}
+<html xmlns="http://www.w3.org/1999/xhtml" dir="{vb:stylevar textdirection}" lang="{vb:stylevar languagecode}" id="vbulletin_html">
+  <head>
+<meta http-equiv="Pragma" content="no-cache" />
+<meta http-equiv="Expires" content="-1" />
+<meta http-equiv="Cache-Control" content="no-cache" />
+    <title>{vb:raw ibprotitle}</title>
+    {vb:raw headinclude}
+  </head>
+  <body>
+    {vb:raw header}
+    {vb:raw navbar}
+    <div class="blockbody">
+      <div class="blockrow">
+  {vb:raw arcadeheader}
+  {vb:raw maincontent}
+      </div>
+    </div>
+    {vb:raw footer}
+  </body>
+</html>
+]]></template>
+
+<template name="ARCADE.css" templatetype="template" date="1259441847" username="MrZeropage" version="2.7.1"><![CDATA[.tborder {
+background-color:{vb:stylevar doc_backgroundColor};
+	border: 1px solid #c4c4c4;
+	font-size: {vb:stylevar font-size};
+}
+.tcat {
+	font:{vb:stylevar blockhead_font};
+	color:{vb:stylevar blockhead_color};
+	background:{vb:stylevar blockhead_background};
+	padding:{vb:stylevar blockhead_padding};
+	border:{vb:stylevar blockhead_border};
+	-moz-border-radius-top{vb:stylevar right}: {vb:stylevar border_radius};
+	-moz-border-radius-top{vb:stylevar left}: {vb:stylevar border_radius};
+	-webkit-border-top-{vb:stylevar right}-radius: {vb:stylevar border_radius};
+	-webkit-border-top-{vb:stylevar left}-radius: {vb:stylevar border_radius};
+}
+.tcat a:link, .tcat_alink
+{
+	text-decoration: none;
+}
+.tcat a:visited, .tcat_avisited
+{
+	text-decoration: none;
+}
+.tcat a:hover, .tcat a:active, .tcat_ahover
+{
+	text-decoration: underline;
+}
+.alt1, .alt1Active
+{
+	color: #000000;
+}
+.alt2, .alt2Active
+{
+	color: #000000;
+}
+/* ***** small padding on 'thead' elements ***** */
+td.thead, th.thead, div.thead { padding: 4px; }
+/* ***** basic styles for multi-page nav elements */
+.pagenav a { text-decoration: none; }
+.pagenav td { padding: 2px 4px 2px 4px; }
+.tcat .shade, .thead .shade, .tfoot .shade { color: #DDDDDD; }
+/* ***** define margin and font-size for elements inside panels ***** */
+.fieldset { 
+	padding: 5px;
+	font-size: {vb:stylevar font-size};
+         border: 1px solid #c4c4c4;
+         margin: 0 2px;
+}
+.fieldset, .fieldset td, .fieldset p, .fieldset li { font-size: 11px; }
+]]></template>
+
+</templates>
+
+<plugins>
+<plugin active="1">
+<title>ibProArcade: ARCADE Template Cache</title>
+<hookname>cache_templates</hookname>
+<phpcode><![CDATA[if ((THIS_SCRIPT == 'index') || (THIS_SCRIPT == 'arcade'))
+{
+  if (intval(substr($vbulletin->options['templateversion'],0,1))==4)
+  {
+    $cache[] = 'ARCADE_vB4';
+  }
+  else
+  {
+    $globaltemplates = array_merge($globaltemplates, array('ARCADE'));
+  }
+}
+
+if(THIS_SCRIPT=='css')
+{
+   $cache[] = 'ARCADE.css';
+}]]></phpcode>
+		</plugin>
+
+<plugin active="1">
+<title>ibProArcade: ARCADE CSS</title>
+<hookname>css_start</hookname>
+<phpcode><![CDATA[if(in_array('vbulletin.css',$matches[1]))
+{
+   $matches[1][] = 'ARCADE.css';
+}]]></phpcode>
+</plugin>
+
+		<plugin active="1">
+<title><![CDATA[ibProArcade: Integration in index.php]]></title>
+<hookname>forumhome_start</hookname>
+<phpcode><![CDATA[if($_POST['module'] == "pnFlashGames")
+{
+	require_once('./global.php');
+
+	switch($_POST['func'])
+	{
+		case "storeScore":
+		$_GET['act'] = "Arcade";
+		$_GET['module'] = "arcade";
+		$_GET['do'] = "pnFStoreScore";
+		break;
+
+		case "saveGame":
+		$_GET['do'] = "pnFSaveGame";
+		break;
+
+		case "loadGame":
+		$_GET['do'] = "pnFLoadGame";
+		break;
+
+		case "loadGameScores":
+		$gid = $vbulletin->input->clean_gpc('p', 'gid', TYPE_INT);
+		$uid= $vbulletin->userinfo['userid'];
+		$game = $db->query_first("SELECT * FROM " . TABLE_PREFIX . "games_scores WHERE mid=$uid AND gid = $gid ORDER BY score DESC LIMIT 0,1");
+		$scores = $game[score];
+
+		if($scores != false)
+		{
+			//Return true
+			print "&opSuccess=true&gameScores=$scores&endvar=1"; //send endvar to keep opSuccess separate from all other output from PostNuke
+		}
+		else
+		{
+			print "&opSuccess=false&error=Error&endvar=1";
+		}
+		break;
+	}
+}
+
+$act = $_GET[act];
+$autocom = $_GET[autocom];
+$showuser= $_GET[showuser];
+if($act == "Arcade" || $autocom=="arcade") {
+include "arcade.php";
+exit();
+}
+if(!empty($showuser) && $showuser >= 1) {
+$u = $showuser;
+$_GET[u] = $showuser;
+include "member.php";
+exit();
+}]]></phpcode>
+</plugin>
+
+<plugin active="1">
+<title>ibProArcade: Get Game List for WOL</title>
+<hookname>online_ids_titles</hookname>
+<phpcode><![CDATA[global $gameids, $wol_games;
+if ($gameids)
+{
+	$gameidquery = $vbulletin->db->query_read("
+		SELECT gid, gtitle
+		FROM " . TABLE_PREFIX . "games_list
+		WHERE gid IN (0$gameids)
+	");
+	while ($gameidqueryr = $vbulletin->db->fetch_array($gameidquery))
+	{
+		$wol_games["$gameidqueryr[gid]"] = $gameidqueryr['gtitle'];
+	}
+}]]></phpcode>
+</plugin>
+
+<plugin active="1">
+<title>ibProArcade: WOL Display Prepare</title>
+<hookname>online_location_process</hookname>
+<phpcode><![CDATA[if (($filename == 'arcade.php') || ($filename == 'holdsession.php'))
+{
+	$userinfo['activity'] = 'arcade';
+	if (!empty($values['gameid']))
+	{
+		$userinfo['gameid'] = intval($values['gameid']);
+		global $gameids;
+		$gameids .= ',' . $userinfo['gameid'];
+	} 
+}]]></phpcode>
+</plugin>
+
+<plugin active="1">
+<title>ibProArcade: WOL Display</title>
+<hookname>online_location_unknown</hookname>
+<phpcode><![CDATA[if ($userinfo['activity'] == 'arcade')
+{
+	$gameid =& $userinfo['gameid'];
+	global $wol_games;
+	$gametitle =& $wol_games["$gameid"];
+	switch($userinfo['values']['do']) 
+	{
+		case 'play':
+			$userinfo['action'] = $vbphrase['ibproarcade_playing_game'];
+			$userinfo['where'] = '<a href="arcade.php?' . $vbulletin->session->vars['sessionurl'] . "do=play&amp;gameid=$gameid\">$gametitle</a>";
+			break;
+		case 'stats':
+			$userinfo['action'] = $vbphrase['ibproarcade_viewing_highscores'];
+			$userinfo['where'] = '<a href="arcade.php?' . $vbulletin->session->vars['sessionurl'] . "do=stats&amp;gameid=$gameid\">$gametitle</a>";
+			break;
+		default:
+			$userinfo['action'] = $vbphrase['ibproarcade_viewing_home'];
+			$userinfo['where'] = '<a href="arcade.php' . $vbulletin->session->vars['sessionurl_q'] . "\">$vbphrase[ibproarcade_home]</a>";
+			break;
+	}
+	$handled = true;
+DEVDEBUG("gameid = " . $userinfo['gameid']);
+}]]></phpcode>
+</plugin>
+
+<plugin active="1">
+<title>ibProArcade: Crowns in Postbit</title>
+<hookname>postbit_display_complete</hookname>
+<phpcode><![CDATA[global $crowncache;
+if (!$crowncache)
+{
+	$this->cache['champs'] = array();
+	$this->cache['tourneys'] = array();
+	$this->cache['crowns'] = array();
+	$this->cache['crown'] = $this->registry->db->query_first("SELECT crown_type AS type, show_crowns, show_t_won FROM " . TABLE_PREFIX . "games_settings");
+	if ($this->cache['crown']['show_crowns'])
+	{
+		$thecrowns = $this->registry->db->query_read("
+			SELECT c.*, g.gname, cat.password FROM " . TABLE_PREFIX . "games_champs AS c, " . TABLE_PREFIX . "games_list AS g, " . TABLE_PREFIX . "games_cats AS cat
+			WHERE (c.champ_gid=g.gid) AND (g.gcat=cat.c_id) AND trim(password)='' AND g.active=1
+		");
+    		while ($this_champ = $this->registry->db->fetch_array($thecrowns))
+    		{
+			if (!isset($this->cache['champs']["$this_champ[champ_mid]"]))
+        		{
+				$this->cache['champs']["$this_champ[champ_mid]"] = array();
+        		}
+        		$this->cache['champs']["$this_champ[champ_mid]"][] = array(
+				'gid' => $this_champ['champ_gid'],
+				'gtitle' => $this_champ['champ_gtitle'],
+				'gname' => $this_champ['gname']
+			);
+    		}
+	}
+	if ($this->cache['crown']['show_t_won'])
+	{
+		$tourneyquery = $this->registry->db->query_read("
+			SELECT t.champion, u.userid FROM " . TABLE_PREFIX . "tournaments AS t
+			LEFT JOIN " . TABLE_PREFIX . "user AS u ON (t.champion = u.username)
+			WHERE champion<>''
+		");
+		while ($this_tourney = $this->registry->db->fetch_array($tourneyquery))
+		{
+			if (!isset($this->cache['tourneys']["$this_tourney[userid]"]))
+			{
+				$this->cache['tourneys']["$this_tourney[userid]"] = 0;
+			}
+			$this->cache['tourneys']["$this_tourney[userid]"]++;
+		}
+	}
+	$crowncache = true;
+}
+$champs =& $this->cache['champs'];
+$tourneys =& $this->cache['tourneys'];
+$crown =& $this->cache['crown'];
+
+$crowns = '';
+if ($crown['show_crowns'])
+{
+	if (!isset($this->cache['crowns']["$post[userid]"]))
+	{
+		$crowns = '';
+		if (isset($champs["$post[userid]"]))
+		{
+			if ((count($champs["$post[userid]"]) > 1) && ($crowns[type]!=4))
+			{
+				switch ($crown['type'])
+				{
+					case 0:
+						$crowns = '';
+						break;
+					case 1:
+						$crowns = '<marquee width="120" scrollamount="3">';
+						break;
+					case 2:
+						$crowns = '<marquee width="175" name="crownscroll" scrollamount="1" direction="up" height="20">';
+						break;
+					case 3:
+						$crowns = '';
+						break;
+				}
+				$crown_end = ($crown['type'] == 1) ? '' : '<br />';
+				$counter=0;
+				foreach ($champs["$post[userid]"] AS $this_game)
+				{
+					if ($crown['type'] == 3)
+					{
+						if ($counter == 5)
+						{ 
+							$counter = 0; $crowns.= "<br />";
+						}
+					}
+					$imgtext="";
+					if ($crown['type'] == 3) { $imgtext = "$this_game[gtitle] Champion"; }
+					$crowns .= "<a href=\"arcade.php?" . $this->registry->session->vars['sessionurl'] . "do=stats&amp;gameid=$this_game[gid]\"> <img src=\"arcade/images/$this_game[gname]2.gif\" border=\"0\" alt=\"$imgtext\" width=\"20\" height=\"20\" />";
+					if ($crown['type']!=3)
+					{
+						$crowns .= $this_game[gtitle]." Champion!</a> " . $crown_end; 
+					}
+					else
+					{
+						$crowns .= "</a> ";
+					}
+					$counter++;
+				}
+				if ($crown['type'] != 0)
+				{
+					$crowns .= '</marquee>';
+					if ( ($crown['show_t_won']) && (isset($tourneys["$post[userid]"])) )
+					{
+						$crowns .= '<br />';
+					}
+				}
+			}
+			else
+			{
+				foreach ($champs["$post[userid]"] AS $this_game )
+				{
+					$imgtext = "";
+					if ($crown['type'] == 3) { $imgtext = "$this_game[gtitle] Champion"; }
+					$crowns = "<a href=\"arcade.php?" . $this->registry->session->vars['sessionurl'] . "do=stats&amp;gameid=$this_game[gid]\"><img src=\"arcade/images/$this_game[gname]2.gif\" border=\"0\" alt=\"$imgtext\" width=\"20\" height=\"20\" /> ";
+					if ($crown['type'] != 3)
+					{
+						$crowns .= "$this_game[gtitle] Champion!";
+					}
+					$crowns .= "</a>";
+				}
+			}
+		}
+
+		if ($crown[type]==4)
+		{
+			$extra="";
+			if (count($champs["$post[userid]"])>1)
+			{
+				$extra="s";
+			}
+			$crowns = "";
+			if (count($champs["$post[userid]"]) > 0)
+			{
+				$crowns = "<img src='arcade/images/trophy.gif' alt='".(count($champs["$post[userid]"]))." Highscore".$extra."'><br />";
+			}
+		}
+
+		$this->cache['crowns']["$post[userid]"] = $crowns;
+	}
+	else
+	{
+		$crowns = $this->cache['crowns']["$post[userid]"];
+	}
+}
+$champtext = '';
+if ($crown['show_t_won'])
+{
+	if (isset($tourneys["$post[userid]"]) )
+	{
+		$champtext = "<a href='arcade.php?do=viewtourneyend' target='_blank' alt=''>".$vbphrase[ibpa_tourney] . " <b>" . $tourneys[$post[userid]] . "</b></a><br />";
+	}
+}
+$post['crowns'] = $crowns;
+$post['champtext'] = $champtext;]]></phpcode>
+</plugin>
+
+</plugins>
+
+	<phrases>
+		<phrasetype name="Control Panel Global" fieldname="cpglobal">
+			<phrase name="ibparcade_acpmenu0"><![CDATA[Arcade]]></phrase>
+			<phrase name="ibparcade_acpmenu1"><![CDATA[Arcade Main Settings]]></phrase>
+			<phrase name="ibparcade_acpmenu2"><![CDATA[Games List]]></phrase>
+			<phrase name="ibparcade_acpmenu3"><![CDATA[Categories]]></phrase>
+			<phrase name="ibparcade_acpmenu4"><![CDATA[Add Game]]></phrase>
+			<phrase name="ibparcade_acpmenu5"><![CDATA[Tournaments]]></phrase>
+			<phrase name="ibparcade_acpmenu6"><![CDATA[Group Permissions]]></phrase>
+			<phrase name="ibparcade_acpmenu7"><![CDATA[Member Manage]]></phrase>
+			<phrase name="ibparcade_acpmenu8"><![CDATA[IP Banning]]></phrase>
+			<phrase name="ibparcade_acpmenu9"><![CDATA[Score Tools]]></phrase>
+			<phrase name="ibparcade_acpmenu10"><![CDATA[Custom Game Sorting]]></phrase>
+			<phrase name="ibparcade_acpmenu11"><![CDATA[Notifications]]></phrase>
+			<phrase name="ibparcade_acpmenu12"><![CDATA[Information]]></phrase>
+		</phrasetype>
+
+		<phrasetype name="Who's Online" fieldname="wol">
+			<phrase name="ibproarcade_home"><![CDATA[Arcade]]></phrase>
+			<phrase name="ibproarcade_playing_game"><![CDATA[Playing Game]]></phrase>
+			<phrase name="ibproarcade_viewing_highscores"><![CDATA[Viewing Arcade Highscores]]></phrase>
+			<phrase name="ibproarcade_viewing_home"><![CDATA[Viewing Arcade Home]]></phrase>
+		</phrasetype>
+
+		<phrasetype name="GLOBAL" fieldname="global">
+			<phrase name="ibpa_tourney"><![CDATA[Tournaments Won:]]></phrase>
+		</phrasetype>
+	</phrases>	
+	<options>
+	</options>
+</product>

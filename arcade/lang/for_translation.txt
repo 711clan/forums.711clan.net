@@ -1,0 +1,133 @@
+italian => erjavid@gmail.com (http://www.vbulletin.org/forum/member.php?u=132347)
+
+
+
+arcade_offline		=> "! ARCADE OFFLINE !",
+acp_game_gametype	=> "Secure Score-Transmitting<dfn>This does only work for new ibProArcade-Games<br />If you have games not submitting their score, try changing this</dfn>",
+
+tourney_highwin		=> "highest score wins",
+tourney_lowwin		=> "lowest score wins",
+tourney_remind1		=> "player gets reminder after ",
+tourney_remind2		=> " days without playing",
+tourney_disqual1	=> "player gets disqualified after ",
+tourney_disqual2	=> " days without playing",
+tourney_jackpot1	=> "costs to participate in that tournament : ",
+tourney_jackpot2	=> "jackpot for winning this tournament : ",
+
+acp_menu11		=> "Notifications",
+
+pmnote_winner		=> "Tournament won",
+pmnote_remind		=> "Tournament Information",
+pmnote_disqual		=> "Tournament Disqualification",
+pmnote_elim		=> "Out of Tournament",
+pmnote_adv		=> "Advance in Tournament",
+
+acp_game_resetsize	=> "Recalculate filesize",
+
+acp_tourney_settings	=> "Settings for Tournament-System",
+
+acp_tourney_prune_head	=> "Tournament pruning",
+acp_tourney_prune_fin	=> "finished tournaments",
+acp_tourney_prune_run	=> "running tournaments",
+acp_tourney_prune_open	=> "open tournaments",
+acp_tourney_prune_txt	=> "Prune all ",
+
+acp_notifi_head		=> "Notification Messages",
+acp_notifi_global	=> "You can use the following global variables in all messagetexts:",
+acp_notifi_additional	=> "use those additional variables:",
+acp_notifi_sendwhen	=> "Send notification when ",
+acp_notifi_towinner	=> "Send notification to the winner about his victory",
+acp_notifi_msgtxt	=> "Notification-Messagetext: ",
+acp_notifi_NAME		=> "Name of Recipient",
+acp_notifi_GAME		=> "Name of Game",
+acp_notifi_CHAMP	=> "Name of new Champion",
+acp_notifi_OPPONENT	=> "Name of Opponent",
+acp_notifi_LINKG	=> "Link to play the Game",
+acp_notifi_LINKT	=> "Link to the Tournament",
+acp_notifi_LINKH	=> "Link to Highscores of Game",
+acp_notifi_DAYS		=> "Amount of days the player has not played",
+acp_notifi_msg1desc	=> "highscore gets beaten",
+acp_notifi_msg1name	=> "Highscore beaten",
+acp_notifi_msg2desc	=> "tournament starts",
+acp_notifi_msg2name	=> "Tournament starts",
+acp_notifi_msg3desc	=> "player advanced to next round",
+acp_notifi_msg3name	=> "advanced",
+acp_notifi_msg4desc	=> "player gets eliminated",
+acp_notifi_msg4name	=> "eliminated",
+acp_notifi_msg5name	=> "Winner",
+acp_notifi_msg6name	=> "Reminder",
+acp_notifi_msg7name	=> "Disqualification",
+
+acp_trophy		=> "Trophy only",
+
+
+
+
+
+
+
+acp_main_games_new	=> "Amount of new games to show<dfn><i>Newest Games</i> on arcade-mainpage</dfn>",
+acp_main_games_popular	=> "Amount of popular games to show<dfn><i>Most Played Games</i> on arcade-mainpage</dfn>",
+acp_main_tourneylimit1	=> "Timelimit for Tournament-Games <i>in days</i> for Auto-Notification<dfn>After x days without playing the user will receive notification to play, enter 0 to disable</dfn>",
+acp_main_tourneylimit2	=> "Timelimit for Tournament-Games <i>in days</i> for Auto-Disqualification<dfn>After x days without playing the user will be disqualified, enter 0 to disable</dfn>",
+
+
+acp_main_tourney_head	=> "Tournament Styling",
+acp_main_tourney_col1	=> "Color of the Table<dfn>default: 000000</dfn>",
+acp_main_tourney_col2	=> "Color of empty Slot<dfn>default: FFFFFF</dfn>",
+acp_main_tourney_col3	=> "Color of qualified Slot<dfn>default: A0FEA0</dfn>",
+acp_main_tourney_col4	=> "Color of disqualified Slot<dfn>default: C22424</dfn>",
+acp_main_tourney_col5	=> "Color of eliminated Slot<dfn>default: 787878</dfn>",
+
+acp_gamesort_tourney	=> "Tourney",
+acp_game_tourney	=> "Can be used for User-Tournaments",
+
+acp_group_guestid	=> "UserID of Guest-Player<dfn>If you select to save Scores as Guest-User, all Results will be stored with that UserID</dfn>",
+
+acp_group_guestplay	=> "can view and play, but don't save scores",
+acp_group_guestplaysave	=> "can view and play, saves scores as Guest-User",
+not_recorded_guest	=> "Your score won't be stored in Database because you did not log into the Forum and played as a Guest",
+
+pm_tourney_msg2		=> "Click here to view Tournament",
+
+acp_game_resettimes	=> "Reset TIMES PLAYED",
+acp_game_resettime	=> "Reset TIME PLAYED",
+acp_game_resetscores	=> "Reset SCORES",
+acp_game_resetbest	=> "Reset BEST RESULT EVER",
+
+acp_games_filter5	=> "costs: highest",
+acp_games_filter6	=> "raising Jackpot",
+acp_games_filter7	=> "static Jackpot",
+
+acp_games_multibox	=> "Functions to execute with selected Games",
+acp_games_multibox1	=> "execute",
+acp_games_multibox2	=> "function",
+acp_games_multibox3	=> "setting",
+
+last_play		=> "last played",
+
+tourney_opponent	=> "Your Opponent",
+tourney_playinfo1	=> "has played",
+tourney_playinfo2	=> "tries",
+tourney_scoretext1	=> "current score to beat",
+tourney_scoretext2	=> "- no result -",
+tourney_scoretext3	=> "final score to beat",
+tourney_joinin		=> "Click here to join this Tournament",
+tourney_navbar		=> "Tournaments",
+
+challenge1		=> "Challenge",
+challenge2		=> "in a Game",
+acp_challenge_prune_yn	=> "Auto prune Challenges",
+acp_challenge_prune_txt	=> "Auto prune Challenges after<dfn>Has no effect if auto prune is turned off or set to 0.</dfn>",
+challenge_postbit	=> "Challenges won",
+challenge_request1	=> "Hello",
+challenge_request2	=> "wants to challenge you in the Game",
+challenge_request3	=> "click here",
+challenge_request4	=> "to accept the Challenge, or",
+challenge_request5	=> "to reject",
+challenge_info_header	=> "Challenges",
+
+dateadded		=> "Date added",
+
+
+

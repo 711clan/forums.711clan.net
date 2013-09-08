@@ -1,0 +1,54 @@
+<?xml version="1.0" encoding="ISO-8859-1"?>
+<navgroups product="ibproarcade">
+	<navgroup phrase="ibparcade_acpmenu0" displayorder="11">
+		<navoption displayorder="1">
+			<phrase>ibparcade_acpmenu1</phrase>
+			<link>arcade.php?code=settings</link>
+		</navoption>
+		<navoption displayorder="2">
+			<phrase>ibparcade_acpmenu2</phrase>
+			<link>arcade.php?cat=0</link>
+		</navoption>
+		<navoption displayorder="3">
+			<phrase>ibparcade_acpmenu3</phrase>
+			<link>arcade.php?code=cat</link>
+		</navoption>
+		<navoption displayorder="4">
+			<phrase>ibparcade_acpmenu4</phrase>
+			<link>arcade.php?code=add_game</link>
+		</navoption>
+		<navoption displayorder="5">
+			<phrase>ibparcade_acpmenu5</phrase>
+			<link>arcade.php?code=tourney</link>
+		</navoption>
+		<navoption displayorder="6">
+			<phrase>ibparcade_acpmenu6</phrase>
+			<link>arcade.php?code=groups</link>
+		</navoption>
+		<navoption displayorder="7">
+			<phrase>ibparcade_acpmenu11</phrase>
+			<link>arcade.php?code=messages</link>
+		</navoption>
+		<navoption displayorder="8">
+			<phrase>ibparcade_acpmenu7</phrase>
+			<link>arcade.php?code=user_search</link>
+		</navoption>
+		<navoption displayorder="9">
+			<phrase>ibparcade_acpmenu8</phrase>
+			<link>arcade.php?code=ip_ban</link>
+		</navoption>
+		<navoption displayorder="10">
+			<phrase>ibparcade_acpmenu9</phrase>
+			<link>arcade.php?code=score_tools</link>
+		</navoption>
+		<navoption displayorder="11">
+			<phrase>ibparcade_acpmenu10</phrase>
+			<link>arcade.php?code=custom</link>
+		</navoption>
+		<navoption displayorder="12">
+			<phrase>ibparcade_acpmenu12</phrase>
+			<link>arcade.php?code=info</link>
+		</navoption>
+	</navgroup>
+</navgroups>
+

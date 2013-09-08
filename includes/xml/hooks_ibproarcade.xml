@@ -1,0 +1,32 @@
+<?xml version="1.0" encoding="ISO-8859-1"?>
+<hooks>
+	<hooktype type="ibProArcade">
+		<hook>ibproarcade_global_start</hook>
+		<hook>ibproarcade_navbar_complete</hook>
+		<hook>ibproarcade_authorize_start</hook>
+		<hook>ibproarcade_play_game</hook>
+		<hook>ibproarcade_play_game_popup</hook>
+		<hook>ibproarcade_play_game_tourney</hook>
+		<hook>ibproarcade_play_game_finished</hook>
+		<hook>ibproarcade_new_champ</hook>
+		<hook>ibproarcade_tourney_won</hook>
+		<hook>ibproarcade_savescore_readsessiondata</hook>
+		<hook>ibproarcade_postscore_readsessiondata</hook>
+		<hook>ibproarcade_register_tourney_start</hook>
+		<hook>ibproarcade_create_tourney</hook>
+		<hook>ibproarcade_do_create_tourney_start</hook>
+		<hook>ibproarcade_do_create_tourney_end</hook>
+		<hook>ibproarcade_view_tourney</hook>
+		<hook>ibproarcade_view_tourney_getcosts</hook>
+		<hook>ibproarcade_gamebit</hook>
+		<hook>ibproarcade_acp_mainsettings</hook>
+		<hook>ibproarcade_acp_mainsettings_query</hook>
+		<hook>ibproarcade_acp_gamelist</hook>
+		<hook>ibproarcade_acp_gamebit</hook>
+		<hook>ibproarcade_acp_gameoptions</hook>
+		<hook>ibproarcade_acp_addgame</hook>
+		<hook>ibproarcade_acp_editgame</hook>
+		<hook>ibproarcade_acp_newtourney</hook>
+		<hook>ibproarcade_acp_morecode</hook>
+	</hooktype>
+</hooks>

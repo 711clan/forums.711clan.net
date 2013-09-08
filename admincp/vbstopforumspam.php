@@ -59,7 +59,7 @@ if ($_REQUEST['do'] == 'view')
 	switch($vbulletin->GPC['orderby'])
 	{
 		case 'ip':
-			$order = 'ipaddress ASC, date DESC';
+			$order = 'ip ASC, date DESC';
 			break;
 		case 'email':
 			$order = 'email ASC, date DESC';
